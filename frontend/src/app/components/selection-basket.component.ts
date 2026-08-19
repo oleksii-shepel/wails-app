@@ -2,7 +2,6 @@ import { CommonModule } from '@angular/common';
 import { Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { FileType } from '../shared/protocol';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { SelectionBasketEntry, SelectionBasketService } from '../services/selection-basket.service';
 
 @Component({
@@ -99,15 +98,12 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   visible = false;
   entries: SelectionBasketEntry[] = [];
   private readonly destroy$ = createSubject<void>();
-  private readonly freezeKey = 'selection-basket';
-
   @Output() copyTo = new EventEmitter<'left' | 'right'>();
   @Output() moveTo = new EventEmitter<'left' | 'right'>();
   @Output() deleteRequested = new EventEmitter<void>();
 
   constructor(
     public readonly basket: SelectionBasketService,
-    private readonly overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -117,11 +113,10 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-    this.overlayFreeze.release(this.freezeKey);
   }
 
-  show(): void { this.visible = true; this.overlayFreeze.acquire(this.freezeKey); }
-  hide(): void { this.visible = false; this.overlayFreeze.release(this.freezeKey); }
+  show(): void { this.visible = true; }
+  hide(): void { this.visible = false; }
   toggle(): void { this.visible ? this.hide() : this.show(); }
   remove(id: string): void { this.basket.remove(id); }
   clear(): void { this.basket.clear(); }

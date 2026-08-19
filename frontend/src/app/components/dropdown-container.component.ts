@@ -2,8 +2,6 @@
 import { Component, Input, Output, EventEmitter, ViewChild, ContentChild, ElementRef, OnChanges, SimpleChanges, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
-
 @Component({
   selector: 'app-dropdown-container',
   standalone: true,
@@ -79,7 +77,6 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnD
 
   constructor(
     private _el: ElementRef<HTMLElement>,
-    private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   onToggle(state: boolean) {
@@ -121,7 +118,6 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnD
     if (!this.overlayFreezeHeld) {
       return;
     }
-    this.overlayFreeze.release(this.overlayFreezeKey);
     this.overlayFreezeHeld = false;
   }
 
@@ -161,7 +157,6 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnD
   private syncOverlayFreeze(): void {
     if (this.isOpen) {
       if (!this.overlayFreezeHeld) {
-        this.overlayFreeze.acquire(this.overlayFreezeKey);
         this.overlayFreezeHeld = true;
       }
       return;
@@ -170,7 +165,6 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnD
     if (!this.overlayFreezeHeld) {
       return;
     }
-    this.overlayFreeze.release(this.overlayFreezeKey);
     this.overlayFreezeHeld = false;
   }
 }

@@ -1,7 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { OperationHistoryEntry, OperationService, OperationState } from '../services/operation.service';
 
 type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
@@ -135,8 +134,6 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   active: OperationState[] = [];
   history: OperationHistoryEntry[] = [];
   private readonly destroy$ = createSubject<void>();
-  private readonly freezeKey = 'operation-center';
-
   readonly filterItems: Array<{ id: OperationCenterFilter; label: string }> = [
     { id: 'all', label: 'All' },
     { id: 'active', label: 'Active' },
@@ -146,7 +143,6 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
 
   constructor(
     public readonly operationService: OperationService,
-    private readonly overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -161,11 +157,10 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-    this.overlayFreeze.release(this.freezeKey);
   }
 
-  show(): void { this.visible = true; this.overlayFreeze.acquire(this.freezeKey); }
-  hide(): void { this.visible = false; this.overlayFreeze.release(this.freezeKey); }
+  show(): void { this.visible = true; }
+  hide(): void { this.visible = false; }
   toggle(): void { this.visible ? this.hide() : this.show(); }
 
   get entries(): Array<OperationState | OperationHistoryEntry> {

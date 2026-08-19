@@ -1,8 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import {
   BatchRenameDialogService,
   type BatchRenameItem,
@@ -20,7 +20,7 @@ interface PreviewRow {
 @Component({
   selector: 'app-batch-rename-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
   styleUrls: ['./batch-rename-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async as request">
@@ -28,6 +28,7 @@ interface PreviewRow {
         <div
           #dialogPanel
           class="br-panel"
+          [appTrapFocus]="true"
           role="dialog"
           aria-modal="true"
           aria-label="Batch Rename"
@@ -149,7 +150,6 @@ export class BatchRenameDialogComponent {
 
   constructor(
     private readonly service: BatchRenameDialogService,
-    private readonly freeze: NativeOverlayFreezeService,
   ) {
     this.service.activeRequest$.pipe(takeUntil(this.destroy$)).subscribe((req) => {
       if (req) {
@@ -157,9 +157,7 @@ export class BatchRenameDialogComponent {
         this.startAt = 1;
         this.increment = 1;
         this.rebuildPreview(req);
-        this.freeze.acquire('batch-rename-dialog');
       } else {
-        this.freeze.release('batch-rename-dialog');
       }
     });
   }

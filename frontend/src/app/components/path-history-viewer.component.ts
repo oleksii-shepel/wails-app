@@ -6,17 +6,17 @@ import { PathHistoryService, PathHistoryEntry } from '../services/path-history.s
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { locationIcon, locationLabel } from '../services/location-reference';
+import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-path-history-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
   template: `
     <div class="path-history-overlay" *ngIf="isVisible" (click)="hide()">
-      <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
+      <div class="path-history-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
           <div>
@@ -489,7 +489,6 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
-    private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -508,7 +507,6 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.overlayFreeze.release('dialog.pathHistory');
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.unregisterInputCommands();
@@ -519,7 +517,6 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   show(): void {
     this.isVisible = true;
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.pathHistory');
-    this.overlayFreeze.acquire('dialog.pathHistory');
     this.filterText = '';
     this.historyEntries = this.pathHistoryService.getAllHistory();
     this.applyFilter();
@@ -530,7 +527,6 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.isVisible = false;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
-    this.overlayFreeze.release('dialog.pathHistory');
   }
 
   normalizeEntryPath(location: string | null | undefined): string {

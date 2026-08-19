@@ -322,7 +322,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         <span *ngIf="loading">Loading {{ path || 'location' }}…</span>
         <span *ngIf="!loading && !error">{{ totalEntryCount }} items</span>
         <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
-        <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
+        <span *ngIf="showHidden && !isRegistrySurface" class="hidden-state">hidden visible</span>
         <span *ngIf="clipboard" class="clipboard-state">
           {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}: {{ clipboard.paths.length }}
         </span>
@@ -349,33 +349,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div class="action-bar">
         <ng-container *ngIf="isRegistrySurface; else directoryActionBar">
-          <div class="sort-controls" role="group" aria-label="Sort Registry">
-            <select
-              value="name"
-              disabled
-              aria-label="Sort field"
-              title="Registry entries are sorted by name">
-              <option value="name">Name</option>
-            </select>
-
-            <button
-              type="button"
-              (click)="toggleSortDirection()"
-              [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
-              {{ sortDirection === 'asc' ? '↑' : '↓' }}
-            </button>
-
-            <button
-              type="button"
-              [class.active]="directoriesFirst"
-              [attr.aria-pressed]="directoriesFirst"
-              (click)="toggleDirectoriesFirst()"
-              title="Group keys first">
-              Group
-            </button>
-          </div>
-
-          <span class="action-separator"></span>
           <button
             type="button"
             [disabled]="loading || !canCreate"
@@ -413,66 +386,67 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </ng-container>
 
         <ng-template #directoryActionBar>
-          <div class="view-switcher" role="group" aria-label="Directory view">
-            <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
-            <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
-            <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
-            <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
-          </div>
+        <div class="view-switcher" role="group" aria-label="Directory view">
+          <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
+          <button *ngIf="!isRegistrySurface" type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
+          <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
+          <button *ngIf="!isRegistrySurface" type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
+        </div>
 
-          <div class="sort-controls" role="group" aria-label="Sort directory">
-            <select
-              [value]="sortField"
-              (change)="setSortField($any($event.target).value)"
-              aria-label="Sort field"
-              title="Sort field">
-              <option value="name">Name</option>
-              <option value="size">Size</option>
-              <option value="modified">Modified</option>
-              <option value="type">Type</option>
-            </select>
+        <div *ngIf="!isRegistrySurface" class="sort-controls" role="group" aria-label="Sort directory">
+          <select
+            [value]="sortField"
+            (change)="setSortField($any($event.target).value)"
+            aria-label="Sort field"
+            title="Sort field">
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="modified">Modified</option>
+            <option value="type">Type</option>
+          </select>
 
-            <button
-              type="button"
-              (click)="toggleSortDirection()"
-              [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
-              {{ sortDirection === 'asc' ? '↑' : '↓' }}
-            </button>
+          <button
+            type="button"
+            (click)="toggleSortDirection()"
+            [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
+            {{ sortDirection === 'asc' ? '↑' : '↓' }}
+          </button>
 
-            <button
-              type="button"
-              [class.active]="directoriesFirst"
-              [attr.aria-pressed]="directoriesFirst"
-              (click)="toggleDirectoriesFirst()"
-              title="Folders first">
-              Folders
-            </button>
-          </div>
+          <button
+            type="button"
+            [class.active]="directoriesFirst"
+            [attr.aria-pressed]="directoriesFirst"
+            (click)="toggleDirectoriesFirst()"
+            title="Folders first">
+            Folders
+          </button>
+        </div>
 
+        <span class="action-separator"></span>
+        <button type="button" [disabled]="loading || !canCreate" (click)="newFolder()" title="New folder (F7)">New folder</button>
+        <button type="button" [disabled]="loading || !canRename" (click)="renameSelected()" title="Rename (F2)">Rename</button>
+        <span class="action-separator"></span>
+        <button type="button" [disabled]="loading || !hasSelection" (click)="copySelected()" title="Copy (Ctrl+C)">Copy</button>
+        <button type="button" [disabled]="loading || !canCut" (click)="cutSelected()" title="Cut (Ctrl+X)">Cut</button>
+        <button type="button" [disabled]="loading || !canPaste" (click)="paste()" title="Paste (Ctrl+V)">Paste</button>
+        <span class="action-separator"></span>
+        <button type="button" class="danger" [disabled]="loading || !canDelete" (click)="deleteSelected()" title="Delete (Delete / F8)">Delete</button>
+        <ng-container *ngIf="pluginToolbarActions.length">
           <span class="action-separator"></span>
-          <button type="button" [disabled]="loading || !canCreate" (click)="newFolder()" title="New folder (F7)">New folder</button>
-          <button type="button" [disabled]="loading || !canRename" (click)="renameSelected()" title="Rename (F2)">Rename</button>
-          <span class="action-separator"></span>
-          <button type="button" [disabled]="loading || !hasSelection" (click)="copySelected()" title="Copy (Ctrl+C)">Copy</button>
-          <button type="button" [disabled]="loading || !canCut" (click)="cutSelected()" title="Cut (Ctrl+X)">Cut</button>
-          <button type="button" [disabled]="loading || !canPaste" (click)="paste()" title="Paste (Ctrl+V)">Paste</button>
-          <span class="action-separator"></span>
-          <button type="button" class="danger" [disabled]="loading || !canDelete" (click)="deleteSelected()" title="Delete (Delete / F8)">Delete</button>
-          <ng-container *ngIf="pluginToolbarActions.length">
-            <span class="action-separator"></span>
-            <button
-              *ngFor="let action of pluginToolbarActions"
-              type="button"
-              class="plugin-action"
-              [disabled]="loading || !action.enabled"
-              [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
-              (click)="runPluginToolbarAction(action)">
-              <span aria-hidden="true">◆</span>
-              {{ action.label }}
-            </button>
-          </ng-container>
+          <button
+            *ngFor="let action of pluginToolbarActions"
+            type="button"
+            class="plugin-action"
+            [disabled]="loading || !action.enabled"
+            [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
+            (click)="runPluginToolbarAction(action)">
+            <span aria-hidden="true">◆</span>
+            {{ action.label }}
+          </button>
+        </ng-container>
         </ng-template>
       </div>
+
       <app-filter
         #filterWidget
         [paneId]="paneId"
@@ -3300,6 +3274,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   setSortField(field: string): void {
+    if (this.isRegistrySurface) return;
     this.markUserInteraction();
     if (
       field !== 'name' &&
@@ -3319,6 +3294,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   toggleSortDirection(): void {
+    if (this.isRegistrySurface) return;
     this.markUserInteraction();
     this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
     this.syncActiveDirSessionState();
@@ -3329,6 +3305,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   toggleDirectoriesFirst(): void {
+    if (this.isRegistrySurface) return;
     this.markUserInteraction();
     this.directoriesFirst = !this.directoriesFirst;
     this.syncActiveDirSessionState();

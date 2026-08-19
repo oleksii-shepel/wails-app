@@ -50,6 +50,7 @@ import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
+import { RegistryPaneComponent, type RegistryPaneViewMode } from './registry-pane.component';
 import { FilterComponent } from './filter.component';
 import { NavigationController } from './navigation.controller';
 import type { PresentedCommand } from './presented-command';
@@ -186,6 +187,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     CommonModule,
     AddressBarComponent,
     FilterComponent,
+    RegistryPaneComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
   ],
@@ -348,9 +350,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       <div class="action-bar">
         <div class="view-switcher" role="group" aria-label="Directory view">
           <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
-          <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
+          <button *ngIf="!isRegistrySurface" type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
           <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
-          <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
+          <button *ngIf="!isRegistrySurface" type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
         </div>
 
         <div class="sort-controls" role="group" aria-label="Sort directory">
@@ -435,7 +437,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #treeViewport
         class="tree-view"
         data-pane-content
-        *ngIf="!error && viewMode === 'tree'"
+        *ngIf="!error && !isRegistrySurface && viewMode === 'tree'"
         tabindex="-1"
         role="tree"
         [attr.aria-label]="'Tree view of ' + (path || 'location')"
@@ -522,7 +524,41 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </div>
       </div>
 
-      <div class="details-header" *ngIf="!error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
+      <app-registry-pane
+        *ngIf="!error && isRegistrySurface"
+        [paneId]="paneId"
+        [path]="path"
+        [viewMode]="registryViewMode"
+        [entries]="renderedEntries"
+        [selectedPaths]="selectedPaths"
+        [cursorPath]="cursorPath"
+        [visibleEntryCount]="visibleEntryCount"
+        [renderedStart]="renderedEntryStart"
+        [virtualEnabled]="listVirtualWindow.enabled"
+        [beforePx]="listVirtualWindow.beforePx"
+        [afterPx]="listVirtualWindow.afterPx"
+        [loading]="loading"
+        [filterText]="filterText"
+        [dragOverPath]="dragOverPath"
+        [dropIntent]="dropIntent"
+        [backgroundDropActive]="backgroundDropActive"
+        (scrolled)="onContentScroll($event)"
+        (backgroundClick)="onBackgroundClick($event)"
+        (backgroundContextMenu)="onBackgroundContextMenu($event)"
+        (backgroundDragOver)="onBackgroundDragOver($event)"
+        (backgroundDragLeave)="onBackgroundDragLeave($event)"
+        (backgroundDrop)="onBackgroundDrop($event)"
+        (entrySelect)="selectFromPointer($event.entry, $event.event)"
+        (entryOpen)="openEntry($event)"
+        (entryContextMenu)="onEntryContextMenu($event.entry, $event.event)"
+        (entryDragStart)="onEntryDragStart($event.entry, $event.event)"
+        (entryDragEnd)="onDragEnd()"
+        (entryDragOver)="onEntryDragOver($event.entry, $event.event)"
+        (entryDragLeave)="onEntryDragLeave($event)"
+        (entryDrop)="onEntryDrop($event.entry, $event.event)">
+      </app-registry-pane>
+
+      <div class="details-header" *ngIf="!error && !isRegistrySurface && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
         <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
         <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
@@ -531,7 +567,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
-        *ngIf="!error && viewMode !== 'tree'"
+        *ngIf="!error && !isRegistrySurface && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
         [attr.aria-label]="'Files in ' + (path || 'location')"
@@ -1540,6 +1576,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
+  @ViewChild(RegistryPaneComponent) registryPane?: RegistryPaneComponent;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -1660,7 +1697,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         ? this.paneRoot?.nativeElement
         : this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
-          : this.listViewport?.nativeElement;
+          : this.activeListViewport;
 
     target?.focus({ preventScroll: true });
   }
@@ -1751,7 +1788,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   viewportSnapshot(): { topName: string | null; ratio: number } {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
-      : this.listViewport?.nativeElement;
+      : this.activeListViewport;
     if (!viewport) return { topName: null, ratio: 0 };
 
     const max = Math.max(1, viewport.scrollHeight - viewport.clientHeight);
@@ -1774,7 +1811,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   syncViewportToPeer(snapshot: { topName: string | null; ratio: number }): void {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
-      : this.listViewport?.nativeElement;
+      : this.activeListViewport;
     if (!viewport) return;
 
     if (snapshot.topName) {
@@ -2120,6 +2157,20 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
+  get isRegistrySurface(): boolean {
+    return this.activePanelSource.source.kind === 'registry';
+  }
+
+  get registryViewMode(): RegistryPaneViewMode {
+    return this.viewMode === 'details' ? 'details' : 'list';
+  }
+
+  private get activeListViewport(): HTMLElement | undefined {
+    return this.isRegistrySurface
+      ? this.registryPane?.viewportElement
+      : this.listViewport?.nativeElement;
+  }
+
   get panelColumnContext(): PanelColumnContext {
     const resolved = this.activePanelSource;
     return {
@@ -2381,7 +2432,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get listVirtualWindow(): VirtualWindow {
-    const grid = this.viewMode === 'grid';
+    const grid = !this.isRegistrySurface && this.viewMode === 'grid';
     const columns = grid
       ? this.estimatedGridColumns()
       : 1;
@@ -2440,7 +2491,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   private estimatedGridColumns(): number {
     const width =
-      this.listViewport?.nativeElement.clientWidth ||
+      this.activeListViewport?.clientWidth ||
       this.virtualViewportWidth ||
       800;
 
@@ -2453,13 +2504,15 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       target ??
       (this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement);
+        : this.activeListViewport);
 
     if (!viewport) return;
 
     this.virtualScrollTop = Math.max(0, viewport.scrollTop);
     this.virtualViewportHeight = Math.max(
-      this.viewMode === 'grid' ? this.gridRowExtent : this.listRowExtent,
+      !this.isRegistrySurface && this.viewMode === 'grid'
+        ? this.gridRowExtent
+        : this.listRowExtent,
       viewport.clientHeight || 600,
     );
     this.virtualViewportWidth = Math.max(108, viewport.clientWidth || 800);
@@ -4301,9 +4354,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement;
+        : this.activeListViewport;
 
-    const rowHeight = this.viewMode === 'grid' ? 110 : 28;
+    const rowHeight = !this.isRegistrySurface && this.viewMode === 'grid' ? 110 : 30;
     const pageSize = Math.max(
       1,
       Math.floor((viewport?.clientHeight ?? 280) / rowHeight),
@@ -7215,7 +7268,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement;
+        : this.activeListViewport;
     return Math.max(0, viewport?.scrollTop ?? 0);
   }
 
@@ -7534,7 +7587,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement;
+        : this.activeListViewport;
     if (!viewport) return;
 
     viewport.scrollTop = Math.max(0, scrollTop);
@@ -8555,7 +8608,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement;
+        : this.activeListViewport;
 
     if (viewport) {
       const index =
@@ -8600,7 +8653,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       const host =
         this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
-          : this.listViewport?.nativeElement;
+          : this.activeListViewport;
 
       host
         ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`)

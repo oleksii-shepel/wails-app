@@ -421,16 +421,6 @@ export class PluginManagerService implements PluginRegistryAPI {
       onRegister: api => {
         api.registerPanelSource(source);
 
-        api.registerPanelColumn({
-          id: 'builtin.registry.data',
-          label: 'Data',
-          width: 'minmax(220px, 1fr)',
-          score: context => context.sourceKind === 'registry' ? 100 : 0,
-          value: entry =>
-            String(entry.registryKind ?? '').toLowerCase() === 'value'
-              ? (entry.registryPreview ?? '')
-              : '',
-        });
 
         api.registerContextMenuItem({
           id: 'builtin.registry.newKey',
@@ -515,7 +505,6 @@ export class PluginManagerService implements PluginRegistryAPI {
         api.unregisterContextMenuItem('builtin.registry.editValue');
         api.unregisterContextMenuItem('builtin.registry.newValue');
         api.unregisterContextMenuItem('builtin.registry.newKey');
-        api.unregisterPanelColumn('builtin.registry.data');
         api.unregisterPanelSource(source.id);
       },
     }, {

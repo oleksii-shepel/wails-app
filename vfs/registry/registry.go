@@ -518,9 +518,19 @@ func readRegistryValue(k registry.Key, name string) (registryValueData, error) {
 		}, nil
 	}
 
-	// Try as integer (REG_DWORD, REG_QWORD).
+	// Try as integer (REG_DWORD, REG_QWORD). Preserve the Registry value's
+	// declared capacity in the hexadecimal representation: DWORD is 32-bit and
+	// QWORD is 64-bit, even when the numeric value itself has leading zeroes.
 	if n, valueType, err := k.GetIntegerValue(name); err == nil {
-		serialized := fmt.Sprintf("%d (0x%X)", n, n)
+		var serialized string
+		switch valueType {
+		case registry.DWORD, registry.DWORD_BIG_ENDIAN:
+			serialized = fmt.Sprintf("%d (0x%08X)", uint32(n))
+		case registry.QWORD:
+			serialized = fmt.Sprintf("%d (0x%016X)", n)
+		default:
+			serialized = fmt.Sprintf("%d (0x%X)", n, n)
+		}
 		return registryValueData{
 			data:      []byte(serialized),
 			valueType: registryTypeName(valueType),

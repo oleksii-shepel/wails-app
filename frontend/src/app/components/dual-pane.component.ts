@@ -601,6 +601,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (viewportChange)="onPaneViewportChange('left', $event)"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
+          (registryCommandRequested)="runRegistryToolbarCommand('left', $event)"
           (navigationTrailRequested)="openNavigationTrail('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
         </app-directory-pane>
@@ -642,6 +643,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (viewportChange)="onPaneViewportChange('right', $event)"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
+          (registryCommandRequested)="runRegistryToolbarCommand('right', $event)"
           (navigationTrailRequested)="openNavigationTrail('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-directory-pane>
@@ -4395,6 +4397,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     } catch {
       return null;
     }
+  }
+
+  runRegistryToolbarCommand(paneId: PaneId, commandId: string): void {
+    this.activate(paneId, false);
+    const pane = this.activePane;
+    if (!pane?.isRegistrySurface) return;
+
+    this.input.dispatchCommandById(commandId, {
+      source: 'toolbar',
+      context: {
+        paneId,
+        path: pane.path,
+        selectedPaths: pane.selectedEntries.map(entry => entry.path),
+      },
+    });
   }
 
   openEntryMenu(

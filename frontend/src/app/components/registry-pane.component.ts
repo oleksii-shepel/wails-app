@@ -10,8 +10,6 @@ import {
 } from '@angular/core';
 import { FileInfo, FileType } from '../shared/protocol';
 
-export type RegistryPaneViewMode = 'list' | 'details';
-
 export interface RegistryEntryPointerEvent {
   entry: FileInfo;
   event: MouseEvent;
@@ -37,7 +35,6 @@ export interface RegistryEntryDragEvent {
   template: `
     <div
       class="registry-details-header"
-      *ngIf="viewMode === 'details'"
       [style.grid-template-columns]="detailsGridTemplate">
       <span></span>
       <span class="heading">
@@ -47,10 +44,6 @@ export interface RegistryEntryDragEvent {
       <span class="heading">
         Type
         <i class="resizer" (mousedown)="beginResize($event, 'type')"></i>
-      </span>
-      <span class="heading">
-        Size
-        <i class="resizer" (mousedown)="beginResize($event, 'size')"></i>
       </span>
       <span class="heading">Data</span>
     </div>
@@ -62,8 +55,6 @@ export interface RegistryEntryDragEvent {
       tabindex="-1"
       role="listbox"
       [attr.aria-label]="'Registry entries in ' + (path || 'location')"
-      [class.view-list]="viewMode === 'list'"
-      [class.view-details]="viewMode === 'details'"
       [class.background-drop-target]="backgroundDropActive"
       [attr.aria-busy]="loading"
       (scroll)="scrolled.emit($event)"
@@ -97,7 +88,7 @@ export interface RegistryEntryDragEvent {
         [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
         [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
         [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
-        [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null"
+        [style.grid-template-columns]="detailsGridTemplate"
         (click)="entrySelect.emit({ entry: entry, event: $event })"
         (dblclick)="entryOpen.emit(entry)"
         (contextmenu)="entryContextMenu.emit({ entry: entry, event: $event })"
@@ -111,15 +102,10 @@ export interface RegistryEntryDragEvent {
 
         <span class="name-cell">
           <span class="name">{{ entry.name }}</span>
-          <span
-            class="payload"
-            *ngIf="payload(entry) as value"
-            [title]="value">{{ value }}</span>
         </span>
 
         <span class="type">{{ typeLabel(entry) }}</span>
-        <span class="size">{{ sizeLabel(entry) }}</span>
-        <span class="data" *ngIf="viewMode === 'details'" [title]="payload(entry)">
+        <span class="data" [title]="payload(entry)">
           {{ payload(entry) }}
         </span>
       </div>
@@ -147,7 +133,7 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-details-header,
-    .registry-list.view-details .registry-entry {
+    .registry-entry {
       column-gap: 6px;
     }
 
@@ -207,18 +193,12 @@ export interface RegistryEntryDragEvent {
       display: grid;
       align-items: center;
       gap: 6px;
-      width: 100%;
       height: 30px;
       min-height: 30px;
       padding: 0 8px;
-      border: 0;
-      border-radius: 3px;
-      background: transparent;
-      color: inherit;
-      text-align: left;
       cursor: default;
       user-select: none;
-      font: inherit;
+      color: var(--vsc-foreground);
     }
 
     /* Keys and values deliberately use the same row height. */
@@ -231,49 +211,43 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-entry:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
-    }
-
-    .registry-entry.cursor {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
-      background: color-mix(
-        in srgb,
-        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
-        transparent
-      );
+      background: var(--vsc-list-hover-background);
     }
 
     .registry-entry.selected {
-      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
-      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+      background: var(--vsc-list-active-background);
+      color: var(--vsc-list-active-foreground, var(--vsc-foreground));
     }
 
-    .registry-entry.cursor.selected {
-      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
+    .registry-entry {
+      position: relative;
+      border-radius: 3px;
+    }
+
+    .registry-entry.cursor::before {
+      content: '';
+      position: absolute;
+      top: 3px;
+      bottom: 3px;
+      left: 1px;
+      width: 2px;
+      border-radius: 2px;
+      background: var(--vsc-focus-border, var(--vsc-accent-blue));
     }
 
     .icon {
       width: 18px;
       text-align: center;
-      font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
-      font-size: 14px;
-      line-height: 1;
-      opacity: .95;
+      opacity: .9;
     }
 
     .name-cell {
-      display: grid;
       min-width: 0;
-      grid-template-rows: 13px 10px;
-      align-content: center;
-      gap: 1px;
       overflow: hidden;
     }
 
     .name,
-    .payload,
     .type,
-    .size,
     .data {
       min-width: 0;
       overflow: hidden;
@@ -286,33 +260,15 @@ export interface RegistryEntryDragEvent {
       line-height: 13px;
     }
 
-    .payload {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 9px;
-      line-height: 10px;
-    }
-
     .type,
-    .size,
     .data {
       font-size: 10px;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
-    .registry-entry.selected .payload,
     .registry-entry.selected .type,
-    .registry-entry.selected .size,
     .registry-entry.selected .data {
       color: inherit;
-      opacity: .8;
-    }
-
-    .view-details .name-cell {
-      display: block;
-    }
-
-    .view-details .name-cell .payload {
-      display: none;
     }
 
     .virtual-spacer {
@@ -331,31 +287,14 @@ export interface RegistryEntryDragEvent {
       font-size: 11px;
     }
 
-    .registry-entry.drop-target {
-      outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
+    .background-drop-target,
+    .drop-target {
+      outline: 1px dashed var(--vsc-focus-border, var(--vsc-accent-blue));
       outline-offset: -1px;
-      background: color-mix(
-        in srgb,
-        var(--vsc-accent-blue, var(--vsc-accent-blue)) 18%,
-        var(--vsc-list-hover-background, var(--vsc-list-hover-background))
-      );
     }
 
-    .registry-list.background-drop-target {
-      box-shadow: inset 0 0 0 2px color-mix(
-        in srgb,
-        var(--vsc-accent-blue, var(--vsc-accent-blue)) 72%,
-        transparent
-      );
-    }
-
-    .registry-entry.drop-move {
-      outline-color: var(--vsc-success, var(--vsc-accent-green));
-    }
-
-    .registry-entry.drop-invalid {
-      outline-color: var(--vsc-error, var(--vsc-danger));
-      cursor: not-allowed;
+    .drop-invalid {
+      opacity: .55;
     }
   `],
 })
@@ -364,7 +303,6 @@ export class RegistryPaneComponent {
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() path = '';
-  @Input() viewMode: RegistryPaneViewMode = 'list';
   @Input() entries: readonly FileInfo[] = [];
   @Input() selectedPaths: ReadonlySet<string> = new Set<string>();
   @Input() cursorPath: string | null = null;
@@ -410,10 +348,9 @@ export class RegistryPaneComponent {
   get detailsGridTemplate(): string {
     return [
       '28px',
-      this.track('name', 'minmax(180px, 1fr)'),
-      this.track('type', '120px'),
-      this.track('size', '82px'),
-      this.track('data', 'minmax(220px, 1fr)'),
+      this.track('name', 'minmax(220px, 1fr)'),
+      this.track('type', '150px'),
+      this.track('data', 'minmax(280px, 2fr)'),
     ].join(' ');
   }
 
@@ -446,10 +383,7 @@ export class RegistryPaneComponent {
   }
 
   icon(entry: FileInfo): string {
-    const type = this.typeLabel(entry);
-    if (type === 'Key') return '📁';
-    if (type.startsWith('REG_')) return '🔑';
-    return '🔑';
+    return this.typeLabel(entry) === 'Key' ? '📁' : '🔑';
   }
 
   ariaLabel(entry: FileInfo): string {

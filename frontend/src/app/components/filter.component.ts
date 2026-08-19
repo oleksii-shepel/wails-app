@@ -208,6 +208,7 @@ export class FilterComponent implements OnInit, OnDestroy {
       kind: 'overlay',
       priority: 240,
       parentId: 'reassembly.manager',
+      exclusive: true,
       description: `Inline folder filter (${this.paneId})`,
     });
 

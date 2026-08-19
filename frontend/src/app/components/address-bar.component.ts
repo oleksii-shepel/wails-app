@@ -510,6 +510,7 @@ export class AddressBarComponent implements OnInit, OnDestroy {
       kind: 'overlay',
       priority: 250,
       parentId: 'reassembly.manager',
+      exclusive: true,
       description: `Reassembly location editor (${this.paneId})`,
     });
 

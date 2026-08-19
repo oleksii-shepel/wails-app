@@ -50,7 +50,8 @@ interface ConfirmDialogRequest {
                   <div class="conflict-sub" *ngIf="getAlertSubtitle(request.options)">{{ getAlertSubtitle(request.options) }}</div>
                 </div>
               </div>
-              <div class="alert-actions">
+              <footer class="alert-actions conflict-footer">
+                <span class="conflict-footer-label">Press Enter to continue</span>
                 <button
                   type="button"
                   class="alert-btn"
@@ -60,7 +61,7 @@ interface ConfirmDialogRequest {
                 >
                   {{ request.options.confirmText || 'OK' }}
                 </button>
-              </div>
+              </footer>
             </div>
           </ng-container>
 
@@ -212,9 +213,19 @@ interface ConfirmDialogRequest {
 
     .alert-actions {
       display: flex;
+      align-items: center;
       justify-content: flex-end;
       padding: 10px 14px;
-      gap: 6px;
+      gap: 10px;
+      border-top: 1px solid var(--vsc-border-subtle);
+      background: color-mix(in srgb, var(--vsc-panel-background) 88%, var(--vsc-sidebar-background) 12%);
+    }
+
+    .conflict-footer-label {
+      margin-right: auto;
+      color: var(--vsc-description-foreground);
+      font-size: 10px;
+      line-height: 1.2;
     }
 
     .alert-btn {

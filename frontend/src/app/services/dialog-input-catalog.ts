@@ -10,7 +10,15 @@ const dialogContext = (
   priority: number,
   description: string,
   parentId?: string,
-): InputContextDefinition => ({ id, kind, priority, description, parentId });
+  exclusive = false,
+): InputContextDefinition => ({
+  id,
+  kind,
+  priority,
+  description,
+  parentId,
+  ...(exclusive ? { exclusive: true } : {}),
+});
 
 const keyBinding = (
   id: string,
@@ -35,7 +43,94 @@ const keyBinding = (
   },
 });
 
-export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
+
+export const PATH_HISTORY_INPUT_COMMANDS = {
+  close: 'reassembly.pathHistory.close',
+  previous: 'reassembly.pathHistory.previous',
+  next: 'reassembly.pathHistory.next',
+  open: 'reassembly.pathHistory.open',
+  remove: 'reassembly.pathHistory.remove',
+  clear: 'reassembly.pathHistory.clear',
+  previousMode: 'reassembly.pathHistory.previousMode',
+  nextMode: 'reassembly.pathHistory.nextMode',
+  copyJson: 'reassembly.pathHistory.copyJson',
+} as const;
+
+export const QUICK_ACCESS_INPUT_COMMANDS = {
+  close: 'reassembly.quickAccess.close',
+  previous: 'reassembly.quickAccess.previous',
+  next: 'reassembly.quickAccess.next',
+  previousSection: 'reassembly.quickAccess.previousSection',
+  nextSection: 'reassembly.quickAccess.nextSection',
+  open: 'reassembly.quickAccess.open',
+  removePin: 'reassembly.quickAccess.removePin',
+  first: 'reassembly.quickAccess.first',
+  last: 'reassembly.quickAccess.last',
+  openSlot1: 'reassembly.quickAccess.openSlot1',
+  openSlot2: 'reassembly.quickAccess.openSlot2',
+  openSlot3: 'reassembly.quickAccess.openSlot3',
+  openSlot4: 'reassembly.quickAccess.openSlot4',
+  openSlot5: 'reassembly.quickAccess.openSlot5',
+  openSlot6: 'reassembly.quickAccess.openSlot6',
+  openSlot7: 'reassembly.quickAccess.openSlot7',
+  openSlot8: 'reassembly.quickAccess.openSlot8',
+  openSlot9: 'reassembly.quickAccess.openSlot9',
+} as const;
+
+export const PATH_HISTORY_INPUT: DialogBindingCatalogEntry = {
+  context: dialogContext(
+    'dialog.pathHistory',
+    'dialog',
+    390,
+    'Path history',
+    'global',
+    true,
+  ),
+  bindings: [
+    keyBinding('reassembly.pathHistory.escape', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.close, 'escape', 'Close path history'),
+    keyBinding('reassembly.pathHistory.up', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.previous, 'arrowup', 'Previous history entry'),
+    keyBinding('reassembly.pathHistory.down', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.next, 'arrowdown', 'Next history entry'),
+    keyBinding('reassembly.pathHistory.enter', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.open, 'enter', 'Open history entry'),
+    keyBinding('reassembly.pathHistory.delete', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.remove, 'delete', 'Remove history entry', undefined, '!typing'),
+    keyBinding('reassembly.pathHistory.ctrlDelete', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.clear, 'delete', 'Clear history', ['ctrl']),
+    keyBinding('reassembly.pathHistory.previousMode', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.previousMode, 'pageup', 'Previous history view', ['ctrl']),
+    keyBinding('reassembly.pathHistory.nextMode', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.nextMode, 'pagedown', 'Next history view', ['ctrl']),
+    keyBinding('reassembly.pathHistory.ctrlC', 'dialog.pathHistory', PATH_HISTORY_INPUT_COMMANDS.copyJson, 'c', 'Copy history JSON', ['ctrl'], '!typing'),
+  ].map(binding => ({ ...binding, category: 'Navigation' })),
+};
+
+export const QUICK_ACCESS_INPUT: DialogBindingCatalogEntry = {
+  context: dialogContext(
+    'overlay.quickAccess',
+    'overlay',
+    380,
+    'Quick Access',
+    'global',
+    true,
+  ),
+  bindings: [
+    keyBinding('reassembly.quickAccess.escape', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.close, 'escape', 'Close Quick Access'),
+    keyBinding('reassembly.quickAccess.up', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.previous, 'arrowup', 'Previous item'),
+    keyBinding('reassembly.quickAccess.down', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.next, 'arrowdown', 'Next item'),
+    keyBinding('reassembly.quickAccess.previousSection', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.previousSection, 'pageup', 'Previous section', ['ctrl']),
+    keyBinding('reassembly.quickAccess.nextSection', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.nextSection, 'pagedown', 'Next section', ['ctrl']),
+    keyBinding('reassembly.quickAccess.enter', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.open, 'enter', 'Open item'),
+    keyBinding('reassembly.quickAccess.delete', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.removePin, 'delete', 'Remove pin', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.home', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.first, 'home', 'First Quick Access item', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.end', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.last, 'end', 'Last Quick Access item', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot1', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot1, '1', 'Open Quick Access slot 1', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot2', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot2, '2', 'Open Quick Access slot 2', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot3', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot3, '3', 'Open Quick Access slot 3', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot4', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot4, '4', 'Open Quick Access slot 4', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot5', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot5, '5', 'Open Quick Access slot 5', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot6', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot6, '6', 'Open Quick Access slot 6', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot7', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot7, '7', 'Open Quick Access slot 7', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot8', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot8, '8', 'Open Quick Access slot 8', undefined, '!typing'),
+    keyBinding('reassembly.quickAccess.slot9', 'overlay.quickAccess', QUICK_ACCESS_INPUT_COMMANDS.openSlot9, '9', 'Open Quick Access slot 9', undefined, '!typing'),
+  ].map(binding => ({ ...binding, category: 'Navigation' })),
+};
+
+export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
   {
     context: dialogContext('dialog.confirm', 'dialog', 1000, 'Confirmation and alert dialog'),
     bindings: [
@@ -59,26 +154,6 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     ],
   },
   {
-    context: dialogContext('dialog.globalSearch', 'dialog', 980, 'Global search dialog'),
-    bindings: [
-      keyBinding('dialog.globalSearch.close.escape', 'dialog.globalSearch', 'dialog.globalSearch.close', 'escape', 'Close global search'),
-      keyBinding('dialog.globalSearch.prev.arrowUp', 'dialog.globalSearch', 'dialog.globalSearch.prevResult', 'arrowup', 'Select previous result'),
-      keyBinding('dialog.globalSearch.next.arrowDown', 'dialog.globalSearch', 'dialog.globalSearch.nextResult', 'arrowdown', 'Select next result'),
-      keyBinding('dialog.globalSearch.open.enter', 'dialog.globalSearch', 'dialog.globalSearch.openSelected', 'enter', 'Open selected result'),
-      keyBinding('dialog.globalSearch.openFolder.ctrlEnter', 'dialog.globalSearch', 'dialog.globalSearch.openFolder', 'enter', 'Open virtual search folder', ['ctrl']),
-      keyBinding('dialog.globalSearch.settings.ctrlComma', 'dialog.globalSearch', 'dialog.globalSearch.openSettings', ',', 'Open search settings', ['ctrl']),
-    ],
-  },
-  {
-    context: dialogContext('dialog.globalSearch.settings', 'dialog', 985, 'Global search settings dialog', 'dialog.globalSearch'),
-    bindings: [
-      keyBinding('dialog.globalSearch.settings.close.escape', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.close', 'escape', 'Close search settings'),
-      keyBinding('dialog.globalSearch.settings.apply.enter', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.apply', 'enter', 'Apply settings'),
-      keyBinding('dialog.globalSearch.settings.focus.next.arrowRight', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.focusNextArrow', 'arrowright', 'Move focus to next setting control'),
-      keyBinding('dialog.globalSearch.settings.focus.prev.arrowLeft', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.focusPrevArrow', 'arrowleft', 'Move focus to previous setting control'),
-    ],
-  },
-  {
     context: dialogContext('dialog.commandPalette', 'dialog', 975, 'Command palette'),
     bindings: [
       keyBinding('dialog.commandPalette.close.escape', 'dialog.commandPalette', 'dialog.commandPalette.close', 'escape', 'Close command palette'),
@@ -96,17 +171,7 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('dialog.keyboardHelp.focus.prev.arrowLeft', 'dialog.keyboardHelp', 'dialog.keyboardHelp.focusPrevArrow', 'arrowleft', 'Move focus to previous help control'),
     ],
   },
-  {
-    context: dialogContext('dialog.pathHistory', 'dialog', 960, 'Path history viewer'),
-    bindings: [
-      keyBinding('dialog.pathHistory.close.escape', 'dialog.pathHistory', 'dialog.pathHistory.close', 'escape', 'Close path history'),
-      keyBinding('dialog.pathHistory.focus.ctrlF', 'dialog.pathHistory', 'dialog.pathHistory.focusFilter', 'f', 'Focus path filter', ['ctrl']),
-      keyBinding('dialog.pathHistory.prev.arrowUp', 'dialog.pathHistory', 'dialog.pathHistory.prevItem', 'arrowup', 'Select previous path'),
-      keyBinding('dialog.pathHistory.next.arrowDown', 'dialog.pathHistory', 'dialog.pathHistory.nextItem', 'arrowdown', 'Select next path'),
-      keyBinding('dialog.pathHistory.open.enter', 'dialog.pathHistory', 'dialog.pathHistory.openSelected', 'enter', 'Open selected path'),
-      keyBinding('dialog.pathHistory.remove.delete', 'dialog.pathHistory', 'dialog.pathHistory.removeSelected', 'delete', 'Remove selected path'),
-    ],
-  },
+  PATH_HISTORY_INPUT,
   {
     context: dialogContext('dialog.remoteConnect', 'dialog', 955, 'S3-compatible remote connect dialog'),
     bindings: [
@@ -146,30 +211,7 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('widget.addressBar.edit.next.arrowDown', 'widget.addressBar.edit', 'widget.addressBar.edit.nextItem', 'arrowdown', 'Select next address suggestion'),
     ],
   },
-  {
-    context: dialogContext('overlay.quickAccess', 'overlay', 900, 'Address bar quick access overlay'),
-    bindings: [
-      keyBinding('overlay.quickAccess.close.escape', 'overlay.quickAccess', 'overlay.quickAccess.close', 'escape', 'Close quick access'),
-      keyBinding('overlay.quickAccess.focusFilter.ctrlF', 'overlay.quickAccess', 'overlay.quickAccess.focusFilter', 'f', 'Focus quick access filter', ['ctrl']),
-      keyBinding('overlay.quickAccess.nextSection.tab', 'overlay.quickAccess', 'overlay.quickAccess.nextSection', 'tab', 'Move to next section'),
-      keyBinding('overlay.quickAccess.prevSection.shiftTab', 'overlay.quickAccess', 'overlay.quickAccess.prevSection', 'tab', 'Move to previous section', ['shift']),
-      keyBinding('overlay.quickAccess.prevSection.arrowLeft', 'overlay.quickAccess', 'overlay.quickAccess.prevSection', 'arrowleft', 'Move to previous section'),
-      keyBinding('overlay.quickAccess.nextSection.arrowRight', 'overlay.quickAccess', 'overlay.quickAccess.nextSection', 'arrowright', 'Move to next section'),
-      keyBinding('overlay.quickAccess.prev.arrowUp', 'overlay.quickAccess', 'overlay.quickAccess.prevItem', 'arrowup', 'Select previous item'),
-      keyBinding('overlay.quickAccess.next.arrowDown', 'overlay.quickAccess', 'overlay.quickAccess.nextItem', 'arrowdown', 'Select next item'),
-      keyBinding('overlay.quickAccess.open.enter', 'overlay.quickAccess', 'overlay.quickAccess.openSelected', 'enter', 'Open selected item'),
-      keyBinding('overlay.quickAccess.remove.delete', 'overlay.quickAccess', 'overlay.quickAccess.removeSelected', 'delete', 'Remove selected pinned item'),
-      keyBinding('overlay.quickAccess.slot1.alt1', 'overlay.quickAccess', 'overlay.quickAccess.openSlot1', '1', 'Open quick access item 1', ['alt']),
-      keyBinding('overlay.quickAccess.slot2.alt2', 'overlay.quickAccess', 'overlay.quickAccess.openSlot2', '2', 'Open quick access item 2', ['alt']),
-      keyBinding('overlay.quickAccess.slot3.alt3', 'overlay.quickAccess', 'overlay.quickAccess.openSlot3', '3', 'Open quick access item 3', ['alt']),
-      keyBinding('overlay.quickAccess.slot4.alt4', 'overlay.quickAccess', 'overlay.quickAccess.openSlot4', '4', 'Open quick access item 4', ['alt']),
-      keyBinding('overlay.quickAccess.slot5.alt5', 'overlay.quickAccess', 'overlay.quickAccess.openSlot5', '5', 'Open quick access item 5', ['alt']),
-      keyBinding('overlay.quickAccess.slot6.alt6', 'overlay.quickAccess', 'overlay.quickAccess.openSlot6', '6', 'Open quick access item 6', ['alt']),
-      keyBinding('overlay.quickAccess.slot7.alt7', 'overlay.quickAccess', 'overlay.quickAccess.openSlot7', '7', 'Open quick access item 7', ['alt']),
-      keyBinding('overlay.quickAccess.slot8.alt8', 'overlay.quickAccess', 'overlay.quickAccess.openSlot8', '8', 'Open quick access item 8', ['alt']),
-      keyBinding('overlay.quickAccess.slot9.alt9', 'overlay.quickAccess', 'overlay.quickAccess.openSlot9', '9', 'Open quick access item 9', ['alt']),
-    ],
-  },
+  QUICK_ACCESS_INPUT,
   {
     context: dialogContext('overlay.addressBar.drives', 'overlay', 890, 'Address bar drive selector'),
     bindings: [
@@ -226,3 +268,5 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     ],
   },
 ];
+/** @deprecated Use BUILTIN_INPUT_CATALOG. */
+export const DIALOG_INPUT_CATALOG = BUILTIN_INPUT_CATALOG;

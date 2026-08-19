@@ -1,15 +1,11 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { createSubject } from '@epikodelabs/streamix';
-import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { InputBindingDefinition } from '../services/input-system.types';
-import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
-import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 interface BindingCategory {
@@ -44,15 +40,13 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
   };
 
-  private destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
 
   constructor(
-    private confirmDialog: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
-    private keybindingStorage: KeybindingStorageService,
     private overlayFreeze: NativeOverlayFreezeService,
+    private cdr: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
@@ -65,20 +59,38 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.unregisterInputCommands();
-    this.destroy$.next();
-    this.destroy$.complete();
   }
 
   loadShortcuts(): void {
-    const snapshot = this.keybindingStorage.mergeWithDefaults(this.inputEngine.getBindingSnapshot());
+    const snapshot = this.inputEngine.getBindingSnapshot();
+
+    const live = snapshot.filter(binding =>
+      binding.enabled !== false &&
+      binding.trigger.device === 'keyboard' &&
+      !!binding.category
+    );
+
     const byCategory = new Map<string, InputBindingDefinition[]>();
-    for (const b of snapshot) {
-      if (!b.category || b.trigger.device !== 'keyboard') continue;
-      if (!byCategory.has(b.category)) byCategory.set(b.category, []);
-      byCategory.get(b.category)!.push(b);
+    for (const binding of live) {
+      const category = binding.category!;
+      if (!byCategory.has(category)) {
+        byCategory.set(category, []);
+      }
+      byCategory.get(category)!.push(binding);
     }
+
     this.categories = Array.from(byCategory.entries())
-      .map(([name, bindings]) => ({ name, bindings }));
+      .map(([name, bindings]) => ({
+        name,
+        bindings: bindings
+          .slice()
+          .sort((a, b) =>
+            a.description.localeCompare(b.description) ||
+            this.formatBinding(a).localeCompare(this.formatBinding(b)),
+          ),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     this.filteredCategories = this.categories;
   }
 
@@ -91,6 +103,8 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.overlayFreeze.acquire('dialog.keyboardHelp');
     this.searchText = '';
     this.loadShortcuts();
+    this.cdr.detectChanges();
+    queueMicrotask(() => this.dialogPanel?.nativeElement.focus());
   }
 
   /**
@@ -101,6 +115,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.overlayFreeze.release('dialog.keyboardHelp');
+    this.cdr.detectChanges();
   }
 
   onSearchChange(): void {
@@ -138,71 +153,17 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     }).join(' → ');
   }
 
-  toggleBinding(binding: InputBindingDefinition): void {
-    this.inputEngine.setBindingEnabled(binding.id, binding.enabled === false);
-    this.loadShortcuts();
-  }
-
-  exportConfig(): void {
-    const snapshot = this.inputEngine.getBindingSnapshot();
-    const config = {
-      version: '2.0',
-      bindings: snapshot.map(b => ({ id: b.id, enabled: b.enabled !== false })),
-    };
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'keybindings.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  importConfig(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const config = JSON.parse(e.target?.result as string);
-        const entries: Array<{ id: string; enabled: boolean }> = config.bindings ?? [];
-        for (const entry of entries) {
-          this.inputEngine.setBindingEnabled(entry.id, entry.enabled);
-        }
-        this.loadShortcuts();
-        this.confirmDialog.alert('Import Successful\nKeybindings have been imported.');
-      } catch {
-        this.confirmDialog.alert('Import Failed\nInvalid file format.');
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  /**
-   * Reset to default shortcuts
-   */
-  async resetToDefaults(): Promise<void> {
-    const confirmed = await this.confirmDialog.confirm({
-      title: 'Reset Shortcuts',
-      message: 'Reset all shortcuts to defaults?',
-      confirmText: 'Reset',
-      danger: true,
-    });
-    if (confirmed) {
-      for (const b of this.inputEngine.getBindingSnapshot()) {
-        if (b.enabled === false) {
-          this.inputEngine.setBindingEnabled(b.id, true);
-        }
-      }
-      this.loadShortcuts();
-    }
+  bindingKeySteps(binding: InputBindingDefinition): readonly (readonly string[])[] {
+    if (binding.trigger.device !== 'keyboard') return [];
+    return binding.trigger.chord.steps.map(step => [
+      ...(step.modifiers ?? []).map(modifier => this.modNames[modifier] ?? modifier),
+      this.keyNames[step.key] ?? step.key.toUpperCase(),
+    ]);
   }
 
   private registerInputCommands(): void {
     this.inputEngine.registerCommand('dialog.keyboardHelp.close', () => {
-      if (!this.isVisible) return;
-      this.hide();
+      if (this.isVisible) this.hide();
     });
 
     this.inputEngine.registerCommand('dialog.keyboardHelp.focusSearch', () => {
@@ -210,50 +171,10 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
       this.searchInput?.nativeElement.focus();
       this.searchInput?.nativeElement.select();
     });
-
-    this.inputEngine.registerCommand('dialog.keyboardHelp.exportBindings', () => {
-      if (!this.isVisible) return;
-      this.exportConfig();
-    });
-
-    this.inputEngine.registerCommand('dialog.keyboardHelp.focusNextArrow', () => {
-      if (!this.isVisible || !this.shouldUseArrowFocusNavigation()) return;
-      this.moveDialogFocus(1);
-    });
-
-    this.inputEngine.registerCommand('dialog.keyboardHelp.focusPrevArrow', () => {
-      if (!this.isVisible || !this.shouldUseArrowFocusNavigation()) return;
-      this.moveDialogFocus(-1);
-    });
   }
 
   private unregisterInputCommands(): void {
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.close');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusSearch');
-    this.inputEngine.unregisterCommand('dialog.keyboardHelp.exportBindings');
-    this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusNextArrow');
-    this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusPrevArrow');
-  }
-
-  private moveDialogFocus(delta: number): void {
-    const panel = this.dialogPanel?.nativeElement;
-    if (!panel) {
-      return;
-    }
-
-    moveFocusWithin(panel, delta, '.modal-footer button');
-  }
-
-  private shouldUseArrowFocusNavigation(): boolean {
-    const panel = this.dialogPanel?.nativeElement;
-    const activeElement = document.activeElement;
-    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
-      return false;
-    }
-
-    return !!activeElement.closest('.modal-footer button');
   }
 }
-
-
-

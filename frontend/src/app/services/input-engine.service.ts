@@ -1,7 +1,8 @@
 import { Injectable, NgZone } from '@angular/core';
 import { CommandRegistryService } from './command-registry.service';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
-import { DIALOG_INPUT_CATALOG } from './dialog-input-catalog';
+import { BUILTIN_INPUT_CATALOG } from './dialog-input-catalog';
+import { compareStableBindingIdentity, whenClausesCanOverlap } from './input-conflict-policy';
 import type {
   BindingResolution,
   InputBindingDefinition,
@@ -129,6 +130,7 @@ export class InputEngineService {
   readonly shortcutDebug$ = createBehaviorSubject<ShortcutDebugTrace | null>(null);
 
   private keyboardEnabled = true;
+  private readonly handledNativeKeyboardEvents = new WeakSet<KeyboardEvent>();
   readonly showShortcutDebug = typeof window !== 'undefined'
     && ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
@@ -143,7 +145,7 @@ export class InputEngineService {
       description: 'Global application input context',
     });
 
-    for (const entry of DIALOG_INPUT_CATALOG) {
+    for (const entry of BUILTIN_INPUT_CATALOG) {
       this.registerContext(entry.context);
       for (const binding of entry.bindings) {
         this.registerBinding(binding);
@@ -485,6 +487,7 @@ export class InputEngineService {
         const right = bindings[rightIndex];
         if (!this.sameInputTrigger(left.trigger, right.trigger)) continue;
         if (!this.contextsCanOverlap(left.contextId, right.contextId)) continue;
+        if (!whenClausesCanOverlap(left.when, right.when)) continue;
 
         const winner = this.chooseBestBinding([left, right]).binding;
         const loser = winner.id === left.id ? right : left;
@@ -664,6 +667,13 @@ export class InputEngineService {
   private initializeKeyboardListener(): void {
     const listener = (event: KeyboardEvent) => {
       if (!this.keyboardEnabled || event.isComposing) return;
+
+      // A native keydown must cross the command boundary at most once. This
+      // protects the engine from duplicate host/document bridges and from any
+      // future secondary capture surface accidentally forwarding the same DOM
+      // event back into the global dispatcher.
+      if (this.handledNativeKeyboardEvents.has(event)) return;
+      this.handledNativeKeyboardEvents.add(event);
 
       const stroke = this.normalizeKeyStroke(event);
       const resolution = this.resolveKeyStroke(stroke, event);
@@ -956,7 +966,10 @@ export class InputEngineService {
         return rightBindingPriority - leftBindingPriority;
       }
 
-      return right.registrationOrder - left.registrationOrder;
+      // Registration timing is not a semantic shortcut priority. Use a stable
+      // identity tie-breaker so plugin/component load order cannot change the
+      // winning command between runs.
+      return compareStableBindingIdentity(left, right);
     });
 
     const best = sorted[0];
@@ -1133,9 +1146,33 @@ export class InputEngineService {
     const right = this.contexts.get(rightId);
     if (!left || !right) return false;
 
+    // Exclusive surfaces replace the ordinary context stack. Two bindings can
+    // only compete while an exclusive surface is active when both belong to
+    // that same exclusive subtree. This prevents the conflict inspector from
+    // reporting Escape/Arrow/Enter collisions between mutually-exclusive
+    // dialogs and overlays that can never receive the same event.
+    const leftExclusiveRoot = this.exclusiveContextRoot(leftId);
+    const rightExclusiveRoot = this.exclusiveContextRoot(rightId);
+    if (leftExclusiveRoot || rightExclusiveRoot) {
+      return !!leftExclusiveRoot && leftExclusiveRoot === rightExclusiveRoot;
+    }
+
     return left.parentId === rightId ||
       right.parentId === leftId ||
       (!!left.parentId && left.parentId === right.parentId);
+  }
+
+  private exclusiveContextRoot(contextId: string): string | null {
+    let current = this.contexts.get(contextId);
+    const visited = new Set<string>();
+
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (current.exclusive) return current.id;
+      current = current.parentId ? this.contexts.get(current.parentId) : undefined;
+    }
+
+    return null;
   }
 
   private sameGesture(left: MouseGesture, right: MouseGesture): boolean {

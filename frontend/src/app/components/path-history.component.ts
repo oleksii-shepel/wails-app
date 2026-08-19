@@ -13,7 +13,7 @@ import { FormsModule } from '@angular/forms';
 
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
-import type { InputBindingDefinition } from '../services/input-system.types';
+import { PATH_HISTORY_INPUT, PATH_HISTORY_INPUT_COMMANDS } from '../services/dialog-input-catalog';
 import {
   PathHistoryService,
   type LocationHistoryEntry,
@@ -24,31 +24,9 @@ import { ModalSurfaceDirective } from './modal-surface.directive';
 
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
-const CONTEXT_ID = 'dialog.pathHistory';
+const CONTEXT_ID = PATH_HISTORY_INPUT.context.id;
 const OWNER_ID = 'dialog.pathHistory';
-const COMMAND = {
-  close:'reassembly.pathHistory.close',
-  previous:'reassembly.pathHistory.previous',
-  next:'reassembly.pathHistory.next',
-  open:'reassembly.pathHistory.open',
-  remove:'reassembly.pathHistory.remove',
-  clear:'reassembly.pathHistory.clear',
-  previousMode:'reassembly.pathHistory.previousMode',
-  nextMode:'reassembly.pathHistory.nextMode',
-  copyJson:'reassembly.pathHistory.copyJson',
-} as const;
-
-const BINDINGS: readonly InputBindingDefinition[] = [
-  { id:'reassembly.pathHistory.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close path history', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
-  { id:'reassembly.pathHistory.up', commandId:COMMAND.previous, contextId:CONTEXT_ID, source:'default', description:'Previous history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
-  { id:'reassembly.pathHistory.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
-  { id:'reassembly.pathHistory.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
-  { id:'reassembly.pathHistory.delete', commandId:COMMAND.remove, contextId:CONTEXT_ID, source:'default', description:'Remove history entry', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
-  { id:'reassembly.pathHistory.ctrlDelete', commandId:COMMAND.clear, contextId:CONTEXT_ID, source:'default', description:'Clear history', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete',modifiers:['ctrl']}]}}},
-  { id:'reassembly.pathHistory.tab', commandId:COMMAND.nextMode, contextId:CONTEXT_ID, source:'default', description:'Next history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'pagedown', modifiers:['ctrl']}]}}},
-  { id:'reassembly.pathHistory.shiftTab', commandId:COMMAND.previousMode, contextId:CONTEXT_ID, source:'default', description:'Previous history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'pageup',modifiers:['ctrl']}]}}},
-  { id:'reassembly.pathHistory.ctrlC', commandId:COMMAND.copyJson, contextId:CONTEXT_ID, source:'default', description:'Copy history JSON', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c',modifiers:['ctrl']}]}}},
-];
+const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
 
 @Component({
   selector:'app-path-history',
@@ -192,7 +170,6 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit():void{
-    this.input.registerContext({id:CONTEXT_ID,kind:'dialog',priority:390, exclusive: true,parentId:'global',description:'Path history'});
     this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Path History',category:'Navigation',execute:()=>this.close()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Path History Entry',category:'Navigation',execute:()=>this.move(-1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Path History Entry',category:'Navigation',execute:()=>this.move(1)},OWNER_ID);
@@ -202,12 +179,10 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.previousMode,title:'Previous History View',category:'Navigation',execute:()=>this.moveMode(-1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.nextMode,title:'Next History View',category:'Navigation',execute:()=>this.moveMode(1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.copyJson,title:'Copy History JSON',category:'Navigation',execute:()=>this.copyJson(),isEnabled:()=>this.entries.length>0},OWNER_ID);
-    for(const binding of BINDINGS)this.input.registerBinding(binding);
   }
 
   ngOnDestroy():void{
     this.input.deactivateContext(CONTEXT_ID);
-    for(const binding of BINDINGS)this.input.unregisterBinding(binding.id);
     for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);
   }
 

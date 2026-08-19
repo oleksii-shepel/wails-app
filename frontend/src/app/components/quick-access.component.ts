@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../services/api.service';
 import { InputEngineService } from '../services/input-engine.service';
-import type { InputBindingDefinition } from '../services/input-system.types';
+import { QUICK_ACCESS_INPUT, QUICK_ACCESS_INPUT_COMMANDS } from '../services/dialog-input-catalog';
 import { PathHistoryService } from '../services/path-history.service';
 import { PinnedLocationService } from '../services/pinned-location.service';
 import { RelatedLocationService } from '../services/related-location.service';
@@ -38,51 +38,9 @@ interface QuickSection {
   items: QuickItem[];
 }
 
-const CONTEXT_ID = 'overlay.quickAccess';
+const CONTEXT_ID = QUICK_ACCESS_INPUT.context.id;
 const OWNER_ID = 'overlay.quickAccess';
-
-const COMMAND = {
-  close: 'reassembly.quickAccess.close',
-  previous: 'reassembly.quickAccess.previous',
-  next: 'reassembly.quickAccess.next',
-  previousSection: 'reassembly.quickAccess.previousSection',
-  nextSection: 'reassembly.quickAccess.nextSection',
-  open: 'reassembly.quickAccess.open',
-  removePin: 'reassembly.quickAccess.removePin',
-  first: 'reassembly.quickAccess.first',
-  last: 'reassembly.quickAccess.last',
-  openSlot1: 'reassembly.quickAccess.openSlot1',
-  openSlot2: 'reassembly.quickAccess.openSlot2',
-  openSlot3: 'reassembly.quickAccess.openSlot3',
-  openSlot4: 'reassembly.quickAccess.openSlot4',
-  openSlot5: 'reassembly.quickAccess.openSlot5',
-  openSlot6: 'reassembly.quickAccess.openSlot6',
-  openSlot7: 'reassembly.quickAccess.openSlot7',
-  openSlot8: 'reassembly.quickAccess.openSlot8',
-  openSlot9: 'reassembly.quickAccess.openSlot9',
-} as const;
-
-const BINDINGS: readonly InputBindingDefinition[] = [
-  { id:'reassembly.quickAccess.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close Quick Access', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
-  { id:'reassembly.quickAccess.up', commandId:COMMAND.previous, contextId:CONTEXT_ID, source:'default', description:'Previous item', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
-  { id:'reassembly.quickAccess.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next item', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
-  { id:'reassembly.quickAccess.shiftTab', commandId:COMMAND.previousSection, contextId:CONTEXT_ID, source:'default', description:'Previous section', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'pageup', modifiers:['ctrl']}]}}},
-  { id:'reassembly.quickAccess.tab', commandId:COMMAND.nextSection, contextId:CONTEXT_ID, source:'default', description:'Next section', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'pagedown', modifiers:['ctrl']}]}}},
-  { id:'reassembly.quickAccess.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open item', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
-  { id:'reassembly.quickAccess.delete', commandId:COMMAND.removePin, contextId:CONTEXT_ID, source:'default', description:'Remove pin', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
-
-  { id:'reassembly.quickAccess.home', commandId:COMMAND.first, contextId:CONTEXT_ID, source:'default', description:'First Quick Access item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'home'}]}}},
-  { id:'reassembly.quickAccess.end', commandId:COMMAND.last, contextId:CONTEXT_ID, source:'default', description:'Last Quick Access item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'end'}]}}},
-  { id:'reassembly.quickAccess.slot1', commandId:COMMAND.openSlot1, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 1', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'1'}]}}},
-  { id:'reassembly.quickAccess.slot2', commandId:COMMAND.openSlot2, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 2', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
-  { id:'reassembly.quickAccess.slot3', commandId:COMMAND.openSlot3, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 3', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
-  { id:'reassembly.quickAccess.slot4', commandId:COMMAND.openSlot4, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 4', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'4'}]}}},
-  { id:'reassembly.quickAccess.slot5', commandId:COMMAND.openSlot5, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 5', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'5'}]}}},
-  { id:'reassembly.quickAccess.slot6', commandId:COMMAND.openSlot6, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 6', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'6'}]}}},
-  { id:'reassembly.quickAccess.slot7', commandId:COMMAND.openSlot7, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 7', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'7'}]}}},
-  { id:'reassembly.quickAccess.slot8', commandId:COMMAND.openSlot8, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 8', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'8'}]}}},
-  { id:'reassembly.quickAccess.slot9', commandId:COMMAND.openSlot9, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 9', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'9'}]}}},
-];
+const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
 
 @Component({
   selector: 'app-quick-access',
@@ -204,7 +162,6 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   get totalItems(): number { return this.filteredSections.reduce((sum,s) => sum + s.items.length, 0); }
 
   ngOnInit(): void {
-    this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priority:380, exclusive: true,parentId:'global',description:'Quick Access'});
     this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Quick Access',category:'Navigation',execute:()=>this.close()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Quick Access Item',category:'Navigation',execute:()=>this.moveItem(-1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Quick Access Item',category:'Navigation',execute:()=>this.moveItem(1)},OWNER_ID);
@@ -223,12 +180,10 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.openSlot7,title:'Open Quick Access Slot 7',category:'Navigation',execute:()=>this.openSlot(6),isEnabled:()=>this.activeItems.length>6},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openSlot8,title:'Open Quick Access Slot 8',category:'Navigation',execute:()=>this.openSlot(7),isEnabled:()=>this.activeItems.length>7},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openSlot9,title:'Open Quick Access Slot 9',category:'Navigation',execute:()=>this.openSlot(8),isEnabled:()=>this.activeItems.length>8},OWNER_ID);
-    for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
 
   ngOnDestroy(): void {
     this.input.deactivateContext(CONTEXT_ID);
-    for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
     for (const id of Object.values(COMMAND)) this.input.unregisterCommandDescriptor(id, OWNER_ID);
   }
 

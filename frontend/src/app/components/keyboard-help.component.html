@@ -1,17 +1,26 @@
-<div class="keyboard-help-overlay" *ngIf="isVisible" (click)="hide()">
-  <div #dialogPanel class="keyboard-help-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
-    <!-- Header -->
-    <div class="modal-header">
-      <div>
-        <h2>Keyboard Shortcuts</h2>
-        <p>Browse and toggle bindings. Press <kbd>?</kbd> or <kbd>Ctrl+/</kbd> to toggle this panel.</p>
-      </div>
-      <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close (Esc)">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 7.293l3.536-3.536.707.707L8.707 8l3.536 3.536-.707.707L8 8.707l-3.536 3.536-.707-.707L7.293 8 3.757 4.464l.707-.707L8 7.293z"/></svg>
-      </button>
-    </div>
+<div class="shortcut-reference-backdrop" *ngIf="isVisible" (click)="hide()">
+  <section
+    #dialogPanel
+    class="shortcut-reference"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Keyboard shortcuts"
+    tabindex="-1"
+    [appTrapFocus]="true"
+    (click)="$event.stopPropagation()">
 
-    <!-- Search Bar -->
+    <header class="reference-header">
+      <div>
+        <h2>Keyboard shortcuts</h2>
+        <p>Currently active keyboard bindings.</p>
+      </div>
+
+      <div class="reference-header-actions">
+        <span class="close-hint"><kbd>F1</kbd> to close</span>
+        <button type="button" class="close-button" (click)="hide()" aria-label="Close" title="Close">×</button>
+      </div>
+    </header>
+
     <div class="search-bar">
       <input
         #searchInput
@@ -23,82 +32,40 @@
         class="search-input"
         autofocus
       />
-      <button
-        *ngIf="searchText"
-        (click)="clearSearch()"
-        class="btn-clear"
-        title="Clear search"
-      >
-        ✕
-      </button>
+      <button *ngIf="searchText" type="button" class="clear-button" (click)="clearSearch()" title="Clear search">×</button>
     </div>
 
-    <!-- Shortcuts List -->
-    <div class="shortcuts-list" appVscodeScrollbar>
+    <div class="reference-body" appVscodeScrollbar>
       <div *ngIf="filteredCategories.length === 0" class="no-results">
         No shortcuts found for "{{ searchText }}"
       </div>
 
-      <div *ngFor="let category of filteredCategories" class="shortcut-category">
-        <h3 class="category-name">{{ category.name }}</h3>
-        
-        <div class="shortcuts">
-          <div 
-            *ngFor="let binding of category.bindings"
-            class="shortcut-item"
-            [class.disabled]="binding.enabled === false"
-          >
-            <div class="shortcut-left">
-              <span class="shortcut-key">{{ formatBinding(binding) }}</span>
-              <span class="shortcut-description">{{ binding.description }}</span>
+      <section *ngFor="let category of filteredCategories" class="shortcut-category">
+        <h3>{{ category.name }}</h3>
+
+        <div class="shortcut-list">
+          <div *ngFor="let binding of category.bindings" class="shortcut-row">
+            <div class="shortcut-keys">
+              <ng-container *ngFor="let step of bindingKeySteps(binding); let stepIndex = index">
+                <span class="key-step">
+                  <ng-container *ngFor="let key of step; let keyIndex = index">
+                    <kbd>{{ key }}</kbd>
+                    <span *ngIf="keyIndex < step.length - 1" class="plus">+</span>
+                  </ng-container>
+                </span>
+                <span *ngIf="stepIndex < bindingKeySteps(binding).length - 1" class="then">then</span>
+              </ng-container>
             </div>
-            
-            <div class="shortcut-right">
-              <label class="toggle-switch">
-                <input
-                  type="checkbox"
-                  [checked]="binding.enabled !== false"
-                  (change)="toggleBinding(binding)"
-                />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
+
+            <div class="shortcut-description">{{ binding.description }}</div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
 
-    <!-- Footer -->
-    <div class="modal-footer">
-      <div class="footer-left">
-        <button (click)="exportConfig()" class="btn-secondary">
-          Export Config
-        </button>
-        <button (click)="fileInput.click()" class="btn-secondary">
-          Import Config
-        </button>
-        <input
-          #fileInput
-          type="file"
-          accept=".json"
-          (change)="importConfig($event)"
-          style="display: none"
-        />
-      </div>
-      
-      <div class="footer-right">
-        <button (click)="resetToDefaults()" class="btn-secondary">
-          Reset to Defaults
-        </button>
-        <button (click)="hide()" class="btn-primary">
-          Close
-        </button>
-      </div>
-    </div>
-
-    <!-- Hint -->
-    <div class="modal-hint">
-      Press <kbd>?</kbd> or <kbd>Ctrl+/</kbd> to toggle this help
-    </div>
-  </div>
+    <footer class="reference-footer">
+      <span>Live bindings only</span>
+      <span>Press <kbd>F1</kbd> or <kbd>Esc</kbd> to close</span>
+    </footer>
+  </section>
 </div>

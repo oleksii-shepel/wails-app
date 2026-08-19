@@ -85,8 +85,19 @@ import type {
           <button type="button" (click)="cancelCapture()">Cancel</button>
         </div>
 
-        <div class="content">
-          <div class="binding-list" role="list">
+        <div class="content" [class.empty-content]="visibleBindings.length === 0">
+          <div class="empty-state" *ngIf="visibleBindings.length === 0">
+            <ng-container *ngIf="conflictsOnly && conflicts.length === 0; else noBindingMatches">
+              <strong>No shortcut conflicts</strong>
+              <span>All currently registered bindings resolve without an actionable conflict.</span>
+            </ng-container>
+            <ng-template #noBindingMatches>
+              <strong>No matching bindings</strong>
+              <span>Try changing the search text, device filter, or conflict filter.</span>
+            </ng-template>
+          </div>
+
+          <div class="binding-list" role="list" *ngIf="visibleBindings.length > 0">
             <article
               *ngFor="let binding of visibleBindings; trackBy: trackBinding"
               class="binding"
@@ -154,8 +165,8 @@ import type {
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:8600;pointer-events:none}
-    .backdrop{position:absolute;inset:0;display:grid;place-items:center;padding:20px;background:var(--vsc-scrim);pointer-events:auto}
-    .panel{display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;width:min(980px,calc(100vw - 40px));height:min(760px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-dialog-foreground,var(--vsc-foreground));box-shadow:0 14px 48px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif)}
+    .backdrop{position:absolute;inset:0;box-sizing:border-box;display:grid;place-items:center;padding:20px;background:var(--vsc-scrim);pointer-events:auto;overflow:hidden}
+    .panel{box-sizing:border-box;display:flex;flex-direction:column;width:min(980px,calc(100vw - 40px));height:min(760px,calc(100dvh - 40px));max-height:calc(100dvh - 40px);min-height:0;overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-dialog-foreground,var(--vsc-foreground));box-shadow:0 14px 48px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer,.toolbar,.capture-banner{display:flex;align-items:center;gap:8px;padding:8px 10px;border-color:var(--vsc-border-subtle,var(--vsc-border))}
     header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     header h2{margin:0;font-size:14px} header p{margin:2px 0 0;color:var(--vsc-description-foreground)}
@@ -170,7 +181,13 @@ import type {
     .check{display:flex;align-items:center;gap:4px}.summary{margin-left:auto;color:var(--vsc-description-foreground)}
     .capture-banner{border-bottom:1px solid var(--vsc-border);background:color-mix(in srgb,var(--vsc-accent-blue) 8%,var(--vsc-panel-background));flex-wrap:wrap}
     .capture-banner strong{color:var(--vsc-foreground)}.capture-banner span{color:var(--vsc-description-foreground)}.capture-banner .captured{padding:2px 6px;border:1px solid var(--vsc-focus-border);border-radius:3px;color:var(--vsc-foreground)}
-    .content{min-height:0;overflow:auto}
+    header,.toolbar,.capture-banner,footer{flex:0 0 auto}
+    .content{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
+    .content.empty-content{display:grid;place-items:center;overflow:hidden}
+    .empty-state{display:grid;justify-items:center;gap:6px;max-width:460px;padding:28px;text-align:center;color:var(--vsc-description-foreground)}
+    .empty-state strong{color:var(--vsc-foreground);font-size:14px;font-weight:600}
+    .empty-state span{max-width:420px;line-height:1.45}
+    footer{position:relative;z-index:1;justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-dialog-background,var(--vsc-panel-background))}
     .binding-list{display:grid}
     .binding{display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,260px) 32px 56px;align-items:center;gap:7px;min-height:44px;padding:5px 9px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     .binding:hover{background:var(--vsc-list-hover-background)}.binding.disabled{opacity:.58}.binding.overridden{box-shadow:inset 2px 0 0 var(--vsc-accent-blue)}.binding.conflict{background:color-mix(in srgb,var(--vsc-warning) 6%,transparent)}
@@ -179,6 +196,7 @@ import type {
     .enabled{display:grid;place-items:center}.reset{padding-inline:5px}
     .conflict-copy{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--vsc-warning)}
     footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border))}footer>div{display:flex;gap:5px}.primary{background:var(--vsc-button-background);color:var(--vsc-button-foreground)}
+    @supports not (height: 100dvh){.panel{height:min(760px,calc(100vh - 40px));max-height:calc(100vh - 40px)}}
     @media(max-width:700px){.binding{grid-template-columns:minmax(0,1fr) 120px 28px}.reset{grid-column:1/-1;justify-self:end}.summary{width:100%;margin-left:0}}
   `],
 })

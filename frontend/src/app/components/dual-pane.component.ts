@@ -275,7 +275,7 @@ const COMMAND = {
 
 const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.reopenClosedTab.ctrlShiftT', commandId:COMMAND.reopenClosedTab, contextId:CONTEXT_ID, source:'default', description:'Reopen last closed tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['ctrl','shift']}]}}},
-  { id:'reassembly.edit.operationHistory.ctrlShiftH', commandId:COMMAND.operationHistory, contextId:CONTEXT_ID, source:'default', description:'Open operation history', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.edit.operationHistory.ctrlShiftH', commandId:COMMAND.operationHistory, contextId:CONTEXT_ID, source:'default', description:'Open operation history', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','alt']}]}}},
   { id:'reassembly.mouse.file.doubleClick', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open selected item with double-click', category:'Mouse', when:'fileEntry && !viewerSurface', trigger:{device:'mouse', gesture:{type:'doubleClick', button:'left'}}},
   { id:'reassembly.mouse.viewer.ctrlWheelUp', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'up'}}},
   { id:'reassembly.mouse.viewer.ctrlWheelDown', commandId:COMMAND.viewerZoomOut, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer out with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'down'}}},
@@ -288,9 +288,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.layout.widenLeft.altShiftLeft', commandId:COMMAND.widenLeftPane, contextId:CONTEXT_ID, source:'default', description:'Widen left pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft', modifiers:['alt','shift']}]}}},
   { id:'reassembly.layout.widenRight.altShiftRight', commandId:COMMAND.widenRightPane, contextId:CONTEXT_ID, source:'default', description:'Widen right pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright', modifiers:['alt','shift']}]}}},
   { id:'reassembly.layout.resetSplit.altShift0', commandId:COMMAND.resetPaneSplit, contextId:CONTEXT_ID, source:'default', description:'Reset pane split', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['alt','shift']}]}}},
-  { id:'reassembly.help.shortcuts.f1', commandId:COMMAND.toggleShortcutHelp, contextId:CONTEXT_ID, source:'default', description:'Show keyboard shortcuts', category:'Help', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f1'}]}}},
-  { id:'reassembly.help.shortcutReference.ctrlSlash', commandId:COMMAND.showShortcutReference, contextId:'global', source:'default', description:'Show shortcut reference', category:'Help', trigger:{device:'keyboard', chord:{steps:[{key:'/', modifiers:['ctrl']}]}}},
-  { id:'reassembly.help.shortcutReference.ctrlShiftSlash', commandId:COMMAND.showShortcutReference, contextId:'global', source:'default', description:'Show shortcut reference', category:'Help', trigger:{device:'keyboard', chord:{steps:[{key:'/', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.help.shortcutReference.f1', commandId:COMMAND.showShortcutReference, contextId:'global', source:'default', priority:1000, description:'Show shortcut reference', category:'Help', trigger:{device:'keyboard', chord:{steps:[{key:'f1'}]}}},
+  { id:'reassembly.help.inputCenter.ctrlAltK', commandId:COMMAND.toggleShortcutHelp, contextId:'global', source:'default', description:'Open Input & Shortcuts', category:'Help', trigger:{device:'keyboard', chord:{steps:[{key:'k', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.files.deletePermanent.shiftDelete', commandId:COMMAND.deletePermanent, contextId:CONTEXT_ID, source:'default', description:'Delete permanently', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete', modifiers:['shift']}]}}},
   { id:'reassembly.files.properties.altEnter', commandId:COMMAND.properties, contextId:CONTEXT_ID, source:'default', description:'Properties', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter', modifiers:['alt']}]}}},
   { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:'global', source:'default', description:'Open command palette', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
@@ -355,8 +354,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},
-  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
-  { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
+  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing && !viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
+  { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing && !viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
   { id:'reassembly.compare.toggle.altShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['alt','shift']}]}}},
   { id:'reassembly.compare.recursive.ctrlShiftAltC', commandId:COMMAND.recursiveComparePanes, contextId:CONTEXT_ID, source:'default', description:'Recursive pane compare', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift','alt']}]}}},
 
@@ -984,7 +983,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   commandPalette?: CommandPaletteComponent;
   @ViewChild('keyboardHelp')
   keyboardHelp?: KeyboardHelpComponent;
-  @ViewChild('globalSearch')
+@ViewChild('globalSearch')
   globalSearchOverlay?: GlobalSearchComponent;
   @ViewChild('pathHistory')
   pathHistory?: PathHistoryComponent;
@@ -2480,6 +2479,15 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (focusContent) {
       queueMicrotask(() => this.activePane?.focusContent());
     }
+  }
+
+  showShortcutReference(): void {
+    const help = this.keyboardHelp;
+    if (!help) {
+      console.warn('[shortcuts] KeyboardHelpComponent is not mounted.');
+      return;
+    }
+    help.show();
   }
 
   toggleShortcutHelp(): void {
@@ -5101,8 +5109,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       });
     };
 
-    descriptor(COMMAND.toggleShortcutHelp, 'Keyboard Shortcuts', 'Help', () => this.toggleShortcutHelp());
-    descriptor(COMMAND.showShortcutReference, 'Shortcut Reference', 'Help', () => this.keyboardHelp?.show());
+    descriptor(COMMAND.toggleShortcutHelp, 'Input & Shortcuts', 'Help', () => this.toggleShortcutHelp());
+    descriptor(COMMAND.showShortcutReference, 'Shortcut Reference', 'Help', () => this.showShortcutReference());
     descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', async () => {
       await this.refreshCommandPaletteCommands();
       this.openCommandPaletteSurface();

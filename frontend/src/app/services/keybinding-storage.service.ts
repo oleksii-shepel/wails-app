@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { InputTrigger, InputBindingDefinition } from './input-system.types';
 import { BROWSER_BINDINGS } from '../components/file-browser-command-registry';
-import { DIALOG_INPUT_CATALOG } from './dialog-input-catalog';
+import { BUILTIN_INPUT_CATALOG } from './dialog-input-catalog';
 
 export interface KeybindingOverride {
   id: string;
@@ -16,7 +16,7 @@ function buildDefaultCatalog(): Map<string, InputBindingDefinition> {
   for (const binding of BROWSER_BINDINGS) {
     map.set(binding.id, binding);
   }
-  for (const entry of DIALOG_INPUT_CATALOG) {
+  for (const entry of BUILTIN_INPUT_CATALOG) {
     for (const binding of entry.bindings) {
       map.set(binding.id, binding);
     }

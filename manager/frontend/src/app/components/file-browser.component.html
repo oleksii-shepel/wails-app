@@ -1,0 +1,205 @@
+<div class="file-manager-root">
+  <!-- Main content column: toolbar + panes -->
+  <div class="file-manager-inner">
+    <!-- Top Toolbar with Workspace Selector -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <app-workspace-selector
+          [workspaces]="workspaceList"
+          [activeWorkspace]="activeWorkspace"
+          [showMenu]="showWorkspaceMenu"
+          (menuToggle)="showWorkspaceMenu = $event"
+          (workspaceChange)="switchWorkspace($event.id)"
+          (createNew)="createNewWorkspace()"
+          (rename)="renameCurrentWorkspace()"
+          (deleteWorkspace)="deleteCurrentWorkspace()"
+        ></app-workspace-selector>
+      </div>
+
+      <div class="toolbar-center">
+        <h1>File Manager</h1>
+      </div>
+
+      <div class="toolbar-right">
+        <span *ngIf="pendingChord$ | async as pendingChord" class="pending-chord-indicator" title="Waiting for next key in shortcut sequence">
+          {{ formatPendingChord(pendingChord) }}
+        </span>
+        <ng-container *ngIf="showShortcutDebug">
+          <span *ngIf="shortcutDebug$ | async as shortcutDebugValue" class="shortcut-debug-indicator">
+            <ng-container *ngIf="asShortcutDebugTrace(shortcutDebugValue) as shortcutDebug">
+              Palette {{ hasBinding('pane.nav.openCommandPalette.ctrlShiftP') ? 'yes' : 'no' }}
+              · Pin {{ hasBinding('pane.tabs.pin.ctrlAltP') ? 'yes' : 'no' }}
+              · {{ shortcutDebug.stroke }} → {{ shortcutDebug.stage }}<ng-container *ngIf="shortcutDebug.commandId"> · {{ shortcutDebug.commandId }}</ng-container>
+            </ng-container>
+          </span>
+        </ng-container>
+        <button
+          (click)="toggleElevation()"
+          [class.active]="elevationActive"
+          [disabled]="elevationBusy"
+          class="btn"
+          [title]="elevationActive ? 'Stop elevated service session' : 'Start elevated service session'"
+        >
+          {{ elevationBusy ? 'Elevation…' : (elevationActive ? 'Elevate' : 'Elevate') }}
+        </button>
+        <button
+          (click)="commandPalette?.show()"
+          class="btn"
+          title="Open Command Palette (Ctrl+Shift+P)">
+          Commands
+        </button>
+        <button
+          (click)="togglePaneComparison()"
+          [class.active]="comparisonVisible"
+          [disabled]="!canComparePanes()"
+          class="btn"
+          title="Compare the two folder panes">
+          Compare
+        </button>
+        <button (click)="selectionBasket?.show()" class="btn" title="Open Selection Basket">
+          Basket<span *ngIf="selectionBasketService.count$ | async as basketCount"> · {{ basketCount }}</span>
+        </button>
+        <button (click)="operationCenter?.show()" class="btn" title="Open Operations Center">
+          Operations<span *ngIf="operationService.activeCount$ | async as activeCount"> · {{ activeCount }}</span>
+        </button>
+        <button (click)="toggleShowHidden()" [class.active]="showHidden" class="btn">
+          {{ showHidden ? 'Hide' : 'Show' }} Hidden
+        </button>
+        <button (click)="toggleThemePreference()" class="btn" title="Toggle theme">
+          Theme
+        </button>
+        <button (click)="toggleCompactMode()" [class.active]="(theme.getCompact$() | async)" class="btn" title="Toggle compact UI">
+          Compact
+        </button>
+        <div class="window-controls">
+          <button (click)="minimizeWindow()" class="btn window-btn" title="Minimize">
+            <svg width="10" height="10" viewBox="0 0 10 10"><rect y="8" width="10" height="1.5" fill="currentColor" rx="0.5"/></svg>
+          </button>
+          <button (click)="toggleMaximizeWindow()" class="btn window-btn" [title]="isMaximized ? 'Restore' : 'Maximize'">
+            <svg *ngIf="!isMaximized" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <rect x="2" y="2.5" width="8" height="7" fill="none" stroke="currentColor" stroke-width="1"/>
+              <path d="M2 4h8" fill="none" stroke="currentColor" stroke-width="1"/>
+            </svg>
+            <svg *ngIf="isMaximized" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M4 2.5h6v5H9" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
+              <path d="M2 4.5h6v5H2z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
+              <path d="M4 4h6" fill="none" stroke="currentColor" stroke-width="1"/>
+            </svg>
+          </button>
+          <button (click)="closeWindow()" class="btn window-btn window-close" title="Close">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <app-pane-comparison-bar
+      [visible]="comparisonVisible"
+      [leftEntries]="leftPane.entries"
+      [rightEntries]="rightPane.entries"
+      [leftPath]="leftPane.currentPath"
+      [rightPath]="rightPane.currentPath"
+      [recursive]="comparisonRecursive"
+      [scanning]="recursiveComparisonScanning"
+      [error]="recursiveComparisonError"
+      [comparisonResult]="paneComparisonResult"
+      (toggleRecursive)="toggleRecursiveComparison()"
+      (refreshRecursive)="refreshRecursiveComparison()"
+      (selectLeft)="selectComparisonDifferences('left')"
+      (selectRight)="selectComparisonDifferences('right')"
+      (copyMissingLeftToRight)="copyMissingComparison('left')"
+      (copyMissingRightToLeft)="copyMissingComparison('right')"
+      (review)="openSyncReview()"
+      (close)="closePaneComparison()">
+    </app-pane-comparison-bar>
+
+    <app-pane-sync-review
+      [visible]="syncReviewVisible"
+      [result]="paneComparisonResult"
+      (execute)="executeSyncPlan($event)"
+      (close)="closeSyncReview()">
+    </app-pane-sync-review>
+
+    <!-- Main Panes Container with Resizable Split -->
+    <div class="panes-container" #panesContainer>
+
+      <!-- Left Pane -->
+      <div class="pane-wrapper left-pane" [style.width]="computePaneWidth(leftPaneWidth)" [class.pane-inactive]="activePaneId !== 'left'">
+        <app-file-pane
+          #leftPane
+          paneId="left"
+          [workspace]="activeWorkspace"
+          [showHidden]="showHidden"
+          [paneActive]="activePaneId === 'left'"
+          [actionAvailability]="leftActionAvailability"
+          [showTabBar]="viewSettings.showTabBar"
+          [showPathBar]="viewSettings.showPathBar"
+          [showBreadcrumbs]="viewSettings.showBreadcrumbs"
+          (mousedown)="setActivePane('left')"
+          (pathChange)="onPanePathChange('left', $event)"
+          (previewTargetChange)="onPanePreviewTarget('left', $event)"
+          (activeTabChange)="onPaneActiveTabChanged('left', $event)"
+          (copyToOther)="onCopyFromLeft($event)"
+          (moveToOther)="onMoveFromLeft($event)">
+        </app-file-pane>
+      </div>
+
+      <!-- NEW Divider Component -->
+      <app-split-divider
+        [position]="leftPaneWidth"
+        [min]="20"
+        [max]="80"
+        [snapPoints]="[20,25,33.333,50,66.666,75,80]"
+        (positionChange)="onPaneDividerPositionChange($event)">
+      </app-split-divider>
+
+      <!-- Right Pane -->
+      <div class="pane-wrapper right-pane" [style.width]="computePaneWidth(rightPaneWidth)" [class.pane-inactive]="activePaneId !== 'right'">
+        <app-file-pane
+          #rightPane
+          paneId="right"
+          [workspace]="activeWorkspace"
+          [showHidden]="showHidden"
+          [paneActive]="activePaneId === 'right'"
+          [actionAvailability]="rightActionAvailability"
+          [showTabBar]="viewSettings.showTabBar"
+          [showPathBar]="viewSettings.showPathBar"
+          [showBreadcrumbs]="viewSettings.showBreadcrumbs"
+          (mousedown)="setActivePane('right')"
+          (pathChange)="onPanePathChange('right', $event)"
+          (previewTargetChange)="onPanePreviewTarget('right', $event)"
+          (activeTabChange)="onPaneActiveTabChanged('right', $event)"
+          (copyToOther)="onCopyFromRight($event)"
+          (moveToOther)="onMoveFromRight($event)">
+        </app-file-pane>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Overlays and modals (not part of flex sizing) -->
+  <app-path-history-viewer></app-path-history-viewer>
+  <app-global-search (resultSelected)="onGlobalSearchResult($event)" (searchFolderRequested)="onGlobalSearchFolder($event)"></app-global-search>
+  <app-keyboard-help></app-keyboard-help>
+  <app-command-palette></app-command-palette>
+  <app-selection-basket
+    (copyTo)="copySelectionBasketTo($event)"
+    (moveTo)="moveSelectionBasketTo($event)"
+    (deleteRequested)="deleteSelectionBasket()">
+  </app-selection-basket>
+  <app-operation-center></app-operation-center>
+  <app-operation-toast-stack #toastStack [collapsed]="toastCollapsed">
+  </app-operation-toast-stack>
+
+  <app-status-bar
+    *ngIf="viewSettings.showStatusBar"
+    [filteredEntries]="statusFilteredEntries"
+    [allEntries]="statusAllEntries"
+    [selectedPaths]="statusSelectedPaths">
+    <app-elevation-status-pill></app-elevation-status-pill>
+    <app-operation-status-bar
+      [(toastCollapsed)]="toastCollapsed"
+      [stackElement]="toastStack?.elementRef.nativeElement ?? null">
+    </app-operation-status-bar>
+  </app-status-bar>
+</div>

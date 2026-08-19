@@ -1,0 +1,192 @@
+package app
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"os"
+
+	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
+	internalplatform "wails-app/internal/platform"
+)
+
+func (a *App) GetOSInfo() contracts.OSInfoResponse {
+	return internalplatform.GetOSInfo()
+}
+
+func (a *App) ListDrives() contracts.DrivesList {
+	return internalplatform.ListDrives()
+}
+
+// Deprecated: use ListDrives instead.
+func (a *App) GetDrives() contracts.DrivesList {
+	return a.ListDrives()
+}
+
+func (a *App) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
+	return a.State.ListDirectory(path, showHidden)
+}
+
+// Deprecated: use ListDirectory instead.
+func (a *App) ListDir(path string, showHidden bool) (*contracts.DirectoryListing, error) {
+	return a.ListDirectory(path, showHidden)
+}
+
+func (a *App) ListDirFiltered(path string, showHidden bool, filter contracts.FilterQuery) (*contracts.DirectoryListing, error) {
+	listing, err := a.ListDirectory(path, showHidden)
+	if err != nil {
+		return nil, err
+	}
+	listing.Entries = filterEntries(listing.Entries, filter)
+	return listing, nil
+}
+
+func (a *App) DirSizeRecursive(path string) (int64, error) {
+	return a.Filesystem.DirSizeRecursive(path)
+}
+
+func (a *App) GetFileInfo(path string) (*contracts.FileInfo, error) {
+	return a.State.GetFileInfo(path)
+}
+
+// Deprecated: use GetFileInfo instead.
+func (a *App) FileInfo(path string) (*contracts.FileInfo, error) {
+	return a.GetFileInfo(path)
+}
+
+func (a *App) ReadFile(path string, encoding string) (*contracts.FileContent, error) {
+	return a.Filesystem.ReadFile(path, encoding)
+}
+
+// Deprecated: use ReadFile instead.
+func (a *App) ReadFileContent(path string, encoding string) (*contracts.FileContent, error) {
+	return a.ReadFile(path, encoding)
+}
+
+func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
+	return a.State.ProbeFile(path)
+}
+
+// HashFile returns a SHA-256 digest for a file resolved through the normal public-path chain.
+// Mounted VFS sources (cloud, SMB, memory and other providers) are streamed directly
+// instead of being forced through a native-path conversion.
+func (a *App) HashFile(path string) (string, error) {
+	normalized := pathref.Normalize(path)
+	var reader io.ReadCloser
+
+	if a.State != nil && a.State.vfs != nil && a.State.vfs.IsMounted(pathref.ToVFS(normalized)) {
+		f, err := a.State.vfs.Open(context.Background(), pathref.ToVFS(normalized))
+		if err != nil {
+			return "", err
+		}
+		reader = f
+	} else {
+		resolved, err := a.State.Filesystem.RealPath(normalized)
+		if err != nil {
+			return "", err
+		}
+		f, err := os.Open(resolved)
+		if err != nil {
+			return "", err
+		}
+		reader = f
+	}
+	defer reader.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, reader); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (a *App) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {
+	return a.Filesystem.ReadFileRange(path, offset, length)
+}
+
+func (a *App) ReadFileStream(path string, chunkSize int) (string, error) {
+	streamID, err := a.Filesystem.ReadFileStream(path, chunkSize, a.EmitEvent)
+	return streamID, err
+}
+
+func (a *App) CancelReadFileStream(streamID string) {
+	a.Filesystem.CancelReadStream(streamID)
+}
+
+func (a *App) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
+	return a.Filesystem.WriteFile(path, content, encoding)
+}
+
+// Deprecated: use WriteFile instead.
+func (a *App) WriteFileContent(path string, content string, encoding string) (*contracts.OperationResult, error) {
+	return a.WriteFile(path, content, encoding)
+}
+
+func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
+	return a.Filesystem.DeleteFile(path, recursive, useTrash)
+}
+
+// Deprecated: use DeleteFile instead.
+func (a *App) Delete(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
+	return a.DeleteFile(path, recursive, useTrash)
+}
+
+func (a *App) CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error) {
+	return a.Filesystem.CreateDirectory(path, recursive)
+}
+
+// Deprecated: use CreateDirectory instead.
+func (a *App) CreateDir(path string, recursive bool) (*contracts.OperationResult, error) {
+	return a.CreateDirectory(path, recursive)
+}
+
+func (a *App) MoveFile(source, destination string) (*contracts.OperationResult, error) {
+	return a.Filesystem.MoveFile(source, destination)
+}
+
+// Deprecated: use MoveFile instead.
+func (a *App) Move(source, destination string) (*contracts.OperationResult, error) {
+	return a.MoveFile(source, destination)
+}
+
+func (a *App) CopyFile(source, destination string, recursive bool) (*contracts.OperationResult, error) {
+	return a.Filesystem.CopyFile(source, destination, recursive)
+}
+
+// Deprecated: use CopyFile instead.
+func (a *App) Copy(source, destination string, recursive bool) (*contracts.OperationResult, error) {
+	return a.CopyFile(source, destination, recursive)
+}
+
+func (a *App) SearchFiles(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
+	return a.Filesystem.SearchFiles(path, pattern, recursive)
+}
+
+// Deprecated: use SearchFiles instead.
+func (a *App) Search(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
+	return a.SearchFiles(path, pattern, recursive)
+}
+
+func (a *App) BuildSearchAlias(path, pattern string, recursive bool) (string, error) {
+	return pathref.BuildSearch(path, pattern, recursive)
+}
+
+func (a *App) AnalyzeDiskUsage(path string) (*contracts.DiskUsageResult, error) {
+	return a.Filesystem.AnalyzeDiskUsage(path)
+}
+
+func (a *App) StartDiskUsageStream(path string) (string, error) {
+	return a.Filesystem.StartDiskUsageStream(path)
+}
+
+// JoinMountNamespace instructs the backend to join a mount namespace (Unix only).
+// The expected argument is the namespace path printed by memfs, e.g. /proc/<pid>/ns/mnt.
+func (a *App) JoinMountNamespace(nsPath string) error {
+	return internalplatform.JoinMountNamespace(nsPath)
+}
+
+func (a *App) CancelDiskUsageStream(scanID string) {
+	a.Filesystem.CancelDiskUsageStream(scanID)
+}

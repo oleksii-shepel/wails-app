@@ -472,4 +472,3 @@ The frontend expects the backend to:
 - ⚠️ [frontend/src/app/viewers/builtins/image-viewer.component.ts](frontend/src/app/viewers/builtins/image-viewer.component.ts) — Issue #3
 - ✅ [frontend/src/app/surfaces/dir/dir-list-stream.controller.ts](frontend/src/app/surfaces/dir/dir-list-stream.controller.ts)
 - ✅ [frontend/src/app/services/api.service.ts](frontend/src/app/services/api.service.ts)
-

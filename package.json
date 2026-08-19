@@ -1,0 +1,16 @@
+{
+  "name": "reassembly-workspace",
+  "private": true,
+  "scripts": {
+    "build:frontend": "npm --prefix manager/frontend run build",
+    "build:go": "go build ./manager/...",
+    "build:app": "cd manager && wails build",
+    "build": "npm run build:app",
+
+    "test:frontend": "npm --prefix manager/frontend test",
+    "test:go": "go test ./manager/...",
+    "test": "npm run test:frontend && npm run test:go",
+
+    "check": "npm run build:frontend && npm run build:go"
+  }
+}

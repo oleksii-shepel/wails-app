@@ -48,12 +48,12 @@ temp/
 *.tmp
 
 # Wails + Angular
-frontend/node_modules/
-frontend/dist/
-frontend/.angular/
-frontend/.angular/cache
-frontend/package.json.md5
-frontend/yarn.lock
+manager/frontend/node_modules/
+manager/frontend/dist/
+manager/frontend/.angular/
+manager/frontend/.angular/cache
+manager/frontend/package.json.md5
+manager/frontend/yarn.lock
 
 # IDE
 .vscode/
@@ -95,3 +95,6 @@ coverage/
 tmp/
 temp/
 *.tmp
+# Plugin workspaces
+plugins/*/node_modules/
+plugins/*/dist/

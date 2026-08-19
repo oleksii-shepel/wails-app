@@ -1,0 +1,323 @@
+/* Import VS Code theme tokens */
+@use './vscode-theme.scss';
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --op-blue: var(--vsc-chart-1);
+  --op-purple: var(--vsc-chart-4);
+  --op-red: var(--vsc-error);
+  --op-orange: var(--vsc-chart-6);
+  --op-green: var(--vsc-chart-5);
+  --op-cyan: var(--vsc-chart-7);
+  --op-teal: var(--vsc-chart-2);
+  --op-indigo: var(--vsc-accent-purple);
+  --op-gray: var(--vsc-foreground-dim);
+  --border-color: var(--vsc-border);
+  --panel-bg: var(--vsc-panel-background);
+  --font-mono: var(--vsc-font-family-mono);
+  --vsc-bg: var(--vsc-editor-background);
+  --vsc-fg: var(--vsc-foreground);
+  --vsc-button-bg: var(--vsc-button-background);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--vsc-font-family);
+  font-size: var(--vsc-font-size);
+  line-height: var(--vsc-line-height);
+  background: var(--vsc-editor-background);
+  color: var(--vsc-foreground);
+  /* Native OS text rendering (ClearType on Windows, subpixel on macOS)
+     gives sharper small text than forced grayscale anti-aliasing. */
+}
+
+code, pre {
+  font-family: var(--vsc-font-family-mono);
+}
+
+/* VS Code-style pane scrollbars use an overlay thumb instead of the browser's
+   native scrollbar chrome. Apply through the shared directive so pane scroll
+   hosts stay DRY and visually consistent. */
+.vsc-scroll-host {
+  position: relative;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+.vsc-scroll-anchor {
+  position: relative;
+}
+
+.vsc-scroll-host::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.vsc-scrollbar {
+  position: absolute;
+  width: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--vsc-transition-fast, 0.1s ease);
+  z-index: 3;
+}
+
+.vsc-scroll-anchor--hover > .vsc-scrollbar,
+.vsc-scroll-anchor--visible > .vsc-scrollbar,
+.vsc-scroll-anchor--dragging > .vsc-scrollbar {
+  opacity: 1;
+}
+
+.vsc-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  min-height: 20px;
+  border-radius: 0;
+  background: var(--vsc-scrollbar-thumb);
+  pointer-events: auto;
+  transition: background-color var(--vsc-transition-fast, 0.1s ease);
+}
+
+.vsc-scrollbar-thumb:hover {
+  background: var(--vsc-scrollbar-thumb-hover);
+}
+
+.vsc-scroll-anchor--dragging .vsc-scrollbar-thumb {
+  background: var(--vsc-scrollbar-thumb-active, var(--vsc-scrollbar-thumb-hover));
+}
+
+/* === Focus Outline === */
+:focus {
+  outline: 1px solid var(--vsc-input-focus-border);
+  outline-offset: -1px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* === Selection === */
+::selection {
+  background: var(--vsc-list-active-background);
+  color: var(--vsc-list-active-foreground);
+}
+
+/* === Links === */
+a {
+  color: var(--vsc-text-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* === Buttons (VS Code Style) === */
+button, .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vsc-padding-sm);
+  padding: var(--vsc-padding-sm) var(--vsc-padding-md);
+  background: var(--vsc-button-background);
+  color: var(--vsc-button-foreground);
+  border: 1px solid transparent;
+  border-radius: var(--vsc-border-radius-sm);
+  font-family: var(--vsc-font-family);
+  font-size: var(--vsc-font-size);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--vsc-transition-fast);
+  
+  &:hover:not(:disabled) {
+    background: var(--vsc-button-hover);
+  }
+  
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  
+  &:disabled {
+    background: var(--vsc-button-disabled-background);
+    color: var(--vsc-button-disabled-foreground);
+    border-color: var(--vsc-border-subtle);
+    opacity: 1;
+    cursor: not-allowed;
+  }
+  
+  &.secondary {
+    background: var(--vsc-button-secondary);
+    color: var(--vsc-button-secondary-foreground);
+    
+    &:hover:not(:disabled) {
+      background: var(--vsc-button-secondary-hover);
+    }
+  }
+  
+  &.icon-only {
+    padding: var(--vsc-padding-sm);
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* === Input Fields (VS Code Style) === */
+input[type="text"],
+input[type="search"],
+input[type="number"],
+textarea {
+  padding: var(--vsc-padding-sm) var(--vsc-padding-md);
+  background: var(--vsc-input-background);
+  color: var(--vsc-input-foreground);
+  border: 1px solid var(--vsc-input-border);
+  border-radius: var(--vsc-border-radius-sm);
+  font-family: var(--vsc-font-family);
+  font-size: var(--vsc-font-size);
+  transition: border-color var(--vsc-transition-fast);
+  
+  &::placeholder {
+    color: var(--vsc-input-placeholder);
+  }
+  
+  &:focus {
+    border-color: var(--vsc-input-focus-border);
+    outline: none;
+  }
+}
+
+/* === Badges === */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
+  background: var(--vsc-badge-background);
+  color: var(--vsc-badge-foreground);
+  border-radius: 11px;
+  font-size: var(--vsc-font-size-small);
+  font-weight: 600;
+  min-width: 18px;
+  height: 18px;
+}
+
+/* === Kbd Styling === */
+kbd {
+  display: inline-block;
+  padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
+  background: var(--vsc-input-background);
+  border: 1px solid var(--vsc-border);
+  border-radius: var(--vsc-border-radius-sm);
+  font-family: var(--vsc-font-family-mono);
+  font-size: var(--vsc-font-size-small);
+  color: var(--vsc-foreground);
+}
+
+/* === Loading Spinner === */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--vsc-border);
+  border-top-color: var(--vsc-accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* === Utility Classes === */
+.text-muted {
+  color: var(--vsc-foreground-dim);
+}
+
+.text-error {
+  color: var(--vsc-error);
+}
+
+.text-warning {
+  color: var(--vsc-warning);
+}
+
+.text-success {
+  color: var(--vsc-success);
+}
+
+.text-mono {
+  font-family: var(--vsc-font-family-mono);
+}
+
+/* === Compact Mode Adjustments === */
+.compact-mode button,
+.compact-mode .btn {
+  padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
+  font-size: var(--vsc-font-size-small);
+}
+
+.compact-mode input,
+.compact-mode textarea {
+  padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
+  font-size: var(--vsc-font-size-small);
+}
+
+/* === Theme-safe native controls ===
+   Components are free to size/layout controls, but foreground/background
+   ownership stays semantic so light and dark dialogs remain readable. */
+button, .btn, input, textarea, select {
+  color-scheme: light dark;
+}
+
+select,
+input[type="password"],
+input[type="email"],
+input[type="url"],
+input[type="tel"] {
+  background: var(--vsc-input-background);
+  color: var(--vsc-input-foreground);
+  border: 1px solid var(--vsc-input-border);
+}
+
+select:disabled,
+input:disabled,
+textarea:disabled {
+  color: var(--vsc-disabled-foreground);
+  opacity: 1;
+}
+
+button:focus-visible,
+.btn:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--vsc-focus-ring);
+  outline-offset: 1px;
+}
+
+button.danger, .btn.danger, .danger-button {
+  background: var(--vsc-button-danger-background);
+  color: var(--vsc-button-danger-foreground);
+}
+button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-button:hover:not(:disabled) {
+  background: var(--vsc-button-danger-hover);
+}
+
+.theme-dialog, .dialog, [role="dialog"] {
+  color: var(--vsc-dialog-foreground);
+}
+
+.theme-menu, [role="menu"] {
+  color: var(--vsc-menu-foreground);
+}

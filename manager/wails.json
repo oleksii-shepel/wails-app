@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "wails-app",
+  "outputfilename": "wails-app",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:devServerUrl": "http://localhost:4200",
+  "frontend:dir": "frontend",
+  "author": {
+    "name": "epikodelabs",
+    "email": "oleksii.shepel@outlook.com"
+  },
+  "build": {
+    "devTools": "on"
+  },
+  "frontend": {
+    "dragAndDrop": {
+      "enableFileDrop": true
+    }
+  }
+}

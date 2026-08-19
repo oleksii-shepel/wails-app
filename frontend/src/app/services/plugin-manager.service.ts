@@ -422,26 +422,14 @@ export class PluginManagerService implements PluginRegistryAPI {
         api.registerPanelSource(source);
 
         api.registerPanelColumn({
-          id: 'builtin.registry.kind',
-          label: 'Kind',
-          width: '90px',
-          score: context => context.sourceKind === 'registry' ? 100 : 0,
-          value: entry => entry.registryKind ?? '',
-        });
-        api.registerPanelColumn({
-          id: 'builtin.registry.type',
-          label: 'Type',
-          width: '120px',
-          inline: true,
-          score: context => context.sourceKind === 'registry' ? 95 : 0,
-          value: entry => String(entry.registryKind ?? '').toLowerCase() === 'value' ? (entry.registryValueType ?? '') : '',
-        });
-        api.registerPanelColumn({
           id: 'builtin.registry.data',
           label: 'Data',
-          inline: true,
-          score: context => context.sourceKind === 'registry' ? 90 : 0,
-          value: entry => String(entry.registryKind ?? '').toLowerCase() === 'value' ? (entry.registryPreview ?? '') : '',
+          width: 'minmax(220px, 1fr)',
+          score: context => context.sourceKind === 'registry' ? 100 : 0,
+          value: entry =>
+            String(entry.registryKind ?? '').toLowerCase() === 'value'
+              ? (entry.registryPreview ?? '')
+              : '',
         });
 
         api.registerContextMenuItem({
@@ -528,8 +516,6 @@ export class PluginManagerService implements PluginRegistryAPI {
         api.unregisterContextMenuItem('builtin.registry.newValue');
         api.unregisterContextMenuItem('builtin.registry.newKey');
         api.unregisterPanelColumn('builtin.registry.data');
-        api.unregisterPanelColumn('builtin.registry.type');
-        api.unregisterPanelColumn('builtin.registry.kind');
         api.unregisterPanelSource(source.id);
       },
     }, {

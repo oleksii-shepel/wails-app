@@ -202,7 +202,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
       (focusin)="activateRequested.emit()"
-      (mousedown)="onPaneMouseDown($event)">
+      (mousedown)="activateRequested.emit()">
 
       <div
         #tabStrip
@@ -523,7 +523,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </div>
 
       <div class="details-header" *ngIf="!error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+        <span></span><span>Name</span><span>Type</span><span>Size</span>
+        <span *ngIf="!isRegistrySurface">Modified</span>
         <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
 
@@ -587,20 +588,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ entryDisplayIcon(entry) }}
           </span>
 
-          <span class="name" *ngIf="renamingPath !== entry.path">
-            <span class="name-label">{{ entry.name }}</span>
-            <span class="inline-provider-fields" *ngIf="inlinePanelColumns.length">
-              <ng-container *ngFor="let column of inlinePanelColumns">
-                <span
-                  class="inline-provider-field"
-                  *ngIf="panelColumnValue(column, entry) as inlineValue"
-                  [title]="column.label + ': ' + inlineValue">
-                  <span class="inline-provider-label">{{ column.label }}</span>
-                  <span class="inline-provider-value">{{ inlineValue }}</span>
-                </span>
-              </ng-container>
-            </span>
-          </span>
+          <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === entry.path"
@@ -631,7 +619,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <span class="size">
             {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
           </span>
-          <span class="modified">{{ formatModified(entry.modified) }}</span>
+          <span class="modified" *ngIf="!isRegistrySurface">{{ formatModified(entry.modified) }}</span>
           <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
         </div>
 
@@ -1155,51 +1143,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       font-size: 10px;
     }
 
-    .list.view-list .name:has(.inline-provider-fields) {
-      display: grid;
-      min-width: 0;
-      gap: 1px;
-      padding-block: 3px;
-    }
-
-    .list.view-list .name-label {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .inline-provider-fields {
-      display: flex;
-      min-width: 0;
-      gap: 10px;
-      overflow: hidden;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 9px;
-      line-height: 1.25;
-    }
-
-    .inline-provider-field {
-      display: flex;
-      min-width: 0;
-      gap: 4px;
-      overflow: hidden;
-    }
-
-    .inline-provider-label {
-      flex: 0 0 auto;
-      opacity: .72;
-    }
-
-    .inline-provider-value {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .list.view-list .entry:has(.inline-provider-fields) {
-      min-height: 38px;
-    }
-
     .list.view-list .modified {
       display: none;
     }
@@ -1697,9 +1640,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private presentationReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Set on mousedown before the parent changes `active`.
-  private restoreCursorOnBackgroundClick = false;
-
   private virtualScrollTop = 0;
   private virtualViewportHeight = 600;
   private virtualViewportWidth = 800;
@@ -1930,7 +1870,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   entryAriaLabel(entry: FileInfo): string {
-    const kind = this.entryDisplayKind(entry);
+    const kind = entryTypeLabel(entry);
 
     const size =
       entry.type === FileType.DIRECTORY
@@ -1974,12 +1914,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   entryDisplayKind(entry: FileInfo): string {
     const registryKind = String(entry.registryKind ?? '').toLowerCase();
-
-    // The synthetic parent row inherits the semantics of the current surface.
-    // Inside registry:// it navigates to a parent Registry key, not a folder.
-    if (entry.path === '__parent__' && this.panelColumnContext.sourceKind === 'registry') {
-      return 'Key';
-    }
 
     if (registryKind === 'key') {
       return 'Key';
@@ -2209,20 +2143,32 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     };
   }
 
-  get inlinePanelColumns(): PanelColumnContribution[] {
-    if (this.viewMode !== 'list') return [];
-    return this.pluginManager
-      .resolvePanelColumns(this.panelColumnContext)
-      .filter(column => column.inline === true);
+  get isRegistrySurface(): boolean {
+    return this.panelColumnContext.sourceKind === 'registry';
   }
 
   get pluginPanelColumns(): PanelColumnContribution[] {
     if (this.viewMode !== 'details') return [];
-    return this.pluginManager.resolvePanelColumns(this.panelColumnContext);
+
+    const columns = this.pluginManager.resolvePanelColumns(this.panelColumnContext);
+
+    // Registry already maps its semantic REG_* value type into the standard
+    // Type column. Details therefore needs only the provider payload column.
+    if (this.isRegistrySurface) {
+      return columns.filter(column => column.id === 'builtin.registry.data');
+    }
+
+    return columns;
   }
 
   get detailsGridTemplate(): string {
-    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
+    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || 'minmax(180px, 1fr)');
+
+    if (this.isRegistrySurface) {
+      // icon | Name | Type | Size | Data
+      return ['28px', 'minmax(180px, 1fr)', '120px', '82px', ...extra].join(' ');
+    }
+
     return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
   }
 
@@ -3949,43 +3895,15 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
-  onPaneMouseDown(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    const background =
-      !target?.closest('.entry, .tree-row, button, input, select, textarea, a');
-
-    // Capture this before activateRequested changes the pane's `active` input.
-    this.restoreCursorOnBackgroundClick =
-      event.button === 0 && !this.active && background;
-
-    this.activateRequested.emit();
-  }
-
   onBackgroundClick(event: MouseEvent): void {
-    if (event.defaultPrevented) {
-      this.restoreCursorOnBackgroundClick = false;
-      return;
-    }
+    if (event.defaultPrevented) return;
 
     const target = event.target as HTMLElement | null;
     if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
-      this.restoreCursorOnBackgroundClick = false;
       return;
     }
 
     this.markUserInteraction();
-
-    if (this.restoreCursorOnBackgroundClick) {
-      this.restoreCursorOnBackgroundClick = false;
-
-      // Existing cursor -> existing selection -> first selectable item -> none.
-      this.recoverVisibleCursor();
-      this.focusContent();
-      this.lastAction = 'pane activated';
-      return;
-    }
-
-    this.restoreCursorOnBackgroundClick = false;
     this.selectedPaths = new Set();
     this.cursorPath = null;
     this.anchorPath = null;

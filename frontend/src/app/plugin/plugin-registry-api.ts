@@ -49,6 +49,11 @@ export interface PanelColumnContribution {
   readonly id: string;
   readonly label: string;
   readonly width?: string;
+  /**
+   * Render this provider field inline with the entry name in compact list
+   * presentation. Details view still renders the column normally.
+   */
+  readonly inline?: boolean;
   score(context: PanelColumnContext): number;
   value(entry: FileInfo, context: PanelColumnContext): string | number | null | undefined;
 }

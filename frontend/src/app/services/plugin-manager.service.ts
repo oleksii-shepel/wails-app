@@ -430,16 +430,18 @@ export class PluginManagerService implements PluginRegistryAPI {
         });
         api.registerPanelColumn({
           id: 'builtin.registry.type',
-          label: 'Registry Type',
+          label: 'Type',
           width: '120px',
+          inline: true,
           score: context => context.sourceKind === 'registry' ? 95 : 0,
-          value: entry => entry.registryValueType ?? '',
+          value: entry => String(entry.registryKind ?? '').toLowerCase() === 'value' ? (entry.registryValueType ?? '') : '',
         });
         api.registerPanelColumn({
           id: 'builtin.registry.data',
           label: 'Data',
+          inline: true,
           score: context => context.sourceKind === 'registry' ? 90 : 0,
-          value: entry => entry.registryPreview ?? '',
+          value: entry => String(entry.registryKind ?? '').toLowerCase() === 'value' ? (entry.registryPreview ?? '') : '',
         });
 
         api.registerContextMenuItem({

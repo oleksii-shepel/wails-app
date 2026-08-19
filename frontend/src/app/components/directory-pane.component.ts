@@ -202,7 +202,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
       (focusin)="activateRequested.emit()"
-      (mousedown)="onPaneMouseDown($event)">
+      (mousedown)="activateRequested.emit()">
 
       <div
         #tabStrip
@@ -587,7 +587,20 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ entryDisplayIcon(entry) }}
           </span>
 
-          <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
+          <span class="name" *ngIf="renamingPath !== entry.path">
+            <span class="name-label">{{ entry.name }}</span>
+            <span class="inline-provider-fields" *ngIf="inlinePanelColumns.length">
+              <ng-container *ngFor="let column of inlinePanelColumns">
+                <span
+                  class="inline-provider-field"
+                  *ngIf="panelColumnValue(column, entry) as inlineValue"
+                  [title]="column.label + ': ' + inlineValue">
+                  <span class="inline-provider-label">{{ column.label }}</span>
+                  <span class="inline-provider-value">{{ inlineValue }}</span>
+                </span>
+              </ng-container>
+            </span>
+          </span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === entry.path"
@@ -1142,6 +1155,51 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       font-size: 10px;
     }
 
+    .list.view-list .name:has(.inline-provider-fields) {
+      display: grid;
+      min-width: 0;
+      gap: 1px;
+      padding-block: 3px;
+    }
+
+    .list.view-list .name-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .inline-provider-fields {
+      display: flex;
+      min-width: 0;
+      gap: 10px;
+      overflow: hidden;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 9px;
+      line-height: 1.25;
+    }
+
+    .inline-provider-field {
+      display: flex;
+      min-width: 0;
+      gap: 4px;
+      overflow: hidden;
+    }
+
+    .inline-provider-label {
+      flex: 0 0 auto;
+      opacity: .72;
+    }
+
+    .inline-provider-value {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .list.view-list .entry:has(.inline-provider-fields) {
+      min-height: 38px;
+    }
+
     .list.view-list .modified {
       display: none;
     }
@@ -1639,9 +1697,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private presentationReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Set on mousedown before the parent changes `active`.
-  private restoreCursorOnBackgroundClick = false;
-
   private virtualScrollTop = 0;
   private virtualViewportHeight = 600;
   private virtualViewportWidth = 800;
@@ -2133,6 +2188,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       sourceId: resolved.location.sourceId,
       sourceKind: resolved.source.kind,
     };
+  }
+
+  get inlinePanelColumns(): PanelColumnContribution[] {
+    if (this.viewMode !== 'list') return [];
+    return this.pluginManager
+      .resolvePanelColumns(this.panelColumnContext)
+      .filter(column => column.inline === true);
   }
 
   get pluginPanelColumns(): PanelColumnContribution[] {
@@ -3868,43 +3930,15 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
-  onPaneMouseDown(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    const background =
-      !target?.closest('.entry, .tree-row, button, input, select, textarea, a');
-
-    // Capture this before activateRequested changes the pane's `active` input.
-    this.restoreCursorOnBackgroundClick =
-      event.button === 0 && !this.active && background;
-
-    this.activateRequested.emit();
-  }
-
   onBackgroundClick(event: MouseEvent): void {
-    if (event.defaultPrevented) {
-      this.restoreCursorOnBackgroundClick = false;
-      return;
-    }
+    if (event.defaultPrevented) return;
 
     const target = event.target as HTMLElement | null;
     if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
-      this.restoreCursorOnBackgroundClick = false;
       return;
     }
 
     this.markUserInteraction();
-
-    if (this.restoreCursorOnBackgroundClick) {
-      this.restoreCursorOnBackgroundClick = false;
-
-      // Existing cursor -> existing selection -> first selectable item -> none.
-      this.recoverVisibleCursor();
-      this.focusContent();
-      this.lastAction = 'pane activated';
-      return;
-    }
-
-    this.restoreCursorOnBackgroundClick = false;
     this.selectedPaths = new Set();
     this.cursorPath = null;
     this.anchorPath = null;

@@ -522,48 +522,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </div>
       </div>
 
-      <div
-        class="details-header"
-        *ngIf="!error && viewMode === 'details'"
-        [style.grid-template-columns]="detailsGridTemplate">
-        <span class="details-heading details-heading-icon"></span>
-
-        <span class="details-heading" data-details-column="name">
-          Name
-          <i class="details-resizer" title="Resize column"
-             (mousedown)="onDetailsColumnResizeStart($event, 'name')"></i>
-        </span>
-
-        <span class="details-heading" data-details-column="type">
-          Type
-          <i class="details-resizer" title="Resize column"
-             (mousedown)="onDetailsColumnResizeStart($event, 'type')"></i>
-        </span>
-
-        <span class="details-heading" data-details-column="size">
-          Size
-          <i class="details-resizer" title="Resize column"
-             (mousedown)="onDetailsColumnResizeStart($event, 'size')"></i>
-        </span>
-
-        <span class="details-heading" data-details-column="modified" *ngIf="!isRegistrySurface">
-          Modified
-          <i class="details-resizer" title="Resize column"
-             (mousedown)="onDetailsColumnResizeStart($event, 'modified')"></i>
-        </span>
-
-        <span
-          class="details-heading"
-          *ngFor="let column of pluginPanelColumns; let last = last"
-          [attr.data-details-column]="column.id"
-          [title]="column.label">
-          {{ column.label }}
-          <i
-            class="details-resizer"
-            *ngIf="!last"
-            title="Resize column"
-            (mousedown)="onDetailsColumnResizeStart($event, column.id)"></i>
-        </span>
+      <div class="details-header" *ngIf="!error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
+        <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
 
       <div
@@ -626,13 +587,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ entryDisplayIcon(entry) }}
           </span>
 
-          <span class="name" *ngIf="renamingPath !== entry.path">
-            <span class="name-label">{{ entry.name }}</span>
-            <span
-              class="registry-payload"
-              *ngIf="registryPayload(entry) as payload"
-              [title]="payload">{{ payload }}</span>
-          </span>
+          <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === entry.path"
@@ -663,7 +618,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <span class="size">
             {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
           </span>
-          <span class="modified" *ngIf="!isRegistrySurface">{{ formatModified(entry.modified) }}</span>
+          <span class="modified">{{ formatModified(entry.modified) }}</span>
           <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
         </div>
 
@@ -753,10 +708,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             [fileList]="viewerTab.fileList"
             [archiveContext]="viewerTab.archiveContext"
             [viewerId]="viewerTab.viewerId"
-            [autoFollow]="viewerTab.autoFollow"
-            [sourceAvailable]="!!(viewerTab.sourceTabId || viewerTab.sourceDir)"
-            [isPinned]="!!viewerTab.isPinned"
-            [isClosable]="viewerTab.isClosable !== false"
+            [viewerState]="viewerTab"
             (returnSource)="returnToViewerSource()"
             (external)="openActiveViewerExternally()"
             (close)="closeActiveTab()">
@@ -1187,31 +1139,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       font-size: 10px;
     }
 
-    .list.view-list .name:has(.registry-payload) {
-      display: grid;
-      min-width: 0;
-      gap: 2px;
-      padding-block: 3px;
-    }
-
-    .list.view-list .name-label,
-    .registry-payload {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .registry-payload {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 10px;
-      line-height: 1.25;
-    }
-
-    .list.view-list .entry:has(.registry-payload) {
-      min-height: 38px;
-    }
-
     .list.view-list .modified {
       display: none;
     }
@@ -1285,41 +1212,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-list .list-virtual-spacer,
     .list.view-details .list-virtual-spacer{
       width:100%;
-    }
-
-    .details-header,
-    .list.view-details .entry {
-      column-gap: 6px;
-    }
-
-    .details-heading {
-      position: relative;
-      min-width: 0;
-      padding-inline: 3px;
-    }
-
-    .details-resizer {
-      position: absolute;
-      z-index: 2;
-      top: 3px;
-      right: -5px;
-      bottom: 3px;
-      width: 9px;
-      cursor: col-resize;
-    }
-
-    .details-resizer::after {
-      content: '';
-      position: absolute;
-      top: 3px;
-      bottom: 3px;
-      left: 4px;
-      width: 1px;
-      background: transparent;
-    }
-
-    .details-resizer:hover::after {
-      background: var(--vsc-focus-border, var(--vsc-accent-blue));
     }
 
     .list {
@@ -1744,14 +1636,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private presentationReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly detailsColumnWidths = new Map<string, number>();
-  private detailsResizeKey: string | null = null;
-  private detailsResizeStartX = 0;
-  private detailsResizeStartWidth = 0;
-  private detailsResizeMove?: (event: MouseEvent) => void;
-  private detailsResizeUp?: () => void;
-  private readonly detailsColumnMinWidth = 64;
-
   private virtualScrollTop = 0;
   private virtualViewportHeight = 600;
   private virtualViewportWidth = 800;
@@ -2024,23 +1908,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     return this.entryCategory(entry)?.icon || '📄';
   }
 
-  registryPayload(entry: FileInfo): string {
-    if (this.viewMode !== 'list' || !this.isRegistrySurface) return '';
-    if (String(entry.registryKind ?? '').toLowerCase() !== 'value') return '';
-    return entry.registryPreview?.trim() ?? '';
-  }
-
   entryDisplayKind(entry: FileInfo): string {
-    const registryKind = String(entry.registryKind ?? '').toLowerCase();
-
-    if (registryKind === 'key') {
-      return 'Key';
-    }
-
-    if (registryKind === 'value') {
-      return entry.registryValueType?.trim() || 'Value';
-    }
-
     if (entry.type === FileType.DIRECTORY) return 'Folder';
     if (entry.type === FileType.ARCHIVE) return 'Archive';
     return this.entryCategory(entry)?.category || 'File';
@@ -2261,138 +2129,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     };
   }
 
-  get isRegistrySurface(): boolean {
-    return this.panelColumnContext.sourceKind === 'registry';
-  }
-
   get pluginPanelColumns(): PanelColumnContribution[] {
     if (this.viewMode !== 'details') return [];
-
-    const columns = this.pluginManager.resolvePanelColumns(this.panelColumnContext);
-
-    // Registry already maps its semantic REG_* value type into the standard
-    // Type column. Details therefore needs only the provider payload column.
-    if (this.isRegistrySurface) {
-      return columns.filter(column => column.id === 'builtin.registry.data');
-    }
-
-    return columns;
+    return this.pluginManager.resolvePanelColumns(this.panelColumnContext);
   }
 
   get detailsGridTemplate(): string {
-    const columns: Array<[string, string]> = [
-      ['name', this.isRegistrySurface ? 'minmax(180px, 1fr)' : 'minmax(120px, 1fr)'],
-      ['type', this.isRegistrySurface ? '120px' : '90px'],
-      ['size', '82px'],
-    ];
-
-    if (!this.isRegistrySurface) {
-      columns.push(['modified', '150px']);
-    }
-
-    for (const column of this.pluginPanelColumns) {
-      columns.push([column.id, column.width?.trim() || 'minmax(180px, 1fr)']);
-    }
-
-    return [
-      '28px',
-      ...columns.map(([key, fallback]) => this.detailsColumnTrack(key, fallback)),
-    ].join(' ');
-  }
-
-  detailsColumnTrack(key: string, fallback: string): string {
-    const width = this.detailsColumnWidths.get(key);
-    return typeof width === 'number' ? `${width}px` : fallback;
-  }
-
-  onDetailsColumnResizeStart(event: MouseEvent, key: string): void {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const heading = (event.target as HTMLElement | null)?.closest('.details-heading') as HTMLElement | null;
-    if (!heading) return;
-
-    this.detailsResizeKey = key;
-    this.detailsResizeStartX = event.clientX;
-    this.detailsResizeStartWidth = Math.max(
-      this.detailsColumnMinWidth,
-      Math.round(heading.getBoundingClientRect().width),
-    );
-    this.detailsColumnWidths.set(key, this.detailsResizeStartWidth);
-
-    this.detailsResizeMove = move => this.onDetailsColumnResizeMove(move);
-    this.detailsResizeUp = () => this.onDetailsColumnResizeEnd();
-
-    window.addEventListener('mousemove', this.detailsResizeMove);
-    window.addEventListener('mouseup', this.detailsResizeUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    this.cdr.markForCheck();
-  }
-
-  private onDetailsColumnResizeMove(event: MouseEvent): void {
-    if (!this.detailsResizeKey) return;
-
-    const width = Math.max(
-      this.detailsColumnMinWidth,
-      Math.round(this.detailsResizeStartWidth + event.clientX - this.detailsResizeStartX),
-    );
-    this.detailsColumnWidths.set(this.detailsResizeKey, width);
-    this.cdr.markForCheck();
-  }
-
-  private onDetailsColumnResizeEnd(): void {
-    this.saveDetailsColumnWidths();
-    this.cleanupDetailsColumnResize();
-  }
-
-  private cleanupDetailsColumnResize(): void {
-    if (this.detailsResizeMove) {
-      window.removeEventListener('mousemove', this.detailsResizeMove);
-      this.detailsResizeMove = undefined;
-    }
-    if (this.detailsResizeUp) {
-      window.removeEventListener('mouseup', this.detailsResizeUp);
-      this.detailsResizeUp = undefined;
-    }
-
-    this.detailsResizeKey = null;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    this.cdr.markForCheck();
-  }
-
-  private get detailsColumnStorageKey(): string {
-    const surface = this.isRegistrySurface ? 'registry' : this.panelColumnContext.sourceId || 'default';
-    return `reassembly.detailsColumns:${this.paneId}:${surface}`;
-  }
-
-  private loadDetailsColumnWidths(): void {
-    this.detailsColumnWidths.clear();
-
-    try {
-      const raw = localStorage.getItem(this.detailsColumnStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === 'number' && Number.isFinite(value) && value >= this.detailsColumnMinWidth) {
-          this.detailsColumnWidths.set(key, Math.round(value));
-        }
-      }
-    } catch {
-      // Invalid/stale presentation state should never block navigation.
-    }
-  }
-
-  private saveDetailsColumnWidths(): void {
-    try {
-      localStorage.setItem(
-        this.detailsColumnStorageKey,
-        JSON.stringify(Object.fromEntries(this.detailsColumnWidths)),
-      );
-    } catch {
-      // Persistence is best effort.
-    }
+    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
+    return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
   }
 
   panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {
@@ -2746,7 +2490,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.loadDetailsColumnWidths();
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
@@ -2757,7 +2500,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.cleanupDetailsColumnResize();
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
       clearTimeout(this.presentationReloadTimer);

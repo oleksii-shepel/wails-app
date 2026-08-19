@@ -6,6 +6,15 @@ import { ViewerArchiveContext } from './viewer-archive-context';
 import type { FileInfo, FileProbe } from '../shared/protocol';
 import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 
+export interface ViewerHostChromeState {
+  autoFollow?: boolean;
+  sourceTabId?: string | null;
+  sourceDir?: string | null;
+  isPinned?: boolean;
+  isClosable?: boolean;
+}
+
+
 function extLower(path: string): string {
   const p = (path ?? '').replace(/\\/g, '/');
   const i = p.lastIndexOf('.');
@@ -358,10 +367,23 @@ export class ViewerHostSurfaceComponent implements OnChanges, OnDestroy {
   @Input() archiveContext: ViewerArchiveContext | null = null;
   /** Optional explicit viewer id (from tab metadata) */
   @Input() viewerId: string | null = null;
-  @Input() autoFollow = false;
-  @Input() sourceAvailable = false;
-  @Input() isPinned = false;
-  @Input() isClosable = true;
+  @Input() viewerState: ViewerHostChromeState | null = null;
+
+  get autoFollow(): boolean {
+    return !!this.viewerState?.autoFollow;
+  }
+
+  get sourceAvailable(): boolean {
+    return !!(this.viewerState?.sourceTabId || this.viewerState?.sourceDir);
+  }
+
+  get isPinned(): boolean {
+    return !!this.viewerState?.isPinned;
+  }
+
+  get isClosable(): boolean {
+    return this.viewerState?.isClosable !== false;
+  }
 
   @Output() returnSource = new EventEmitter<void>();
   @Output() external = new EventEmitter<void>();

@@ -15,7 +15,6 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
-import { ModalSurfaceDirective } from './modal-surface.directive';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { InputEngineService } from '../services/input-engine.service';
@@ -30,16 +29,13 @@ import type {
 @Component({
   selector: 'app-input-center',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="requestClose()">
       <section
         #panel
         class="panel"
-        ModalSurface
-        [ModalInitial]="'.search'"
-        (ModalDismiss)="requestClose()"
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard and Mouse Bindings"

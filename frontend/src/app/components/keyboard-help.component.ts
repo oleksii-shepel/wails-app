@@ -5,7 +5,6 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { InputBindingDefinition } from '../services/input-system.types';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 interface BindingCategory {
@@ -16,7 +15,7 @@ interface BindingCategory {
 @Component({
   selector: 'app-keyboard-help',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
   templateUrl: './keyboard-help.component.html',
   styleUrls: ['./keyboard-help.component.scss']
 })

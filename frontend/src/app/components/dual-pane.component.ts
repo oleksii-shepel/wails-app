@@ -4427,6 +4427,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.activate(paneId, false);
 
     const pane = this.activePane;
+    if (pane?.isRegistrySurface) {
+      this.openRegistryEntryMenu(event, entry, pane);
+      return;
+    }
+
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
     const isArchive = entry.type === FileType.ARCHIVE;
@@ -4530,6 +4535,78 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private openRegistryEntryMenu(
+    event: MouseEvent,
+    entry: FileInfo,
+    pane: DirectoryPaneComponent,
+  ): void {
+    const isParent = entry.path === '__parent__';
+    const kind = String(entry.registryKind ?? '').toLowerCase();
+    const isKey = kind === 'key' || entry.type === FileType.DIRECTORY;
+    const items: ContextMenuItem[] = [];
+
+    if (isParent) {
+      this.pushMenuSection(items, [
+        this.menuCommand(COMMAND.open, 'Go to parent key', 'Enter'),
+      ]);
+    } else {
+      if (isKey) {
+        this.pushMenuSection(items, [
+          this.menuCommand(COMMAND.open, 'Open', 'Enter'),
+        ]);
+      }
+
+      const registryItems = this.pluginContextMenuItems(pane, entry.path)
+        .filter(item =>
+          item.commandId === 'builtin.registry.edit' ||
+          item.commandId === 'builtin.registry.delete',
+        );
+
+      if (registryItems.length) {
+        this.pushMenuSection(items, registryItems);
+      }
+    }
+
+    this.contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      title: isParent
+        ? 'Parent key'
+        : this.entryContextTitle(entry, pane.selectedEntries.length),
+      items: normalizeContextMenuItems(items),
+    };
+    this.cdr.markForCheck();
+  }
+
+  private openRegistryBackgroundMenu(
+    event: MouseEvent,
+    pane: DirectoryPaneComponent,
+  ): void {
+    const items: ContextMenuItem[] = [];
+
+    const registryItems = this.pluginContextMenuItems(pane, pane.path)
+      .filter(item =>
+        item.commandId === 'builtin.registry.newKey' ||
+        item.commandId === 'builtin.registry.newValue',
+      );
+
+    if (registryItems.length) {
+      this.pushMenuSection(items, registryItems);
+    }
+
+    this.pushMenuSection(items, [
+      this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+    ]);
+
+    this.contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      title: pane.path || 'Registry',
+      items: normalizeContextMenuItems(items),
+    };
+    this.cdr.markForCheck();
+  }
+
   openNavigationTrail(
     paneId: PaneId,
     request: {
@@ -4576,6 +4653,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.activate(paneId, false);
 
     const pane = this.activePane;
+    if (pane?.isRegistrySurface) {
+      this.openRegistryBackgroundMenu(event, pane);
+      return;
+    }
+
     const items: ContextMenuItem[] = [];
 
     this.pushMenuSection(items, [

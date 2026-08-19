@@ -7,7 +7,6 @@ import {InputEngineService} from '../services/input-engine.service';
 import type {InputBindingDefinition} from '../services/input-system.types';
 import {RemoteConnectionsService,type RemoteConnectionSnapshot} from '../services/remote-connections.service';
 import {RemoteConnectDialogService} from '../services/remote-connect-dialog.service';
-import { ModalSurfaceDirective } from './modal-surface.directive';
 const CONTEXT_ID='overlay.RemoteConnections';
 const OWNER_ID=CONTEXT_ID;
 const COMMAND={close:'reassembly.remoteConnections.close',previous:'reassembly.remoteConnections.previous',next:'reassembly.remoteConnections.next',open:'reassembly.remoteConnections.open',connect:'reassembly.remoteConnections.connect',disconnect:'reassembly.remoteConnections.disconnect',refresh:'reassembly.remoteConnections.refresh'} as const;
@@ -21,11 +20,8 @@ const BINDINGS:readonly InputBindingDefinition[]=[
 {id:'reassembly.remoteConnections.f5',commandId:COMMAND.refresh,contextId:CONTEXT_ID,source:'default',description:'Refresh remote connections',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'f5'}]}}},
 ];
 
-@Component({selector:'app-remote-connections',standalone:true,imports: [CommonModule, ModalSurfaceDirective],changeDetection:ChangeDetectionStrategy.OnPush,
+@Component({selector:'app-remote-connections',standalone:true,imports: [CommonModule],changeDetection:ChangeDetectionStrategy.OnPush,
 template:`<div class="backdrop" *ngIf="visible" (mousedown)="close()"><section class="panel" role="dialog" aria-modal="true" aria-label="Remote connections" (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        (ModalDismiss)="close()"
-        ModalInitial="[aria-selected='true']"
         tabindex="-1">
 <header><div><strong>Remote connections</strong><span>{{state.mounts.length}}</span></div><div class="header-actions"><button type="button" (click)="connect()">+ Connect</button><button type="button" (click)="refresh()" [disabled]="state.loading">{{state.loading?'Refreshing…':'Refresh'}}</button></div></header>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>

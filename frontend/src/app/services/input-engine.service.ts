@@ -668,11 +668,7 @@ export class InputEngineService {
   private initializeKeyboardListener(): void {
     const listener = (event: KeyboardEvent) => {
       if (!this.keyboardEnabled || event.isComposing) return;
-
-      // Modal/dialog surfaces own their keyboard interaction. Because this
-      // listener runs in capture phase, resolving a global binding here would
-      // prevent the dialog input/form from ever seeing the event.
-      if (this.isDialogEventTarget(event.target)) return;
+      if (this.isApplicationInputOwned(event.target)) return;
 
       // A native keydown must cross the command boundary at most once. This
       // protects the engine from duplicate host/document bridges and from any
@@ -749,7 +745,7 @@ export class InputEngineService {
   }
 
   private beginMouseDrag(event: MouseEvent): void {
-    if (this.isDialogEventTarget(event.target)) {
+    if (this.isApplicationInputOwned(event.target)) {
       this.mouseDragState = null;
       return;
     }
@@ -815,10 +811,7 @@ export class InputEngineService {
 
   private handleMouseEvent(kind: string, event: MouseEvent | WheelEvent): void {
     if (!this.keyboardEnabled) return;
-
-    // Do not let global mouse bindings consume clicks inside modal/dialog
-    // surfaces before Angular controls receive them.
-    if (this.isDialogEventTarget(event.target)) return;
+    if (this.isApplicationInputOwned(event.target)) return;
 
     const gesture = this.normalizeMouseGesture(kind, event);
     if (!gesture) return;
@@ -1088,9 +1081,9 @@ export class InputEngineService {
     };
   }
 
-  private isDialogEventTarget(target: EventTarget | null): boolean {
+  private isApplicationInputOwned(target: EventTarget | null): boolean {
     const element = target instanceof Element ? target : null;
-    return !!element?.closest('.modal, [role="dialog"], [role="alertdialog"]');
+    return !!element?.closest('[data-input-owned]');
   }
 
   private getKeyboardEventContext(event: { target: EventTarget | null }): KeyboardEventContext {

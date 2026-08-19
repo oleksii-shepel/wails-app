@@ -4,9 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { BrowserOpenURL } from 'wailsjs/runtime';
 import { contracts } from '../../../wailsjs/go/models';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { InputHistoryDirective } from '../directives/input-history.directive';
-import { moveFocusWithin } from '../directives/focus-trap.utils';
+import { moveFocusWithin } from '../utils/focus-navigation.utils';
 import { ApiService } from '../services/api.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
@@ -177,7 +176,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
 @Component({
   selector: 'app-remote-connect-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective],
+  imports: [CommonModule, FormsModule, InputHistoryDirective],
   styleUrls: ['./remote-connect-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
@@ -185,7 +184,6 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
         <div
           #dialogPanel
           class="remote-connect-panel"
-          [appTrapFocus]="true"
           role="dialog"
           aria-modal="true"
           aria-label="Connect remote storage"

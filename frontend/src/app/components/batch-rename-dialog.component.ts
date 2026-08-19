@@ -1,7 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import {
@@ -21,7 +20,7 @@ interface PreviewRow {
 @Component({
   selector: 'app-batch-rename-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
+  imports: [CommonModule, FormsModule],
   styleUrls: ['./batch-rename-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async as request">
@@ -29,7 +28,6 @@ interface PreviewRow {
         <div
           #dialogPanel
           class="br-panel"
-          [appTrapFocus]="true"
           role="dialog"
           aria-modal="true"
           aria-label="Batch Rename"

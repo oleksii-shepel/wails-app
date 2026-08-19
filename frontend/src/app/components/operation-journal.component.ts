@@ -2,17 +2,14 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, In
 import { CommonModule } from '@angular/common';
 import { OperationHistoryService, type OperationJournalEntry } from '../services/operation-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
-import { ModalSurfaceDirective } from './modal-surface.directive';
-
 @Component({
   selector: 'app-operation-journal',
   standalone: true,
-  imports: [CommonModule, ModalSurfaceDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
-      <section class="journal" ModalSurface [ModalInitial]="'.close'"
-        (ModalDismiss)="close()" role="dialog" aria-modal="true" aria-label="Operation History"
+      <section class="journal" role="dialog" aria-modal="true" aria-label="Operation History"
         (mousedown)="$event.stopPropagation()">
         <header><div><strong>Operation History</strong><span>{{ entries.length }} recent operations</span></div>
           <button type="button" class="close" (click)="close()">×</button></header>

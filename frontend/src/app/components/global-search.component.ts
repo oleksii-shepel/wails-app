@@ -28,7 +28,6 @@ import {
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FileInfo, FileType } from '../shared/protocol';
-import { ModalSurfaceDirective } from './modal-surface.directive';
 import {
   SearchResultIndex,
   type SearchResultSort,
@@ -81,14 +80,12 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
 @Component({
   selector: 'app-global-search',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="search" role="dialog" aria-modal="true" aria-label="Global search"
         (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        [ModalInitial]="\'.query > input\'"
         tabindex="-1">
         <header>
           <div>

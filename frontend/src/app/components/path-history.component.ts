@@ -20,8 +20,6 @@ import {
 } from '../services/path-history.service';
 
 import { discoveryScore } from './discovery';
-import { ModalSurfaceDirective } from './modal-surface.directive';
-
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
 const CONTEXT_ID = PATH_HISTORY_INPUT.context.id;
@@ -31,15 +29,12 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
 @Component({
   selector:'app-path-history',
   standalone:true,
-  imports: [CommonModule,FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule,FormsModule],
   changeDetection:ChangeDetectionStrategy.OnPush,
   template:`
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="history" role="dialog" aria-modal="true" aria-label="Location history"
         (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        (ModalDismiss)="close()"
-        [ModalInitial]="\'header input\'"
         tabindex="-1">
         <header>
           <div>

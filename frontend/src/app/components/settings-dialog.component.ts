@@ -2,9 +2,8 @@ import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { InputHistoryDirective } from '../directives/input-history.directive';
-import { moveFocusWithin } from '../directives/focus-trap.utils';
+import { moveFocusWithin } from '../utils/focus-navigation.utils';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
@@ -26,7 +25,7 @@ interface SettingsDialogRequest {
 @Component({
   selector: 'app-settings-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective, PluginSettingsPanelComponent],
+  imports: [CommonModule, FormsModule, InputHistoryDirective, PluginSettingsPanelComponent],
   styleUrls: ['./settings-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
@@ -34,7 +33,6 @@ interface SettingsDialogRequest {
         <div
           #dialogPanel
           class="settings-panel"
-          [appTrapFocus]="true"
           role="dialog"
           aria-modal="true"
           aria-label="Project Settings"

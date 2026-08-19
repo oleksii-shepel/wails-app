@@ -37,6 +37,8 @@ import type {
 import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
+import { RegistryValueEditorService } from './registry-value-editor.service';
+import { RegistryKeyEditorService } from './registry-key-editor.service';
 import { AutorunPanelSource } from './autorun-panel-source.service';
 import { SystemSurfacePanelSource, systemField } from './system-surface-panel-source';
 import { SYSTEM_SURFACES } from './system-surface-definitions';
@@ -63,6 +65,8 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly resultsPanels = inject(ResultsPanelService);
   private readonly api = inject(ApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly registryValueEditor = inject(RegistryValueEditorService);
+  private readonly registryKeyEditor = inject(RegistryKeyEditorService);
   private readonly autorunSource = inject(AutorunPanelSource);
 
   private readonly backends = new Map<string, PluginBackend>();
@@ -463,12 +467,11 @@ export class PluginManagerService implements PluginRegistryAPI {
     const createKey = async (context: MenuContext): Promise<void> => {
       if (!isRegistry(context.currentDirectory)) return;
 
-      const name = (await this.confirmDialog.prompt({
+      const name = await this.registryKeyEditor.open({
         title: 'New Registry Key',
-        message: 'Enter the key name.',
+        name: '',
         confirmText: 'Create',
-        historyKey: 'reassembly.registry.newKey',
-      }))?.trim();
+      });
       if (!name) return;
 
       const path = await this.api.joinPaths([context.currentDirectory, name]);
@@ -511,13 +514,11 @@ export class PluginManagerService implements PluginRegistryAPI {
       const kind = String(info.registryKind ?? '').toLowerCase();
 
       if (kind === 'key') {
-        const name = (await this.confirmDialog.prompt({
+        const name = await this.registryKeyEditor.open({
           title: `Edit Registry Key — ${info.name}`,
-          message: 'Enter the new key name.',
+          name: info.name,
           confirmText: 'Rename',
-          defaultValue: info.name,
-          historyKey: 'reassembly.registry.editKey',
-        }))?.trim();
+        });
 
         if (!name || name === info.name) return;
 
@@ -532,19 +533,24 @@ export class PluginManagerService implements PluginRegistryAPI {
       if (kind !== 'value') return;
 
       const current = await this.api.readFile(context.targetPath, 'utf8');
-      const value = await this.confirmDialog.prompt({
-        title: `Edit Registry Value — ${info.name}`,
-        message: info.registryValueType
-          ? `Type: ${info.registryValueType}`
-          : 'Value data:',
-        confirmText: 'Save',
-        defaultValue: current.content ?? '',
-        historyKey: 'reassembly.registry.editValue',
+      const edit = await this.registryValueEditor.edit({
+        path: context.targetPath,
+        name: info.name,
+        type: info.registryValueType || 'REG_SZ',
+        data: current.content ?? '',
       });
-      if (value === null) return;
+      if (!edit) return;
 
-      // VFS Registry write preserves the existing Registry value type.
-      await this.api.writeFile(context.targetPath, value, 'utf8');
+      const currentType = info.registryValueType || 'REG_SZ';
+      if (edit.type !== currentType) {
+        await this.confirmDialog.alert({
+          title: 'Registry Type Change',
+          message: `Changing ${currentType} to ${edit.type} requires the typed Registry write path.`,
+        });
+        return;
+      }
+
+      await this.api.writeFile(context.targetPath, edit.data, 'utf8');
     };
 
 
@@ -635,15 +641,23 @@ export class PluginManagerService implements PluginRegistryAPI {
         api.registerContextMenuItem({
           id: 'builtin.registry.newKey.menu',
           commandId: commandIds.newKey,
-          label: 'New Registry Key',
-          score: context => isRegistry(context.currentDirectory) ? 95 : 0,
+          label: 'New Key',
+          score: context =>
+            isRegistry(context.currentDirectory) &&
+            context.targetPath === context.currentDirectory
+              ? 95
+              : 0,
         });
 
         api.registerContextMenuItem({
           id: 'builtin.registry.newValue.menu',
           commandId: commandIds.newValue,
-          label: 'New Registry Value',
-          score: context => isRegistry(context.currentDirectory) ? 94 : 0,
+          label: 'New Value',
+          score: context =>
+            isRegistry(context.currentDirectory) &&
+            context.targetPath === context.currentDirectory
+              ? 94
+              : 0,
         });
 
         api.registerContextMenuItem({
@@ -660,7 +674,7 @@ export class PluginManagerService implements PluginRegistryAPI {
         api.registerContextMenuItem({
           id: 'builtin.registry.delete.menu',
           commandId: commandIds.delete,
-          label: 'Delete Registry Entry',
+          label: 'Delete',
           score: context =>
             isRegistry(context.targetPath) &&
             context.targetPath !== context.currentDirectory

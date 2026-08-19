@@ -19,7 +19,6 @@ import { WorkspaceService } from '../services/workspace.service';
 import { WorkspaceSurfaceService } from '../services/workspace-surface.service';
 import type { WorkspacePresentation } from '../services/workspace-surface.model';
 import type { WorkspaceConfig } from '../shared/protocol-enhanced';
-import { ModalSurfaceDirective } from './modal-surface.directive';
 type WorkspaceEdit =
   | { kind: 'create'; draft: string }
   | { kind: 'rename'; workspaceId: string; draft: string }
@@ -212,7 +211,7 @@ interface WorkspaceSwitcherItem {
 @Component({
   selector: 'app-workspace-switcher',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
@@ -222,9 +221,6 @@ interface WorkspaceSwitcherItem {
         aria-modal="true"
         aria-label="Workspace switcher"
         (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        (ModalDismiss)="close()"
-        ModalInitial="[aria-selected='true']"
         tabindex="-1">
 
         <header>

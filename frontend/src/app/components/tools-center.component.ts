@@ -32,8 +32,6 @@ import type {
   DiskUsageProgress,
   DiskUsageResult,
 } from '../shared/protocol-enhanced';
-import { ModalSurfaceDirective } from './modal-surface.directive';
-
 type ToolPage = 'operations' | 'disk' | 'duplicates';
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
 type DiskSort = 'size' | 'files' | 'name';
@@ -69,15 +67,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-tools-center',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="tools" role="dialog" aria-modal="true" aria-label="File manager tools"
         (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        (ModalDismiss)="close()"
-        [ModalInitial]="\'nav button.active\'"
         tabindex="-1">
         <header>
           <div>

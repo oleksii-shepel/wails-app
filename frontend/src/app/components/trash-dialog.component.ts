@@ -14,12 +14,10 @@ import {
 } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { TrashDialogService } from '../services/trash-dialog.service';
-import { ModalSurfaceDirective } from './modal-surface.directive';
-
 @Component({
   selector: 'app-trash-dialog',
   standalone: true,
-  imports: [CommonModule, ModalSurfaceDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -31,9 +29,6 @@ import { ModalSurfaceDirective } from './modal-surface.directive';
         role="dialog"
         aria-modal="true"
         aria-label="Trash / Recycle Bin"
-        ModalSurface
-        (ModalDismiss)="close()"
-        ModalInitial=".trash-list"
         >
         <header>
           <div>

@@ -3,8 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputHistoryService } from '../services/input-history.service';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { InputHistoryDirective } from '../directives/input-history.directive';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
@@ -17,11 +15,11 @@ interface ConfirmDialogRequest {
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective],
+  imports: [CommonModule, FormsModule, InputHistoryDirective],
   template: `
     <ng-container *ngIf="request$ | async as request">
       <div 
-        class="confirm-overlay" 
+        class="confirm-overlay"
         [class.confirm-overlay--alert]="request.options.isAlert"
         (click)="onCancel()"
       >
@@ -30,13 +28,13 @@ interface ConfirmDialogRequest {
           class="confirm-panel"
           [class.confirm-panel--alert]="request.options.isAlert"
           [class.confirm-panel--prompt]="request.options.isPrompt && !request.options.isAlert"
-          [appTrapFocus]="true"
           [attr.role]="request.options.isAlert ? 'alertdialog' : 'dialog'"
           aria-modal="true"
           tabindex="-1"
           [attr.aria-label]="request.options.title || 'Confirmation'"
+          (keydown.escape)="onCancel(); $event.preventDefault(); $event.stopPropagation()"
+          (mousedown)="$event.stopPropagation()"
           (click)="$event.stopPropagation()"
-          (keydown.escape)="onCancel(); $event.stopPropagation()"
         >
           <!-- Alert toast-style layout -->
           <ng-container *ngIf="request.options.isAlert">
@@ -118,11 +116,19 @@ interface ConfirmDialogRequest {
     </ng-container>
   `,
   styles: [`
+    :host {
+      position: fixed;
+      inset: 0;
+      z-index: 30000;
+      pointer-events: none;
+    }
+
     .confirm-overlay {
       position: fixed;
       inset: 0;
-      z-index: var(--vsc-z-modal);
+      z-index: 30000;
       display: flex;
+      pointer-events: auto;
       align-items: center;
       justify-content: center;
       background: var(--vsc-scrim);
@@ -153,8 +159,17 @@ interface ConfirmDialogRequest {
       display: contents;
     }
 
+    .confirm-panel input,
+    .confirm-panel button,
+    .confirm-panel form {
+      pointer-events: auto;
+    }
+
     .confirm-panel {
       width: min(480px, calc(100vw - 2 * var(--vsc-padding-xl)));
+      position: relative;
+      z-index: 1;
+      pointer-events: auto;
       background: var(--vsc-editor-background);
       color: var(--vsc-foreground);
       border: 1px solid var(--vsc-border-bright);
@@ -381,7 +396,6 @@ export class ConfirmDialogComponent {
 
   constructor(
     private confirmDialogService: ConfirmDialogService,
-    private overlayFreeze: NativeOverlayFreezeService,
     private inputHistory: InputHistoryService,
   ) {}
 
@@ -391,8 +405,6 @@ export class ConfirmDialogComponent {
       .subscribe(request => {
         if (request) {
           this.draftValue = request.options.defaultValue ?? '';
-          this.overlayFreeze.acquire('dialog.confirm');
-
           if (request.options.isPrompt) {
             this.focusPromptInput();
           }
@@ -400,12 +412,10 @@ export class ConfirmDialogComponent {
         }
 
         this.draftValue = '';
-        this.overlayFreeze.release('dialog.confirm');
       });
   }
 
   ngOnDestroy(): void {
-    this.overlayFreeze.release('dialog.confirm');
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -436,19 +446,20 @@ export class ConfirmDialogComponent {
   }
 
   private focusPromptInput(attempt = 0): void {
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       const input = this.promptInput?.nativeElement;
 
       if (!input) {
-        if (attempt < 5) {
-          this.focusPromptInput(attempt + 1);
+        if (attempt < 8) {
+          setTimeout(() => this.focusPromptInput(attempt + 1), 16);
         }
         return;
       }
 
       input.focus({ preventScroll: true });
-      input.select();
-    }, attempt === 0 ? 0 : 16);
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    });
   }
 
   getAlertTitle(options: any): string {

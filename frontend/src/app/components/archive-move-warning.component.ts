@@ -21,16 +21,15 @@ import { Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnIni
 import { CommonModule } from '@angular/common';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
-import { moveFocusWithin } from '../directives/focus-trap.utils';
+import { moveFocusWithin } from '../utils/focus-navigation.utils';
 
 @Component({
   selector: 'app-archive-move-warning',
   standalone: true,
-  imports: [CommonModule, DialogFocusTrapDirective],
+  imports: [CommonModule],
   template: `
 <div *ngIf="visible" class="amw-backdrop" (click)="onBackdrop($event)">
-  <div #dialogPanel class="amw-panel" [appTrapFocus]="true" role="alertdialog" aria-modal="true" tabindex="-1">
+  <div #dialogPanel class="amw-panel" role="alertdialog" aria-modal="true" tabindex="-1">
 
     <div class="amw-content">
       <div class="amw-icon" aria-hidden="true">

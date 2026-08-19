@@ -463,13 +463,21 @@ func (f *FS) Remove(_ context.Context, path string) error {
 		return fmt.Errorf("registry remove: cannot delete hive root")
 	}
 
-	// Try as a key first.
-	err := registry.DeleteKey(root, strings.ReplaceAll(subkey, "/", "\\"))
-	if err == nil {
+	registryPath := strings.ReplaceAll(subkey, "/", "\\")
+
+	// Detect keys explicitly. DeleteKey only succeeds for empty keys, so a
+	// Registry group with children must be removed recursively.
+	if key, err := registry.OpenKey(root, registryPath, registry.READ); err == nil {
+		key.Close()
+		if err := deleteRegistryKeyTree(root, registryPath); err != nil {
+			return fmt.Errorf("registry remove key %q: %w", path, err)
+		}
 		return nil
+	} else if isPermissionError(err) {
+		return fs.ErrPermission
 	}
 
-	// Try as a value.
+	// Otherwise treat the leaf as a Registry value.
 	idx := strings.LastIndex(subkey, "/")
 	var parentKey registry.Key
 	var valName string
@@ -477,16 +485,50 @@ func (f *FS) Remove(_ context.Context, path string) error {
 		parentKey = root
 		valName = subkey
 	} else {
-		pk, err2 := registry.OpenKey(root, strings.ReplaceAll(subkey[:idx], "/", "\\"), registry.SET_VALUE)
-		if err2 != nil {
-			return mapLookupError(err2)
+		pk, err := registry.OpenKey(
+			root,
+			strings.ReplaceAll(subkey[:idx], "/", "\\"),
+			registry.SET_VALUE,
+		)
+		if err != nil {
+			return mapLookupError(err)
 		}
 		defer pk.Close()
 		parentKey = pk
 		valName = subkey[idx+1:]
 	}
-	if err2 := parentKey.DeleteValue(apiValueName(valName)); err2 != nil {
-		return fmt.Errorf("registry remove value %q: %w", valName, mapAccessError(err2))
+
+	if err := parentKey.DeleteValue(apiValueName(valName)); err != nil {
+		return fmt.Errorf(
+			"registry remove value %q: %w",
+			valName,
+			mapAccessError(err),
+		)
+	}
+	return nil
+}
+
+func deleteRegistryKeyTree(root registry.Key, path string) error {
+	key, err := registry.OpenKey(root, path, registry.READ)
+	if err != nil {
+		return mapLookupError(err)
+	}
+
+	children, err := key.ReadSubKeyNames(-1)
+	key.Close()
+	if err != nil {
+		return mapAccessError(err)
+	}
+
+	for _, child := range children {
+		childPath := path + "\\" + child
+		if err := deleteRegistryKeyTree(root, childPath); err != nil {
+			return err
+		}
+	}
+
+	if err := registry.DeleteKey(root, path); err != nil {
+		return mapAccessError(err)
 	}
 	return nil
 }

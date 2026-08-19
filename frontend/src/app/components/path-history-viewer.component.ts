@@ -8,16 +8,15 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { locationIcon, locationLabel } from '../services/location-reference';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-path-history-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
   template: `
     <div class="path-history-overlay" *ngIf="isVisible" (click)="hide()">
-      <div class="path-history-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
+      <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
           <div>

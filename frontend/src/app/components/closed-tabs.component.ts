@@ -12,20 +12,15 @@ import {
   WorkspaceService,
   type RecentlyClosedTab,
 } from '../services/workspace.service';
-import { ModalSurfaceDirective } from './modal-surface.directive';
-
 @Component({
   selector: 'app-closed-tabs',
   standalone: true,
-  imports: [CommonModule, ModalSurfaceDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section
         class="panel"
-        ModalSurface
-        [ModalInitial]="'.closed-tab'"
-        (ModalDismiss)="close()"
         role="dialog"
         aria-modal="true"
         aria-label="Recently Closed Tabs"

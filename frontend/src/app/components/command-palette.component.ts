@@ -24,8 +24,6 @@ export interface PaletteCommand {
 }
 
 import { discoveryScore } from './discovery';
-import { ModalSurfaceDirective } from './modal-surface.directive';
-
 const CONTEXT_ID = 'overlay.CommandPalette';
 const OWNER_ID = 'overlay.CommandPalette';
 
@@ -46,15 +44,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-command-palette',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="palette" role="dialog" aria-modal="true" aria-label="Command palette"
         (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        (ModalDismiss)="close()"
-        [ModalInitial]="\'.query input\'"
         tabindex="-1">
         <header>
           <strong>Command Palette</strong>

@@ -13,7 +13,6 @@ import type { PinnedLocation } from './address-bar.types';
 import type { SpecialFolder } from '../shared/protocol';
 
 import { discoveryScore } from './discovery';
-import { ModalSurfaceDirective } from './modal-surface.directive';
 import { rankNavigationCandidates } from '../services/navigation-intelligence';
 
 export interface QuickAccessTarget {
@@ -45,14 +44,11 @@ const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
 @Component({
   selector: 'app-quick-access',
   standalone: true,
-  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="quick" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
-        ModalSurface
-        (ModalDismiss)="close()"
-        [ModalInitial]="\'header input\'"
         tabindex="-1">
         <header>
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>

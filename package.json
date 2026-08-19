@@ -3,16 +3,16 @@
   "private": true,
   "scripts": {
     "build:plugins": "npm run build --workspace @reassembly/registry-plugin",
-    "build:frontend": "npm --prefix manager/frontend run build",
+    "build:frontend": "npm run build:plugins && npm --prefix manager/frontend run build",
     "build:go": "go build ./manager/...",
-    "build:app": "cd manager && wails build",
-    "build": "npm run build:plugins && npm run build:app",
-    "check": "npm run build:plugins && npm run build:frontend && npm run build:go",
+    "build:app": "npm run build:plugins && cd manager && wails build",
+    "build": "npm run build:app",
+    "check": "npm run build:plugins && npm --prefix manager/frontend run build && npm run build:go",
     "test:plugins": "npm run test --workspace @reassembly/registry-plugin",
     "test:frontend": "npm --prefix manager/frontend test",
     "test:go": "go test ./manager/...",
     "test": "npm run test:plugins && npm run test:frontend && npm run test:go",
-    "bootstrap": "npm install"
+    "verify:workspace": "node scripts/verify-workspace.mjs"
   },
   "workspaces": [
     "manager/frontend",

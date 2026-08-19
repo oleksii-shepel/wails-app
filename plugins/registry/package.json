@@ -3,27 +3,27 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./src/public-api.ts",
-      "default": "./src/public-api.ts"
-    }
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json --noEmit"
+    "build": "ng-packagr -p ng-package.json -c tsconfig.lib.json",
+    "build:watch": "ng-packagr -p ng-package.json -c tsconfig.lib.json --watch",
+    "test": "tsc -p tsconfig.spec.json --noEmit"
   },
   "peerDependencies": {
     "@angular/common": "22.1.2",
     "@angular/core": "22.1.2",
     "@angular/forms": "22.1.2",
-    "@epikodelabs/streamix": "^2.0.52"
+    "@epikodelabs/streamix": "^2.0.52",
+    "@angular/animations": "22.1.2"
   },
   "devDependencies": {
     "@angular/common": "22.1.2",
     "@angular/core": "22.1.2",
     "@angular/forms": "22.1.2",
     "@epikodelabs/streamix": "^2.0.52",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "@angular/animations": "22.1.2",
+    "@angular/compiler": "22.1.2",
+    "@angular/compiler-cli": "22.1.2",
+    "ng-packagr": "^22.1.0"
   }
 }

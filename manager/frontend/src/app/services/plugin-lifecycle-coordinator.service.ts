@@ -148,30 +148,22 @@ export class PluginLifecycleCoordinatorService {
   }
 
   async setEnabled(pluginId: string, enabled: boolean): Promise<PluginPackageState> {
-    const state = await this.installation.setEnabled(pluginId, enabled);
-    await this.sync();
-    return state;
+    return this.installation.setEnabled(pluginId, enabled);
   }
 
   async setTrusted(pluginId: string, trusted: boolean): Promise<PluginPackageState> {
-    const state = await this.installation.setTrusted(pluginId, trusted);
-    await this.sync();
-    return state;
+    return this.installation.setTrusted(pluginId, trusted);
   }
 
   async setGrantedPermissions(
     pluginId: string,
     permissions: readonly PluginPermission[],
   ): Promise<PluginPackageState> {
-    const state = await this.installation.setGrantedPermissions(pluginId, permissions);
-    await this.sync();
-    return state;
+    return this.installation.setGrantedPermissions(pluginId, permissions);
   }
 
   async clearQuarantine(pluginId: string): Promise<PluginPackageState> {
-    const state = await this.installation.clearQuarantine(pluginId);
-    await this.sync();
-    return state;
+    return this.installation.clearQuarantine(pluginId);
   }
 
   private async reconcilePackage(pkg: ManagedPluginPackage): Promise<ManagedPluginRuntimeSnapshot> {

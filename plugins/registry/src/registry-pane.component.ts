@@ -478,7 +478,11 @@ export class RegistryPaneComponent {
 
   private persistWidths(): void {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(Object.fromEntries(this.widths)));
+      const widths: Record<string, number> = {};
+      for (const [column, width] of this.widths) {
+        widths[column] = width;
+      }
+      localStorage.setItem(this.storageKey, JSON.stringify(widths));
     } catch {
       // Presentation persistence is best effort.
     }

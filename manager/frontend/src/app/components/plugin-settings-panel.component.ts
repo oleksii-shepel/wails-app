@@ -231,7 +231,11 @@ export class PluginSettingsPanelComponent implements OnInit {
     this.refreshing = true;
     this.error = '';
     try {
-      this.snapshots = await this.coordinator.sync();
+      this.snapshots = await withTimeout(
+        this.coordinator.sync(),
+        10_000,
+        'Plugin refresh timed out.',
+      );
     } catch (error) {
       this.error = errorMessage(error);
     } finally {
@@ -306,15 +310,35 @@ export class PluginSettingsPanelComponent implements OnInit {
     this.busyIds.add(id);
     this.error = '';
     try {
-      await action();
-      this.snapshots = await this.coordinator.sync();
+      await withTimeout(action(), 10_000, `Plugin operation timed out for ${id}.`);
+      this.snapshots = await withTimeout(
+        this.coordinator.sync(),
+        10_000,
+        `Plugin refresh timed out for ${id}.`,
+      );
     } catch (error) {
       this.error = errorMessage(error);
-      try { this.snapshots = await this.coordinator.sync(); } catch { /* keep original error */ }
     } finally {
       this.busyIds.delete(id);
     }
   }
+}
+
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      value => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function errorMessage(error: unknown): string {

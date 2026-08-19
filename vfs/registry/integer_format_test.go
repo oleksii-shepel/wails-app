@@ -25,9 +25,9 @@ func TestRegistryIntegerPreviewPreservesCapacity(t *testing.T) {
 			var got string
 			switch tt.valueType {
 			case registry.DWORD, registry.DWORD_BIG_ENDIAN:
-				got = fmt.Sprintf("%d (0x%08X)", uint32(tt.value))
+				got = fmt.Sprintf("%d (0x%08X)", uint32(tt.value), uint32(tt.value))
 			case registry.QWORD:
-				got = fmt.Sprintf("%d (0x%016X)", tt.value)
+				got = fmt.Sprintf("%d (0x%016X)", tt.value, tt.value)
 			}
 			if got != tt.want {
 				t.Fatalf("got %q, want %q", got, tt.want)

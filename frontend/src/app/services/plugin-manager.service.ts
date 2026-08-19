@@ -17,7 +17,7 @@ import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import { ViewerRegistryService } from '../viewers/viewer-registry.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { InputEngineService } from './input-engine.service';
-import type { CommandDescriptor, PluginInputContribution } from './input-system.types';
+import type { CommandDescriptor, CommandInvocation, PluginInputContribution } from './input-system.types';
 import { RelatedLocationService } from './related-location.service';
 import type { RelatedLocationContribution } from './related-location.types';
 import { WorkspaceSurfaceActionRegistryService } from './workspace-surface-action-registry.service';
@@ -414,97 +414,225 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   private registerBuiltinRegistryProvider(): void {
     const source = new RegistryPanelSource(this.directories);
-    const isRegistry = (path: string): boolean => /^registry:\/\//i.test((path ?? '').trim());
+    const isRegistry = (path: string): boolean =>
+      /^registry:\/\//i.test((path ?? '').trim());
+
+    const commandIds = {
+      newKey: 'builtin.registry.newKey',
+      newValue: 'builtin.registry.newValue',
+      editValue: 'builtin.registry.editValue',
+      delete: 'builtin.registry.delete',
+    } as const;
+
+    const commandContext = (invocation?: CommandInvocation): MenuContext => {
+      const raw = invocation?.context ?? {};
+      const selectedPaths = Array.isArray(raw['selectedPaths'])
+        ? raw['selectedPaths'].filter((value): value is string => typeof value === 'string')
+        : [];
+
+      const currentDirectory =
+        typeof raw['currentDirectory'] === 'string'
+          ? raw['currentDirectory']
+          : typeof raw['path'] === 'string'
+            ? raw['path']
+            : '';
+
+      const targetPath =
+        typeof raw['targetPath'] === 'string'
+          ? raw['targetPath']
+          : selectedPaths[0] ?? currentDirectory;
+
+      return {
+        currentDirectory,
+        targetPath,
+        selectedPaths,
+      };
+    };
+
+    const createKey = async (context: MenuContext): Promise<void> => {
+      if (!isRegistry(context.currentDirectory)) return;
+
+      const name = (await this.confirmDialog.prompt({
+        title: 'New Registry Key',
+        message: 'Enter the key name.',
+        confirmText: 'Create',
+        historyKey: 'reassembly.registry.newKey',
+      }))?.trim();
+      if (!name) return;
+
+      const path = await this.api.joinPaths([context.currentDirectory, name]);
+      await this.api.createDirectory(path, false);
+    };
+
+    const createValue = async (context: MenuContext): Promise<void> => {
+      if (!isRegistry(context.currentDirectory)) return;
+
+      const name = (await this.confirmDialog.prompt({
+        title: 'New Registry Value',
+        message: 'Enter the value name.',
+        confirmText: 'Next',
+        historyKey: 'reassembly.registry.newValue.name',
+      }))?.trim();
+      if (!name) return;
+
+      const value = await this.confirmDialog.prompt({
+        title: `Value — ${name}`,
+        message: 'Enter the value data.',
+        confirmText: 'Create',
+        defaultValue: '',
+        historyKey: 'reassembly.registry.newValue.data',
+      });
+      if (value === null) return;
+
+      const path = await this.api.joinPaths([context.currentDirectory, name]);
+      await this.api.writeFile(path, value, 'utf8');
+    };
+
+    const editValue = async (context: MenuContext): Promise<void> => {
+      if (
+        !isRegistry(context.targetPath) ||
+        context.targetPath === context.currentDirectory
+      ) {
+        return;
+      }
+
+      const info = await this.api.getFileInfo(context.targetPath);
+      if (String(info.registryKind ?? '').toLowerCase() !== 'value') return;
+
+      const current = await this.api.readFile(context.targetPath, 'utf8');
+      const value = await this.confirmDialog.prompt({
+        title: `Edit Registry Value — ${info.name}`,
+        message: info.registryValueType
+          ? `Type: ${info.registryValueType}`
+          : 'Value data:',
+        confirmText: 'Save',
+        defaultValue: current.content ?? '',
+        historyKey: 'reassembly.registry.editValue',
+      });
+      if (value === null) return;
+
+      await this.api.writeFile(context.targetPath, value, 'utf8');
+    };
+
+    const deleteEntry = async (context: MenuContext): Promise<void> => {
+      if (
+        !isRegistry(context.targetPath) ||
+        context.targetPath === context.currentDirectory
+      ) {
+        return;
+      }
+
+      const confirmed = await this.confirmDialog.confirm({
+        title: 'Delete Registry Entry',
+        message: `Delete ${context.targetPath}?`,
+        confirmText: 'Delete',
+        danger: true,
+      });
+      if (!confirmed) return;
+
+      await this.api.batchDelete([context.targetPath], true, false);
+    };
 
     this.registerBackend({
       id: 'builtin.registry',
       onRegister: api => {
         api.registerPanelSource(source);
 
+        // Registry actions are real commands. Toolbar, context menu, palette and
+        // future shortcuts all dispatch these same descriptors.
+        api.registerCommand({
+          id: commandIds.newKey,
+          title: 'Registry: New Key',
+          category: 'Registry',
+          execute: invocation => createKey(commandContext(invocation)),
+          isEnabled: invocation => {
+            const context = commandContext(invocation);
+            return isRegistry(context.currentDirectory);
+          },
+        });
+
+        api.registerCommand({
+          id: commandIds.newValue,
+          title: 'Registry: New Value',
+          category: 'Registry',
+          execute: invocation => createValue(commandContext(invocation)),
+          isEnabled: invocation => {
+            const context = commandContext(invocation);
+            return isRegistry(context.currentDirectory);
+          },
+        });
+
+        api.registerCommand({
+          id: commandIds.editValue,
+          title: 'Registry: Edit Value',
+          category: 'Registry',
+          execute: invocation => editValue(commandContext(invocation)),
+          isEnabled: invocation => {
+            const context = commandContext(invocation);
+            return isRegistry(context.targetPath) &&
+              context.targetPath !== context.currentDirectory;
+          },
+        });
+
+        api.registerCommand({
+          id: commandIds.delete,
+          title: 'Registry: Delete Entry',
+          category: 'Registry',
+          execute: invocation => deleteEntry(commandContext(invocation)),
+          isEnabled: invocation => {
+            const context = commandContext(invocation);
+            return isRegistry(context.targetPath) &&
+              context.targetPath !== context.currentDirectory;
+          },
+        });
 
         api.registerContextMenuItem({
-          id: 'builtin.registry.newKey',
+          id: 'builtin.registry.newKey.menu',
+          commandId: commandIds.newKey,
           label: 'New Registry Key',
           score: context => isRegistry(context.currentDirectory) ? 95 : 0,
-          execute: async context => {
-            const name = (await this.confirmDialog.prompt({
-              title: 'New Registry Key',
-              message: 'Enter the key name.',
-              confirmText: 'Create',
-              historyKey: 'reassembly.registry.newKey',
-            }))?.trim();
-            if (!name) return;
-            const path = await this.api.joinPaths([context.currentDirectory, name]);
-            await this.api.createDirectory(path, false);
-          },
         });
 
         api.registerContextMenuItem({
-          id: 'builtin.registry.newValue',
+          id: 'builtin.registry.newValue.menu',
+          commandId: commandIds.newValue,
           label: 'New Registry Value',
           score: context => isRegistry(context.currentDirectory) ? 94 : 0,
-          execute: async context => {
-            const name = (await this.confirmDialog.prompt({
-              title: 'New Registry Value',
-              message: 'Enter the value name.',
-              confirmText: 'Next',
-              historyKey: 'reassembly.registry.newValue.name',
-            }))?.trim();
-            if (!name) return;
-            const value = await this.confirmDialog.prompt({
-              title: `Value — ${name}`,
-              message: 'Enter the value data.',
-              confirmText: 'Create',
-              defaultValue: '',
-              historyKey: 'reassembly.registry.newValue.data',
-            });
-            if (value === null) return;
-            const path = await this.api.joinPaths([context.currentDirectory, name]);
-            await this.api.writeFile(path, value, 'utf8');
-          },
         });
 
         api.registerContextMenuItem({
-          id: 'builtin.registry.editValue',
+          id: 'builtin.registry.editValue.menu',
+          commandId: commandIds.editValue,
           label: 'Edit Registry Value',
-          score: context => isRegistry(context.targetPath) && context.targetPath !== context.currentDirectory ? 90 : 0,
-          execute: async context => {
-            const info = await this.api.getFileInfo(context.targetPath);
-            if (String(info.registryKind ?? '').toLowerCase() !== 'value') return;
-            const current = await this.api.readFile(context.targetPath, 'utf8');
-            const value = await this.confirmDialog.prompt({
-              title: `Edit Registry Value — ${info.name}`,
-              message: info.registryValueType ? `Type: ${info.registryValueType}` : 'Value data:',
-              confirmText: 'Save',
-              defaultValue: current.content ?? '',
-              historyKey: 'reassembly.registry.editValue',
-            });
-            if (value === null) return;
-            await this.api.writeFile(context.targetPath, value, 'utf8');
-          },
+          score: context =>
+            isRegistry(context.targetPath) &&
+            context.targetPath !== context.currentDirectory
+              ? 90
+              : 0,
         });
 
         api.registerContextMenuItem({
-          id: 'builtin.registry.delete',
+          id: 'builtin.registry.delete.menu',
+          commandId: commandIds.delete,
           label: 'Delete Registry Entry',
-          score: context => isRegistry(context.targetPath) && context.targetPath !== context.currentDirectory ? 85 : 0,
-          execute: async context => {
-            const confirmed = await this.confirmDialog.confirm({
-              title: 'Delete Registry Entry',
-              message: `Delete ${context.targetPath}?`,
-              confirmText: 'Delete',
-              danger: true,
-            });
-            if (!confirmed) return;
-            await this.api.batchDelete([context.targetPath], true, false);
-          },
+          score: context =>
+            isRegistry(context.targetPath) &&
+            context.targetPath !== context.currentDirectory
+              ? 85
+              : 0,
         });
       },
       onUnregister: api => {
-        api.unregisterContextMenuItem('builtin.registry.delete');
-        api.unregisterContextMenuItem('builtin.registry.editValue');
-        api.unregisterContextMenuItem('builtin.registry.newValue');
-        api.unregisterContextMenuItem('builtin.registry.newKey');
+        api.unregisterContextMenuItem('builtin.registry.delete.menu');
+        api.unregisterContextMenuItem('builtin.registry.editValue.menu');
+        api.unregisterContextMenuItem('builtin.registry.newValue.menu');
+        api.unregisterContextMenuItem('builtin.registry.newKey.menu');
+
+        api.unregisterCommand(commandIds.delete);
+        api.unregisterCommand(commandIds.editValue);
+        api.unregisterCommand(commandIds.newValue);
+        api.unregisterCommand(commandIds.newKey);
+
         api.unregisterPanelSource(source.id);
       },
     }, {

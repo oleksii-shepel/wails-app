@@ -525,9 +525,9 @@ func readRegistryValue(k registry.Key, name string) (registryValueData, error) {
 		var serialized string
 		switch valueType {
 		case registry.DWORD, registry.DWORD_BIG_ENDIAN:
-			serialized = fmt.Sprintf("%d (0x%08X)", uint32(n))
+			serialized = fmt.Sprintf("%d (0x%08X)", uint32(n), uint32(n))
 		case registry.QWORD:
-			serialized = fmt.Sprintf("%d (0x%016X)", n)
+			serialized = fmt.Sprintf("%d (0x%016X)", n, n)
 		default:
 			serialized = fmt.Sprintf("%d (0x%X)", n, n)
 		}

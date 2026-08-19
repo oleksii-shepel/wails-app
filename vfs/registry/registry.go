@@ -919,15 +919,93 @@ func (w *writeFile) Close() error {
 	return writeRegistryTextValue(w.key, apiValueName(w.valName), w.buf.String())
 }
 
-func writeRegistryTextValue(k registry.Key, name, text string) error {
-	_, valueType, err := k.GetValue(name, nil)
-	if errors.Is(err, registry.ErrNotExist) {
-		return k.SetStringValue(name, text)
+func (f *FS) WriteRegistryValue(
+	_ context.Context,
+	path string,
+	valueTypeName string,
+	text string,
+) error {
+	k, valName, _, err := openKey(path, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return err
 	}
-	if err != nil && !errors.Is(err, registry.ErrShortBuffer) {
-		return mapAccessError(err)
+	defer k.Close()
+	if valName == "" {
+		return vfs.ErrNotFile
 	}
 
+	name := apiValueName(valName)
+	targetType, err := parseRegistryTypeName(valueTypeName)
+	if err != nil {
+		return err
+	}
+
+	_, currentType, readErr := k.GetValue(name, nil)
+	exists := readErr == nil || errors.Is(readErr, registry.ErrShortBuffer)
+	if readErr != nil && !errors.Is(readErr, registry.ErrNotExist) && !errors.Is(readErr, registry.ErrShortBuffer) {
+		return mapAccessError(readErr)
+	}
+
+	if exists && currentType == targetType {
+		return writeRegistryValueAsType(k, name, targetType, text)
+	}
+
+	var originalData []byte
+	var originalType uint32
+	if exists {
+		originalData, originalType, err = rawRegistryValue(k, name)
+		if err != nil {
+			return err
+		}
+		if err := k.DeleteValue(name); err != nil {
+			return mapAccessError(err)
+		}
+	}
+
+	if err := writeRegistryValueAsType(k, name, targetType, text); err != nil {
+		if exists {
+			if restoreErr := setRawRegistryValue(k, name, originalType, originalData); restoreErr != nil {
+				return fmt.Errorf(
+					"registry value replacement failed: %v; rollback failed: %w",
+					err,
+					restoreErr,
+				)
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func parseRegistryTypeName(name string) (uint32, error) {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "REG_NONE":
+		return registry.NONE, nil
+	case "REG_SZ":
+		return registry.SZ, nil
+	case "REG_EXPAND_SZ":
+		return registry.EXPAND_SZ, nil
+	case "REG_BINARY":
+		return registry.BINARY, nil
+	case "REG_DWORD":
+		return registry.DWORD, nil
+	case "REG_DWORD_BIG_ENDIAN":
+		return registry.DWORD_BIG_ENDIAN, nil
+	case "REG_MULTI_SZ":
+		return registry.MULTI_SZ, nil
+	case "REG_QWORD":
+		return registry.QWORD, nil
+	default:
+		return 0, fmt.Errorf("unsupported Registry value type %q", name)
+	}
+}
+
+func writeRegistryValueAsType(
+	k registry.Key,
+	name string,
+	valueType uint32,
+	text string,
+) error {
 	switch valueType {
 	case registry.SZ:
 		return k.SetStringValue(name, text)
@@ -959,13 +1037,26 @@ func writeRegistryTextValue(k registry.Key, name, text string) error {
 			return err
 		}
 		return k.SetQWordValue(name, value)
-	default:
+	case registry.BINARY, registry.NONE:
 		data, err := parseRegistryBytes(text)
 		if err != nil {
 			return err
 		}
 		return setRawRegistryValue(k, name, valueType, data)
+	default:
+		return fmt.Errorf("unsupported Registry value type 0x%X", valueType)
 	}
+}
+
+func writeRegistryTextValue(k registry.Key, name, text string) error {
+	_, valueType, err := k.GetValue(name, nil)
+	if errors.Is(err, registry.ErrNotExist) {
+		return writeRegistryValueAsType(k, name, registry.SZ, text)
+	}
+	if err != nil && !errors.Is(err, registry.ErrShortBuffer) {
+		return mapAccessError(err)
+	}
+	return writeRegistryValueAsType(k, name, valueType, text)
 }
 
 func parseRegistryInteger(text string, bits int) (uint64, error) {

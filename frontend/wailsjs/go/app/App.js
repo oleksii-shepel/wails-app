@@ -673,3 +673,7 @@ export function WriteFile(arg1, arg2, arg3) {
 export function WriteFileContent(arg1, arg2, arg3) {
   return window['go']['app']['App']['WriteFileContent'](arg1, arg2, arg3);
 }
+
+export function WriteRegistryValue(arg1, arg2, arg3) {
+  return window['go']['app']['App']['WriteRegistryValue'](arg1, arg2, arg3);
+}

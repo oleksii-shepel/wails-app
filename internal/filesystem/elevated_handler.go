@@ -8,13 +8,14 @@ import (
 )
 
 type RawOperations struct {
-	ListDirectory   func(path string, showHidden bool) (*contracts.DirectoryListing, error)
-	ReadFile        func(path string, encoding string) (*contracts.FileContent, error)
-	WriteFile       func(path string, content string, encoding string) (*contracts.OperationResult, error)
-	DeleteFile      func(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error)
-	CreateDirectory func(path string, recursive bool) (*contracts.OperationResult, error)
-	MoveFile        func(source, destination string) (*contracts.OperationResult, error)
-	CopyFile        func(source, destination string, recursive bool) (*contracts.OperationResult, error)
+	ListDirectory      func(path string, showHidden bool) (*contracts.DirectoryListing, error)
+	ReadFile           func(path string, encoding string) (*contracts.FileContent, error)
+	WriteFile          func(path string, content string, encoding string) (*contracts.OperationResult, error)
+	WriteRegistryValue func(path string, valueType string, data string) (*contracts.OperationResult, error)
+	DeleteFile         func(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error)
+	CreateDirectory    func(path string, recursive bool) (*contracts.OperationResult, error)
+	MoveFile           func(source, destination string) (*contracts.OperationResult, error)
+	CopyFile           func(source, destination string, recursive bool) (*contracts.OperationResult, error)
 }
 
 func NewElevatedHandler(ops RawOperations) elevation.Handler {
@@ -34,6 +35,15 @@ func NewElevatedHandler(ops RawOperations) elevation.Handler {
 			return elevation.Response{Success: true, File: file}
 		case "write":
 			op, err := ops.WriteFile(req.Path, req.Content, req.Encoding)
+			if err != nil {
+				return elevation.Response{Success: false, Error: err.Error()}
+			}
+			return elevation.Response{Success: true, Operation: op}
+		case "registry-write":
+			if ops.WriteRegistryValue == nil {
+				return elevation.Response{Success: false, Error: "registry-write not supported"}
+			}
+			op, err := ops.WriteRegistryValue(req.Path, req.ValueType, req.Content)
 			if err != nil {
 				return elevation.Response{Success: false, Error: err.Error()}
 			}

@@ -346,3 +346,5 @@ export function WaitForElevationApproval(arg1:string,arg2:time.Duration):Promise
 export function WriteFile(arg1:string,arg2:string,arg3:string):Promise<contracts.OperationResult>;
 
 export function WriteFileContent(arg1:string,arg2:string,arg3:string):Promise<contracts.OperationResult>;
+
+export function WriteRegistryValue(arg1:string,arg2:string,arg3:string):Promise<contracts.OperationResult>;

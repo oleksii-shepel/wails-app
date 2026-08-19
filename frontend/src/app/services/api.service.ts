@@ -613,6 +613,32 @@ export class ApiService {
     );
   }
 
+  async writeRegistryValue(
+    path: string,
+    valueType: string,
+    data: string,
+  ): Promise<OperationResult> {
+    const app = window.go.app.App as unknown as {
+      WriteRegistryValue(
+        path: string,
+        valueType: string,
+        data: string,
+      ): Promise<OperationResult>;
+    };
+
+    if (typeof app.WriteRegistryValue !== 'function') {
+      throw new Error(
+        'WriteRegistryValue binding is unavailable. Run Wails binding generation.',
+      );
+    }
+
+    return await app.WriteRegistryValue(
+      this.normalizeCanonicalPath(path),
+      valueType,
+      data,
+    );
+  }
+
   async createDirectory(path: string, recursive: boolean = false): Promise<OperationResult> {
     return await window.go.app.App.CreateDir(this.normalizeCanonicalPath(path), recursive);
   }

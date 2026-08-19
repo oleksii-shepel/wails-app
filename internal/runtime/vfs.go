@@ -265,6 +265,25 @@ func VFSWriteFile(ctx context.Context, vfs *vfslib.Unified, path string, content
 	}, nil
 }
 
+func VFSWriteRegistryValue(
+	ctx context.Context,
+	vfs *vfslib.Unified,
+	path string,
+	valueType string,
+	data string,
+) (*contracts.OperationResult, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+	if err := vfs.WriteRegistryValue(ctx, internalPath, valueType, data); err != nil {
+		return nil, err
+	}
+	return &contracts.OperationResult{
+		Success:       true,
+		Message:       "Registry value written successfully",
+		AffectedPaths: []string{publicPath},
+	}, nil
+}
+
 func VFSMkdir(ctx context.Context, vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)

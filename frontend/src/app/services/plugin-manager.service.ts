@@ -541,16 +541,11 @@ export class PluginManagerService implements PluginRegistryAPI {
       });
       if (!edit) return;
 
-      const currentType = info.registryValueType || 'REG_SZ';
-      if (edit.type !== currentType) {
-        await this.confirmDialog.alert({
-          title: 'Registry Type Change',
-          message: `Changing ${currentType} to ${edit.type} requires the typed Registry write path.`,
-        });
-        return;
-      }
-
-      await this.api.writeFile(context.targetPath, edit.data, 'utf8');
+      await this.api.writeRegistryValue(
+        context.targetPath,
+        edit.type,
+        edit.data,
+      );
     };
 
 

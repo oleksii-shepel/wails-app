@@ -212,6 +212,22 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 		}
 		return mapMemoryOperation(op), nil
 	},
+	WriteRegistryValue: func(path string, valueType string, data string) (*contracts.OperationResult, error) {
+		if !pathref.IsRegistry(path) {
+			return nil, fmt.Errorf("registry-write requires registry:// path")
+		}
+		vfs, err := getElevatedVFS()
+		if err != nil {
+			return nil, err
+		}
+		return internalruntime.VFSWriteRegistryValue(
+			context.Background(),
+			vfs,
+			path,
+			valueType,
+			data,
+		)
+	},
 	DeleteFile: func(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
 		if pathref.IsRegistry(path) {
 			vfs, err := getElevatedVFS()

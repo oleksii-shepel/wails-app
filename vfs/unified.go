@@ -41,6 +41,10 @@ type Unified struct {
 	mounts Mounter
 }
 
+type RegistryValueWriter interface {
+	WriteRegistryValue(ctx context.Context, path, valueType, data string) error
+}
+
 const (
 	registryScheme = "registry://"
 	memoryScheme   = "memory://"
@@ -211,6 +215,23 @@ func (u *Unified) Remove(ctx context.Context, path string) error {
 		return err
 	}
 	return fsys.Remove(ctx, rel)
+}
+
+func (u *Unified) WriteRegistryValue(
+	ctx context.Context,
+	path string,
+	valueType string,
+	data string,
+) error {
+	fsys, rel, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return err
+	}
+	writer, ok := fsys.(RegistryValueWriter)
+	if !ok {
+		return fmt.Errorf("vfs: registry value writes are not supported by this filesystem")
+	}
+	return writer.WriteRegistryValue(ctx, rel, valueType, data)
 }
 
 func (u *Unified) Rename(ctx context.Context, oldPath, newPath string) error {

@@ -15,6 +15,7 @@ type Request struct {
 	ShowHidden  bool   `json:"showHidden,omitempty"`
 	Encoding    string `json:"encoding,omitempty"`
 	Content     string `json:"content,omitempty"`
+	ValueType   string `json:"valueType,omitempty"`
 	Recursive   bool   `json:"recursive,omitempty"`
 	UseTrash    *bool  `json:"useTrash,omitempty"`
 	Source      string `json:"source,omitempty"`

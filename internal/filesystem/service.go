@@ -639,6 +639,46 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 	return s.mapOperation(resp.Operation), nil
 }
 
+func (s *Service) WriteRegistryValue(
+	path string,
+	valueType string,
+	data string,
+) (*contracts.OperationResult, error) {
+	path = pathref.Normalize(path)
+	if !pathref.IsRegistry(path) || !s.handlesVFSPath(path) {
+		return nil, fmt.Errorf("registry value write requires a mounted registry:// path")
+	}
+
+	op, err := internalruntime.VFSWriteRegistryValue(
+		context.Background(),
+		s.vfs,
+		path,
+		valueType,
+		data,
+	)
+	if err == nil {
+		return op, nil
+	}
+	if !s.isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := s.runElevatedWithEvents(
+		"registry-write",
+		s.elevationTargetSingle(path),
+		elevation.Request{
+			Op:        "registry-write",
+			Path:      path,
+			Content:   data,
+			ValueType: valueType,
+		},
+	)
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.Operation, nil
+}
+
 func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
 	if s.handlesWebAliasPath(path) {

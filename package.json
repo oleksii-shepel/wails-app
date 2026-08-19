@@ -12,8 +12,7 @@
     "test:frontend": "npm --prefix manager/frontend test",
     "test:go": "go test ./manager/...",
     "test": "npm run test:plugins && npm run test:frontend && npm run test:go",
-    "audit:registry": "node scripts/registry-boundary.mjs",
-    "cleanup:registry": "node scripts/registry-boundary.mjs --fix"
+    "bootstrap": "npm install"
   },
   "workspaces": [
     "manager/frontend",

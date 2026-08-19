@@ -92,6 +92,20 @@ abstract class BasePanelSource implements PanelSource {
   supportsStreaming(context: PanelSourceContext): boolean {
     return this.directories.supportsStreaming(context.path);
   }
+
+  activateEntry(
+    _context: PanelSourceContext,
+    _entry: FileInfo,
+  ): boolean | Promise<boolean> {
+    return false;
+  }
+
+  canPreviewEntry(
+    _context: PanelSourceContext,
+    _entry: FileInfo,
+  ): boolean {
+    return true;
+  }
 }
 
 class ArchivePanelSource extends BasePanelSource {

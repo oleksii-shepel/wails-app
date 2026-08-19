@@ -50,7 +50,6 @@ import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
-import { RegistryPaneComponent } from '@reassembly/registry-plugin';
 import { FilterComponent } from './filter.component';
 import { NavigationController } from './navigation.controller';
 import type { PresentedCommand } from './presented-command';
@@ -187,7 +186,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     CommonModule,
     AddressBarComponent,
     FilterComponent,
-    RegistryPaneComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
   ],
@@ -322,7 +320,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         <span *ngIf="loading">Loading {{ path || 'location' }}…</span>
         <span *ngIf="!loading && !error">{{ totalEntryCount }} items</span>
         <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
-        <span *ngIf="showHidden && !isRegistrySurface" class="hidden-state">hidden visible</span>
+        <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
         <span *ngIf="clipboard" class="clipboard-state">
           {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}: {{ clipboard.paths.length }}
         </span>
@@ -348,27 +346,15 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </div>
 
       <div class="action-bar">
-        <ng-container *ngIf="isRegistrySurface; else directoryActionBar">
-          <button
-            *ngFor="let action of pluginToolbarActions"
-            type="button"
-            class="plugin-action"
-            [disabled]="loading || !action.enabled"
-            [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
-            (click)="runPluginToolbarAction(action)">
-            {{ action.label }}
-          </button>
-        </ng-container>
 
-        <ng-template #directoryActionBar>
         <div class="view-switcher" role="group" aria-label="Directory view">
           <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
-          <button *ngIf="!isRegistrySurface" type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
+          <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
           <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
-          <button *ngIf="!isRegistrySurface" type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
+          <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
         </div>
 
-        <div *ngIf="!isRegistrySurface" class="sort-controls" role="group" aria-label="Sort directory">
+        <div class="sort-controls" role="group" aria-label="Sort directory">
           <select
             [value]="sortField"
             (change)="setSortField($any($event.target).value)"
@@ -419,7 +405,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ action.label }}
           </button>
         </ng-container>
-        </ng-template>
       </div>
 
       <app-filter
@@ -451,7 +436,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #treeViewport
         class="tree-view"
         data-pane-content
-        *ngIf="!error && !isRegistrySurface && viewMode === 'tree'"
+        *ngIf="!error && viewMode === 'tree'"
         tabindex="-1"
         role="tree"
         [attr.aria-label]="'Tree view of ' + (path || 'location')"
@@ -538,40 +523,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </div>
       </div>
 
-      <app-registry-pane
-        *ngIf="!error && isRegistrySurface"
-        [paneId]="paneId"
-        [path]="path"
-        [entries]="renderedEntries"
-        [selectedPaths]="selectedPaths"
-        [cursorPath]="cursorPath"
-        [visibleEntryCount]="visibleEntryCount"
-        [renderedStart]="renderedEntryStart"
-        [virtualEnabled]="listVirtualWindow.enabled"
-        [beforePx]="listVirtualWindow.beforePx"
-        [afterPx]="listVirtualWindow.afterPx"
-        [loading]="loading"
-        [filterText]="filterText"
-        [dragOverPath]="dragOverPath"
-        [dropIntent]="dropIntent"
-        [backgroundDropActive]="backgroundDropActive"
-        (scrolled)="onContentScroll($event)"
-        (backgroundClick)="onBackgroundClick($event)"
-        (backgroundContextMenu)="onBackgroundContextMenu($event)"
-        (backgroundDragOver)="onBackgroundDragOver($event)"
-        (backgroundDragLeave)="onBackgroundDragLeave($event)"
-        (backgroundDrop)="onBackgroundDrop($event)"
-        (entrySelect)="selectFromPointer($event.entry, $event.event)"
-        (entryOpen)="openEntry($event)"
-        (entryContextMenu)="onEntryContextMenu($event.entry, $event.event)"
-        (entryDragStart)="onEntryDragStart($event.entry, $event.event)"
-        (entryDragEnd)="onDragEnd()"
-        (entryDragOver)="onEntryDragOver($event.entry, $event.event)"
-        (entryDragLeave)="onEntryDragLeave($event)"
-        (entryDrop)="onEntryDrop($event.entry, $event.event)">
-      </app-registry-pane>
-
-      <div class="details-header" *ngIf="!error && !isRegistrySurface && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
+      <div class="details-header" *ngIf="!error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
         <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
         <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
@@ -580,7 +532,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
-        *ngIf="!error && !isRegistrySurface && viewMode !== 'tree'"
+        *ngIf="!error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
         [attr.aria-label]="'Files in ' + (path || 'location')"
@@ -1589,7 +1541,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
-  @ViewChild(RegistryPaneComponent) registryPane?: RegistryPaneComponent;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -2182,14 +2133,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
-  get isRegistrySurface(): boolean {
-    return this.activePanelSource.source.kind === 'registry';
-  }
-
   private get activeListViewport(): HTMLElement | undefined {
-    return this.isRegistrySurface
-      ? this.registryPane?.viewportElement
-      : this.listViewport?.nativeElement;
+    return this.listViewport?.nativeElement;
   }
 
   get panelColumnContext(): PanelColumnContext {
@@ -2455,7 +2400,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get listVirtualWindow(): VirtualWindow {
-    const grid = !this.isRegistrySurface && this.viewMode === 'grid';
+    const grid = this.viewMode === 'grid';
     const columns = grid
       ? this.estimatedGridColumns()
       : 1;
@@ -2549,7 +2494,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.virtualScrollTop = Math.max(0, viewport.scrollTop);
     this.virtualViewportHeight = Math.max(
-      !this.isRegistrySurface && this.viewMode === 'grid'
+      this.viewMode === 'grid'
         ? this.gridRowExtent
         : this.listRowExtent,
       viewport.clientHeight || 600,
@@ -3289,7 +3234,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   setSortField(field: string): void {
-    if (this.isRegistrySurface) return;
     this.markUserInteraction();
     if (
       field !== 'name' &&
@@ -3309,7 +3253,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   toggleSortDirection(): void {
-    if (this.isRegistrySurface) return;
     this.markUserInteraction();
     this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
     this.syncActiveDirSessionState();
@@ -3320,7 +3263,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   toggleDirectoriesFirst(): void {
-    if (this.isRegistrySurface) return;
     this.markUserInteraction();
     this.directoriesFirst = !this.directoriesFirst;
     this.syncActiveDirSessionState();
@@ -4014,7 +3956,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     const target = event.target as HTMLElement | null;
-    if (target?.closest('.entry, .registry-entry, .tree-row, button, input, select, textarea, a')) {
+    if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
       this.restoreCursorOnBackgroundClick = false;
       return;
     }
@@ -4459,7 +4401,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         ? this.treeViewport?.nativeElement
         : this.activeListViewport;
 
-    const rowHeight = !this.isRegistrySurface && this.viewMode === 'grid' ? 110 : 30;
+    const rowHeight = this.viewMode === 'grid' ? 110 : 30;
     const pageSize = Math.max(
       1,
       Math.floor((viewport?.clientHeight ?? 280) / rowHeight),
@@ -4661,19 +4603,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
-
-  get registryEntrySelected(): boolean {
-    const entry = this.cursorEntry;
-    return !!entry && entry.path !== '__parent__';
-  }
-
-  get registryValueSelected(): boolean {
-    const entry = this.cursorEntry as (FileInfo & { registryKind?: string }) | null;
-    return !!entry &&
-      entry.path !== '__parent__' &&
-      String(entry.registryKind ?? '').toLowerCase() === 'value';
-  }
-
 
   runPluginToolbarAction(action: PresentedCommand): void {
     if (!action.enabled) return;

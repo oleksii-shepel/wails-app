@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, EventEmitter, OnInit, Output } from '@angular/core';
 import { ApiService } from '../services/api.service';
 import { PluginDiscoveryService } from '../services/plugin-discovery.service';
 import {
@@ -7,6 +7,12 @@ import {
   type ManagedPluginRuntimeSnapshot,
 } from '../services/plugin-lifecycle-coordinator.service';
 import type { PluginPermission } from '../plugin/plugin-manifest';
+
+interface PluginPolicyDraft {
+  enabled: boolean;
+  trusted: boolean;
+  grantedPermissions: PluginPermission[];
+}
 
 @Component({
   selector: 'app-plugin-settings-panel',
@@ -54,7 +60,7 @@ import type { PluginPermission } from '../plugin/plugin-manifest';
           <label class="plugin-enable" [title]="snapshot.plugin.discovered.valid ? 'Enable or disable this plugin' : 'Invalid packages cannot be enabled'">
             <input
               type="checkbox"
-              [checked]="snapshot.plugin.state.enabled"
+              [checked]="enabledValue(snapshot)"
               [disabled]="isBusy(snapshot) || !snapshot.plugin.discovered.valid"
               (change)="toggleEnabled(snapshot, $any($event.target).checked)"
             />
@@ -77,9 +83,9 @@ import type { PluginPermission } from '../plugin/plugin-manifest';
           <section class="plugin-block">
             <div class="plugin-block-heading">
               <strong>Trust</strong>
-              <span *ngIf="snapshot.plugin.state.trusted && snapshot.plugin.state.trustedVersion === snapshot.plugin.discovered.manifest.version" class="state-good">Trusted for this version</span>
-              <span *ngIf="snapshot.plugin.state.trusted && snapshot.plugin.state.trustedVersion !== snapshot.plugin.discovered.manifest.version" class="state-warn">Review required after upgrade</span>
-              <span *ngIf="!snapshot.plugin.state.trusted" class="state-muted">Not trusted</span>
+              <span *ngIf="isTrustedForCurrentVersion(snapshot)" class="state-good">Trusted for this version</span>
+              <span *ngIf="trustedValue(snapshot) && !isTrustedForCurrentVersion(snapshot)" class="state-warn">Review required after upgrade</span>
+              <span *ngIf="!trustedValue(snapshot)" class="state-muted">Not trusted</span>
             </div>
             <p>Trust grants all permissions requested by this exact plugin version.</p>
             <button
@@ -191,12 +197,17 @@ import type { PluginPermission } from '../plugin/plugin-manifest';
   `],
 })
 export class PluginSettingsPanelComponent implements OnInit {
+  @Output() readonly dirtyChange = new EventEmitter<boolean>();
+
   snapshots: ManagedPluginRuntimeSnapshot[] = [];
   pluginDirectory = '';
   error = '';
   refreshing = false;
   openingDirectory = false;
   private readonly busyIds = new Set<string>();
+  private readonly baselinePolicy = new Map<string, PluginPolicyDraft>();
+  private readonly draftPolicy = new Map<string, PluginPolicyDraft>();
+  private dirty = false;
 
   constructor(
     private readonly coordinator: PluginLifecycleCoordinatorService,
@@ -218,13 +229,31 @@ export class PluginSettingsPanelComponent implements OnInit {
     return this.busyIds.has(snapshot.plugin.discovered.manifest.id);
   }
 
+  enabledValue(snapshot: ManagedPluginRuntimeSnapshot): boolean {
+    return this.policyFor(snapshot).enabled;
+  }
+
+  trustedValue(snapshot: ManagedPluginRuntimeSnapshot): boolean {
+    return this.policyFor(snapshot).trusted;
+  }
+
   isTrustedForCurrentVersion(snapshot: ManagedPluginRuntimeSnapshot): boolean {
-    return snapshot.plugin.state.trusted &&
-      snapshot.plugin.state.trustedVersion === snapshot.plugin.discovered.manifest.version;
+    const policy = this.policyFor(snapshot);
+    if (!policy.trusted) return false;
+
+    // A newly staged trust applies to the currently displayed version.
+    if (policy.trusted !== snapshot.plugin.state.trusted) return true;
+
+    return snapshot.plugin.state.trustedVersion === snapshot.plugin.discovered.manifest.version;
   }
 
   permissionGranted(snapshot: ManagedPluginRuntimeSnapshot, permission: PluginPermission): boolean {
-    return snapshot.plugin.effectiveGrantedPermissions.includes(permission);
+    const policy = this.policyFor(snapshot);
+    return policy.trusted || policy.grantedPermissions.includes(permission);
+  }
+
+  get hasPendingChanges(): boolean {
+    return this.dirty;
   }
 
   async refresh(): Promise<void> {
@@ -238,6 +267,11 @@ export class PluginSettingsPanelComponent implements OnInit {
         10_000,
         'Plugin refresh timed out.',
       );
+      if (!this.dirty) {
+        this.capturePolicy(this.snapshots);
+      } else {
+        this.reconcileDrafts(this.snapshots);
+      }
     } catch (error) {
       this.error = errorMessage(error);
     } finally {
@@ -263,19 +297,82 @@ export class PluginSettingsPanelComponent implements OnInit {
     }
   }
 
-  async toggleEnabled(snapshot: ManagedPluginRuntimeSnapshot, enabled: boolean): Promise<void> {
-    await this.runFor(snapshot, () => this.coordinator.setEnabled(snapshot.plugin.discovered.manifest.id, enabled));
+  toggleEnabled(snapshot: ManagedPluginRuntimeSnapshot, enabled: boolean): void {
+    this.updatePolicy(snapshot, policy => ({ ...policy, enabled }));
   }
 
-  async toggleTrusted(snapshot: ManagedPluginRuntimeSnapshot): Promise<void> {
-    const trusted = !this.isTrustedForCurrentVersion(snapshot);
-    await this.runFor(snapshot, () => this.coordinator.setTrusted(snapshot.plugin.discovered.manifest.id, trusted));
+  toggleTrusted(snapshot: ManagedPluginRuntimeSnapshot): void {
+    const trusted = !this.trustedValue(snapshot);
+    this.updatePolicy(snapshot, policy => ({ ...policy, trusted }));
   }
 
-  async togglePermission(snapshot: ManagedPluginRuntimeSnapshot, permission: PluginPermission, granted: boolean): Promise<void> {
-    const current = new Set(snapshot.plugin.state.grantedPermissions);
-    if (granted) current.add(permission); else current.delete(permission);
-    await this.runFor(snapshot, () => this.coordinator.setGrantedPermissions(snapshot.plugin.discovered.manifest.id, [...current]));
+  togglePermission(snapshot: ManagedPluginRuntimeSnapshot, permission: PluginPermission, granted: boolean): void {
+    this.updatePolicy(snapshot, policy => {
+      const permissions = new Set(policy.grantedPermissions);
+      if (granted) permissions.add(permission); else permissions.delete(permission);
+      return { ...policy, grantedPermissions: [...permissions] };
+    });
+  }
+
+  async save(): Promise<boolean> {
+    if (!this.dirty) return true;
+
+    this.error = '';
+
+    try {
+      for (const snapshot of this.snapshots) {
+        const id = snapshot.plugin.discovered.manifest.id;
+        if (!id) continue;
+
+        const baseline = this.baselinePolicy.get(id);
+        const draft = this.draftPolicy.get(id);
+        if (!baseline || !draft) continue;
+
+        // Apply permission/trust policy before enabled state so disabling a
+        // plugin does not prevent the remaining policy from being persisted.
+        if (draft.trusted !== baseline.trusted) {
+          await withTimeout(
+            this.coordinator.setTrusted(id, draft.trusted),
+            10_000,
+            `Saving trust setting timed out for ${id}.`,
+          );
+        }
+
+        if (!samePermissions(draft.grantedPermissions, baseline.grantedPermissions)) {
+          await withTimeout(
+            this.coordinator.setGrantedPermissions(id, draft.grantedPermissions),
+            10_000,
+            `Saving permission settings timed out for ${id}.`,
+          );
+        }
+
+        if (draft.enabled !== baseline.enabled) {
+          await withTimeout(
+            this.coordinator.setEnabled(id, draft.enabled),
+            10_000,
+            `Saving enabled setting timed out for ${id}.`,
+          );
+        }
+      }
+
+      this.snapshots = await withTimeout(
+        this.coordinator.sync(),
+        10_000,
+        'Plugin refresh timed out after saving settings.',
+      );
+      this.capturePolicy(this.snapshots);
+      this.renderNow();
+      return true;
+    } catch (error) {
+      this.error = errorMessage(error);
+      this.renderNow();
+      return false;
+    }
+  }
+
+  discard(): void {
+    this.capturePolicy(this.snapshots);
+    this.renderNow();
   }
 
   async clearQuarantine(snapshot: ManagedPluginRuntimeSnapshot): Promise<void> {
@@ -309,6 +406,92 @@ export class PluginSettingsPanelComponent implements OnInit {
     }
   }
 
+  private policyFor(snapshot: ManagedPluginRuntimeSnapshot): PluginPolicyDraft {
+    const id = snapshot.plugin.discovered.manifest.id;
+    return this.draftPolicy.get(id) ?? this.policyFromSnapshot(snapshot);
+  }
+
+  private policyFromSnapshot(snapshot: ManagedPluginRuntimeSnapshot): PluginPolicyDraft {
+    return {
+      enabled: snapshot.plugin.state.enabled,
+      trusted: snapshot.plugin.state.trusted,
+      grantedPermissions: [...snapshot.plugin.state.grantedPermissions],
+    };
+  }
+
+  private updatePolicy(
+    snapshot: ManagedPluginRuntimeSnapshot,
+    update: (current: PluginPolicyDraft) => PluginPolicyDraft,
+  ): void {
+    const id = snapshot.plugin.discovered.manifest.id;
+    if (!id) return;
+
+    const current = this.policyFor(snapshot);
+    this.draftPolicy.set(id, normalizePolicy(update(current)));
+    this.updateDirtyState();
+    this.renderNow();
+  }
+
+  private capturePolicy(snapshots: readonly ManagedPluginRuntimeSnapshot[]): void {
+    this.baselinePolicy.clear();
+    this.draftPolicy.clear();
+
+    for (const snapshot of snapshots) {
+      const id = snapshot.plugin.discovered.manifest.id;
+      if (!id) continue;
+      const policy = normalizePolicy(this.policyFromSnapshot(snapshot));
+      this.baselinePolicy.set(id, clonePolicy(policy));
+      this.draftPolicy.set(id, clonePolicy(policy));
+    }
+
+    this.setDirty(false);
+  }
+
+  private reconcileDrafts(snapshots: readonly ManagedPluginRuntimeSnapshot[]): void {
+    const present = new Set<string>();
+
+    for (const snapshot of snapshots) {
+      const id = snapshot.plugin.discovered.manifest.id;
+      if (!id) continue;
+      present.add(id);
+
+      if (!this.baselinePolicy.has(id)) {
+        const policy = normalizePolicy(this.policyFromSnapshot(snapshot));
+        this.baselinePolicy.set(id, clonePolicy(policy));
+        this.draftPolicy.set(id, clonePolicy(policy));
+      }
+    }
+
+    for (const id of [...this.baselinePolicy.keys()]) {
+      if (!present.has(id)) {
+        this.baselinePolicy.delete(id);
+        this.draftPolicy.delete(id);
+      }
+    }
+
+    this.updateDirtyState();
+  }
+
+  private updateDirtyState(): void {
+    let dirty = false;
+
+    for (const [id, baseline] of this.baselinePolicy) {
+      const draft = this.draftPolicy.get(id);
+      if (!draft || !samePolicy(baseline, draft)) {
+        dirty = true;
+        break;
+      }
+    }
+
+    this.setDirty(dirty);
+  }
+
+  private setDirty(value: boolean): void {
+    if (this.dirty === value) return;
+    this.dirty = value;
+    this.dirtyChange.emit(value);
+  }
+
   private async runFor(snapshot: ManagedPluginRuntimeSnapshot, action: () => Promise<unknown>): Promise<void> {
     const id = snapshot.plugin.discovered.manifest.id;
     if (!id || this.busyIds.has(id)) return;
@@ -335,6 +518,36 @@ export class PluginSettingsPanelComponent implements OnInit {
     // settings subtree explicitly so plugin state never depends on a later UI event.
     this.changeDetector.detectChanges();
   }
+}
+
+
+function clonePolicy(policy: PluginPolicyDraft): PluginPolicyDraft {
+  return {
+    enabled: policy.enabled,
+    trusted: policy.trusted,
+    grantedPermissions: [...policy.grantedPermissions],
+  };
+}
+
+function normalizePolicy(policy: PluginPolicyDraft): PluginPolicyDraft {
+  return {
+    enabled: !!policy.enabled,
+    trusted: !!policy.trusted,
+    grantedPermissions: [...new Set(policy.grantedPermissions)].sort(),
+  };
+}
+
+function samePermissions(left: readonly PluginPermission[], right: readonly PluginPermission[]): boolean {
+  if (left.length !== right.length) return false;
+  const a = [...left].sort();
+  const b = [...right].sort();
+  return a.every((value, index) => value === b[index]);
+}
+
+function samePolicy(left: PluginPolicyDraft, right: PluginPolicyDraft): boolean {
+  return left.enabled === right.enabled &&
+    left.trusted === right.trusted &&
+    samePermissions(left.grantedPermissions, right.grantedPermissions);
 }
 
 

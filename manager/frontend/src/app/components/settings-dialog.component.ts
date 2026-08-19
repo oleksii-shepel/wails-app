@@ -812,7 +812,9 @@ interface SettingsDialogRequest {
 
               <!-- Plugins -->
               <section *ngIf="activeTab === 'plugins'" class="settings-section plugins-section">
-                <app-plugin-settings-panel></app-plugin-settings-panel>
+                <app-plugin-settings-panel
+                  (dirtyChange)="onPluginDirtyChange($event)">
+                </app-plugin-settings-panel>
               </section>
 
               <!-- Shortcuts -->
@@ -1012,7 +1014,7 @@ interface SettingsDialogRequest {
             </div>
             <div class="settings-actions">
               <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
-              <button type="button" class="btn btn-primary" [disabled]="!hasChanges" (click)="onSave()">
+              <button type="button" class="btn btn-primary" [disabled]="!hasChanges || saving" (click)="onSave()">
                 Save Changes<kbd class="btn-kbd">Ctrl+S</kbd>
               </button>
             </div>
@@ -1024,11 +1026,13 @@ interface SettingsDialogRequest {
 })
 export class SettingsDialogComponent {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
+  @ViewChild(PluginSettingsPanelComponent) private pluginSettingsPanel?: PluginSettingsPanelComponent;
 
   readonly request$: Stream<SettingsDialogRequest | null> = this.settingsService.getActiveRequest$();
 
   activeTab: SettingsTab = 'general';
   hasChanges = false;
+  saving = false;
   draft: ProjectSettings = this.settingsService.getSettings();
 
   // Keybinding customization state
@@ -1084,6 +1088,7 @@ export class SettingsDialogComponent {
   ];
 
   private originalSettings: ProjectSettings = this.settingsService.getSettings();
+  private pluginHasChanges = false;
   private releaseDialogContext: (() => void) | null = null;
   private readonly destroy$ = createSubject<void>();
 
@@ -1112,7 +1117,9 @@ export class SettingsDialogComponent {
           this.originalSettings = this.settingsService.getSettings();
           this.draft = JSON.parse(JSON.stringify(this.originalSettings));
           this.activeTab = request.initialTab ?? 'general';
+          this.pluginHasChanges = false;
           this.hasChanges = false;
+          this.saving = false;
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.settings');
         } else {
           this.releaseDialogContext?.();
@@ -1452,21 +1459,47 @@ export class SettingsDialogComponent {
   }
 
   onSettingChanged(): void {
-    this.hasChanges = !this.isEqual(this.draft, this.originalSettings);
+    this.recomputeHasChanges();
+  }
+
+  onPluginDirtyChange(dirty: boolean): void {
+    this.pluginHasChanges = dirty;
+    this.recomputeHasChanges();
   }
 
   onCancel(): void {
-    if (this.hasChanges) {
-      // Optionally show a confirmation dialog here
-    }
+    if (this.saving) return;
+
+    this.pluginSettingsPanel?.discard();
+    this.pluginHasChanges = false;
+    this.recomputeHasChanges();
     this.settingsService.closeSettings(false);
   }
 
-  onSave(): void {
-    this.settingsService.updateSettings(this.getChanges());
-    this.originalSettings = JSON.parse(JSON.stringify(this.draft));
-    this.hasChanges = false;
-    this.settingsService.closeSettings(true);
+  async onSave(): Promise<void> {
+    if (!this.hasChanges || this.saving) return;
+
+    this.saving = true;
+    try {
+      if (this.pluginHasChanges) {
+        const saved = await this.pluginSettingsPanel?.save();
+        if (saved === false) {
+          return;
+        }
+        this.pluginHasChanges = false;
+      }
+
+      const changes = this.getChanges();
+      if (Object.keys(changes).length > 0) {
+        this.settingsService.updateSettings(changes);
+      }
+
+      this.originalSettings = JSON.parse(JSON.stringify(this.draft));
+      this.recomputeHasChanges();
+      this.settingsService.closeSettings(true);
+    } finally {
+      this.saving = false;
+    }
   }
 
   onResetSection(): void {
@@ -1483,6 +1516,11 @@ export class SettingsDialogComponent {
     this.settingsService.resetToDefaults();
     this.draft = JSON.parse(JSON.stringify(this.settingsService.getSettings()));
     this.onSettingChanged();
+  }
+
+  private recomputeHasChanges(): void {
+    const projectHasChanges = !this.isEqual(this.draft, this.originalSettings);
+    this.hasChanges = projectHasChanges || this.pluginHasChanges;
   }
 
   private getChanges(): Partial<ProjectSettings> {

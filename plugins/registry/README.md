@@ -1,15 +1,32 @@
 # Registry Plugin
 
-Target project for `builtin.registry`.
+`@reassembly/registry-plugin` owns the frontend Registry experience for
+`builtin.registry`.
 
-The first extraction should move Registry-specific frontend ownership here:
+It contains:
 
-- Registry panel/surface presentation;
-- Registry toolbar and context-menu contributions;
-- Registry commands;
-- key/value editors;
-- Registry formatting and type semantics.
+- the `registry://` panel-source implementation;
+- Registry pane presentation;
+- Registry key and value editors;
+- Registry commands and context-menu contributions;
+- Registry type/payload presentation semantics.
 
-Keep `manager/vfs/registry` and the common elevation/filesystem operation path in the host until a backend plugin ABI exists.
+The package does not import Manager internals. Manager supplies a narrow
+`RegistryPanelSourceHost` and `RegistryPluginOperations` adapter backed by the
+existing VFS, `ApiService`, dialogs, and elevation-aware filesystem operations.
 
-Do not move files mechanically until the host exposes a custom panel-surface contribution associated with a `PanelSource`; that contract is the boundary that lets `DirectoryPaneComponent` stop knowing about Registry UI.
+The Registry backend remains in `manager/vfs/registry` until a backend plugin
+ABI exists.
+
+## Build
+
+From the repository root:
+
+```sh
+npm install
+npm run build:plugins
+```
+
+The package is source-linked into `manager/frontend` through the workspace. Its
+standalone `build` command performs strict TypeScript validation; the Angular
+application performs the final AOT compilation when Manager is built.

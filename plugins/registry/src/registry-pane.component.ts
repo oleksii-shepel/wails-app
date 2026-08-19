@@ -8,7 +8,7 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import { FileInfo, FileType } from '../shared/protocol';
+import { RegistryFileInfo as FileInfo, RegistryFileType as FileType } from './registry-model';
 
 export type RegistryPaneViewMode = 'list' | 'details';
 

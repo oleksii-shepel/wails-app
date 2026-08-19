@@ -1,14 +1,23 @@
 # Registry Plugin
 
-The Windows Registry is now owned by the built-in `builtin.registry` plugin rather than the core `PanelSourceRegistryService`.
+The Windows Registry frontend is owned by the sibling
+`@reassembly/registry-plugin` package in `plugins/registry`.
 
-The plugin contributes:
+The plugin owns:
 
-- the `registry://` `PanelSource`;
-- Registry-specific Details columns for kind, value type, and preview data;
-- New Key and New Value actions;
-- Edit Value and Delete Entry actions.
+- the `registry://` `PanelSource` implementation;
+- Registry-specific pane presentation;
+- New Key, New Value, Edit, Delete and Refresh toolbar contributions;
+- Registry context-menu contributions;
+- Registry key and value editors;
+- Registry type and payload presentation semantics.
 
-All reads and mutations continue through the existing Registry VFS and common `ApiService` operation paths. The plugin does not introduce a parallel Registry backend. Existing elevation behavior remains in the filesystem service.
+Manager supplies only narrow host adapters backed by its public directory/VFS
+capabilities and operation services. Reads and mutations continue through the
+existing Registry VFS and common `ApiService` paths, so privilege escalation
+uses the same filesystem/elevation mechanics as regular operations.
 
-Registry rename remains unsupported because the underlying Registry VFS intentionally does not implement rename.
+The backend remains in `manager/vfs/registry` until a backend plugin ABI is
+introduced. Registry key/value rename and typed value replacement are backend
+capabilities consumed by the frontend plugin; the plugin does not duplicate
+those Windows Registry operations.

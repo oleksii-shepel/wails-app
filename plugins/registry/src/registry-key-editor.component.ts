@@ -11,66 +11,70 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import {
-  RegistryValueEditorService,
-  type RegistryValueEditRequest,
-} from '../services/registry-value-editor.service';
+  RegistryKeyEditorService,
+  type RegistryKeyEditRequest,
+} from './registry-key-editor.service';
 
 @Component({
-  selector: 'app-registry-value-editor',
+  selector: 'app-registry-key-editor',
   standalone: true,
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       *ngIf="request"
-      class="registry-editor-overlay"
+      class="registry-key-overlay"
       data-input-owned
-      (click)="cancel()"
-      (keydown)="onKeyDown($event)">
+      (click)="cancel()">
       <section
-        class="registry-editor"
+        class="registry-key-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Edit Registry Value"
+        [attr.aria-label]="request.title"
         data-input-owned
         (click)="$event.stopPropagation()"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()"
+        (mouseup)="$event.stopPropagation()"
+        (dblclick)="$event.stopPropagation()"
+        (keydown)="onDialogKeyDown($event)"
+        (keyup)="$event.stopPropagation()">
         <header>
-          <div>
-            <strong>Edit Registry Value</strong>
-            <span>{{ request.name }}</span>
-          </div>
+          <strong>{{ request.title }}</strong>
           <button type="button" class="close" aria-label="Close" (click)="cancel()">×</button>
         </header>
 
         <form (ngSubmit)="save()" data-input-owned>
           <label>
-            <span>Type</span>
-            <select
-              name="registry-value-type"
-              [(ngModel)]="type"
-              data-input-owned>
-              <option *ngFor="let item of registryTypes" [value]="item">
-                {{ item }}
-              </option>
-            </select>
-          </label>
-
-          <label class="data-field">
-            <span>Data</span>
-            <textarea
-              #dataInput
-              name="registry-value-data"
-              [(ngModel)]="data"
-              rows="6"
-              spellcheck="false"
+            <span>Name</span>
+            <input
+              #nameInput
+              name="registry-key-name"
+              [(ngModel)]="name"
               autocomplete="off"
-              data-input-owned></textarea>
+              spellcheck="false"
+              data-input-owned
+              (click)="$event.stopPropagation()"
+              (mousedown)="$event.stopPropagation()"
+              (mouseup)="$event.stopPropagation()"
+              (keydown)="$event.stopPropagation()"
+              (keyup)="$event.stopPropagation()" />
           </label>
 
           <footer>
-            <button type="button" (click)="cancel()">Cancel</button>
-            <button type="submit" class="primary">Save</button>
+            <button
+            type="button"
+            (mousedown)="$event.stopPropagation()"
+            (click)="cancel(); $event.stopPropagation()">
+            Cancel
+          </button>
+            <button
+              type="submit"
+              class="primary"
+              [disabled]="!name.trim()"
+              (mousedown)="$event.stopPropagation()"
+              (click)="$event.stopPropagation()">
+              {{ request.confirmText }}
+            </button>
           </footer>
         </form>
       </section>
@@ -84,7 +88,7 @@ import {
       pointer-events: none;
     }
 
-    .registry-editor-overlay {
+    .registry-key-overlay {
       position: fixed;
       inset: 0;
       display: grid;
@@ -94,11 +98,9 @@ import {
       pointer-events: auto;
     }
 
-    .registry-editor {
+    .registry-key-dialog {
       box-sizing: border-box;
-      width: min(560px, calc(100vw - 48px));
-      max-height: calc(100vh - 48px);
-      overflow: auto;
+      width: min(460px, calc(100vw - 48px));
       background: var(--vsc-editor-background);
       color: var(--vsc-foreground);
       border: 1px solid var(--vsc-border-bright);
@@ -111,23 +113,9 @@ import {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 12px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--vsc-border);
-    }
-
-    header > div {
-      display: grid;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    header span {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 11px;
     }
 
     .close {
@@ -142,14 +130,14 @@ import {
 
     form {
       display: grid;
-      gap: 12px;
+      gap: 14px;
       padding: 14px;
       pointer-events: auto;
     }
 
     label {
       display: grid;
-      grid-template-columns: 72px minmax(0, 1fr);
+      grid-template-columns: 64px minmax(0, 1fr);
       gap: 10px;
       align-items: center;
     }
@@ -159,11 +147,11 @@ import {
       font-size: 11px;
     }
 
-    input,
-    select,
-    textarea {
+    input {
       box-sizing: border-box;
       width: 100%;
+      height: 28px;
+      padding: 4px 8px;
       border: 1px solid var(--vsc-input-border, var(--vsc-border));
       border-radius: 3px;
       background: var(--vsc-input-background);
@@ -172,39 +160,15 @@ import {
       pointer-events: auto;
     }
 
-    input,
-    select {
-      height: 28px;
-      padding: 4px 8px;
-    }
-
-    textarea {
-      min-height: 120px;
-      padding: 7px 8px;
-      resize: vertical;
-      font-family: var(--vsc-editor-font-family, monospace);
-    }
-
-    input:focus,
-    select:focus,
-    textarea:focus {
+    input:focus {
       outline: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
       outline-offset: -1px;
-    }
-
-    .data-field {
-      align-items: start;
-    }
-
-    .data-field > span {
-      padding-top: 7px;
     }
 
     footer {
       display: flex;
       justify-content: flex-end;
       gap: 8px;
-      padding-top: 2px;
     }
 
     button {
@@ -222,31 +186,24 @@ import {
       background: var(--vsc-button-background);
       color: var(--vsc-button-foreground);
     }
+
+    button:disabled {
+      opacity: .45;
+      cursor: default;
+    }
   `],
 })
-export class RegistryValueEditorComponent implements OnInit, OnDestroy {
-  @ViewChild('dataInput')
-  private dataInput?: ElementRef<HTMLTextAreaElement>;
+export class RegistryKeyEditorComponent implements OnInit, OnDestroy {
+  @ViewChild('nameInput')
+  private nameInput?: ElementRef<HTMLInputElement>;
 
-  readonly registryTypes = [
-    'REG_SZ',
-    'REG_EXPAND_SZ',
-    'REG_BINARY',
-    'REG_DWORD',
-    'REG_DWORD_BIG_ENDIAN',
-    'REG_MULTI_SZ',
-    'REG_QWORD',
-    'REG_NONE',
-  ] as const;
-
-  request: RegistryValueEditRequest | null = null;
-  type = 'REG_SZ';
-  data = '';
+  request: RegistryKeyEditRequest | null = null;
+  name = '';
 
   private readonly destroy$ = createSubject<void>();
 
   constructor(
-    private readonly editor: RegistryValueEditorService,
+    private readonly editor: RegistryKeyEditorService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -255,13 +212,12 @@ export class RegistryValueEditorComponent implements OnInit, OnDestroy {
       .pipe(takeUntil(this.destroy$))
       .subscribe(active => {
         this.request = active?.request ?? null;
-        this.type = active?.request.type ?? 'REG_SZ';
-        this.data = active?.request.data ?? '';
+        this.name = active?.request.name ?? '';
         this.cdr.markForCheck();
 
         if (active) {
           requestAnimationFrame(() => {
-            const input = this.dataInput?.nativeElement;
+            const input = this.nameInput?.nativeElement;
             if (!input) return;
             input.focus({ preventScroll: true });
             const end = input.value.length;
@@ -277,21 +233,21 @@ export class RegistryValueEditorComponent implements OnInit, OnDestroy {
   }
 
   save(): void {
-    if (!this.request) return;
-    this.editor.resolve({
-      type: this.type,
-      data: this.data,
-    });
+    const name = this.name.trim();
+    if (!name) return;
+    this.editor.resolve(name);
   }
 
   cancel(): void {
     this.editor.resolve(null);
   }
 
-  onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') return;
-    event.preventDefault();
+  onDialogKeyDown(event: KeyboardEvent): void {
     event.stopPropagation();
-    this.cancel();
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.cancel();
+    }
   }
 }

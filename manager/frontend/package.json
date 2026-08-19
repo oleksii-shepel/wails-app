@@ -9,7 +9,7 @@
     "watch": "ng build --configuration development --watch",
     "test": "npx testify",
     "test:watch": "npx testify --watch",
-    "check": "npm run test:unit && npm run build",
+    "check": "npm run test && npm run build",
     "audit:theme": "node scripts/audit-theme-colors.mjs"
   },
   "private": true,
@@ -27,7 +27,8 @@
     "mediabunny": "^1.53.1",
     "music-metadata": "^11.14.0",
     "terminal-element": "^1.3.0",
-    "zone.js": "~0.16.2"
+    "zone.js": "~0.16.2",
+    "@reassembly/registry-plugin": "file:../../plugins/registry"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "22.1.4",

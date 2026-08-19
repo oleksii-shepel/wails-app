@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "builtin.registry",
+  "name": "Windows Registry",
+  "version": "1.0.0",
+  "apiVersion": "^1.0.0",
+  "description": "Built-in Windows Registry panel source, presentation and actions.",
+  "permissions": [
+    "commands",
+    "toolbar",
+    "contextMenu",
+    "panelSources"
+  ],
+  "activationEvents": [
+    "onStartup"
+  ],
+  "contributes": {
+    "commands": [
+      "builtin.registry.newKey",
+      "builtin.registry.newValue",
+      "builtin.registry.edit",
+      "builtin.registry.delete"
+    ]
+  }
+}

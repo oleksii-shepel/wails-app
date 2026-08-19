@@ -50,7 +50,7 @@ import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
-import { RegistryPaneComponent } from './registry-pane.component';
+import { RegistryPaneComponent } from '@reassembly/registry-plugin';
 import { FilterComponent } from './filter.component';
 import { NavigationController } from './navigation.controller';
 import type { PresentedCommand } from './presented-command';
@@ -350,38 +350,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       <div class="action-bar">
         <ng-container *ngIf="isRegistrySurface; else directoryActionBar">
           <button
+            *ngFor="let action of pluginToolbarActions"
             type="button"
-            [disabled]="loading || !canCreate"
-            (click)="runRegistryCommand('builtin.registry.newKey')">
-            New key
-          </button>
-          <button
-            type="button"
-            [disabled]="loading || !canCreate"
-            (click)="runRegistryCommand('builtin.registry.newValue')">
-            New value
-          </button>
-          <button
-            type="button"
-            [disabled]="loading || !registryEntrySelected"
-            (click)="runRegistryCommand('builtin.registry.edit')">
-            Edit
-          </button>
-
-          <span class="action-separator"></span>
-          <button
-            type="button"
-            class="danger"
-            [disabled]="loading || !registryEntrySelected || !canDelete"
-            (click)="runRegistryCommand('builtin.registry.delete')">
-            Delete
-          </button>
-          <button
-            type="button"
-            [disabled]="loading"
-            (click)="refresh()"
-            title="Refresh (Ctrl+R)">
-            Refresh
+            class="plugin-action"
+            [disabled]="loading || !action.enabled"
+            [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
+            (click)="runPluginToolbarAction(action)">
+            {{ action.label }}
           </button>
         </ng-container>
 
@@ -1625,7 +1600,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() comparisonStatuses: ReadonlyMap<string, PaneComparisonStatus> =
     new Map<string, PaneComparisonStatus>();
   @Output() activateRequested = new EventEmitter<void>();
-  @Output() registryCommandRequested = new EventEmitter<string>();
   @Output() navigationTrailRequested = new EventEmitter<{
     direction: 'back' | 'forward';
     event: MouseEvent;
@@ -3693,37 +3667,40 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
-  openEntry(entry: FileInfo): void {
+  async openEntry(entry: FileInfo): Promise<void> {
     this.setSingleSelection(entry);
 
     if (entry.path === '__parent__') {
-      void this.navigateUp();
+      await this.navigateUp();
       return;
     }
 
-    if (this.isRegistrySurface) {
-      const kind = String(entry.registryKind ?? '').toLowerCase();
-      if (kind === 'value') {
-        this.runRegistryCommand('builtin.registry.edit');
-        return;
-      }
+    const resolvedSource = this.activePanelSource.source;
+    if (resolvedSource.activateEntry) {
+      const handled = await Promise.resolve(
+        resolvedSource.activateEntry({
+          path: this.path,
+          entries: this.entries,
+          inArchive: this.isInArchive,
+          archiveTopLevel:
+            (this.currentArchiveFrame?.nestedChain.length ?? 0) === 0,
+        }, entry),
+      );
 
-      // Registry keys/groups keep directory semantics: double-click navigates in.
-      if (entry.type === FileType.DIRECTORY || kind === 'key') {
-        this.lastAction = `open registry key: ${entry.name}`;
-        void this.load(entry.path, { history: 'record' });
+      if (handled) {
+        await this.refresh();
         return;
       }
     }
 
     if (this.isInArchive) {
       if (entry.type === FileType.DIRECTORY) {
-        void this.navigateArchiveInto(entry.path);
+        await this.navigateArchiveInto(entry.path);
         return;
       }
 
       if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
-        void this.openNestedArchiveEntry(entry);
+        await this.openNestedArchiveEntry(entry);
         return;
       }
 
@@ -3733,13 +3710,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (entry.type === FileType.DIRECTORY) {
       this.lastAction = `open directory: ${entry.name}`;
-      void this.load(entry.path, { history: 'record' });
+      await this.load(entry.path, { history: 'record' });
       return;
     }
 
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
       this.lastAction = `open archive: ${entry.name}`;
-      void this.load(entry.path, { history: 'record' });
+      await this.load(entry.path, { history: 'record' });
       return;
     }
 
@@ -4697,9 +4674,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       String(entry.registryKind ?? '').toLowerCase() === 'value';
   }
 
-  runRegistryCommand(commandId: string): void {
-    this.registryCommandRequested.emit(commandId);
-  }
 
   runPluginToolbarAction(action: PresentedCommand): void {
     if (!action.enabled) return;

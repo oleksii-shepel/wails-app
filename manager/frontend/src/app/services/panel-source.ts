@@ -48,7 +48,7 @@ export interface PanelSource {
   supportsStreaming(context: PanelSourceContext): boolean;
 
   /** Optional provider-owned activation for synthetic leaf entries. */
-  activateEntry?(context: PanelSourceContext, entry: FileInfo): boolean;
+  activateEntry?(context: PanelSourceContext, entry: FileInfo): boolean | Promise<boolean>;
 
   /** Return false when an entry is synthetic and must never enter a file viewer. */
   canPreviewEntry?(context: PanelSourceContext, entry: FileInfo): boolean;

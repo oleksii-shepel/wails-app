@@ -19,4 +19,4 @@ This repository is organized as a workspace with the host application and plugin
 
 `manager` is the Wails host application. Plugins must depend only on public plugin contracts/capabilities exposed by the host; they must not import Manager component or service internals.
 
-The Registry backend currently remains in `manager/vfs/registry`. The `plugins/registry` project is the extraction target for Registry presentation, commands, toolbar/context-menu contributions, and Registry editors.
+The Registry frontend plugin now lives in `plugins/registry`. Registry presentation, editors, panel-source behavior, commands, and context-menu contributions are owned there. The Registry backend remains in `manager/vfs/registry` until a backend plugin ABI exists.

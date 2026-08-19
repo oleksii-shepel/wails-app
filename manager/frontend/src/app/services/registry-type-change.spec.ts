@@ -10,9 +10,10 @@ describe('Registry type replacement wiring', () => {
     'utf8',
   );
 
-  it('uses the typed Registry write binding', () => {
+  it('uses the typed Registry write binding through the plugin host adapter', () => {
     expect(api).toContain('WriteRegistryValue(');
-    expect(manager).toContain('this.api.writeRegistryValue(');
+    expect(manager).toContain('createRegistryPlugin({');
+    expect(manager).toContain('this.api.writeRegistryValue(path, type, data)');
   });
 
   it('does not reject type changes in the UI', () => {

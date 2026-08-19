@@ -27,7 +27,7 @@ const REGISTRY: SourceCapabilities = Object.freeze({
   read: true,
   create: true,
   delete: true,
-  rename: false,
+  rename: true,
   trash: false,
 });
 

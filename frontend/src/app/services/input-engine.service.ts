@@ -669,6 +669,11 @@ export class InputEngineService {
     const listener = (event: KeyboardEvent) => {
       if (!this.keyboardEnabled || event.isComposing) return;
 
+      // Modal/dialog surfaces own their keyboard interaction. Because this
+      // listener runs in capture phase, resolving a global binding here would
+      // prevent the dialog input/form from ever seeing the event.
+      if (this.isDialogEventTarget(event.target)) return;
+
       // A native keydown must cross the command boundary at most once. This
       // protects the engine from duplicate host/document bridges and from any
       // future secondary capture surface accidentally forwarding the same DOM
@@ -744,6 +749,11 @@ export class InputEngineService {
   }
 
   private beginMouseDrag(event: MouseEvent): void {
+    if (this.isDialogEventTarget(event.target)) {
+      this.mouseDragState = null;
+      return;
+    }
+
     const modifiers: MouseGesture['modifiers'] = [];
     if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
     if (event.shiftKey) modifiers.push('shift');
@@ -805,6 +815,10 @@ export class InputEngineService {
 
   private handleMouseEvent(kind: string, event: MouseEvent | WheelEvent): void {
     if (!this.keyboardEnabled) return;
+
+    // Do not let global mouse bindings consume clicks inside modal/dialog
+    // surfaces before Angular controls receive them.
+    if (this.isDialogEventTarget(event.target)) return;
 
     const gesture = this.normalizeMouseGesture(kind, event);
     if (!gesture) return;
@@ -1072,6 +1086,11 @@ export class InputEngineService {
       inFileEntry: !!source.inFileEntry,
       inViewerSurface: !!source.inViewerSurface,
     };
+  }
+
+  private isDialogEventTarget(target: EventTarget | null): boolean {
+    const element = target instanceof Element ? target : null;
+    return !!element?.closest('.modal, [role="dialog"], [role="alertdialog"]');
   }
 
   private getKeyboardEventContext(event: { target: EventTarget | null }): KeyboardEventContext {

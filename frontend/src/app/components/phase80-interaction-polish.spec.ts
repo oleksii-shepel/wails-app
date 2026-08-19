@@ -29,11 +29,27 @@ describe('Phase 80 Interaction Polish', () => {
     expect(pane).toContain('outline:none');
   });
 
+  it('keeps the address edit action visible outside breadcrumb scrolling', () => {
+    expect(address).toContain('grid-template-columns: 24px minmax(0, 1fr) 24px;');
+    expect(address).toContain('class="edit-path"');
+    expect(address).toContain('aria-label="Edit location"');
+  });
+
+  it('keeps long breadcrumb paths horizontally scrollable with hidden scrollbars', () => {
+    expect(address).toContain('#breadcrumbs');
+    expect(address).toContain('(wheel)="onBreadcrumbWheel($event)"');
+    expect(address).toContain('overflow-x: auto;');
+    expect(address).toContain('scrollbar-width: none;');
+    expect(address).toContain('.breadcrumbs::-webkit-scrollbar');
+    expect(address).toContain('el.scrollLeft = el.scrollWidth');
+  });
+
   it('enters address editing from empty address-bar space on one click', () => {
     expect(address).toContain('(click)="onDisplayPathClick($event)"');
     expect(address).toContain('this.cdr.detectChanges()');
     expect(address).toContain('this.focusAndSelect()');
-    expect(address).not.toContain('class="edit-path"');
+    expect(address).toContain('class="edit-path"');
+    expect(address).toContain('(click)="beginEdit(); $event.stopPropagation()"');
   });
 
   it('supports rename-next and rename-previous with Tab', () => {

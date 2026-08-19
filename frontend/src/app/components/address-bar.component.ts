@@ -1,13 +1,16 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
   Input,
+  OnChanges,
   OnDestroy,
   OnInit,
   Output,
+  SimpleChanges,
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -106,7 +109,10 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
           (click)="beginEdit(); $event.stopPropagation()"
           aria-label="Edit location">⌂</button>
 
-        <div class="breadcrumbs">
+        <div
+          #breadcrumbs
+          class="breadcrumbs"
+          (wheel)="onBreadcrumbWheel($event)">
           <ng-container *ngFor="let segment of breadcrumbSegments; let last = last">
             <button
               type="button"
@@ -121,7 +127,12 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
           </ng-container>
         </div>
 
-
+        <button
+          type="button"
+          class="edit-path"
+          title="Edit location (Ctrl+L)"
+          aria-label="Edit location"
+          (click)="beginEdit(); $event.stopPropagation()">✎</button>
       </div>
 
       <div class="editor" *ngIf="editing">
@@ -180,7 +191,7 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
     .editor {
       box-sizing: border-box;
       display: grid;
-      grid-template-columns: 24px minmax(0, 1fr);
+      grid-template-columns: 24px minmax(0, 1fr) 24px;
       align-items: center;
       width: 100%;
       height: 30px;
@@ -232,6 +243,25 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
       border-radius: 3px;
     }
 
+    .edit-path {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      cursor: pointer;
+      font: 12px/22px var(--vsc-font-family, system-ui, sans-serif);
+      text-align: center;
+      flex: 0 0 auto;
+    }
+
+    .edit-path:hover {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
+    }
+
     .breadcrumb-home:hover,
     .breadcrumb:hover {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
@@ -242,11 +272,22 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
       display: flex;
       align-items: center;
       gap: 2px;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
       white-space: nowrap;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      overscroll-behavior-x: contain;
+    }
+
+    .breadcrumbs::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
 
     .breadcrumb {
+      flex: 0 0 auto;
       min-width: 0;
       max-width: 220px;
       padding: 3px 5px;
@@ -312,6 +353,7 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
 
     .breadcrumb-home:focus-visible,
     .breadcrumb:focus-visible,
+    .edit-path:focus-visible,
     .cancel:focus-visible,
     .location-input:focus-visible {
       outline: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
@@ -377,8 +419,9 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
     }
   `],
 })
-export class AddressBarComponent implements OnInit, OnDestroy {
+export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, OnDestroy {
   @ViewChild('editor') editor?: ElementRef<HTMLInputElement>;
+  @ViewChild('breadcrumbs') breadcrumbs?: ElementRef<HTMLDivElement>;
 
   @Input() path = '';
   @Input() paneId: 'left' | 'right' = 'left';
@@ -504,13 +547,44 @@ export class AddressBarComponent implements OnInit, OnDestroy {
     this.navigate.emit(segment.path);
   }
 
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['path'] && !this.editing) {
+      this.scheduleBreadcrumbScrollToEnd();
+    }
+  }
+
+  ngAfterViewInit(): void {
+    this.scheduleBreadcrumbScrollToEnd();
+  }
+
+  onBreadcrumbWheel(event: WheelEvent): void {
+    const el = this.breadcrumbs?.nativeElement;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+
+    const delta =
+      Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        ? event.deltaX
+        : event.deltaY;
+
+    if (!delta) return;
+    el.scrollLeft += delta;
+    event.preventDefault();
+  }
+
+  private scheduleBreadcrumbScrollToEnd(): void {
+    queueMicrotask(() => {
+      const el = this.breadcrumbs?.nativeElement;
+      if (!el || this.editing) return;
+      el.scrollLeft = el.scrollWidth;
+    });
+  }
+
   ngOnInit(): void {
     this.input.registerContext({
       id: this.contextId,
       kind: 'overlay',
       priority: 250,
       parentId: 'reassembly.manager',
-      exclusive: true,
       description: `Reassembly location editor (${this.paneId})`,
     });
 

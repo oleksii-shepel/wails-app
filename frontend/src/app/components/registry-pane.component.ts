@@ -147,7 +147,7 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-details-header,
-    .registry-entry.view-details {
+    .registry-list.view-details .registry-entry {
       column-gap: 6px;
     }
 
@@ -207,12 +207,18 @@ export interface RegistryEntryDragEvent {
       display: grid;
       align-items: center;
       gap: 6px;
+      width: 100%;
       height: 30px;
       min-height: 30px;
       padding: 0 8px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      text-align: left;
       cursor: default;
       user-select: none;
-      color: var(--vsc-foreground);
+      font: inherit;
     }
 
     /* Keys and values deliberately use the same row height. */
@@ -225,22 +231,34 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-entry:hover {
-      background: var(--vsc-list-hover-background);
-    }
-
-    .registry-entry.selected {
-      background: var(--vsc-list-active-background);
-      color: var(--vsc-list-active-foreground, var(--vsc-foreground));
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .registry-entry.cursor {
-      box-shadow: inset 0 0 0 1px var(--vsc-focus-border, var(--vsc-accent-blue));
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+        transparent
+      );
+    }
+
+    .registry-entry.selected {
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+    }
+
+    .registry-entry.cursor.selected {
+      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
     }
 
     .icon {
       width: 18px;
       text-align: center;
-      opacity: .9;
+      font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+      font-size: 14px;
+      line-height: 1;
+      opacity: .95;
     }
 
     .name-cell {
@@ -281,6 +299,14 @@ export interface RegistryEntryDragEvent {
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
+    .registry-entry.selected .payload,
+    .registry-entry.selected .type,
+    .registry-entry.selected .size,
+    .registry-entry.selected .data {
+      color: inherit;
+      opacity: .8;
+    }
+
     .view-details .name-cell {
       display: block;
     }
@@ -305,14 +331,31 @@ export interface RegistryEntryDragEvent {
       font-size: 11px;
     }
 
-    .background-drop-target,
-    .drop-target {
-      outline: 1px dashed var(--vsc-focus-border, var(--vsc-accent-blue));
+    .registry-entry.drop-target {
+      outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
       outline-offset: -1px;
+      background: color-mix(
+        in srgb,
+        var(--vsc-accent-blue, var(--vsc-accent-blue)) 18%,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background))
+      );
     }
 
-    .drop-invalid {
-      opacity: .55;
+    .registry-list.background-drop-target {
+      box-shadow: inset 0 0 0 2px color-mix(
+        in srgb,
+        var(--vsc-accent-blue, var(--vsc-accent-blue)) 72%,
+        transparent
+      );
+    }
+
+    .registry-entry.drop-move {
+      outline-color: var(--vsc-success, var(--vsc-accent-green));
+    }
+
+    .registry-entry.drop-invalid {
+      outline-color: var(--vsc-error, var(--vsc-danger));
+      cursor: not-allowed;
     }
   `],
 })
@@ -403,7 +446,10 @@ export class RegistryPaneComponent {
   }
 
   icon(entry: FileInfo): string {
-    return this.typeLabel(entry) === 'Key' ? '▸' : '◆';
+    const type = this.typeLabel(entry);
+    if (type === 'Key') return '📁';
+    if (type.startsWith('REG_')) return '🔑';
+    return '🔑';
   }
 
   ariaLabel(entry: FileInfo): string {

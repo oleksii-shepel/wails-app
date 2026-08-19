@@ -29,6 +29,12 @@ describe('Phase 80 Interaction Polish', () => {
     expect(pane).toContain('outline:none');
   });
 
+  it('opens long editable paths with their rightmost end visible', () => {
+    expect(address).toContain('input.scrollLeft = input.scrollWidth');
+    expect(address).toContain('requestAnimationFrame(() =>');
+    expect(address).toContain('input.select()');
+  });
+
   it('keeps the address edit action visible outside breadcrumb scrolling', () => {
     expect(address).toContain('grid-template-columns: 24px minmax(0, 1fr) 24px;');
     expect(address).toContain('class="edit-path"');

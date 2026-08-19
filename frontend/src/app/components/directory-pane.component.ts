@@ -204,7 +204,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
       (focusin)="activateRequested.emit()"
-      (mousedown)="activateRequested.emit()">
+      (mousedown)="onPaneMouseDown($event)">
 
       <div
         #tabStrip
@@ -1643,6 +1643,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private workspaceTabsReady = false;
   private workspaceRestoreGeneration = 0;
   private interactionGeneration = 0;
+  private restoreCursorOnBackgroundClick = false;
   private scrollPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private projectionEntriesRef: FileInfo[] | null = null;
   private projectionSortField = '';
@@ -3915,24 +3916,44 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
-  onBackgroundClick(event: MouseEvent): void {
+  onPaneMouseDown(event: MouseEvent): void {
     if (event.defaultPrevented) return;
 
+    // Remember the pre-activation state. The parent may synchronously flip
+    // `active` as soon as activateRequested is emitted.
+    this.restoreCursorOnBackgroundClick = !this.active;
+    this.activateRequested.emit();
+  }
+
+  onBackgroundClick(event: MouseEvent): void {
+    if (event.defaultPrevented) {
+      this.restoreCursorOnBackgroundClick = false;
+      return;
+    }
+
     const target = event.target as HTMLElement | null;
-    if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
+    if (target?.closest('.entry, .registry-entry, .tree-row, button, input, select, textarea, a')) {
+      this.restoreCursorOnBackgroundClick = false;
       return;
     }
 
     this.markUserInteraction();
-    this.selectedPaths = new Set();
-    this.cursorPath = null;
-    this.anchorPath = null;
-    this.lastAction = 'selection cleared';
-    this.cursorChange.emit(null);
 
-    const current = event.currentTarget as HTMLElement | null;
-    current?.focus({ preventScroll: true });
+    // Empty space changes focus/active-pane ownership only. It must never clear
+    // or replace an existing selection/cursor.
+    if (this.restoreCursorOnBackgroundClick) {
+      this.restoreCursorOnBackgroundClick = false;
 
+      // Preserve an existing working cursor/selection. Only recover when this
+      // pane genuinely has no selection state at all.
+      if (!this.cursorPath && this.selectedPaths.size === 0) {
+        this.recoverVisibleCursor();
+      }
+    }
+
+    this.restoreCursorOnBackgroundClick = false;
+    this.focusContent();
+    this.lastAction = 'pane focused';
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }

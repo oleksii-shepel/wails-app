@@ -202,7 +202,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
       (focusin)="activateRequested.emit()"
-      (mousedown)="activateRequested.emit()">
+      (mousedown)="onPaneMouseDown($event)">
 
       <div
         #tabStrip
@@ -1638,6 +1638,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private backendWindowQueuedRange: { start: number; end: number } | null = null;
   private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private presentationReloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Set on mousedown before the parent changes `active`.
+  private restoreCursorOnBackgroundClick = false;
 
   private virtualScrollTop = 0;
   private virtualViewportHeight = 600;
@@ -3865,15 +3868,43 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
+  onPaneMouseDown(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    const background =
+      !target?.closest('.entry, .tree-row, button, input, select, textarea, a');
+
+    // Capture this before activateRequested changes the pane's `active` input.
+    this.restoreCursorOnBackgroundClick =
+      event.button === 0 && !this.active && background;
+
+    this.activateRequested.emit();
+  }
+
   onBackgroundClick(event: MouseEvent): void {
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented) {
+      this.restoreCursorOnBackgroundClick = false;
+      return;
+    }
 
     const target = event.target as HTMLElement | null;
     if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
+      this.restoreCursorOnBackgroundClick = false;
       return;
     }
 
     this.markUserInteraction();
+
+    if (this.restoreCursorOnBackgroundClick) {
+      this.restoreCursorOnBackgroundClick = false;
+
+      // Existing cursor -> existing selection -> first selectable item -> none.
+      this.recoverVisibleCursor();
+      this.focusContent();
+      this.lastAction = 'pane activated';
+      return;
+    }
+
+    this.restoreCursorOnBackgroundClick = false;
     this.selectedPaths = new Set();
     this.cursorPath = null;
     this.anchorPath = null;

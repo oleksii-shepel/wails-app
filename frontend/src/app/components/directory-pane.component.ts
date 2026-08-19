@@ -2371,6 +2371,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
+    if (this.cursorPath === '__parent__') {
+      return this.flatVisibleEntries.find(entry => entry.path === '__parent__') ?? null;
+    }
     return this.entriesByPath.get(this.cursorPath) ?? null;
   }
 
@@ -2442,10 +2445,37 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     return this.entryLookup;
   }
 
+  private get flatParentEntry(): FileInfo | null {
+    if (
+      this.viewMode === 'tree' ||
+      this.atRoot ||
+      this.visibleEntries.some(entry => entry.path === '__parent__')
+    ) {
+      return null;
+    }
+
+    return {
+      name: '..',
+      path: '__parent__',
+      type: FileType.DIRECTORY,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    };
+  }
+
+  get flatVisibleEntries(): FileInfo[] {
+    const parent = this.flatParentEntry;
+    return parent ? [parent, ...this.visibleEntries] : this.visibleEntries;
+  }
+
   get visibleEntryCount(): number {
     return this.backendPresentationActive
       ? this.backendVisibleCount
-      : (this.streamRenderActive ? this.visibleEntries.length : this.visibleEntries.length);
+      : this.flatVisibleEntries.length;
   }
 
   get totalEntryCount(): number {
@@ -2533,8 +2563,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       return this.entries.slice(start, end);
     }
     return window.enabled
-      ? this.visibleEntries.slice(window.start, window.end)
-      : this.visibleEntries;
+      ? this.flatVisibleEntries.slice(window.start, window.end)
+      : this.flatVisibleEntries;
   }
 
   get renderedEntryStart(): number {
@@ -4535,7 +4565,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private selectableEntries(): FileInfo[] {
     return this.viewMode === 'tree'
       ? this.treeRows.map(row => row.entry)
-      : this.visibleEntries;
+      : this.flatVisibleEntries;
   }
 
   private syncCursorFromSelection(entries: FileInfo[]): void {
@@ -4635,7 +4665,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const selectable = (
       this.viewMode === 'tree'
         ? this.treeRows.map(row => row.entry)
-        : this.visibleEntries
+        : this.flatVisibleEntries
     ).filter(entry => entry.path !== '__parent__');
     this.selectedPaths = new Set(selectable.map(entry => entry.path));
     this.lastAction = 'select all';

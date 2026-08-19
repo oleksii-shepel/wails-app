@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { ApiService } from '../services/api.service';
 import { PluginDiscoveryService } from '../services/plugin-discovery.service';
 import {
@@ -202,6 +202,7 @@ export class PluginSettingsPanelComponent implements OnInit {
     private readonly coordinator: PluginLifecycleCoordinatorService,
     private readonly discovery: PluginDiscoveryService,
     private readonly api: ApiService,
+    private readonly changeDetector: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
@@ -230,6 +231,7 @@ export class PluginSettingsPanelComponent implements OnInit {
     if (this.refreshing) return;
     this.refreshing = true;
     this.error = '';
+    this.renderNow();
     try {
       this.snapshots = await withTimeout(
         this.coordinator.sync(),
@@ -240,6 +242,7 @@ export class PluginSettingsPanelComponent implements OnInit {
       this.error = errorMessage(error);
     } finally {
       this.refreshing = false;
+      this.renderNow();
     }
   }
 
@@ -247,6 +250,7 @@ export class PluginSettingsPanelComponent implements OnInit {
     if (this.openingDirectory) return;
     this.openingDirectory = true;
     this.error = '';
+    this.renderNow();
     try {
       const directory = this.pluginDirectory || await this.discovery.getDirectory();
       this.pluginDirectory = directory;
@@ -255,6 +259,7 @@ export class PluginSettingsPanelComponent implements OnInit {
       this.error = errorMessage(error);
     } finally {
       this.openingDirectory = false;
+      this.renderNow();
     }
   }
 
@@ -309,6 +314,7 @@ export class PluginSettingsPanelComponent implements OnInit {
     if (!id || this.busyIds.has(id)) return;
     this.busyIds.add(id);
     this.error = '';
+    this.renderNow();
     try {
       await withTimeout(action(), 10_000, `Plugin operation timed out for ${id}.`);
       this.snapshots = await withTimeout(
@@ -320,7 +326,14 @@ export class PluginSettingsPanelComponent implements OnInit {
       this.error = errorMessage(error);
     } finally {
       this.busyIds.delete(id);
+      this.renderNow();
     }
+  }
+
+  private renderNow(): void {
+    // Wails promises can settle outside Angular's render scheduling. Render this
+    // settings subtree explicitly so plugin state never depends on a later UI event.
+    this.changeDetector.detectChanges();
   }
 }
 

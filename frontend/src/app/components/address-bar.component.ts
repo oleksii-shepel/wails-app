@@ -761,7 +761,22 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
   private focusAndSelect(): void {
     const input = this.editor?.nativeElement;
     if (!input) return;
+
     input.focus();
     input.select();
+    this.scrollEditorToEnd(input);
+
+    // Angular/ngModel and browser selection painting may update the input's
+    // horizontal viewport after select(). Re-apply the tail position once the
+    // DOM has settled so long paths always open showing their rightmost part.
+    requestAnimationFrame(() => {
+      if (this.editor?.nativeElement === input && this.editing) {
+        this.scrollEditorToEnd(input);
+      }
+    });
+  }
+
+  private scrollEditorToEnd(input: HTMLInputElement): void {
+    input.scrollLeft = input.scrollWidth;
   }
 }

@@ -594,6 +594,25 @@ export class ApiService {
     return await window.go.app.App.WriteFileContent(this.normalizeCanonicalPath(path), content, encoding);
   }
 
+  /**
+   * Direct single-path delete through FilesystemService.
+   *
+   * Unlike batchDelete, this path supports mounted VFS sources such as
+   * registry:// and uses the same permission-denied/elevated-helper retry
+   * mechanics as regular filesystem operations.
+   */
+  async deletePath(
+    path: string,
+    recursive: boolean = true,
+    useTrash: boolean = false,
+  ): Promise<OperationResult> {
+    return await window.go.app.App.DeleteFile(
+      this.normalizeCanonicalPath(path),
+      recursive,
+      useTrash,
+    );
+  }
+
   async createDirectory(path: string, recursive: boolean = false): Promise<OperationResult> {
     return await window.go.app.App.CreateDir(this.normalizeCanonicalPath(path), recursive);
   }

@@ -570,7 +570,10 @@ export class PluginManagerService implements PluginRegistryAPI {
       });
       if (!confirmed) return;
 
-      await this.api.batchDelete([context.targetPath], true, false);
+      // Use the normal FilesystemService delete path. It understands
+      // registry:// and automatically retries permission-denied operations
+      // through the application's existing elevated helper/session.
+      await this.api.deletePath(context.targetPath, true, false);
     };
 
     this.registerBackend({

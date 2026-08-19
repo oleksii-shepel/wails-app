@@ -49,9 +49,8 @@ describe('SelectionBasketService', () => {
     const { service } = makeService();
     service.add(['s3://bucket/report.csv'], 'search-results');
     const stored = JSON.parse(sessionStorage.getItem('filemanager:selection-basket-v1') ?? '[]');
-    expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatchObject({ path: 's3://bucket/report.csv', source: 'search-results' });
+    expect((stored).length).toBe(1);
+    expect(stored[0]).toEqual(jasmine.objectContaining({ path: 's3://bucket/report.csv', source: 'search-results' }));
     expect(stored[0].size).toBeUndefined();
   });
 });
-

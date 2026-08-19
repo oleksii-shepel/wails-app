@@ -18,11 +18,11 @@ describe('PathHistoryService location history', () => {
   it('stores scheme and kind for search history', () => {
     const service = new PathHistoryService({ listDirectory: fn() } as any);
     service.addLocation('search://?path=filesystem://c/Work&pattern=invoice', 'left');
-    expect(service.getRecentLocations(1)[0]).toMatchObject({
+    expect(service.getRecentLocations(1)[0]).toEqual(jasmine.objectContaining({
       scheme: 'search',
       kind: 'query',
       paneId: 'left',
-    });
+    }));
   });
 
   it('migrates legacy path-only storage to location-aware entries', () => {
@@ -30,9 +30,9 @@ describe('PathHistoryService location history', () => {
       path: 's3://archive/reports', timestamp: 10, accessCount: 3, paneId: 'right',
     }]));
     const service = new PathHistoryService({ listDirectory: fn() } as any);
-    expect(service.getAllHistory()[0]).toMatchObject({
+    expect(service.getAllHistory()[0]).toEqual(jasmine.objectContaining({
       location: 's3://archive/reports', scheme: 's3', kind: 'location', accessCount: 3,
-    });
+    }));
     expect(JSON.parse(localStorage.getItem('filemanager:path-history')!)[0].location).toBe('s3://archive/reports');
   });
 
@@ -41,8 +41,7 @@ describe('PathHistoryService location history', () => {
     service.addLocation('smb://server/share', 'left');
     service.addLocation('smb://server/share', 'left');
     service.addLocation('search://?pattern=todo', 'right');
-    expect(service.getFrequentLocations(5)[0]).toMatchObject({ scheme: 'smb', accessCount: 2 });
+    expect(service.getFrequentLocations(5)[0]).toEqual(jasmine.objectContaining({ scheme: 'smb', accessCount: 2 }));
     expect(service.getRecentLocations(5).some(entry => entry.scheme === 'search')).toBe(true);
   });
 });
-

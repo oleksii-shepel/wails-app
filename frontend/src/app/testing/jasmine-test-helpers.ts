@@ -4,6 +4,7 @@ export type MockSpy<T extends AnyFunction = AnyFunction> = jasmine.Spy & T & {
   mockImplementation(impl: T): MockSpy<T>;
   mockResolvedValue(value: Awaited<ReturnType<T>>): MockSpy<T>;
   mockRejectedValue(error: unknown): MockSpy<T>;
+  mockRestore(): void;
 };
 
 const globalRestorers: Array<() => void> = [];
@@ -24,6 +25,10 @@ function enhanceSpy<T extends AnyFunction>(spy: jasmine.Spy): MockSpy<T> {
   enhanced.mockRejectedValue = (error: unknown) => {
     spy.and.returnValue(Promise.reject(error));
     return enhanced;
+  };
+
+  enhanced.mockRestore = () => {
+    spy.and.callThrough();
   };
 
   return enhanced;

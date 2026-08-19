@@ -1,21 +1,15 @@
 import { NgZone } from '@angular/core';
 import '@angular/compiler';
-import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
+import { fn } from '../testing/jasmine-test-helpers';
+import { CommandRegistryService } from './command-registry.service';
 import { InputEngineService } from './input-engine.service';
 
 function createEngine(): InputEngineService {
-  stubGlobal('document', {
-    addEventListener: fn(),
-    querySelector: fn(() => null),
-    activeElement: null,
-  });
-  return new InputEngineService(new NgZone({ enableLongStackTrace: false }));
+  const zone = new NgZone({ enableLongStackTrace: false });
+  return new InputEngineService(zone, new CommandRegistryService(zone));
 }
 
 describe('InputEngineService plugin input ownership', () => {
-  beforeEach(() => {
-    restoreGlobals();
-  });
 
   it('registers commands, contexts, and default bindings as one plugin unit', () => {
     const engine = createEngine();
@@ -48,12 +42,12 @@ describe('InputEngineService plugin input ownership', () => {
       }],
     });
 
-    expect(engine.getCommandCatalog().find(x => x.id === 'plugin.archive-tools.compress')).toMatchObject({
+    expect(engine.getCommandCatalog().find(x => x.id === 'plugin.archive-tools.compress')).toEqual(jasmine.objectContaining({
       title: 'Compress Selection',
       registered: true,
       enabled: true,
       preferredBinding: { source: 'plugin' },
-    });
+    }));
     expect(engine.getContextSnapshot().some(x => x.id === 'plugin.archive-tools')).toBe(true);
     expect(engine.dispatchCommandById('plugin.archive-tools.compress')).toBe(true);
     expect(execute).toHaveBeenCalledTimes(1);
@@ -99,4 +93,3 @@ describe('InputEngineService plugin input ownership', () => {
     expect(engine.getCommandDefinition('host.command')?.title).toBe('Host');
   });
 });
-

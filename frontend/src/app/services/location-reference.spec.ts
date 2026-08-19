@@ -13,7 +13,7 @@ describe('location-reference', () => {
     const location = 'search://?path=filesystem://c/Work&pattern=invoice&recursive=true';
     expect(schemeOfLocation(location)).toBe('search');
     expect(kindOfLocation(location)).toBe('query');
-    expect(describeLocation(location)).toMatchObject({ scheme: 'search', kind: 'query' });
+    expect(describeLocation(location)).toEqual(jasmine.objectContaining({ scheme: 'search', kind: 'query' }));
     expect(locationLabel(location)).toBe('invoice');
   });
 
@@ -27,4 +27,3 @@ describe('location-reference', () => {
     expect(locationIdentity('C:/Work')).toBe(locationIdentity('c:/work'));
   });
 });
-

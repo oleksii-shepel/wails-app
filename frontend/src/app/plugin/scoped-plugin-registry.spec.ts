@@ -38,7 +38,7 @@ describe('ScopedPluginRegistry', () => {
 
   it('blocks undeclared contribution permissions', () => {
     const scope = new ScopedPluginRegistry('demo', host(), new Set(['commands']));
-    expect(() => scope.registerToolbarAction({ id: 'run', score: () => 1 })).toThrow('toolbar');
+    expect(() => scope.registerToolbarAction({ id: 'run', score: () => 1 })).toThrowError(/toolbar/);
   });
 
   it('owns related-location contributions and requires explicit permission', () => {
@@ -48,13 +48,13 @@ describe('ScopedPluginRegistry', () => {
 
     scope.dispose();
 
-    expect(target.registerRelatedLocation).toHaveBeenCalledWith(expect.objectContaining({ id: 'demo.related' }));
+    expect(target.registerRelatedLocation).toHaveBeenCalledWith(jasmine.objectContaining({ id: 'demo.related' }));
     expect(target.unregisterRelatedLocation).toHaveBeenCalledWith('demo.related');
   });
 
   it('blocks related-location contributions without permission', () => {
     const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
-    expect(() => scope.registerRelatedLocation({ id: 'demo.related', score: () => 1 })).toThrow('relatedLocations');
+    expect(() => scope.registerRelatedLocation({ id: 'demo.related', score: () => 1 })).toThrowError(/relatedLocations/);
   });
 
 
@@ -77,7 +77,7 @@ describe('ScopedPluginRegistry', () => {
 
   it('blocks result collections without collections permission', () => {
     const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
-    expect(() => scope.createResultsCollection({ id: 'x', title: 'X', entries: [] })).toThrow('collections');
+    expect(() => scope.createResultsCollection({ id: 'x', title: 'X', entries: [] })).toThrowError(/collections/);
   });
 
 
@@ -102,14 +102,14 @@ describe('ScopedPluginRegistry', () => {
 
   it('requires explicit panel source and column permissions', () => {
     const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
-    expect(() => scope.registerPanelColumn({ id: 'x', label: 'X', score: () => 1, value: () => '' })).toThrow('columns');
+    expect(() => scope.registerPanelColumn({ id: 'x', label: 'X', score: () => 1, value: () => '' })).toThrowError(/columns/);
   });
 
   it('forces input ownership to the active plugin', () => {
     const target = host();
     const scope = new ScopedPluginRegistry('demo', target, new Set(['commands', 'keybindings']));
     scope.registerInput({ pluginId: 'somebody-else', commands: [], bindings: [] });
-    expect(target.registerInput).toHaveBeenCalledWith(expect.objectContaining({ pluginId: 'demo' }));
+    expect(target.registerInput).toHaveBeenCalledWith(jasmine.objectContaining({ pluginId: 'demo' }));
   });
   it('owns customization contributions and unwinds them with the plugin scope', () => {
     const target = host();

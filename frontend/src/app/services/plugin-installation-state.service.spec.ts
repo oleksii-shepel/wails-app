@@ -64,10 +64,9 @@ describe('plugin installation state', () => {
   });
 
   it('normalizes incomplete Wails state safely', () => {
-    expect(normalizePluginPackageState({ pluginId: 'x', enabled: true })).toMatchObject({
+    expect(normalizePluginPackageState({ pluginId: 'x', enabled: true })).toEqual(jasmine.objectContaining({
       pluginId: 'x', enabled: true, trusted: false, trustedVersion: undefined, grantedPermissions: [],
       quarantined: false, lastActivationStatus: 'never',
-    });
+    }));
   });
 });
-

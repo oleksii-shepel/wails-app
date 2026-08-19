@@ -1,8 +1,15 @@
+import { NgZone } from '@angular/core';
+import { CommandRegistryService } from './command-registry.service';
 import { InputEngineService } from './input-engine.service';
+
+function createEngine(): InputEngineService {
+  const zone = new NgZone({ enableLongStackTrace: false });
+  return new InputEngineService(zone, new CommandRegistryService(zone));
+}
 
 describe('InputEngineService modifier normalization', () => {
   it('matches a binding regardless of declared modifier order', async () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
 
     engine.registerContext({
       id: 'test',
@@ -49,7 +56,7 @@ describe('InputEngineService modifier normalization', () => {
   });
 
   it('also normalizes two-modifier bindings such as Ctrl+Alt', async () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
 
     engine.registerContext({
       id: 'test',

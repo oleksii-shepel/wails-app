@@ -19,7 +19,7 @@ describe('DuplicateFinderService', () => {
     };
     const result = await new DuplicateFinderService(api as any).scan('/root');
     expect(api.hashFile).toHaveBeenCalledTimes(3);
-    expect(result.groups).toHaveLength(1);
+    expect((result.groups).length).toBe(1);
     expect(result.groups[0].files.map(x => x.path)).toEqual(['/root/a.txt', '/root/nested/d.txt']);
     expect(result.reclaimableBytes).toBe(10);
   });
@@ -56,4 +56,3 @@ describe('DuplicateFinderService keeper policies', () => {
     expect(service.redundantPaths([group], 'newest')).toEqual(['/very/long/path/a.txt', '/mid/c.txt']);
   });
 });
-

@@ -9,7 +9,7 @@ function handlers(): FileBrowserCommandHandlers {
     openSelectionBasket: fn, addToSelectionBasket: fn, clearSelectionBasket: fn,
     cursorUp: fn, cursorDown: fn, cursorLeft: fn, cursorRight: fn, cursorHome: fn, cursorEnd: fn,
     cursorPageUp: fn, cursorPageDown: fn, newTab: fn, closeTab: fn, nextTab: fn, prevTab: fn,
-    jumpToTab: fn(), togglePinTab: fn, openItem: fn, quickView: fn, copyCursorPath: fn,
+    jumpToTab: fn, togglePinTab: fn, openItem: fn, quickView: fn, copyCursorPath: fn,
     copy: fn, cut: fn, paste: fn, deleteSelected: fn, selectAll: fn, deselectAll: fn,
     newFolder: fn, rename: fn, toggleCurrent: fn, inlineDirectorySize: fn, extendSelUp: fn,
     extendSelDown: fn, selectByMask: fn, unselectByMask: fn, invertSelection: fn,

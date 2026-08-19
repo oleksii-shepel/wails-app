@@ -15,9 +15,8 @@ describe('PresentedCommand', () => {
 
     const command = bindCommandPresentation(presentation, execute);
 
-    expect(command).toMatchObject(presentation);
+    expect(command).toEqual(jasmine.objectContaining(presentation));
     await command.execute();
     expect(execute).toHaveBeenCalledTimes(1);
   });
 });
-

@@ -36,7 +36,7 @@ describe('RelatedLocationService', () => {
     const git = pin(pins, 'surface://git/repo?root=C%3A%2Fwork', 'git');
     related.register({
       id: 'test.git-related',
-      score: (candidate, context) => candidate.surfaceId === 'git' && context.contextLocation === 'C:/work' ? 950 : 0,
+      score: (candidate, context) => candidate.surfaceId === 'git' && context.contextLocation === 'filesystem://c/work' ? 950 : 0,
     });
 
     expect(related.resolve([git], 'C:/work')).toEqual([git]);
@@ -52,4 +52,3 @@ describe('RelatedLocationService', () => {
     spy.mockRestore();
   });
 });
-

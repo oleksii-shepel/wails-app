@@ -25,7 +25,7 @@ describe('PaneComparisonService', () => {
       [file('same.txt', 'right'), file('right.txt', 'right'), file('newer.txt', 'right', { modified: 100 }), file('size.txt', 'right', { size: 10 })],
     );
 
-    expect(result.summary).toMatchObject({ same: 1, onlyLeft: 1, onlyRight: 1, leftNewer: 1, sizeDifferent: 1, different: 4 });
+    expect(result.summary).toEqual(jasmine.objectContaining({ same: 1, onlyLeft: 1, onlyRight: 1, leftNewer: 1, sizeDifferent: 1, different: 4 }));
   });
 
   it('treats timestamp differences within the tolerance as equal', () => {

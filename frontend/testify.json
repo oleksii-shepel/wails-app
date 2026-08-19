@@ -32,6 +32,7 @@
   "htmlOptions": {
     "title": "Jasmine Test Runner",
     "preludeModules": [
+      "zone.js",
       "@angular/compiler"
     ]
   },

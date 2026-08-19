@@ -8,15 +8,15 @@ describe('getSourceCapabilities', () => {
   });
 
   it('keeps SMB mutable without claiming native trash support', () => {
-    expect(getSourceCapabilities('smb://server/share')).toMatchObject({
+    expect(getSourceCapabilities('smb://server/share')).toEqual(jasmine.objectContaining({
       create: true, delete: true, rename: true, trash: false,
-    });
+    }));
   });
 
   it('models registry rename asymmetry', () => {
-    expect(getSourceCapabilities('registry://HKEY_CURRENT_USER/Software')).toMatchObject({
+    expect(getSourceCapabilities('registry://HKEY_CURRENT_USER/Software')).toEqual(jasmine.objectContaining({
       create: true, delete: true, rename: false,
-    });
+    }));
   });
 
   it.each(['gdrive://me', 'dropbox://me', 'onedrive://me', 's3://bucket', 'search://?pattern=*.ts', 'https://example.com'])('%s is read-only but readable', (location) => {
@@ -26,9 +26,8 @@ describe('getSourceCapabilities', () => {
   });
 
   it('keeps archive mutation available through the archive operation layer', () => {
-    expect(getSourceCapabilities('filesystem://c/archive.zip/folder', { inArchive: true })).toMatchObject({
+    expect(getSourceCapabilities('filesystem://c/archive.zip/folder', { inArchive: true })).toEqual(jasmine.objectContaining({
       create: true, delete: true, rename: true,
-    });
+    }));
   });
 });
-

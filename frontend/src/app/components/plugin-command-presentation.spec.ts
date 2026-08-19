@@ -31,7 +31,10 @@ describe('presentPluginCommand', () => {
     expect(item.commandId).toBe('plugin.demo.compress');
 
     await item.execute();
-    expect(commandHost.dispatch).toHaveBeenCalledWith('plugin.demo.compress');
+    expect(commandHost.dispatch).toHaveBeenCalledWith(
+      'plugin.demo.compress',
+      jasmine.objectContaining({ source: 'context-menu' }),
+    );
   });
 
   it('disables a contribution whose command is missing or disabled', async () => {
@@ -63,4 +66,3 @@ describe('presentPluginCommand', () => {
     expect(execute).toHaveBeenCalledWith({ selected: 1 });
   });
 });
-

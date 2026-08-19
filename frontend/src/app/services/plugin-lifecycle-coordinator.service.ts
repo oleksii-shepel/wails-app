@@ -44,9 +44,9 @@ export class PluginLifecycleCoordinatorService {
   constructor(
     private readonly installation: PluginInstallationStateService,
     private readonly platform: PluginPlatformService,
-    directoryLoader: DirectoryPluginPackageLoaderService,
+    directoryLoader?: DirectoryPluginPackageLoaderService,
   ) {
-    if (!this.platform.hasLoader(directoryLoader.kind)) {
+    if (directoryLoader && !this.platform.hasLoader(directoryLoader.kind)) {
       this.platform.registerLoader(directoryLoader);
     }
   }

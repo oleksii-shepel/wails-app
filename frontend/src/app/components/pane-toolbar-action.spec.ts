@@ -48,7 +48,7 @@ describe('pane toolbar actions', () => {
       dispatchCommandById: () => false,
     } satisfies PluginCommandPresentationHost);
 
-    expect(actions[0]).toMatchObject({
+    expect(actions[0]).toEqual(jasmine.objectContaining({
       id: 'plugin:hash',
       label: 'Hash',
       icon: 'plugin',
@@ -56,7 +56,7 @@ describe('pane toolbar actions', () => {
       shortcut: 'Ctrl+H',
       enabled: true,
       source: 'plugin',
-    });
+    }));
     await actions[0].execute();
     expect(execute).toHaveBeenCalledWith(context);
   });

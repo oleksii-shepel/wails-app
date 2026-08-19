@@ -1,8 +1,15 @@
+import { NgZone } from '@angular/core';
+import { CommandRegistryService } from './command-registry.service';
 import { InputEngineService } from './input-engine.service';
+
+function createEngine(): InputEngineService {
+  const zone = new NgZone({ enableLongStackTrace: false });
+  return new InputEngineService(zone, new CommandRegistryService(zone));
+}
 
 describe('InputEngineService editable ownership', () => {
   it('does not let a lower-priority overlay consume a key while a dialog input owns focus', async () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
 
     engine.registerContext({
       id: 'overlay.workspace',
@@ -49,7 +56,7 @@ describe('InputEngineService editable ownership', () => {
   });
 
   it('still lets the owning dialog handle Enter while typing', async () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
 
     engine.registerContext({
       id: 'dialog.prompt',
@@ -87,7 +94,7 @@ describe('InputEngineService editable ownership', () => {
   });
 
   it('normalizes modifier order for multi-modifier shortcuts', async () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
 
     engine.registerContext({
       id: 'surface',

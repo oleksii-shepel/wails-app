@@ -31,7 +31,7 @@ describe('PinnedLocationService', () => {
     }]));
 
     const pins = service.load();
-    expect(pins).toHaveLength(1);
+    expect((pins).length).toBe(1);
     expect(pins[0].label).toBe('Projects');
     expect(pins[0].location).toContain('/home/user/projects');
     expect(localStorage.getItem(PINNED_LOCATIONS_KEY)).toBeTruthy();
@@ -101,4 +101,3 @@ describe('PinnedLocationService', () => {
 
 
 });
-

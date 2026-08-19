@@ -35,7 +35,7 @@ describe('PaneSyncReviewComponent plan defaults', () => {
 
     component.executePlan();
 
-    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(emit).toHaveBeenCalledWith(jasmine.objectContaining({
       leftToRight: ['/left/a.txt', '/left/c.txt'],
       rightToLeft: ['/right/b.txt'],
       preset: 'custom',

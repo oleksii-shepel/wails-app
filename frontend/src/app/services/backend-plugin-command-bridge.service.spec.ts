@@ -27,7 +27,7 @@ describe('BackendPluginCommandBridgeService', () => {
 
     await bridge.start(() => ['C:/work/a.txt']);
 
-    expect(input.contributions).toHaveLength(1);
+    expect((input.contributions).length).toBe(1);
     const contribution = input.contributions[0];
     expect(contribution.pluginId).toBe('backend-plugin:hash');
     expect(contribution.commands[0].id).toBe(backendPluginCommandId('hash', 'sha256'));
@@ -63,4 +63,3 @@ describe('BackendPluginCommandBridgeService', () => {
     expect(input.removed).toEqual(['backend-plugin:images']);
   });
 });
-

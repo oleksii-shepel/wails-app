@@ -1848,6 +1848,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     return this.comparisonStatuses.get(path) ?? null;
   }
 
+  comparisonMarker(path: string): 'newer' | 'older' | 'only' | 'type' | 'different' | null {
+    const status = this.comparisonStatus(path);
+    if (!status || status === 'same') return null;
+    if (status === 'only-left') return this.paneId === 'left' ? 'only' : null;
+    if (status === 'only-right') return this.paneId === 'right' ? 'only' : null;
+    if (status === 'left-newer') return this.paneId === 'left' ? 'newer' : 'older';
+    if (status === 'right-newer') return this.paneId === 'right' ? 'newer' : 'older';
+    if (status === 'type-different') return 'type';
+    return 'different';
+  }
+
   isComparisonDifferent(path: string): boolean {
     const status = this.comparisonStatus(path);
     return status === 'size-different' ||

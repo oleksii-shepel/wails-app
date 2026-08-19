@@ -44,7 +44,6 @@ describe('PaneRecursiveComparisonService', () => {
     const api = { listDirectory: fn(async (path: string) => path === 'L' ? listing('L', many) : listing('R', [])) } as unknown as ApiService;
     const result = await new PaneRecursiveComparisonService(new PaneComparisonService()).compare(api, 'L', 'R', { maxItems: 100 });
     expect(result.truncated).toBe(true);
-    expect(result.comparison.items).toHaveLength(100);
+    expect((result.comparison.items).length).toBe(100);
   });
 });
-

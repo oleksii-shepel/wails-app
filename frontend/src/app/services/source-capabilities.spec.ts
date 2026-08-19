@@ -8,26 +8,52 @@ describe('getSourceCapabilities', () => {
   });
 
   it('keeps SMB mutable without claiming native trash support', () => {
-    expect(getSourceCapabilities('smb://server/share')).toEqual(jasmine.objectContaining({
-      create: true, delete: true, rename: true, trash: false,
-    }));
+    expect(getSourceCapabilities('smb://server/share')).toEqual(
+      jasmine.objectContaining({
+        create: true,
+        delete: true,
+        rename: true,
+        trash: false,
+      }),
+    );
   });
 
   it('models registry rename asymmetry', () => {
-    expect(getSourceCapabilities('registry://HKEY_CURRENT_USER/Software')).toEqual(jasmine.objectContaining({
-      create: true, delete: true, rename: false,
-    }));
+    expect(getSourceCapabilities('registry://HKEY_CURRENT_USER/Software')).toEqual(
+      jasmine.objectContaining({
+        create: true,
+        delete: true,
+        rename: false,
+      }),
+    );
   });
 
-  it.each(['gdrive://me', 'dropbox://me', 'onedrive://me', 's3://bucket', 'search://?pattern=*.ts', 'https://example.com'])('%s is read-only but readable', (location) => {
-    expect(getSourceCapabilities(location)).toEqual({
-      read: true, create: false, delete: false, rename: false, trash: false,
+  [
+    'gdrive://me',
+    'dropbox://me',
+    'onedrive://me',
+    's3://bucket',
+    'search://?pattern=*.ts',
+    'https://example.com',
+  ].forEach((location) => {
+    it(`${location} is read-only but readable`, () => {
+      expect(getSourceCapabilities(location)).toEqual({
+        read: true,
+        create: false,
+        delete: false,
+        rename: false,
+        trash: false,
+      });
     });
   });
 
   it('keeps archive mutation available through the archive operation layer', () => {
-    expect(getSourceCapabilities('filesystem://c/archive.zip/folder', { inArchive: true })).toEqual(jasmine.objectContaining({
-      create: true, delete: true, rename: true,
-    }));
+    expect(getSourceCapabilities('filesystem://c/archive.zip/folder', { inArchive: true })).toEqual(
+      jasmine.objectContaining({
+        create: true,
+        delete: true,
+        rename: true,
+      }),
+    );
   });
 });

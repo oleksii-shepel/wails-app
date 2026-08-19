@@ -2,23 +2,23 @@ import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test
 import { BC, BROWSER_BINDINGS, createFileBrowserCommandDescriptors, type FileBrowserCommandHandlers } from './file-browser-command-registry';
 
 function handlers(): FileBrowserCommandHandlers {
-  const fn = () => undefined;
+  const noop = () => undefined;
   return {
-    openCommandPalette: fn, openGlobalSearch: fn, showPathHistory: fn, quickPathJump: fn,
-    navigateUp: fn, refresh: fn, showKeyboardHelp: fn, openSettings: fn, openOperations: fn,
-    openSelectionBasket: fn, addToSelectionBasket: fn, clearSelectionBasket: fn,
-    cursorUp: fn, cursorDown: fn, cursorLeft: fn, cursorRight: fn, cursorHome: fn, cursorEnd: fn,
-    cursorPageUp: fn, cursorPageDown: fn, newTab: fn, closeTab: fn, nextTab: fn, prevTab: fn,
-    jumpToTab: fn, togglePinTab: fn, openItem: fn, quickView: fn, copyCursorPath: fn,
-    copy: fn, cut: fn, paste: fn, deleteSelected: fn, selectAll: fn, deselectAll: fn,
-    newFolder: fn, rename: fn, toggleCurrent: fn, inlineDirectorySize: fn, extendSelUp: fn,
-    extendSelDown: fn, selectByMask: fn, unselectByMask: fn, invertSelection: fn,
-    selectSameExt: fn, focusFilter: fn, advancedFilter: fn, clearFilter: fn,
-    showWorkspaceSwitcher: fn, newWorkspace: fn, toggleHidden: fn, switchPane: fn,
-    copyToOtherPane: fn, moveToOtherPane: fn, focusAddressBar: fn,
-    comparePanes: fn, recursiveComparePanes: fn, reviewSyncPlan: fn, selectLeftDifferences: fn, selectRightDifferences: fn,
-    copyMissingLeftToRight: fn, copyMissingRightToLeft: fn, diskUsage: fn, findDuplicates: fn,
-    batchRename: fn, openWithExternal: fn,
+    openCommandPalette: noop, openGlobalSearch: noop, showPathHistory: noop, quickPathJump: noop,
+    navigateUp: noop, refresh: noop, showKeyboardHelp: noop, openSettings: noop, openOperations: noop,
+    openSelectionBasket: noop, addToSelectionBasket: noop, clearSelectionBasket: noop,
+    cursorUp: noop, cursorDown: noop, cursorLeft: noop, cursorRight: noop, cursorHome: noop, cursorEnd: noop,
+    cursorPageUp: noop, cursorPageDown: noop, newTab: noop, closeTab: noop, nextTab: noop, prevTab: noop,
+    jumpToTab: fn(), togglePinTab: noop, openItem: noop, quickView: noop, copyCursorPath: noop,
+    copy: noop, cut: noop, paste: noop, deleteSelected: noop, selectAll: noop, deselectAll: noop,
+    newFolder: noop, rename: noop, toggleCurrent: noop, inlineDirectorySize: noop, extendSelUp: noop,
+    extendSelDown: noop, selectByMask: noop, unselectByMask: noop, invertSelection: noop,
+    selectSameExt: noop, focusFilter: noop, advancedFilter: noop, clearFilter: noop,
+    showWorkspaceSwitcher: noop, newWorkspace: noop, toggleHidden: noop, switchPane: noop,
+    copyToOtherPane: noop, moveToOtherPane: noop, focusAddressBar: noop,
+    comparePanes: noop, recursiveComparePanes: noop, reviewSyncPlan: noop, selectLeftDifferences: noop, selectRightDifferences: noop,
+    copyMissingLeftToRight: noop, copyMissingRightToLeft: noop, diskUsage: noop, findDuplicates: noop,
+    batchRename: noop, openWithExternal: noop,
   };
 }
 

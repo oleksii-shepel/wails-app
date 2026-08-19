@@ -1,9 +1,11 @@
 import { NgZone } from '@angular/core';
 import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
+import { CommandRegistryService } from './command-registry.service';
 import { InputEngineService } from './input-engine.service';
 
 function createEngine(): InputEngineService {
-  return new InputEngineService(new NgZone({ enableLongStackTrace: false }));
+  const zone = new NgZone({ enableLongStackTrace: false });
+  return new InputEngineService(zone, new CommandRegistryService(zone));
 }
 
 describe('InputEngineService human command names', () => {
@@ -45,4 +47,3 @@ describe('InputEngineService human command names', () => {
     });
   });
 });
-

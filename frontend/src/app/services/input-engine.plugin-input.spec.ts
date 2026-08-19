@@ -42,12 +42,14 @@ describe('InputEngineService plugin input ownership', () => {
       }],
     });
 
-    expect(engine.getCommandCatalog().find(x => x.id === 'plugin.archive-tools.compress')).toEqual(jasmine.objectContaining({
-      title: 'Compress Selection',
-      registered: true,
-      enabled: true,
-      preferredBinding: { source: 'plugin' },
-    }));
+    expect(engine.getCommandCatalog().find(x => x.id === 'plugin.archive-tools.compress')).toEqual(
+      jasmine.objectContaining({
+        title: 'Compress Selection',
+        registered: true,
+        enabled: true,
+        preferredBinding: jasmine.objectContaining({ source: 'plugin' }),
+      }),
+    );
     expect(engine.getContextSnapshot().some(x => x.id === 'plugin.archive-tools')).toBe(true);
     expect(engine.dispatchCommandById('plugin.archive-tools.compress')).toBe(true);
     expect(execute).toHaveBeenCalledTimes(1);
@@ -87,7 +89,7 @@ describe('InputEngineService plugin input ownership', () => {
       contexts: [{ id: 'plugin.bad-plugin', kind: 'pane', priority: 20, description: 'Bad plugin' }],
       commands: [{ id: 'host.command', title: 'Override', execute: () => undefined }],
       bindings: [],
-    })).toThrow(/cannot replace command/i);
+    })).toThrowError(/cannot replace command/i);
 
     expect(engine.getContextSnapshot().some(x => x.id === 'plugin.bad-plugin')).toBe(false);
     expect(engine.getCommandDefinition('host.command')?.title).toBe('Host');

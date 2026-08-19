@@ -486,7 +486,8 @@ export class InputEngineService {
       for (let rightIndex = leftIndex + 1; rightIndex < bindings.length; rightIndex += 1) {
         const right = bindings[rightIndex];
         if (!this.sameInputTrigger(left.trigger, right.trigger)) continue;
-        if (!this.contextsCanOverlap(left.contextId, right.contextId)) continue;
+        if (left.contextId !== right.contextId) continue;
+        if (left.commandId === right.commandId) continue;
         if (!whenClausesCanOverlap(left.when, right.when)) continue;
 
         const winner = this.chooseBestBinding([left, right]).binding;
@@ -895,10 +896,13 @@ export class InputEngineService {
       return normalizedKey;
     }
 
-    // WebView2 may report accelerator combinations (for example Ctrl+Shift+P)
-    // with KeyboardEvent.key === "Unidentified" while still preserving the
-    // physical DOM code ("KeyP"). Recover the logical key from code only when
-    // key itself is unusable. Normal browser keyboard semantics remain unchanged.
+    // WebView2 may report accelerator combinations with
+    // KeyboardEvent.key === "Unidentified" while still preserving the physical
+    // DOM code. Recover the logical key from code only when key itself is
+    // unusable. This includes navigation accelerators such as Ctrl+Alt+ArrowLeft.
+    if (code && keyMap[code]) {
+      return keyMap[code];
+    }
     if (code?.startsWith('Key') && code.length === 4) {
       return code.slice(3).toLowerCase();
     }
@@ -918,6 +922,7 @@ export class InputEngineService {
     return Array.from(this.bindings.values()).filter(binding => {
       if (!binding.enabled || binding.trigger.device !== 'keyboard') return false;
       if (!activeContextIds.has(binding.contextId)) return false;
+      if (this.isEditableKeyboardContext(keyboardContext) && !this.whenClauseExplicitlyAllowsTyping(binding.when)) return false;
       if (!this.whenClauseAllows(binding.when, keyboardContext)) return false;
 
       const steps = binding.trigger.chord.steps;
@@ -994,6 +999,18 @@ export class InputEngineService {
     );
   }
 
+  private isEditableKeyboardContext(context?: KeyboardEventContext | null): boolean {
+    return !!context && (context.inInput || context.inTextarea || context.inSelect || context.inContentEditable);
+  }
+
+  private whenClauseExplicitlyAllowsTyping(expression?: string): boolean {
+    if (!expression) return false;
+    return expression
+      .split('&&')
+      .map(term => term.trim())
+      .some(term => term === 'typing');
+  }
+
   private whenClauseAllows(expression?: string, context?: KeyboardEventContext | null): boolean {
     if (!expression || expression.trim() === '' || expression === 'true') {
       return true;
@@ -1058,20 +1075,22 @@ export class InputEngineService {
   }
 
   private getKeyboardEventContext(event: { target: EventTarget | null }): KeyboardEventContext {
-    const target = event.target as HTMLElement | null;
-    const tagName = target?.tagName.toLowerCase() ?? '';
+    const target = event.target;
+    const element = target instanceof Element ? target : null;
+    const htmlElement = target instanceof HTMLElement ? target : null;
+    const tagName = htmlElement?.tagName?.toLowerCase() ?? '';
 
     return {
       inInput: tagName === 'input',
       inTextarea: tagName === 'textarea',
       inSelect: tagName === 'select',
-      inContentEditable: !!target?.isContentEditable,
-      inModal: !!target?.closest('.modal, [role="dialog"]'),
-      inQuickAccessMenu: !!target?.closest('.ab-quick-access-drop'),
-      hasActivePane: !!target?.closest('.pane'),
-      isFilterInput: !!target?.classList.contains('filter-input'),
-      inFileEntry: !!target?.closest('.file-entry, .entry[data-file-entry], .tree-row[data-file-entry]'),
-      inViewerSurface: !!target?.closest('.viewer-surface'),
+      inContentEditable: !!htmlElement?.isContentEditable,
+      inModal: !!element?.closest('.modal, [role="dialog"]'),
+      inQuickAccessMenu: !!element?.closest('.ab-quick-access-drop'),
+      hasActivePane: !!element?.closest('.pane'),
+      isFilterInput: !!element?.classList.contains('filter-input'),
+      inFileEntry: !!element?.closest('.file-entry, .entry[data-file-entry], .tree-row[data-file-entry]'),
+      inViewerSurface: !!element?.closest('.viewer-surface'),
     };
   }
 

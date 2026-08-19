@@ -467,7 +467,7 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
       const prefix = scheme[1];
       const parts = scheme[2].split('/').filter(Boolean);
       const segments: BreadcrumbSegment[] = [{
-        label: prefix.replace('://', ''),
+        label: prefix.slice(0, -2),
         path: prefix,
         root: true,
         archiveBoundary: false,

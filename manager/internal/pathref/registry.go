@@ -11,7 +11,6 @@ const (
 	DriveScheme      = "filesystem://"
 	RegistryScheme   = "registry://"
 	SearchScheme     = "search://"
-	MemoryScheme     = "memory://"
 	HTTPAliasScheme  = "http://"
 	HTTPSAliasScheme = "https://"
 	SMBScheme        = "smb://"
@@ -19,7 +18,6 @@ const (
 	OneDriveScheme   = "onedrive://"
 	GDriveScheme     = "gdrive://"
 	DropboxScheme    = "dropbox://"
-	memoryVFSRoot    = "/memory"
 	registryVFSRoot  = "/registry"
 	smbVFSRoot       = "/remote/smb"
 	s3VFSRoot        = "/remote/s3"
@@ -42,7 +40,6 @@ type SearchQuery struct {
 var aliasSpecs = []aliasSpec{
 	{scheme: RegistryScheme, vfsRoot: registryVFSRoot},
 	{scheme: SearchScheme},
-	{scheme: MemoryScheme, vfsRoot: memoryVFSRoot},
 	{scheme: HTTPSAliasScheme},
 	{scheme: HTTPAliasScheme},
 	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
@@ -200,11 +197,6 @@ func IsAlias(path string) bool {
 func IsSearch(path string) bool {
 	spec, ok := aliasSpecFor(path)
 	return ok && spec.scheme == SearchScheme
-}
-
-func IsMemory(path string) bool {
-	spec, ok := aliasSpecFor(path)
-	return ok && spec.scheme == MemoryScheme
 }
 
 func IsWeb(path string) bool {

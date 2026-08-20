@@ -83,13 +83,10 @@ func (a *App) SplitPath(path string) map[string]string {
 			"ext":  ext,
 		}
 	}
-	resolvedPath, err := resolveMemoryAlias(path)
-	if err != nil {
-		resolvedPath = pathref.ToNativePath(pathref.Normalize(path))
-	}
+	resolvedPath := pathref.ToNativePath(pathref.Normalize(path))
 	dir, file, name, ext := internalplatform.SplitPath(resolvedPath)
 	return map[string]string{
-		"dir":  toPublicMemoryPath(dir),
+		"dir":  pathref.FromNativePath(dir),
 		"base": file,
 		"name": name,
 		"ext":  ext,
@@ -101,11 +98,7 @@ func (a *App) GetParentPath(path string) string {
 	if parent, ok := pathref.Parent(normalized); ok {
 		return parent
 	}
-	resolvedPath, err := resolveMemoryAlias(path)
-	if err != nil {
-		resolvedPath = pathref.ToNativePath(normalized)
-	}
-	return toPublicMemoryPath(internalplatform.ParentPath(resolvedPath))
+	return pathref.FromNativePath(internalplatform.ParentPath(pathref.ToNativePath(normalized)))
 }
 
 func (a *App) PathExists(path string) bool {
@@ -114,11 +107,8 @@ func (a *App) PathExists(path string) bool {
 		_, err := a.State.GetFileInfo(normalized)
 		return err == nil
 	}
-	resolvedPath, err := resolveMemoryAlias(path)
-	if err != nil {
-		return false
-	}
-	_, err = os.Lstat(resolvedPath)
+	resolvedPath := pathref.ToNativePath(normalized)
+	_, err := os.Lstat(resolvedPath)
 	return err == nil
 }
 
@@ -128,10 +118,7 @@ func (a *App) IsDirectory(path string) bool {
 		info, err := a.State.GetFileInfo(normalized)
 		return err == nil && info != nil && info.Type == contracts.FileTypeDirectory
 	}
-	resolvedPath, err := resolveMemoryAlias(path)
-	if err != nil {
-		return false
-	}
+	resolvedPath := pathref.ToNativePath(normalized)
 	info, err := os.Lstat(resolvedPath)
 	if err != nil {
 		return false
@@ -181,4 +168,8 @@ func splitAliasPath(path string) (dir string, base string, name string, ext stri
 	ext = filepath.Ext(base)
 	name = strings.TrimSuffix(base, ext)
 	return dir, base, name, ext, true
+}
+
+func nativeResolvePath(path string) (string, error) {
+	return pathref.ToNativePath(path), nil
 }

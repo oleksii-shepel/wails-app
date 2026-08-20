@@ -9,11 +9,7 @@ import (
 )
 
 func (s *State) InitVFS() {
-	memoryPlugin, err := getMemoryFS()
-	if err != nil {
-		return
-	}
-	vfs, err := internalruntime.InitVFS(memoryPlugin)
+	vfs, err := internalruntime.InitVFS()
 	if err != nil {
 		return
 	}

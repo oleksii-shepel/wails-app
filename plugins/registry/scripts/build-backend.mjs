@@ -6,7 +6,7 @@ const backend = resolve(import.meta.dirname, '..', 'backend');
 const args = [
   'build',
   '-trimpath',
-  '-ldflags=-s -w',
+  '-ldflags=-s -w -H=windowsgui',
   '-o',
   'plugin.exe',
   '.',

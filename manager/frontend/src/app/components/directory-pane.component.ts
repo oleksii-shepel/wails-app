@@ -51,6 +51,7 @@ import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
 import type { PresentedCommand } from './presented-command';
 import {
@@ -2331,7 +2332,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get treeRows(): TreeRow[] {
-    const visibleEntries = this.visibleEntries;
+    const visibleEntries = this.entriesWithoutPresentationParent(this.visibleEntries);
     if (
       this.treeRowsVisibleRef === visibleEntries &&
       this.treeRowsCacheVersion === this.treeRowsStateVersion
@@ -2400,7 +2401,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get visibleEntryCount(): number {
     return this.backendPresentationActive
-      ? this.backendVisibleCount
+      ? this.backendVisibleCount + (this.showPresentationParent ? 1 : 0)
       : (this.streamRenderActive ? this.visibleEntries.length : this.visibleEntries.length);
   }
 
@@ -2420,20 +2421,21 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get visibleEntries(): FileInfo[] {
     if (this.backendPresentationActive) {
-      return this.entries;
+      return this.withPresentationParent(this.entries);
     }
 
     if (this.streamRenderActive) {
       const query = this.filterText.trim().toLocaleLowerCase();
-      if (!query) return this.entries;
+      if (!query) return this.withPresentationParent(this.entries);
 
       // Keep filtering responsive while a stream is still growing, but defer
       // global sorting until completion. Sorting the full accumulated list on
       // every incoming batch is the main-thread failure mode we are avoiding.
-      return this.entries.filter(entry =>
+      return this.withPresentationParent(this.entries.filter(entry =>
+        entry.path === '__parent__' ||
         entry.name.toLocaleLowerCase().includes(query) ||
         entry.path.toLocaleLowerCase().includes(query)
-      );
+      ));
     }
 
     if (
@@ -2457,7 +2459,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
     }
 
-    return this.projectionCache;
+    return this.withPresentationParent(this.projectionCache);
   }
 
   get listVirtualWindow(): VirtualWindow {
@@ -2480,13 +2482,20 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   get renderedEntries(): FileInfo[] {
     const window = this.listVirtualWindow;
     if (this.backendPresentationActive) {
-      this.queueBackendWindow(window.start, window.end);
-      const start = Math.max(0, window.start - this.backendWindowOffset);
+      const parentOffset = this.showPresentationParent ? 1 : 0;
+      const sourceStart = Math.max(0, window.start - parentOffset);
+      const sourceEnd = Math.max(sourceStart, window.end - parentOffset);
+      this.queueBackendWindow(sourceStart, sourceEnd);
+      const start = Math.max(0, sourceStart - this.backendWindowOffset);
       const end = Math.max(start, Math.min(
         this.entries.length,
-        window.end - this.backendWindowOffset,
+        sourceEnd - this.backendWindowOffset,
       ));
-      return this.entries.slice(start, end);
+      const rendered = this.entries.slice(start, end);
+      if (parentOffset === 0 || window.start > 0) {
+        return rendered;
+      }
+      return [this.presentationParentEntry, ...rendered];
     }
     return window.enabled
       ? this.visibleEntries.slice(window.start, window.end)
@@ -2559,6 +2568,24 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.path,
       this.entries,
     );
+  }
+
+  get showPresentationParent(): boolean {
+    return this.isDirectoryTab && this.viewMode !== 'tree' && !this.atRoot;
+  }
+
+  private get presentationParentEntry(): FileInfo {
+    return {
+      path: '__parent__',
+      name: '..',
+      type: FileType.DIRECTORY,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    };
   }
 
   get canBack(): boolean {
@@ -7230,6 +7257,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     entries: readonly FileInfo[],
   ): FileInfo[] {
     return this.tabEntryCache(entries, MAX_PERSISTED_TAB_CACHE_ENTRIES);
+  }
+
+  private withPresentationParent(entries: FileInfo[]): FileInfo[] {
+    if (!this.showPresentationParent || entries.some(entry => entry.path === PARENT_ENTRY_PATH)) {
+      return entries;
+    }
+    return [this.presentationParentEntry, ...entries];
+  }
+
+  private entriesWithoutPresentationParent(entries: FileInfo[]): FileInfo[] {
+    return entries.filter(entry => entry.path !== '__parent__');
   }
 
   private loadDirTabSession(tabId: string): DirTabSession {

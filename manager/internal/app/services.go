@@ -13,6 +13,7 @@ import (
 	internalelevation "wails-app/internal/elevation"
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
+	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 	internalruntime "wails-app/internal/runtime"
 	internalutility "wails-app/internal/utility"
@@ -114,8 +115,8 @@ func NewServices(config ServiceConfig) *Services {
 			RunElevatedDelete:              config.RunElevatedDelete,
 			MoveToTrash:                    internalplatform.MoveToTrash,
 			CalculateSize:                  config.CalculateSize,
-			ResolvePath:                    resolveMemoryAlias,
-			ToPublicPath:                   toPublicMemoryPath,
+			ResolvePath:                    nativeResolvePath,
+			ToPublicPath:                   pathref.FromNativePath,
 			GetFileInfo:                    config.GetFileInfo,
 			CopyPath:                       config.CopyBatchPath,
 			ExtractNestedArchive:           config.ExtractNestedArchive,
@@ -129,7 +130,7 @@ func NewServices(config ServiceConfig) *Services {
 			config.ElevatedList,
 			config.BuildFileInfo,
 			config.IsHidden,
-			resolveMemoryAlias,
+			nativeResolvePath,
 		),
 		Utility: config.newUtility(),
 		Navigation: internalnav.NewService(
@@ -141,9 +142,7 @@ func NewServices(config ServiceConfig) *Services {
 }
 
 func (c ServiceConfig) newUtility() *internalutility.Service {
-	memoryPlugin, _ := getMemoryFS()
 	return internalutility.NewService(internalutility.ServiceConfig{
-		EmitEvent:      c.EmitEvent,
-		MemoryResolver: memoryPlugin,
+		EmitEvent: c.EmitEvent,
 	})
 }

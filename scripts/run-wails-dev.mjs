@@ -8,13 +8,13 @@ const userArgs = process.argv.slice(2);
 
 const args = ['dev', ...userArgs];
 if (process.platform === 'win32' && !includesFlag(args, '-ldflags')) {
-  args.push('-ldflags', '-H windowsgui');
+  args.push('-ldflags=-H=windowsgui');
 }
 
 const child = spawn('wails', args, {
   cwd: managerDir,
   stdio: 'inherit',
-  shell: process.platform === 'win32',
+  shell: false,
 });
 
 child.on('exit', code => {

@@ -45,7 +45,6 @@ const (
 	VolumeLocal    VolumeType = "local"
 	VolumeArchive  VolumeType = "archive"
 	VolumeRemote   VolumeType = "remote"
-	VolumeMemory   VolumeType = "memory"
 	VolumeRegistry VolumeType = "registry"
 )
 

@@ -15,14 +15,12 @@ type memoryPathResolver interface {
 }
 
 type ServiceConfig struct {
-	EmitEvent      func(string, interface{})
-	MemoryResolver memoryPathResolver
+	EmitEvent func(string, interface{})
 }
 
 type Service struct {
-	emitEvent      func(string, interface{})
-	memoryResolver memoryPathResolver
-	vfs            *vfslib.Unified
+	emitEvent func(string, interface{})
+	vfs       *vfslib.Unified
 }
 
 type ResolvedLink struct {
@@ -32,8 +30,7 @@ type ResolvedLink struct {
 
 func NewService(config ServiceConfig) *Service {
 	return &Service{
-		emitEvent:      config.EmitEvent,
-		memoryResolver: config.MemoryResolver,
+		emitEvent: config.EmitEvent,
 	}
 }
 
@@ -60,18 +57,11 @@ func (s *Service) resolvePublicPath(path string) (string, error) {
 		return resolvedPath, nil
 	}
 	nativePath := pathref.ToNativePath(normalized)
-	if s.memoryResolver == nil {
-		return nativePath, nil
-	}
-	resolved, _, err := s.memoryResolver.ResolvePublicPath(nativePath)
-	return resolved, err
+	return nativePath, nil
 }
 
 func (s *Service) toPublicPath(path string) string {
-	if s.memoryResolver == nil {
-		return pathref.FromNativePath(path)
-	}
-	return pathref.FromNativePath(s.memoryResolver.ToPublicPath(path))
+	return pathref.FromNativePath(path)
 }
 
 func (s *Service) OpenFile(path string) error {

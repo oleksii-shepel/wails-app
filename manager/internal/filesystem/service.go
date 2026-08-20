@@ -22,11 +22,6 @@ type elevationClientProvider interface {
 	Client() elevation.Client
 }
 
-type memoryPathResolver interface {
-	ResolvePublicPath(path string) (string, bool, error)
-	ToPublicPath(path string) string
-}
-
 type ServiceConfig struct {
 	Elevation            elevationClientProvider
 	EmitEvent            func(string, interface{})
@@ -40,7 +35,6 @@ type ServiceConfig struct {
 	RunElevatedRequest             func(elevation.Request) (elevation.Response, error)
 	IsPermissionDenied             func(error) bool
 	ShouldRetryDeleteWithElevation func(error) bool
-	MemoryResolver                 memoryPathResolver
 }
 
 type Service struct {
@@ -61,7 +55,6 @@ type Service struct {
 	runElevatedRequest             func(elevation.Request) (elevation.Response, error)
 	isPermissionDenied             func(error) bool
 	shouldRetryDeleteWithElevation func(error) bool
-	memoryResolver                 memoryPathResolver
 }
 
 func NewService(config ServiceConfig) *Service {
@@ -80,7 +73,6 @@ func NewService(config ServiceConfig) *Service {
 		runElevatedRequest:             config.RunElevatedRequest,
 		isPermissionDenied:             config.IsPermissionDenied,
 		shouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
-		memoryResolver:                 config.MemoryResolver,
 	}
 }
 
@@ -92,12 +84,7 @@ func (s *Service) resolvePublicPath(path string) (string, error) {
 	if resolved, ok := pathref.ResolveLocalCloudPath(normalized); ok {
 		return resolved, nil
 	}
-	nativePath := pathref.ToNativePath(normalized)
-	if s.memoryResolver == nil || !pathref.IsMemory(normalized) {
-		return nativePath, nil
-	}
-	resolved, _, err := s.memoryResolver.ResolvePublicPath(nativePath)
-	return resolved, err
+	return pathref.ToNativePath(normalized), nil
 }
 
 func (s *Service) handlesWebAliasPath(path string) bool {
@@ -109,10 +96,7 @@ func (s *Service) webAliasUnsupported(operation string) error {
 }
 
 func (s *Service) toPublicPath(path string) string {
-	if s.memoryResolver == nil {
-		return pathref.FromNativePath(filepath.ToSlash(path))
-	}
-	return pathref.FromNativePath(s.memoryResolver.ToPublicPath(path))
+	return pathref.FromNativePath(filepath.ToSlash(path))
 }
 
 func (s *Service) toRequestedPublicPath(path string, requestedPath string) string {

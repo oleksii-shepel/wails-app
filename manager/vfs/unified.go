@@ -47,7 +47,6 @@ type RegistryValueWriter interface {
 
 const (
 	registryScheme = "registry://"
-	memoryScheme   = "memory://"
 	httpScheme     = "http://"
 	httpsScheme    = "https://"
 	smbScheme      = "smb://"
@@ -57,7 +56,6 @@ const (
 	dropboxScheme  = "dropbox://"
 
 	registryVFSRoot = "/registry"
-	memoryVFSRoot   = "/memory"
 	smbVFSRoot      = "/remote/smb"
 	s3VFSRoot       = "/remote/s3"
 	oneDriveVFSRoot = "/remote/onedrive"
@@ -311,7 +309,6 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 func isVirtualAliasPath(path string) bool {
 	trimmed := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, "\\", "/")))
 	return strings.HasPrefix(trimmed, registryScheme) ||
-		strings.HasPrefix(trimmed, memoryScheme) ||
 		strings.HasPrefix(trimmed, httpScheme) ||
 		strings.HasPrefix(trimmed, httpsScheme) ||
 		strings.HasPrefix(trimmed, smbScheme) ||
@@ -341,9 +338,6 @@ func (u *Unified) pathrefToVFS(path string) string {
 	}
 
 	if converted, ok := publicAliasToVFS(trimmed, registryScheme, registryVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, memoryScheme, memoryVFSRoot); ok {
 		return converted
 	}
 	if converted, ok := publicAliasToVFS(trimmed, smbScheme, smbVFSRoot); ok {

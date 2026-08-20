@@ -1,9 +1,12 @@
 package app
 
-import internalruntime "wails-app/internal/runtime"
+import (
+	"wails-app/internal/pathref"
+	internalruntime "wails-app/internal/runtime"
+)
 
 func (s *State) CreatePaneWatch() {
-	s.DirWatch = internalruntime.NewPaneWatchManager(s.EmitEvent, resolveMemoryAlias, toPublicMemoryPath)
+	s.DirWatch = internalruntime.NewPaneWatchManager(s.EmitEvent, nativeResolvePath, pathref.FromNativePath)
 }
 
 func (s *State) ClosePaneWatch() {

@@ -45,6 +45,7 @@ func StartBackend(pkg PreparedPackage) (*BackendProcess, error) {
 
 func startInheritedBackend(entry string) (*BackendProcess, error) {
 	cmd := exec.Command(entry)
+	configureBackendCommand(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

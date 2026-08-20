@@ -55,11 +55,6 @@ func getHomeDir() string {
 func syntheticDrives() []contracts.DriveInfo {
 	drives := []contracts.DriveInfo{
 		{
-			Name:       "Memory",
-			Path:       pathref.MemoryScheme,
-			SchemeType: contracts.SchemeMemory,
-		},
-		{
 			Name:       "Registry",
 			Path:       pathref.RegistryScheme,
 			SchemeType: contracts.SchemeRegistry,

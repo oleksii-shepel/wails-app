@@ -13,7 +13,6 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
-	"wails-app/vfs/memory"
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
 
@@ -23,16 +22,9 @@ import (
 	_ "wails-app/vfs/archive/zip"
 )
 
-func InitVFS(memoryFS *memory.FS) (*vfslib.Unified, error) {
+func InitVFS() (*vfslib.Unified, error) {
 	manager := mount.NewManager(osfs.New("/"))
 	vfs := vfslib.NewUnified(manager)
-
-	if memoryFS != nil {
-		if _, err := vfs.Mount("/memory", memoryFS, false, "Memory", vfslib.VolumeMemory); err != nil {
-			return nil, err
-		}
-	}
-
 	return vfs, nil
 }
 

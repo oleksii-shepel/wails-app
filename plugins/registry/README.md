@@ -34,7 +34,7 @@ accesses it only through `ctx.backend.call(...)`.
 
 ```bash
 cd backend
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o plugin.exe .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -H=windowsgui" -o plugin.exe .
 ```
 
 ## Host invariant

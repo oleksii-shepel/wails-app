@@ -141,6 +141,8 @@ Both Unix platforms rely on macFUSE (macOS) or the kernel FUSE driver (Linux) an
 4. If the sidecar is not running, startup code can launch it and wait for the mount to become visible.
 5. The resolved root path is wrapped as `osfs.FS` and registered at VFS path `/memory` by `InitVFS` ([internal/runtime/vfs.go](../internal/runtime/vfs.go)).
 
+When no explicit root is provided, the persistent store now defaults to a hidden folder under the user home directory, `~/.wails-file-manager/memoryfs`, instead of `AppData`.
+
 **macOS prerequisites**: macFUSE must be installed (`/Library/Filesystems/macfuse.fs`). The preflight check in [vfs/memory/preflight_unix.go](../vfs/memory/preflight_unix.go) will return a user-friendly error if it is absent.
 
 ## Live Development

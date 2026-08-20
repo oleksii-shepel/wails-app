@@ -194,7 +194,7 @@ func isNativeLinkPath(path string) bool {
 	if pathref.IsRegistry(trimmed) {
 		return false
 	}
-	if pathref.IsAlias(trimmed) && !pathref.IsMemory(trimmed) {
+	if pathref.IsAlias(trimmed) {
 		return false
 	}
 	return pathref.IsDrive(trimmed) || strings.HasPrefix(trimmed, "//")

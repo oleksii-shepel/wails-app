@@ -25,7 +25,6 @@ const (
 	SchemeNetwork       SchemeType = "network"
 	SchemeCDROM         SchemeType = "cdrom"
 	SchemeRAMDisk       SchemeType = "ramdisk"
-	SchemeMemory        SchemeType = "memory"
 	SchemeRegistry      SchemeType = "registry"
 	SchemeSearch        SchemeType = "search"
 	SchemeHTTP          SchemeType = "http"

@@ -16,7 +16,10 @@ import (
 const (
 	logonWithProfile    = 0x00000001
 	startfUseStdHandles = 0x00000100
+	startfUseShowWindow = 0x00000001
 	handleFlagInherit   = 0x00000001
+	createNoWindow      = 0x08000000
+	swHide              = 0
 )
 
 var (
@@ -89,10 +92,11 @@ func startUnelevatedBackend(entry string) (*BackendProcess, error) {
 
 	var startup windows.StartupInfo
 	startup.Cb = uint32(unsafe.Sizeof(startup))
-	startup.Flags = startfUseStdHandles
+	startup.Flags = startfUseStdHandles | startfUseShowWindow
 	startup.StdInput = windows.Handle(stdinRead.Fd())
 	startup.StdOutput = windows.Handle(stdoutWrite.Fd())
 	startup.StdErr = windows.Handle(stdoutWrite.Fd())
+	startup.ShowWindow = swHide
 
 	var processInfo windows.ProcessInformation
 	r1, _, callErr := procCreateProcessWithTokenW.Call(
@@ -100,7 +104,7 @@ func startUnelevatedBackend(entry string) (*BackendProcess, error) {
 		uintptr(logonWithProfile),
 		uintptr(unsafe.Pointer(appName)),
 		0,
-		0,
+		uintptr(createNoWindow),
 		0,
 		uintptr(unsafe.Pointer(currentDir)),
 		uintptr(unsafe.Pointer(&startup)),

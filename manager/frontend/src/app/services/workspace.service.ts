@@ -202,7 +202,7 @@ export class WorkspaceService {
     }
 
     let changed = false;
-    const normalizedTabs = this.normalizePaneTabs(pane.tabs, pane.activeTabId);
+    const normalizedTabs = this.normalizePaneTabs(pane.tabs, pane.activeTabId, homePath);
     if (normalizedTabs.changed) changed = true;
 
     // Do not force-create preview tabs here. Preview tabs are user-facing and closable;
@@ -221,6 +221,7 @@ export class WorkspaceService {
   private normalizePaneTabs(
     tabs: TabInfo[],
     activeTabId: string | undefined,
+    homePath: string,
   ): { tabs: TabInfo[]; activeTabId: string; changed: boolean } {
     let changed = false;
     const seenIds = new Set<string>();
@@ -239,10 +240,16 @@ export class WorkspaceService {
       if (!tab.surfaceId) changed = true;
       if (!tab.kind) changed = true;
 
+      const canonicalPath = this.normalizePersistedTabPath(tab.path, surfaceId, homePath);
+      if (canonicalPath !== (tab.path ?? '')) changed = true;
+
       const location = surfaceId === 'viewer'
         ? tab.location
-        : (tab.location ?? describeLocation(tab.path) ?? undefined);
-      if (surfaceId !== 'viewer' && !tab.location && location) changed = true;
+        : (describeLocation(canonicalPath) ?? undefined);
+      if (surfaceId !== 'viewer') {
+        if (!tab.location && location) changed = true;
+        if (tab.location?.location !== location?.location) changed = true;
+      }
 
       // Migration: earlier iterations made the auto-follow Preview tab non-closable.
       // Preview should behave like other tabs, so force it back to closable.
@@ -251,6 +258,7 @@ export class WorkspaceService {
 
       deduped.push({
         ...tab,
+        path: canonicalPath,
         kind,
         surfaceId,
         location,
@@ -284,7 +292,8 @@ export class WorkspaceService {
       return { ...pane, id: paneId };
     }
 
-    const normalized = this.normalizePaneTabs(pane.tabs, pane.activeTabId);
+    const fallbackHomePath = pane.tabs.find(tab => tab.path?.startsWith('filesystem://'))?.path || '/';
+    const normalized = this.normalizePaneTabs(pane.tabs, pane.activeTabId, fallbackHomePath);
     return {
       ...pane,
       id: paneId,
@@ -1476,6 +1485,32 @@ export class WorkspaceService {
       if (info?.systemDrive) return info.systemDrive;
     } catch {}
     return '/';
+  }
+
+  private normalizePersistedTabPath(path: string | undefined, surfaceId: string, homePath: string): string {
+    const raw = (path ?? '').trim();
+    if (surfaceId === 'viewer') {
+      return raw ? this.normalizePath(raw) : '';
+    }
+
+    if (!raw) {
+      return this.defaultFilesystemRoot(homePath);
+    }
+
+    const normalized = this.normalizePath(raw);
+    if (surfaceId !== 'viewer' && normalized === '/' && this.isWindowsHomePath(homePath)) {
+      return this.defaultFilesystemRoot(homePath);
+    }
+
+    return normalized;
+  }
+
+  private defaultFilesystemRoot(homePath: string): string {
+    return this.isWindowsHomePath(homePath) ? homePath : '/';
+  }
+
+  private isWindowsHomePath(path: string): boolean {
+    return /^filesystem:\/\/[a-z](?:\/.*)?$/i.test((path || '').trim());
   }
 
   private generateId(): string {

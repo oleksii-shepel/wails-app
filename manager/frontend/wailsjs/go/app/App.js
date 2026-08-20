@@ -274,6 +274,10 @@ export function GetImageThumbnailURL(arg1, arg2, arg3) {
   return window['go']['app']['App']['GetImageThumbnailURL'](arg1, arg2, arg3);
 }
 
+export function GetMaxWindowViewport(arg1) {
+  return window['go']['app']['App']['GetMaxWindowViewport'](arg1);
+}
+
 export function GetOSInfo() {
   return window['go']['app']['App']['GetOSInfo']();
 }
@@ -432,6 +436,10 @@ export function NavNavigate(arg1, arg2) {
 
 export function NavNavigateShowHidden(arg1, arg2, arg3) {
   return window['go']['app']['App']['NavNavigateShowHidden'](arg1, arg2, arg3);
+}
+
+export function NormalizeWindowStateForSave(arg1) {
+  return window['go']['app']['App']['NormalizeWindowStateForSave'](arg1);
 }
 
 export function OpenFile(arg1) {

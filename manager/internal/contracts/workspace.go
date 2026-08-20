@@ -84,3 +84,10 @@ type WindowState struct {
 	// X or Y is non-zero.
 	HasPosition bool `json:"hasPosition,omitempty"`
 }
+
+type WindowViewport struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}

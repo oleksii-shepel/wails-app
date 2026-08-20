@@ -141,10 +141,17 @@
   // -webkit-app-region. Keep the toolbar draggable and opt interactive zones out.
   --wails-draggable: drag;
 
-  .toolbar-left,
-  .toolbar-right,
-  .toolbar-left *,
-  .toolbar-right * {
+  .toolbar-center,
+  .toolbar-center * {
+    --wails-draggable: drag;
+  }
+
+  app-workspace-selector,
+  .pending-chord-indicator,
+  .shortcut-debug-indicator,
+  .btn,
+  .window-controls,
+  .window-controls * {
     --wails-draggable: no-drag;
   }
 

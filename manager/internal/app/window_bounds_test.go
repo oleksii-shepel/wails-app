@@ -2,6 +2,8 @@ package app
 
 import "testing"
 
+import contracts "wails-app/internal/contracts"
+
 func TestFitBoundsToDisplayClampsOversizedWindow(t *testing.T) {
 	x, y, width, height := fitBoundsToDisplay(
 		displayRect{left: 0, top: 0, right: 1200, bottom: 700},
@@ -27,5 +29,18 @@ func TestFitBoundsToDisplayPreservesUnpositionedWindow(t *testing.T) {
 	}
 	if x != 0 || y != 0 {
 		t.Fatalf("expected position to stay unchanged without persisted coordinates, got (%d,%d)", x, y)
+	}
+}
+
+func TestMaxWindowViewportReturnsZeroWhenUnavailable(t *testing.T) {
+	viewport := GetMaxWindowViewport(contracts.WindowState{
+		Width:  1200,
+		Height: 700,
+		X:      10,
+		Y:      20,
+	})
+
+	if viewport.Width < 0 || viewport.Height < 0 {
+		t.Fatalf("expected non-negative viewport, got %+v", viewport)
 	}
 }

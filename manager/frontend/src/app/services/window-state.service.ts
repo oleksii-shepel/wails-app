@@ -84,6 +84,7 @@ export class WindowStateService implements OnDestroy {
         maximised: !!maximised,
         hasPosition: true,
       };
+      observed = await this.normalizeWindowStateForSave(observed);
     } catch {
       return; // Wails runtime not yet attached.
     }
@@ -137,6 +138,18 @@ export class WindowStateService implements OnDestroy {
       maximised: true,
       hasPosition: prev.hasPosition ?? observed.hasPosition,
     };
+  }
+
+  private async normalizeWindowStateForSave(state: WindowState): Promise<WindowState> {
+    const normalize = (window as any)?.go?.app?.App?.NormalizeWindowStateForSave;
+    if (typeof normalize !== 'function') {
+      return state;
+    }
+    try {
+      return await normalize(state);
+    } catch {
+      return state;
+    }
   }
 
   private isMinimised(state: WindowState): boolean {

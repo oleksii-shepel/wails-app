@@ -244,6 +244,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
 
   ngOnDestroy(): void {
+    void this.windowStateService.captureNow();
     this.destroy$.next();
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
@@ -376,7 +377,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   }
 
   closeWindow(): void {
-    Quit();
+    void this.windowStateService.captureNow().finally(() => {
+      Quit();
+    });
   }
 
   toggleThemePreference(): void {

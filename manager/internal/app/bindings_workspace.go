@@ -25,3 +25,11 @@ func (a *App) GetPreferences() contracts.UserPreferences {
 func (a *App) SavePreferences(prefs contracts.UserPreferences) error {
 	return a.Workspace.SavePreferences(prefs)
 }
+
+func (a *App) NormalizeWindowStateForSave(state contracts.WindowState) contracts.WindowState {
+	return normalizeWindowStateForSave(state)
+}
+
+func (a *App) GetMaxWindowViewport(state contracts.WindowState) contracts.WindowViewport {
+	return maxWindowViewport(state)
+}

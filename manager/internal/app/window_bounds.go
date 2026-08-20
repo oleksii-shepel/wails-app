@@ -1,5 +1,7 @@
 package app
 
+import contracts "wails-app/internal/contracts"
+
 type displayRect struct {
 	left   int
 	top    int
@@ -64,4 +66,33 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func normalizeWindowStateForSave(state contracts.WindowState) contracts.WindowState {
+	if state.Width <= 0 || state.Height <= 0 {
+		return state
+	}
+	x, y, width, height := fitStartupWindowBounds(state.X, state.Y, state.Width, state.Height, state.HasPosition)
+	state.X = x
+	state.Y = y
+	state.Width = width
+	state.Height = height
+	return state
+}
+
+func maxWindowViewport(state contracts.WindowState) contracts.WindowViewport {
+	area, ok := startupWorkArea(state.X, state.Y, state.Width, state.Height, state.HasPosition)
+	if !ok {
+		return contracts.WindowViewport{}
+	}
+	return contracts.WindowViewport{
+		X:      area.left,
+		Y:      area.top,
+		Width:  area.width(),
+		Height: area.height(),
+	}
+}
+
+func GetMaxWindowViewport(state contracts.WindowState) contracts.WindowViewport {
+	return maxWindowViewport(state)
 }

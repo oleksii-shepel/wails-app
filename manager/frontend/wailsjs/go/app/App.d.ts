@@ -147,6 +147,8 @@ export function GetFileInfo(arg1:string):Promise<contracts.FileInfo>;
 
 export function GetImageThumbnailURL(arg1:string,arg2:number,arg3:number):Promise<string>;
 
+export function GetMaxWindowViewport(arg1:contracts.WindowState):Promise<contracts.WindowViewport>;
+
 export function GetOSInfo():Promise<contracts.OSInfoResponse>;
 
 export function GetParentPath(arg1:string):Promise<string>;
@@ -226,6 +228,8 @@ export function NavGoUp(arg1:string):Promise<contracts.DirectoryListing>;
 export function NavNavigate(arg1:string,arg2:string):Promise<contracts.DirectoryListing>;
 
 export function NavNavigateShowHidden(arg1:string,arg2:string,arg3:boolean):Promise<contracts.DirectoryListing>;
+
+export function NormalizeWindowStateForSave(arg1:contracts.WindowState):Promise<contracts.WindowState>;
 
 export function OpenFile(arg1:string):Promise<void>;
 

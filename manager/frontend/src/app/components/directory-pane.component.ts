@@ -219,8 +219,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           (click)="activateTab(tab.id)"
           (auxclick)="onTabAuxClick(tab, $event)">
           <span class="tab-title">
-            <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '◉' : (tab.kind === 'surface' ? '◆' : '▣') }}</span>
-            <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">●</span>
+            <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '\u25C9' : (tab.kind === 'surface' ? '\u25C6' : '\u25A3') }}</span>
+            <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">&#x25CF;</span>
             {{ tab.title }}
           </span>
           <span
@@ -230,7 +230,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             [attr.aria-label]="tab.isPinned ? 'Pinned tab' : (!tab.isClosable ? 'Permanent tab' : 'Close tab')"
             (mousedown)="$event.preventDefault(); $event.stopPropagation()"
             (click)="tab.isPinned ? toggleTabPin(tab.id) : (tab.isClosable ? closeTab(tab.id) : null); $event.stopPropagation()">
-            {{ tab.isPinned ? '●' : (tab.isClosable ? '×' : '•') }}
+            {{ tab.isPinned ? '\u25CF' : (tab.isClosable ? '\u00D7' : '\u2022') }}
           </span>
         </button>
 
@@ -254,7 +254,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             (click)="goBack()"
             aria-label="Back"
             title="Back (Alt+Left)">
-            ←
+            &#x2190;
           </button>
 
           <button
@@ -264,7 +264,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             (click)="goForward()"
             aria-label="Forward"
             title="Forward (Alt+Right)">
-            →
+            &#x2192;
           </button>
 
           <button
@@ -274,7 +274,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             (click)="navigateUp()"
             aria-label="Parent directory"
             title="Parent directory (Backspace)">
-            ↑
+            &#x2191;
           </button>
         </div>
 
@@ -293,7 +293,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           (click)="togglePinRequested.emit()"
           [attr.aria-label]="currentPathPinned ? 'Unpin current location' : 'Pin current location'"
           [title]="currentPathPinned ? 'Unpin current location' : 'Pin current location'">
-          {{ currentPathPinned ? '★' : '☆' }}
+          {{ currentPathPinned ? '\u2605' : '\u2606' }}
         </button>
 
         <button
@@ -303,7 +303,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           (click)="refresh()"
           aria-label="Refresh"
           title="Refresh (Ctrl+R)">
-          ↻
+          &#x21BB;
         </button>
       </header>
 
@@ -313,7 +313,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         role="status"
         aria-live="polite"
         aria-atomic="true">
-        <span *ngIf="loading">Loading {{ path || 'location' }}…</span>
+        <span *ngIf="loading">Loading {{ path || 'location' }}&#x2026;</span>
         <span *ngIf="!loading && !error">{{ totalEntryCount }} items</span>
         <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
         <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
@@ -331,11 +331,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         <button type="button"
           [disabled]="loading || !resultsRefreshable"
           title="Refresh this collection"
-          (click)="refreshResultsCollection()">↻</button>
+          (click)="refreshResultsCollection()">&#x21BB;</button>
         <button type="button"
           [class.active]="panel.pinned"
           [title]="panel.pinned ? 'Unpin collection' : 'Pin collection'"
-          (click)="toggleResultsCollectionPin()">{{ panel.pinned ? '★' : '☆' }}</button>
+          (click)="toggleResultsCollectionPin()">{{ panel.pinned ? '\u2605' : '\u2606' }}</button>
         <button type="button"
           title="Rename collection"
           (click)="renameResultsCollection()">Rename</button>
@@ -365,7 +365,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             type="button"
             (click)="toggleSortDirection()"
             [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
-            {{ sortDirection === 'asc' ? '↑' : '↓' }}
+            {{ sortDirection === 'asc' ? '\u2191' : '\u2193' }}
           </button>
 
           <button
@@ -396,7 +396,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             [disabled]="loading || !action.enabled"
             [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
             (click)="runPluginToolbarAction(action)">
-            <span aria-hidden="true">◆</span>
+            <span aria-hidden="true">&#x25C6;</span>
             {{ action.label }}
           </button>
         </ng-container>
@@ -475,7 +475,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             class="tree-expander"
             [class.placeholder]="!row.expandable"
             (click)="toggleTreeRow(row, $event)">
-            {{ row.loading ? '…' : (row.expandable ? (row.expanded ? '▾' : '▸') : '') }}
+            {{ row.loading ? '\u2026' : (row.expandable ? (row.expanded ? '\u25BE' : '\u25B8') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
           <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
@@ -654,7 +654,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         <span class="footer-item" *ngIf="selectedPaths.size">
           {{ selectedPaths.size }} selected
           <ng-container *ngIf="selectedTotalBytes > 0">
-            · {{ formatSize(selectedTotalBytes) }}
+            &#x00B7; {{ formatSize(selectedTotalBytes) }}
           </ng-container>
         </span>
 
@@ -677,7 +677,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           Disk: {{ formatSize(driveFreeBytes) }} free
           / {{ formatSize(driveTotalBytes) }}
           <ng-container *ngIf="driveFileSystem">
-            · {{ driveFileSystem }}
+            &#x00B7; {{ driveFileSystem }}
           </ng-container>
         </span>
 
@@ -721,9 +721,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
             <span class="viewer-separator"></span>
 
-            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
-            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
-            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
+            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">&#x2039;</button>
+            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">&#x203A;</button>
+            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">&#x2212;</button>
             <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
             <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
             <button type="button" [disabled]="!viewerSupports('zoom100')" (click)="viewerInvoke('zoom100')" title="Actual size (Ctrl+1)">1:1</button>
@@ -742,7 +742,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
               [disabled]="viewerTab.isPinned || !viewerTab.isClosable"
               (click)="closeActiveTab()"
               title="Close viewer (Ctrl+W)">
-              ×
+              &#x00D7;
             </button>
           </div>
 
@@ -1377,9 +1377,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .pane-footer {
       display: flex;
+      flex: 0 0 auto;
       align-items: center;
       gap: 10px;
       min-height: 27px;
+      margin-top: auto;
       padding: 0 8px;
       border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
@@ -1434,9 +1436,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       padding: 5px 10px;
     }
 
+    app-panel-presentation-outlet,
     .viewer-surface,
+    .plugin-surface,
     app-viewer-host-surface,
     app-surface-outlet{
+      display:flex;
+      flex:1 1 auto;
       min-width:0;
       min-height:0;
     }
@@ -1981,9 +1987,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   entryDisplayIcon(entry: FileInfo): string {
-    if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.ARCHIVE) return '🗜️';
-    return this.entryCategory(entry)?.icon || '📄';
+    if (entry.type === FileType.DIRECTORY) return '\u{1F4C1}';
+    if (entry.type === FileType.ARCHIVE) return '\u{1F5DC}\uFE0F';
+    return this.entryCategory(entry)?.icon || '\u{1F4C4}';
   }
 
   entryDisplayKind(entry: FileInfo): string {
@@ -2068,7 +2074,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       `${this.formatSize(this.driveFreeBytes)} free`,
       `${this.formatSize(this.driveTotalBytes)} total`,
       this.driveFileSystem,
-    ].filter(Boolean).join(' · ');
+    ].filter(Boolean).join(' \u00B7 ');
   }
 
   private async refreshDriveCapacity(path: string): Promise<void> {
@@ -5038,8 +5044,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const value = await this.confirmDialog.prompt({
       title:
         entries.length === 1
-          ? `Modified Time — ${entries[0].name}`
-          : `Modified Time — ${entries.length} items`,
+          ? `Modified Time \u2014 ${entries[0].name}`
+          : `Modified Time \u2014 ${entries.length} items`,
       message:
         'Enter local date/time as YYYY-MM-DDTHH:mm:ss, or "now".',
       confirmText: 'Apply',
@@ -5577,7 +5583,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
       this.actionFeedback.success(
         'Renamed',
-        `${entry.name} → ${cleanName}`,
+        `${entry.name} \u2192 ${cleanName}`,
       );
       await this.refresh();
       this.selectPath(destination);
@@ -5777,7 +5783,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
           reversible: false,
           affectedPaths: sourcePaths,
           state: result.failed > 0 || result.skipped > 0 ? 'partial' : 'completed',
-          summary: `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
+          summary: `${result.succeeded} succeeded \u00B7 ${result.skipped} skipped \u00B7 ${result.failed} failed`,
         });
       }
 
@@ -5828,8 +5834,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
       this.lastAction =
         `delete: ${result.succeeded}/${result.total}` +
-        (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
-        (result.failed > 0 ? ` · ${result.failed} failed` : '');
+        (result.skipped > 0 ? ` \u00B7 ${result.skipped} skipped` : '') +
+        (result.failed > 0 ? ` \u00B7 ${result.failed} failed` : '');
 
       if (result.failed === 0 && result.skipped === 0) {
         this.actionFeedback.success(
@@ -5839,7 +5845,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       } else {
         this.actionFeedback.warning(
           'Delete completed with issues',
-          `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
+          `${result.succeeded} succeeded \u00B7 ${result.skipped} skipped \u00B7 ${result.failed} failed`,
         );
       }
 
@@ -5871,7 +5877,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!entry || entry.type === FileType.DIRECTORY) return;
 
     const raw = await this.confirmDialog.prompt({
-      title: `Split — ${entry.name}`,
+      title: `Split \u2014 ${entry.name}`,
       message: 'Part size in MiB:',
       confirmText: 'Split',
       defaultValue: '100',
@@ -6005,8 +6011,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       await this.confirmDialog.alert({
         title:
           entries.length === 1
-            ? `SHA-256 — ${entries[0].name}`
-            : `SHA-256 — ${entries.length} files`,
+            ? `SHA-256 \u2014 ${entries[0].name}`
+            : `SHA-256 \u2014 ${entries.length} files`,
         message:
           entries.length === 1
             ? `${text}\n\n${entries[0].path}`
@@ -6044,8 +6050,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       await this.confirmDialog.alert({
         title:
           entries.length === 1
-            ? `Size — ${entries[0].name}`
-            : `Selected Size — ${entries.length} items`,
+            ? `Size \u2014 ${entries[0].name}`
+            : `Selected Size \u2014 ${entries.length} items`,
         message: [
           `Size: ${this.formatSize(total)}`,
           `Bytes: ${total.toLocaleString()}`,
@@ -6136,7 +6142,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         ].filter(Boolean).join(',');
 
         const value = await this.confirmDialog.prompt({
-          title: `Attributes — ${entry.name}`,
+          title: `Attributes \u2014 ${entry.name}`,
           message: 'Comma-separated attributes: readonly, hidden, system, archive',
           confirmText: 'Apply',
           defaultValue: current,
@@ -6167,7 +6173,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       } else {
         const currentMode = (attributes.unixMode || 0).toString(8).padStart(4, '0');
         const value = await this.confirmDialog.prompt({
-          title: `Permissions — ${entry.name}`,
+          title: `Permissions \u2014 ${entry.name}`,
           message: 'Unix permission mode (octal), for example 0644 or 0755:',
           confirmText: 'Apply',
           defaultValue: currentMode,
@@ -6236,14 +6242,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         }
 
         await this.confirmDialog.alert({
-          title: `Properties — ${selected.length} items`,
+          title: `Properties \u2014 ${selected.length} items`,
           message: [
             `Items: ${selected.length}`,
             `Files: ${files}`,
             `Directories: ${directories}`,
             `Archives: ${archives}`,
             `Symbolic links: ${symlinks}`,
-            `Total size: ${this.formatSize(totalSize) || '—'}`,
+            `Total size: ${this.formatSize(totalSize) || '\u2014'}`,
             `Bytes: ${totalSize.toLocaleString()}`,
             this.isInArchive ? 'Location: inside archive' : `Folder: ${this.path}`,
           ].join('\n'),
@@ -6262,7 +6268,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
           ? new Date(
               timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
             ).toLocaleString()
-          : '—';
+          : '\u2014';
       };
 
       const modifiedText = formatTimestamp(info.modified);
@@ -6284,17 +6290,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
               : 'File';
 
       await this.confirmDialog.alert({
-        title: `Properties — ${info.name}`,
+        title: `Properties \u2014 ${info.name}`,
         message: [
           `Name: ${info.name}`,
           `Type: ${type}`,
           `Path: ${info.path}`,
-          `Size: ${this.formatSize(displaySize) || '—'}`,
+          `Size: ${this.formatSize(displaySize) || '\u2014'}`,
           `Bytes: ${displaySize.toLocaleString()}`,
           `Modified: ${modifiedText}`,
           `Created: ${createdText}`,
           `Accessed: ${accessedText}`,
-          `Permissions: ${info.permissions || '—'}`,
+          `Permissions: ${info.permissions || '\u2014'}`,
           info.isSymlink ? 'Symbolic link: yes' : '',
           this.isInArchive ? 'Location: inside archive' : '',
         ].filter(Boolean).join('\n'),
@@ -7004,9 +7010,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   entryIcon(entry: FileInfo): string {
-    if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.ARCHIVE) return '🗜️';
-    return '📄';
+    if (entry.type === FileType.DIRECTORY) return '\u{1F4C1}';
+    if (entry.type === FileType.ARCHIVE) return '\u{1F5DC}\uFE0F';
+    return '\u{1F4C4}';
   }
 
   formatSize(bytes: number): string {

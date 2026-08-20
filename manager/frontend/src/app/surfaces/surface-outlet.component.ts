@@ -59,7 +59,7 @@ export class SurfaceOutletComponent implements OnChanges {
     const surfaceKey = this.ctx ? `${this.ctx.surfaceId}:${this.ctx.tab.id}` : 'dir';
     const inputSignature = JSON.stringify(this.ctx ?? null);
 
-    // FilePaneComponent rebuilds the surface context object on every change
+    // pane host rebuilds the surface context object on every change
     // detection pass. Reload the dynamic surface only when the surface identity
     // or active tab actually changes; otherwise just push fresh inputs into the
     // mounted one so long-running viewers keep their runtime state.
@@ -114,7 +114,7 @@ export class SurfaceOutletComponent implements OnChanges {
     });
   }
 
-  // Proxy access used by FilePaneComponent for keyboard commands.
+  // Proxy access used by pane host for keyboard commands.
   private get mountedInstance(): any {
     return (this.outlet as any)?.componentInstance ?? null;
   }

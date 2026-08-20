@@ -63,7 +63,7 @@ export interface DirListStreamHandlers {
  * Pane-scoped controller that owns the Wails list-dir stream lifecycle:
  * start/cancel/wait + event filtering + base-entry accumulation.
  *
- * FilePaneComponent stays responsible for converting base entries into
+ * pane host stays responsible for converting base entries into
  * view-model entries (parent row, filtering, cursor restore, etc).
  */
 export class DirListStreamController {

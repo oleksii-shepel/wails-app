@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 const dual = readFileSync(new URL('./dual-pane.component.ts', import.meta.url), 'utf8');
 
 describe('dual-pane shared command ownership', () => {
-  it('owns the shared file-manager command ids used by FilePaneComponent', () => {
+  it('owns the shared file-manager command ids used by pane host', () => {
     expect(dual).toContain("import { FILE_MANAGER_COMMANDS } from './file-manager-command-registry'");
 
     for (const command of [

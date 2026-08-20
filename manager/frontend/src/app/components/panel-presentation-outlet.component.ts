@@ -32,6 +32,13 @@ import type {
       min-height: 0;
       overflow: hidden;
     }
+
+    :host > * {
+      display: flex;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
+    }
   `],
 })
 export class PanelPresentationOutletComponent implements OnChanges {

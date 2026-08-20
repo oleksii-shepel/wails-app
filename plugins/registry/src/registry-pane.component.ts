@@ -254,6 +254,7 @@ export interface RegistryEntryDragEvent {
     :host {
       display: flex;
       flex: 1 1 0%;
+      height: 100%;
       min-width: 0;
       min-height: 0;
       flex-direction: column;
@@ -330,6 +331,7 @@ export interface RegistryEntryDragEvent {
 
     .registry-list {
       flex: 1 1 0%;
+      height: 100%;
       min-width: 0;
       min-height: 0;
       overflow: auto;

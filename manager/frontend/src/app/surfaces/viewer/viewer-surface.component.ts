@@ -1256,7 +1256,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   @Input() hideHeader = false;
 
   /**
-   * Optional — populated by FilePaneComponent when the viewer tab was opened
+   * Optional — populated by pane host when the viewer tab was opened
     * for a file inside an archive. When present, content is read through the
     * archive service rather than a direct filesystem ReadFile call.
    */

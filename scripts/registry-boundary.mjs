@@ -39,6 +39,10 @@ const requiredPluginFiles = [
 ];
 
 const allowedContentByFile = new Map([
+  ['manager/frontend/src/app/components/pane-host.component.ts', [
+    /@reassembly\/registry-plugin/,
+    /\bRegistryPaneComponent\b/,
+  ]],
   // PaneHost may mount the public plugin-owned sibling renderer. It must not
   // contain Registry data semantics, commands, editors, or backend behavior.
   ['manager/frontend/src/app/components/pane-host.component.ts', [

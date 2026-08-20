@@ -10,7 +10,6 @@ import {
 } from './registry-panel-source';
 import type { Type } from '@angular/core';
 import type { RegistryFileInfo } from './registry-model';
-import { RegistryPanelPresentationComponent } from './registry-panel-presentation.component';
 
 export interface RegistryCommandInvocation {
   source?: string;
@@ -296,21 +295,11 @@ export function createRegistryPlugin(
     },
   );
 
-  const presentation: RegistryPanelPresentationContribution = {
-    id: 'reassembly.registry.presentation',
-    score: context =>
-      context.sourceKind === 'registry' &&
-      (context.viewMode === 'list' || context.viewMode === 'details')
-        ? 100
-        : 0,
-    load: () => RegistryPanelPresentationComponent,
-  };
 
   const backend: RegistryPluginBackend = {
     id: 'reassembly.registry',
     onRegister: api => {
       api.registerPanelSource(source);
-      api.registerPanelPresentation(presentation);
 
       api.registerCommand({
         id: COMMAND.newKey,
@@ -468,7 +457,6 @@ export function createRegistryPlugin(
       api.unregisterCommand(COMMAND.newValue);
       api.unregisterCommand(COMMAND.newKey);
 
-      api.unregisterPanelPresentation(presentation.id);
       api.unregisterPanelSource(source.id);
     },
   };

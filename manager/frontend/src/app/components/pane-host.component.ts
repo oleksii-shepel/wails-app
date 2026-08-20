@@ -12,7 +12,11 @@ import {
 import { RegistryPaneComponent } from '@reassembly/registry-plugin';
 
 import { DirectoryPaneComponent } from './directory-pane.component';
+import { AutorunPaneComponent } from './autorun-pane.component';
+import { SystemTablePaneComponent } from './system-table-pane.component';
 import { TabBarComponent } from './tab-bar.component';
+import { PaneRendererRegistryService, type PaneRendererKind } from './pane-renderer-registry.service';
+import { PanelSourcePaneSession } from './panel-source-pane-session';
 import type {
   PaneCommands,
   PaneComponent,
@@ -31,21 +35,8 @@ import { getSourceCapabilities } from '../services/source-capabilities';
 import { WorkspaceService } from '../services/workspace.service';
 import { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
-import type {
-  PanePeerNavigation,
-  PanePeerPort,
-  PanePeerSelection,
-  PanePeerState,
-} from './pane-peer.port';
-import type {
-  PaneContextState,
-  PaneMutationState,
-  PanePinState,
-  PaneStatePort,
-  PaneTabState,
-  PaneViewerState,
-} from './pane-state.port';
-import { PanelSourcePaneSession } from './panel-source-pane-session';
+import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState } from './pane-peer.port';
+import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, PaneTabState, PaneViewerState } from './pane-state.port';
 
 @Component({
   selector: 'app-pane-host',
@@ -54,11 +45,13 @@ import { PanelSourcePaneSession } from './panel-source-pane-session';
     CommonModule,
     DirectoryPaneComponent,
     RegistryPaneComponent,
+    AutorunPaneComponent,
+    SystemTablePaneComponent,
     TabBarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container *ngIf="useSpecializedPane; else directoryPane">
+    <ng-container *ngIf="rendererKind !== 'directory'; else directoryPane">
       <section
         class="specialized-pane"
         tabindex="-1"
@@ -88,19 +81,11 @@ import { PanelSourcePaneSession } from './panel-source-pane-session';
             <button type="button" (click)="provider.refresh()" title="Refresh">↻</button>
           </div>
 
-          <div class="specialized-actions">
-            <button
-              type="button"
-              [class.active]="provider.viewMode === 'list'"
-              (click)="provider.setViewMode('list')"
-              title="List view">List</button>
-            <button
-              type="button"
-              [class.active]="provider.viewMode === 'details'"
-              (click)="provider.setViewMode('details')"
-              title="Details view">Details</button>
+          <div class="actions">
+            <button type="button" [class.active]="provider.viewMode === 'list'" (click)="provider.setViewMode('list')">List</button>
+            <button type="button" [class.active]="provider.viewMode === 'details'" (click)="provider.setViewMode('details')">Details</button>
 
-            <span class="action-separator" *ngIf="pluginToolbarActions.length"></span>
+            <span class="separator" *ngIf="pluginToolbarActions.length"></span>
 
             <button
               *ngFor="let action of pluginToolbarActions"
@@ -115,37 +100,59 @@ import { PanelSourcePaneSession } from './panel-source-pane-session';
           </div>
         </header>
 
-        <div class="specialized-error" *ngIf="provider.error">
+        <div class="error" *ngIf="provider.error">
           <strong>Location could not be loaded.</strong>
           <span>{{ provider.error }}</span>
           <button type="button" (click)="provider.refresh()">Retry</button>
         </div>
 
-        <app-registry-pane
-          *ngIf="!provider.error"
-          [paneId]="paneId"
-          [path]="provider.path"
-          [viewMode]="provider.viewMode"
-          [entries]="provider.entries"
-          [selectedPaths]="provider.selectedPaths"
-          [cursorPath]="provider.cursorPath"
-          [visibleEntryCount]="provider.entries.length"
-          [renderedStart]="0"
-          [virtualEnabled]="false"
-          [beforePx]="0"
-          [afterPx]="0"
-          [loading]="provider.loading"
-          [filterText]="''"
-          [dragOverPath]="null"
-          [dropIntent]="null"
-          [backgroundDropActive]="false"
-          (scrolled)="provider.onScroll($event)"
-          (backgroundClick)="onProviderBackgroundClick($event)"
-          (backgroundContextMenu)="backgroundContextMenu.emit($event)"
-          (entrySelect)="onProviderSelect($event)"
-          (entryOpen)="onProviderOpen($event)"
-          (entryContextMenu)="onProviderContextMenu($event)">
-        </app-registry-pane>
+        <ng-container [ngSwitch]="rendererKind" *ngIf="!provider.error">
+          <app-registry-pane
+            *ngSwitchCase="'registry'"
+            [paneId]="paneId"
+            [path]="provider.path"
+            [viewMode]="provider.viewMode"
+            [entries]="provider.entries"
+            [selectedPaths]="provider.selectedPaths"
+            [cursorPath]="provider.cursorPath"
+            [visibleEntryCount]="provider.entries.length"
+            [renderedStart]="0"
+            [virtualEnabled]="false"
+            [beforePx]="0"
+            [afterPx]="0"
+            [loading]="provider.loading"
+            [filterText]="''"
+            [dragOverPath]="null"
+            [dropIntent]="null"
+            [backgroundDropActive]="false"
+            (scrolled)="provider.onScroll($event)"
+            (backgroundClick)="onProviderBackgroundClick($event)"
+            (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+            (entrySelect)="onProviderSelect($event)"
+            (entryOpen)="onProviderOpen($event)"
+            (entryContextMenu)="onProviderContextMenu($event)">
+          </app-registry-pane>
+
+          <app-autorun-pane
+            *ngSwitchCase="'autorun'"
+            [session]="provider"
+            (backgroundClick)="onProviderBackgroundClick($event)"
+            (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+            (entrySelect)="onProviderSelect($event)"
+            (entryOpen)="onProviderOpen($event)"
+            (entryContextMenu)="onProviderContextMenu($event)">
+          </app-autorun-pane>
+
+          <app-system-table-pane
+            *ngSwitchCase="'system-table'"
+            [session]="provider"
+            (backgroundClick)="onProviderBackgroundClick($event)"
+            (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+            (entrySelect)="onProviderSelect($event)"
+            (entryOpen)="onProviderOpen($event)"
+            (entryContextMenu)="onProviderContextMenu($event)">
+          </app-system-table-pane>
+        </ng-container>
       </section>
     </ng-container>
 
@@ -173,128 +180,21 @@ import { PanelSourcePaneSession } from './panel-source-pane-session';
     </ng-template>
   `,
   styles: [`
-    :host {
-      display: flex;
-      flex: 1 1 0%;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .specialized-pane {
-      display: flex;
-      flex: 1 1 0%;
-      min-width: 0;
-      min-height: 0;
-      flex-direction: column;
-      overflow: hidden;
-      background: var(--vsc-editor-background, #fff);
-      color: var(--vsc-foreground);
-      border: 1px solid transparent;
-    }
-
-    .specialized-pane.active-pane {
-      border-color: color-mix(
-        in srgb,
-        var(--vsc-accent-blue, var(--vsc-focus-border)) 62%,
-        transparent
-      );
-    }
-
-    .specialized-header {
-      display: grid;
-      gap: 4px;
-      padding: 5px 7px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
-      background: var(--vsc-editor-background, #fff);
-    }
-
-    .navigation,
-    .specialized-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      min-width: 0;
-    }
-
-    .location {
-      flex: 1 1 auto;
-      min-width: 0;
-      height: 26px;
-      padding: 4px 8px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      border: 1px solid var(--vsc-border);
-      border-radius: 3px;
-      background: var(--vsc-input-background, var(--vsc-editor-background));
-      font: 11px/16px var(--vsc-font-family-mono, monospace);
-    }
-
-    button {
-      min-height: 25px;
-      border: 1px solid var(--vsc-border, transparent);
-      border-radius: 3px;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-      cursor: pointer;
-    }
-
-    button:hover:not(:disabled) {
-      background: var(--vsc-list-hover-background);
-    }
-
-    button.active {
-      background: var(--vsc-list-active-background);
-      color: var(--vsc-list-active-foreground, var(--vsc-foreground));
-    }
-
-    button:disabled {
-      opacity: .4;
-      cursor: default;
-    }
-
-    .plugin-action {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 0 7px;
-    }
-
-    .plugin-icon {
-      display: inline-grid;
-      place-items: center;
-      width: 16px;
-      height: 16px;
-    }
-
-    .action-separator {
-      width: 1px;
-      height: 18px;
-      margin: 0 2px;
-      background: var(--vsc-border);
-    }
-
-    .specialized-error {
-      display: flex;
-      flex: 1 1 0%;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 20px;
-      text-align: center;
-    }
-
-    app-registry-pane {
-      display: flex;
-      flex: 1 1 0%;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
-      background: var(--vsc-editor-background, #fff);
-    }
+    :host{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden}
+    .specialized-pane{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:var(--vsc-editor-background,#fff);color:var(--vsc-foreground);border:1px solid transparent}
+    .specialized-pane.active-pane{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-focus-border)) 62%,transparent)}
+    .specialized-header{display:grid;gap:4px;padding:5px 7px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background,#fff)}
+    .navigation,.actions{display:flex;align-items:center;gap:4px;min-width:0}
+    .location{flex:1 1 auto;min-width:0;height:26px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--vsc-border);border-radius:3px;background:var(--vsc-input-background,var(--vsc-editor-background));font:11px/16px var(--vsc-font-family-mono,monospace)}
+    button{min-height:25px;border:1px solid var(--vsc-border,transparent);border-radius:3px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+    button:hover:not(:disabled){background:var(--vsc-list-hover-background)}
+    button.active{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground,var(--vsc-foreground))}
+    button:disabled{opacity:.4;cursor:default}
+    .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:0 7px}
+    .plugin-icon{display:inline-grid;place-items:center;width:16px;height:16px}
+    .separator{width:1px;height:18px;margin:0 2px;background:var(--vsc-border)}
+    .error{display:flex;flex:1 1 0%;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
+    app-registry-pane,app-autorun-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
@@ -305,34 +205,19 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
-  @Input() comparisonStatuses: ReadonlyMap<string, PaneComparisonStatus> =
-    new Map<string, PaneComparisonStatus>();
+  @Input() comparisonStatuses: ReadonlyMap<string, PaneComparisonStatus> = new Map<string, PaneComparisonStatus>();
 
   @Output() readonly activateRequested = new EventEmitter<void>();
-  @Output() readonly navigationTrailRequested = new EventEmitter<{
-    direction: 'back' | 'forward';
-    event: MouseEvent;
-    entries: readonly string[];
-  }>();
+  @Output() readonly navigationTrailRequested = new EventEmitter<{ direction: 'back' | 'forward'; event: MouseEvent; entries: readonly string[] }>();
   @Output() readonly remoteRecoveryRequested = new EventEmitter<void>();
   @Output() readonly togglePinRequested = new EventEmitter<void>();
   @Output() readonly locationChange = new EventEmitter<string>();
   @Output() readonly cursorChange = new EventEmitter<FileInfo | null>();
   @Output() readonly presentationChange = new EventEmitter<PanePresentation>();
-  @Output() readonly viewportChange = new EventEmitter<{
-    topName: string | null;
-    ratio: number;
-  }>();
-  @Output() readonly entryContextMenu = new EventEmitter<{
-    event: MouseEvent;
-    entry: FileInfo;
-  }>();
+  @Output() readonly viewportChange = new EventEmitter<{ topName: string | null; ratio: number }>();
+  @Output() readonly entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() readonly backgroundContextMenu = new EventEmitter<MouseEvent>();
-  @Output() readonly internalDrop = new EventEmitter<{
-    event: DragEvent;
-    targetPath: string;
-    targetEntry: FileInfo | null;
-  }>();
+  @Output() readonly internalDrop = new EventEmitter<{ event: DragEvent; targetPath: string; targetEntry: FileInfo | null }>();
 
   readonly provider: PanelSourcePaneSession;
 
@@ -340,6 +225,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
     private readonly workspaceService: WorkspaceService,
     panelSources: PanelSourceRegistryService,
     pluginLifecycle: PluginLifecycleCoordinatorService,
+    private readonly renderers: PaneRendererRegistryService,
     changeDetector: ChangeDetectorRef,
   ) {
     this.provider = new PanelSourcePaneSession(
@@ -357,26 +243,20 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   ngDoCheck(): void {
-    if (!this.useSpecializedPane) return;
+    if (this.rendererKind === 'directory') return;
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
     void this.provider.sync(this.paneId, path, this.showHidden);
   }
 
-  /**
-   * First sibling renderer: the Registry plugin.
-   *
-   * Keep the branch in the host, not DirectoryPane. Future Autorun/SystemTable
-   * siblings can move this selection into a renderer registry.
-   */
-  get useSpecializedPane(): boolean {
+  get rendererKind(): PaneRendererKind {
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
-    return this.schemeOf(path) === 'registry';
+    return this.renderers.resolve(path).kind;
   }
 
   private get activeComponent(): PaneComponent | undefined {
-    return this.useSpecializedPane
-      ? this.provider
-      : (this.inner as unknown as PaneComponent | undefined);
+    return this.rendererKind === 'directory'
+      ? (this.inner as unknown as PaneComponent | undefined)
+      : this.provider;
   }
 
   get contextState(): PaneContextState {
@@ -387,9 +267,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
       get visibleEntries() { return component?.visibleEntries ?? []; },
       get activeSurfaceId() { return component?.activeSurfaceId ?? ''; },
       get viewMode() { return component?.viewMode ?? 'list'; },
-      get sourceCapabilities() {
-        return component?.sourceCapabilities ?? getSourceCapabilities(component?.path ?? '');
-      },
+      get sourceCapabilities() { return component?.sourceCapabilities ?? getSourceCapabilities(component?.path ?? ''); },
       get activePanelSource() { return component?.activePanelSource; },
       get currentArchiveFrame() { return component?.currentArchiveFrame ?? null; },
       get isDirectoryTab() { return !!component?.isDirectoryTab; },
@@ -442,9 +320,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
       get entries() { return component?.entries ?? []; },
       get cursorEntry() { return component?.cursorEntry ?? null; },
       get selectedPaths() { return component?.selectedPaths ?? new Set<string>(); },
-      get sourceCapabilities() {
-        return component?.sourceCapabilities ?? getSourceCapabilities(component?.path ?? '');
-      },
+      get sourceCapabilities() { return component?.sourceCapabilities ?? getSourceCapabilities(component?.path ?? ''); },
       get isDirectoryTab() { return !!component?.isDirectoryTab; },
       get isInArchive() { return !!component?.isInArchive; },
     };
@@ -484,30 +360,13 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
     this.provider.selectFromPointer(event.entry as FileInfo, event.event as MouseEvent);
   }
 
-  onProviderOpen(entry: any): void {
-    void this.provider.openEntry(entry as FileInfo);
-  }
+  onProviderOpen(entry: any): void { void this.provider.openEntry(entry as FileInfo); }
 
   onProviderContextMenu(event: any): void {
-    this.entryContextMenu.emit({
-      entry: event.entry as FileInfo,
-      event: event.event as MouseEvent,
-    });
+    this.entryContextMenu.emit({ entry: event.entry as FileInfo, event: event.event as MouseEvent });
   }
 
-  onProviderTabChange(tab: any): void {
-    this.workspaceService.switchTab(this.paneId, tab.id);
-  }
-
-  onProviderTabClose(tab: any): void {
-    this.workspaceService.closeTab(this.paneId, tab.id);
-  }
-
-  onProviderTabPin(tab: any): void {
-    this.workspaceService.toggleTabPin(this.paneId, tab.id);
-  }
-
-  private schemeOf(path: string): string {
-    return /^([a-z][a-z0-9+.-]*):/i.exec(String(path ?? '').trim())?.[1]?.toLowerCase() ?? '';
-  }
+  onProviderTabChange(tab: any): void { this.workspaceService.switchTab(this.paneId, tab.id); }
+  onProviderTabClose(tab: any): void { this.workspaceService.closeTab(this.paneId, tab.id); }
+  onProviderTabPin(tab: any): void { this.workspaceService.toggleTabPin(this.paneId, tab.id); }
 }

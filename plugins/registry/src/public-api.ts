@@ -2,7 +2,6 @@ export * from './registry-model';
 export * from './registry-panel-source';
 export * from './registry.plugin';
 export * from './registry-pane.component';
-export * from './registry-panel-presentation.component';
 export * from './registry-key-editor.service';
 export * from './registry-key-editor.component';
 export * from './registry-value-editor.service';

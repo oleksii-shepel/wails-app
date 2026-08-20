@@ -170,7 +170,7 @@ export class TabBarComponent {
   @Input() tabs: TabInfo[] = [];
   @Input() activeTabId = '';
   @Input() isCompact = false;
-  /** Forwarded from FilePaneComponent — true when browsing inside an archive. */
+  /** Forwarded from pane host — true when browsing inside an archive. */
   @Input() inArchive = false;
 
   @Output() tabChange = new EventEmitter<TabInfo>();

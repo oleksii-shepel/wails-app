@@ -492,7 +492,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="linkedNavigation"
             [attr.aria-pressed]="linkedNavigation"
-            title="Linked navigation В· Ctrl+Alt+L"
+            title="Linked navigation · Ctrl+Alt+L"
             (click)="toggleLinkedNavigation()">
             Link
           </button>
@@ -501,7 +501,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="mirrorPresentation"
             [attr.aria-pressed]="mirrorPresentation"
-            title="Mirror view/sort state В· Ctrl+Alt+M"
+            title="Mirror view/sort state · Ctrl+Alt+M"
             (click)="toggleMirrorPresentation()">
             Mirror
           </button>
@@ -510,7 +510,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="syncScroll"
             [attr.aria-pressed]="syncScroll"
-            title="Synchronized scrolling В· Ctrl+Alt+S"
+            title="Synchronized scrolling · Ctrl+Alt+S"
             (click)="toggleSyncScroll()">
             Scroll
           </button>
@@ -519,7 +519,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="followSelection"
             [attr.aria-pressed]="followSelection"
-            title="Follow matching item В· Ctrl+Alt+F"
+            title="Follow matching item · Ctrl+Alt+F"
             (click)="toggleFollowSelection()">
             Follow
           </button>
@@ -534,7 +534,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           aria-haspopup="menu"
           title="More pane actions"
           (click)="togglePaneIntelligenceMenu($event)">
-          в‹Ї
+          ⋯
         </button>
 
         <div
@@ -569,16 +569,16 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               [class.checked]="mirrorFilter"
               (click)="runPaneIntelligenceAction('filter')">
               Mirror filter
-              <span aria-hidden="true">{{ mirrorFilter ? 'вњ“' : '' }}</span>
+              <span aria-hidden="true">{{ mirrorFilter ? '✓' : '' }}</span>
             </button>
           </section>
 
           <section>
             <header>Presets</header>
             <button type="button" role="menuitem" data-pane-intelligence-item
-              (click)="runPaneIntelligenceAction('savePreset')">Save current pairвЂ¦</button>
+              (click)="runPaneIntelligenceAction('savePreset')">Save current pair…</button>
             <button type="button" role="menuitem" data-pane-intelligence-item [disabled]="panePairPresets.length === 0"
-              (click)="runPaneIntelligenceAction('applyPreset')">Apply presetвЂ¦</button>
+              (click)="runPaneIntelligenceAction('applyPreset')">Apply preset…</button>
             <button type="button" role="menuitem" data-pane-intelligence-item [disabled]="!selectedPanePresetId"
               (click)="runPaneIntelligenceAction('deletePreset')">Delete selected preset</button>
           </section>
@@ -612,7 +612,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         [attr.aria-valuenow]="leftPanePercent | number:'1.0-0'"
         [attr.aria-valuemin]="MIN_PANE_PERCENT"
         [attr.aria-valuemax]="MAX_PANE_PERCENT"
-        title="Drag to resize В· Alt+Shift+Left/Right В· Alt+Shift+0 reset"
+        title="Drag to resize · Alt+Shift+Left/Right · Alt+Shift+0 reset"
         (pointerdown)="beginResize($event)"
         (pointermove)="resizeFromPointer($event)"
         (pointerup)="endResize($event)"
@@ -885,11 +885,41 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .pane-slot {
+
+      height: 100%;
+
+      width: 100%;
+
+      display: flex;
+
       grid-row: 3;
+
       min-width: 0;
+
       min-height: 0;
+
       overflow: hidden;
+
     }
+
+    .pane-slot > app-pane-host {
+
+      display: flex;
+
+      flex: 1 1 0%;
+
+      width: 100%;
+
+      height: 100%;
+
+      min-width: 0;
+
+      min-height: 0;
+
+      overflow: hidden;
+
+    }
+
 
     .divider {
       grid-row: 3;
@@ -2048,8 +2078,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       this.lastTransfer =
         `${operation} counterpart: ${result.succeeded}/${result.total}` +
-        (result.skipped > 0 ? ` В· ${result.skipped} skipped` : '') +
-        (result.failed > 0 ? ` В· ${result.failed} failed` : '');
+        (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
+        (result.failed > 0 ? ` · ${result.failed} failed` : '');
 
       const affected = result.affectedPaths ?? [];
       if (
@@ -4299,8 +4329,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       this.lastDrop =
         `${operation} drop: ${result.succeeded}/${result.total}` +
-        (result.skipped > 0 ? ` В· ${result.skipped} skipped` : '') +
-        (result.failed > 0 ? ` В· ${result.failed} failed` : '');
+        (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
+        (result.failed > 0 ? ` · ${result.failed} failed` : '');
       this.lastTransfer = this.lastDrop;
 
       await targetPane.navigation?.refresh();
@@ -4408,7 +4438,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       ...(!isParent && !isDirectory ? [
         this.menuCommand(COMMAND.quickView, 'Quick view', 'F3'),
         this.menuCommand(COMMAND.openWithExternal, 'Open with default app', 'Ctrl+Shift+O'),
-        this.menuCommand(COMMAND.openWithChooser, 'Open WithвЂ¦'),
+        this.menuCommand(COMMAND.openWithChooser, 'Open With…'),
       ] : []),
     ]);
 
@@ -4416,7 +4446,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.pushMenuSection(items, [
         ...(canRename ? [this.menuCommand(COMMAND.rename, 'Rename', 'F2')] : []),
         ...(selectionCount > 1 && !!pane?.contextState.sourceCapabilities.rename
-          ? [this.menuCommand(COMMAND.batchRename, 'Batch renameвЂ¦', 'Ctrl+Shift+R')]
+          ? [this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R')]
           : []),
         this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
         ...(canMutate ? [this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X')] : []),
@@ -4441,13 +4471,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.detailsWorkspace, 'Open Full Details Workspace'),
         this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
         this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
-        this.menuCommand(COMMAND.setModifiedTime, 'Set Modified TimeвЂ¦'),
+        this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
         ...(!isDirectory ? [
           this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
-          this.menuCommand(COMMAND.splitFile, 'Split FileвЂ¦'),
+          this.menuCommand(COMMAND.splitFile, 'Split File…'),
         ] : []),
         ...(selectionCount >= 2
-          ? [this.menuCommand(COMMAND.joinFiles, 'Join Selected File PartsвЂ¦')]
+          ? [this.menuCommand(COMMAND.joinFiles, 'Join Selected File Parts…')]
           : []),
       ]);
 
@@ -4471,7 +4501,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       if (isArchive) {
         this.pushMenuSection(items, [
           this.menuCommand(COMMAND.extractArchiveToOther, 'Extract to other pane'),
-          this.menuCommand(COMMAND.extractArchiveSelection, 'Extract to folderвЂ¦'),
+          this.menuCommand(COMMAND.extractArchiveSelection, 'Extract to folder…'),
         ]);
       }
     }
@@ -4562,8 +4592,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.selectFolders, 'Select Visible Folders', 'Alt+Shift+D'),
       this.menuCommand(COMMAND.clearSelection, 'Clear Selection', 'Ctrl+Alt+D'),
       this.menuCommand(COMMAND.invertSelection, 'Invert Selection', 'Alt+I'),
-      this.menuCommand(COMMAND.selectByMask, 'Select by MaskвЂ¦', 'Alt+S'),
-      this.menuCommand(COMMAND.unselectByMask, 'Unselect by MaskвЂ¦', 'Alt+U'),
+      this.menuCommand(COMMAND.selectByMask, 'Select by Mask…', 'Alt+S'),
+      this.menuCommand(COMMAND.unselectByMask, 'Unselect by Mask…', 'Alt+U'),
       this.menuCommand(COMMAND.openBasket, 'Selection Basket', 'Ctrl+Shift+B'),
     ]);
 
@@ -4572,13 +4602,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         COMMAND.toggleCurrentPin,
         this.isPanePathPinned(pane) ? 'Unpin this Location' : 'Pin this Location',
       ),
-      this.menuCommand(COMMAND.globalSearch, 'Search HereвЂ¦', 'Ctrl+K'),
-      this.menuCommand(COMMAND.quickPathJump, 'Go to PathвЂ¦', 'Ctrl+P'),
+      this.menuCommand(COMMAND.globalSearch, 'Search Here…', 'Ctrl+K'),
+      this.menuCommand(COMMAND.quickPathJump, 'Go to Path…', 'Ctrl+P'),
       this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
       this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
       this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
       this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
-      this.menuCommand(COMMAND.remoteConnect, 'Connect RemoteвЂ¦'),
+      this.menuCommand(COMMAND.remoteConnect, 'Connect Remote…'),
     ]);
 
     this.pushMenuSection(items, [
@@ -4681,7 +4711,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   private entryContextTitle(entry: FileInfo, selectionCount: number): string {
-    if (selectionCount > 1) return `${selectionCount} selected В· ${entry.name}`;
+    if (selectionCount > 1) return `${selectionCount} selected · ${entry.name}`;
     return entry.name;
   }
 
@@ -5106,7 +5136,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.previousDifference, 'Previous Pane Difference', 'Pane Intelligence', () => this.navigateDifference(-1), () => this.differenceCount > 0);
     descriptor(COMMAND.nextDifference, 'Next Pane Difference', 'Pane Intelligence', () => this.navigateDifference(1), () => this.differenceCount > 0);
     descriptor(COMMAND.savePanePreset, 'Save Pane Pair Preset', 'Pane Intelligence', () => this.saveCurrentPanePreset(), () => !!this.leftPane?.contextState.path && !!this.rightPane?.contextState.path);
-    descriptor(COMMAND.applyPanePreset, 'Apply Pane Pair PresetвЂ¦', 'Pane Intelligence', () => this.chooseAndApplyPanePreset(), () => this.panePairPresets.length > 0);
+    descriptor(COMMAND.applyPanePreset, 'Apply Pane Pair Preset…', 'Pane Intelligence', () => this.chooseAndApplyPanePreset(), () => this.panePairPresets.length > 0);
     descriptor(COMMAND.widenLeftPane, 'Widen Left Pane', 'Layout', () => this.adjustSplit(5));
     descriptor(COMMAND.widenRightPane, 'Widen Right Pane', 'Layout', () => this.adjustSplit(-5));
     descriptor(COMMAND.resetPaneSplit, 'Reset Pane Split', 'Layout', () => this.resetSplit());
@@ -5253,7 +5283,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     );
     descriptor(
       COMMAND.setModifiedTime,
-      'Set Modified TimeвЂ¦',
+      'Set Modified Time…',
       'Files',
       () => this.activePane?.commands?.touchSelectedModifiedTime(),
       () =>
@@ -5621,7 +5651,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openWithExternal, 'Open with External App', 'File Operations', () => this.openActiveExternally(), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(
       COMMAND.openWithChooser,
-      'Open WithвЂ¦',
+      'Open With…',
       'Files',
       () => this.openActiveWithChooser(),
       () => {

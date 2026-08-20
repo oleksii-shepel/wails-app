@@ -7,7 +7,7 @@
  *   - Source entries ARE deleted from the archive (archive is rewritten)
  *   - For nested archives: extraction runs, deletion is skipped
  *
- * Wired in FilePaneComponent template:
+ * Wired in pane host template:
  *
  *   <app-archive-move-warning
  *     [visible]="archiveMoveWarning"

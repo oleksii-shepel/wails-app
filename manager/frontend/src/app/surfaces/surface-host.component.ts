@@ -32,7 +32,7 @@ export class SurfaceHostComponent {
   @ViewChild('dirSurface') dirSurface?: DirSurfaceComponent;
   @ViewChild(ViewerHostSurfaceComponent) viewerHost?: ViewerHostSurfaceComponent;
 
-  // Convenience accessors for FilePaneComponent.
+  // Convenience accessors for pane host.
   get addressBar() { return this.dirSurface?.addressBar; }
   get fileViewContainer() { return this.dirSurface?.fileViewContainer; }
   get findWidget() { return this.dirSurface?.findWidget; }

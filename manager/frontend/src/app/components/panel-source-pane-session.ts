@@ -9,6 +9,7 @@ import type {
   PanePresentation,
   PaneViewportSnapshot,
 } from './pane-component.contract';
+import { schemeOf } from './pane-renderer-registry.service';
 
 const PARENT_ENTRY_PATH = '__parent__';
 
@@ -21,11 +22,11 @@ export interface PanelSourcePaneSessionEvents {
 }
 
 /**
- * Generic non-filesystem pane session.
+ * Shared shell state for non-directory sibling panes.
  *
- * It owns shell-facing navigation/selection state for a PanelSource-backed
- * sibling pane while the provider/plugin owns the actual row presentation and
- * domain commands. It deliberately contains no Registry-specific semantics.
+ * PanelSource owns data/navigation semantics.
+ * A sibling component owns domain presentation.
+ * This session owns the narrow pane contracts consumed by DualPane.
  */
 export class PanelSourcePaneSession implements PaneComponent {
   paneId: 'left' | 'right' = 'left';
@@ -37,20 +38,19 @@ export class PanelSourcePaneSession implements PaneComponent {
   cursorPath: string | null = null;
   loading = false;
   error = '';
-  viewMode: 'list' | 'details' = 'list';
+  viewMode: 'list' | 'details' = 'details';
   lastAction = '';
 
   readonly activeViewerTab = null;
   readonly mountedViewer = null;
   readonly viewerArchiveContext = null;
   readonly currentArchiveFrame = null;
-  readonly activeSurfaceId = 'panel-source';
-  readonly pinnableSurfaceId = 'panel-source';
 
   private backTrail: string[] = [];
   private forwardTrail: string[] = [];
   private loadToken = 0;
-  private workspacePathSnapshot = '';
+  private syncedTabId = '';
+  private syncedPath = '';
   private viewport: PaneViewportSnapshot = { topName: null, ratio: 0 };
 
   constructor(
@@ -60,17 +60,13 @@ export class PanelSourcePaneSession implements PaneComponent {
     private readonly events: PanelSourcePaneSessionEvents = {},
   ) {}
 
-  get tabs(): readonly any[] {
-    return this.workspace.getTabs(this.paneId);
-  }
+  get activeSurfaceId(): string { return schemeOf(this.path) || 'panel-source'; }
+  get pinnableSurfaceId(): string { return this.activeSurfaceId; }
 
-  get activeTab(): any {
-    return this.workspace.getActiveTab(this.paneId);
-  }
+  get tabs(): readonly any[] { return this.workspace.getTabs(this.paneId); }
+  get activeTab(): any { return this.workspace.getActiveTab(this.paneId); }
 
-  get visibleEntries(): readonly FileInfo[] {
-    return this.entries;
-  }
+  get visibleEntries(): readonly FileInfo[] { return this.entries; }
 
   get cursorEntry(): FileInfo | null {
     return this.cursorPath
@@ -94,20 +90,15 @@ export class PanelSourcePaneSession implements PaneComponent {
     return this.activePanelSource.capabilities;
   }
 
-  get pinnableLocation(): string {
-    return this.path;
-  }
-
+  get pinnableLocation(): string { return this.path; }
   get pinnableTitle(): string {
     return this.activePanelSource?.source?.title || this.path;
   }
 
-  get hasSelection(): boolean {
-    return this.selectedPaths.size > 0;
-  }
+  get hasSelection(): boolean { return this.selectedPaths.size > 0; }
 
-  // Domain mutations belong to provider/plugin commands, not generic file
-  // commands. This prevents the shell from offering the wrong operation path.
+  // Mutations on specialized panes are domain commands, not generic file
+  // mutations. This prevents F7/Delete/etc. from taking the filesystem path.
   get canCreate(): boolean { return false; }
   get canRename(): boolean { return false; }
   get canDelete(): boolean { return false; }
@@ -124,14 +115,19 @@ export class PanelSourcePaneSession implements PaneComponent {
   ): Promise<void> {
     this.paneId = paneId;
     this.showHidden = showHidden;
-    if (!path || (path === this.workspacePathSnapshot && this.path === path)) return;
-    this.workspacePathSnapshot = path;
+    const tab = this.workspace.getActiveTab(paneId);
+    const tabId = tab?.id ?? '';
+
+    if (!path) return;
+    if (tabId === this.syncedTabId && path === this.syncedPath && path === this.path) return;
+
+    this.syncedTabId = tabId;
+    this.syncedPath = path;
     await this.load(path, { history: 'none', preserveSelection: true });
   }
 
   async refresh(): Promise<void> {
-    if (!this.path) return;
-    await this.load(this.path, { history: 'none', preserveSelection: true });
+    if (this.path) await this.load(this.path, { history: 'none', preserveSelection: true });
   }
 
   focusContent(): void {}
@@ -157,8 +153,12 @@ export class PanelSourcePaneSession implements PaneComponent {
 
   navigateUp(): void {
     if (!this.path) return;
-    const context = { path: this.path, entries: this.entries, inArchive: false };
-    const parent = this.activePanelSource.source.getParentPath(context);
+    const resolved = this.activePanelSource;
+    const parent = resolved.source.getParentPath({
+      path: this.path,
+      entries: this.entries,
+      inArchive: false,
+    });
     if (parent && parent !== this.path) {
       void this.load(parent, { history: 'record', preserveSelection: false });
     }
@@ -173,13 +173,10 @@ export class PanelSourcePaneSession implements PaneComponent {
   }
 
   canNavigateToLocation(path: string): boolean {
-    const scheme = this.schemeOf(path);
-    return !!scheme && scheme === this.schemeOf(this.path || path);
+    return !!schemeOf(path) && schemeOf(path) === schemeOf(this.path || path);
   }
 
-  currentLocationAvailable(): Promise<boolean> {
-    return Promise.resolve(!!this.path);
-  }
+  currentLocationAvailable(): Promise<boolean> { return Promise.resolve(!!this.path); }
 
   jumpNavigationHistory(path: string): Promise<boolean> {
     return this.navigateTo(path).then(() => true);
@@ -197,21 +194,19 @@ export class PanelSourcePaneSession implements PaneComponent {
   }
 
   applyMirroredPresentation(presentation: PanePresentation): void {
-    if (presentation.viewMode !== 'list' && presentation.viewMode !== 'details') return;
-    this.setViewMode(presentation.viewMode);
+    if (presentation.viewMode === 'list' || presentation.viewMode === 'details') {
+      this.setViewMode(presentation.viewMode);
+    }
   }
 
   setViewMode(viewMode: 'list' | 'details'): void {
     if (this.viewMode === viewMode) return;
     this.viewMode = viewMode;
-    const presentation = this.panePresentation();
-    this.events.presentationChanged?.(presentation);
+    this.events.presentationChanged?.(this.panePresentation());
     this.events.changed?.();
   }
 
-  viewportSnapshot(): PaneViewportSnapshot {
-    return this.viewport;
-  }
+  viewportSnapshot(): PaneViewportSnapshot { return this.viewport; }
 
   syncViewportToPeer(snapshot: PaneViewportSnapshot): void {
     this.viewport = snapshot;
@@ -234,16 +229,32 @@ export class PanelSourcePaneSession implements PaneComponent {
       this.navigateUp();
       return Promise.resolve();
     }
+
+    const resolved = this.activePanelSource;
+    const activation = resolved.source.activateEntry?.(
+      { path: this.path, entries: this.entries, inArchive: false },
+      entry,
+    );
+
+    if (activation !== undefined) {
+      if (typeof activation === 'boolean') {
+        if (activation) this.selectPaths([entry.path]);
+        return Promise.resolve();
+      }
+      return activation.then((handled: boolean) => {
+        if (handled) this.selectPaths([entry.path]);
+      });
+    }
+
     if (entry.type === FileType.DIRECTORY) {
       return this.navigateTo(entry.path);
     }
+
     this.selectPaths([entry.path]);
     return Promise.resolve();
   }
 
-  openViewer(_entry: FileInfo, _viewerId?: string | null, _autoFollow?: boolean): any {
-    return null;
-  }
+  openViewer(_entry: FileInfo, _viewerId?: string | null, _autoFollow?: boolean): any { return null; }
   openSelectedWithViewer(_viewerId: string): Promise<void> { return Promise.resolve(); }
   openQuickView(_entry: FileInfo): void {}
   openActiveViewerExternally(): Promise<void> { return Promise.resolve(); }
@@ -257,10 +268,7 @@ export class PanelSourcePaneSession implements PaneComponent {
     if (tab) this.workspace.closeTab(this.paneId, tab.id);
   }
 
-  newTab(): void {
-    this.workspace.addTab(this.paneId, this.path || '', true);
-  }
-
+  newTab(): void { this.workspace.addTab(this.paneId, this.path || '', true); }
   nextTab(): void { this.switchRelativeTab(1); }
   previousTab(): void { this.switchRelativeTab(-1); }
 
@@ -301,16 +309,14 @@ export class PanelSourcePaneSession implements PaneComponent {
     if (active?.path) await this.sync(this.paneId, active.path, this.showHidden);
   }
 
-  reloadWorkspaceTabs(_preferredTabId?: string): Promise<void> {
-    return Promise.resolve();
-  }
+  reloadWorkspaceTabs(_preferredTabId?: string): Promise<void> { return Promise.resolve(); }
 
   moveCursor(delta: number, extend = false): void {
-    const selectable = this.selectableEntries();
-    if (!selectable.length) return;
-    const current = Math.max(0, selectable.findIndex(entry => entry.path === this.cursorPath));
-    const index = Math.max(0, Math.min(selectable.length - 1, current + delta));
-    const path = selectable[index]?.path;
+    const entries = this.selectableEntries();
+    if (!entries.length) return;
+    const current = Math.max(0, entries.findIndex(entry => entry.path === this.cursorPath));
+    const index = Math.max(0, Math.min(entries.length - 1, current + delta));
+    const path = entries[index]?.path;
     if (!path) return;
     this.cursorPath = path;
     if (!extend) this.selectedPaths = new Set([path]);
@@ -344,11 +350,9 @@ export class PanelSourcePaneSession implements PaneComponent {
   extendSelection(delta: number): void { this.moveCursor(delta, true); }
 
   invertSelection(): void {
-    const selected = new Set(this.selectedPaths);
+    const old = this.selectedPaths;
     this.selectedPaths = new Set(
-      this.selectableEntries()
-        .filter(entry => !selected.has(entry.path))
-        .map(entry => entry.path),
+      this.selectableEntries().filter(entry => !old.has(entry.path)).map(entry => entry.path),
     );
     this.emitCursor();
   }
@@ -358,18 +362,14 @@ export class PanelSourcePaneSession implements PaneComponent {
 
   selectFiles(): void {
     this.selectedPaths = new Set(
-      this.selectableEntries()
-        .filter(entry => entry.type !== FileType.DIRECTORY)
-        .map(entry => entry.path),
+      this.selectableEntries().filter(entry => entry.type !== FileType.DIRECTORY).map(entry => entry.path),
     );
     this.emitCursor();
   }
 
   selectFolders(): void {
     this.selectedPaths = new Set(
-      this.selectableEntries()
-        .filter(entry => entry.type === FileType.DIRECTORY)
-        .map(entry => entry.path),
+      this.selectableEntries().filter(entry => entry.type === FileType.DIRECTORY).map(entry => entry.path),
     );
     this.emitCursor();
   }
@@ -408,10 +408,7 @@ export class PanelSourcePaneSession implements PaneComponent {
     if (!this.entries.length) {
       this.cursorPath = null;
       this.selectedPaths = new Set<string>();
-      this.emitCursor();
-      return;
-    }
-    if (!this.cursorPath || !this.entries.some(entry => entry.path === this.cursorPath)) {
+    } else if (!this.cursorPath || !this.entries.some(entry => entry.path === this.cursorPath)) {
       this.cursorPath = this.selectableEntries()[0]?.path ?? this.entries[0]?.path ?? null;
     }
     this.emitCursor();
@@ -440,7 +437,6 @@ export class PanelSourcePaneSession implements PaneComponent {
     this.emitCursor();
   }
 
-  // Generic file commands intentionally do nothing on a provider-owned pane.
   copySelected(): void {}
   cutSelected(): void {}
   paste(): Promise<void> { return Promise.resolve(); }
@@ -478,6 +474,7 @@ export class PanelSourcePaneSession implements PaneComponent {
     const token = ++this.loadToken;
     const previousPath = this.path;
     const previousSelection = new Set(this.selectedPaths);
+
     this.loading = true;
     this.error = '';
     this.lastAction = `load: ${path}`;
@@ -489,7 +486,7 @@ export class PanelSourcePaneSession implements PaneComponent {
       const context = { path, entries: this.entries, inArchive: false };
       const resolved = this.panelSources.resolve(context);
       if (resolved.source.kind === 'filesystem') {
-        throw new Error(`No panel source is registered for ${this.schemeOf(path)}://.`);
+        throw new Error(`No panel source is registered for ${schemeOf(path)}://.`);
       }
 
       const listing = await resolved.source.list(context, this.showHidden);
@@ -523,9 +520,10 @@ export class PanelSourcePaneSession implements PaneComponent {
       this.cursorPath = null;
       this.events.cursorChanged?.(null);
     } finally {
-      if (token !== this.loadToken) return;
-      this.loading = false;
-      this.events.changed?.();
+      if (token === this.loadToken) {
+        this.loading = false;
+        this.events.changed?.();
+      }
     }
   }
 
@@ -561,9 +559,8 @@ export class PanelSourcePaneSession implements PaneComponent {
   private switchRelativeTab(delta: -1 | 1): void {
     const tabs = this.tabs;
     if (tabs.length < 2) return;
-    const active = this.activeTab;
-    const index = Math.max(0, tabs.findIndex(tab => tab.id === active?.id));
-    const next = (index + delta + tabs.length) % tabs.length;
+    const current = tabs.findIndex(tab => tab.id === this.activeTab?.id);
+    const next = ((current < 0 ? 0 : current) + delta + tabs.length) % tabs.length;
     this.workspace.switchTab(this.paneId, tabs[next].id);
   }
 
@@ -571,30 +568,24 @@ export class PanelSourcePaneSession implements PaneComponent {
     const active = this.workspace.getActiveTab(this.paneId);
     if (!active || active.path === path) return;
     this.workspace.updateTabPath(this.paneId, active.id, path);
-    this.workspacePathSnapshot = path;
+    this.syncedPath = path;
   }
 
   private async activatePluginsForLocation(path: string): Promise<void> {
-    const scheme = this.schemeOf(path);
+    const scheme = schemeOf(path);
     if (!scheme || scheme === 'filesystem') return;
 
     const results = await this.pluginLifecycle.activateByEvent(`onScheme:${scheme}`);
     const failed = results.find(result => !result.activated);
     if (failed) {
-      throw new Error(
-        failed.error || `Plugin ${failed.pluginId} failed to activate for ${scheme}://.`,
-      );
+      throw new Error(failed.error || `Plugin ${failed.pluginId} failed to activate for ${scheme}://.`);
     }
-  }
-
-  private schemeOf(path: string): string {
-    return /^([a-z][a-z0-9+.-]*):/i.exec(path.trim())?.[1]?.toLowerCase() ?? '';
   }
 
   private canonicalize(path: string): string {
     let value = String(path ?? '').trim();
     if (/^\/[a-z][a-z0-9+.-]*:/i.test(value)) value = value.slice(1);
-    const scheme = this.schemeOf(value);
+    const scheme = schemeOf(value);
     if (scheme && value.toLowerCase() === `${scheme}:`) return `${scheme}://`;
     return value;
   }

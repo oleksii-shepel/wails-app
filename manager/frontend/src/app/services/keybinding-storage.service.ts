@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { InputTrigger, InputBindingDefinition } from './input-system.types';
-import { BROWSER_BINDINGS } from '../components/file-browser-command-registry';
+import { FILE_MANAGER_BINDINGS } from '../components/file-manager-command-registry';
 import { BUILTIN_INPUT_CATALOG } from './dialog-input-catalog';
 
 export interface KeybindingOverride {
@@ -13,7 +13,7 @@ const STORAGE_KEY = 'keybinding-overrides-v1';
 
 function buildDefaultCatalog(): Map<string, InputBindingDefinition> {
   const map = new Map<string, InputBindingDefinition>();
-  for (const binding of BROWSER_BINDINGS) {
+  for (const binding of FILE_MANAGER_BINDINGS) {
     map.set(binding.id, binding);
   }
   for (const entry of BUILTIN_INPUT_CATALOG) {

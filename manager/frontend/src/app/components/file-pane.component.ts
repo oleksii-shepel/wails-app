@@ -65,7 +65,7 @@ import { presentPluginCommand } from './plugin-command-presentation';
 import { InputEngineService } from '../services/input-engine.service';
 import type { MenuContext, ToolbarContext } from '../plugin/plugin-registry-api';
 import type { PinnedLocation } from './address-bar.types';
-import { BC } from './file-browser-command-registry';
+import { FILE_MANAGER_COMMANDS } from './file-manager-command-registry';
 import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type BackgroundFileContextAction, type BuiltinFileContextAction } from './file-context-menu.model';
 import { FileContextMenuComponent, type FileContextMenuState } from './file-context-menu.component';
 import type { SearchResultItem } from '../services/global-search.service';
@@ -998,9 +998,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   private executeBackgroundContextAction(action: BackgroundFileContextAction): void {
     const commandId = {
-      newFolder: BC.newFolder,
-      paste: BC.paste,
-      refresh: BC.refresh,
+      newFolder: FILE_MANAGER_COMMANDS.newFolder,
+      paste: FILE_MANAGER_COMMANDS.paste,
+      refresh: FILE_MANAGER_COMMANDS.refresh,
     } satisfies Record<BackgroundFileContextAction, string>;
     this.inputEngine.dispatchCommandById(commandId[action]);
   }
@@ -1017,16 +1017,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     const commandId = {
-      open: BC.openItem,
-      quickView: BC.quickView,
-      copyPath: BC.copyCursorPath,
-      openWithExternal: BC.openWithExternal,
-      copy: BC.copy,
-      cut: BC.cut,
-      delete: BC.deleteSelected,
-      rename: BC.rename,
-      copyToOther: BC.copyToOtherPane,
-      moveToOther: BC.moveToOtherPane,
+      open: FILE_MANAGER_COMMANDS.openItem,
+      quickView: FILE_MANAGER_COMMANDS.quickView,
+      copyPath: FILE_MANAGER_COMMANDS.copyCursorPath,
+      openWithExternal: FILE_MANAGER_COMMANDS.openWithExternal,
+      copy: FILE_MANAGER_COMMANDS.copy,
+      cut: FILE_MANAGER_COMMANDS.cut,
+      delete: FILE_MANAGER_COMMANDS.deleteSelected,
+      rename: FILE_MANAGER_COMMANDS.rename,
+      copyToOther: FILE_MANAGER_COMMANDS.copyToOtherPane,
+      moveToOther: FILE_MANAGER_COMMANDS.moveToOtherPane,
     } satisfies Record<Exclude<BuiltinFileContextAction, 'openInNewTab'>, string>;
 
     this.inputEngine.dispatchCommandById(commandId[action]);

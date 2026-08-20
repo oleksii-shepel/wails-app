@@ -11,7 +11,7 @@ import {
   SettingsTab,
   type ProjectSettings,
 } from '../services/settings.service';
-import { BROWSER_BINDINGS } from './file-browser-command-registry';
+import { FILE_MANAGER_BINDINGS } from './file-manager-command-registry';
 import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../services/input-system.types';
 import { PluginSettingsPanelComponent } from './plugin-settings-panel.component';

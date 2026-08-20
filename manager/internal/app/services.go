@@ -59,18 +59,18 @@ type Services struct {
 	Workspace  *internalworkspace.Service
 }
 
-type ServiceConfig struct {
-	Core *Core
-
-	Elevation *internalelevation.Service
+type ServiceEventsConfig struct {
 	EmitEvent func(string, interface{})
+}
 
+type ServiceDirectoryConfig struct {
 	ElevatedList  func(path string, showHidden bool) ([]contracts.FileInfo, error)
 	BuildFileInfo func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
 	IsHidden      func(name, fullPath string) bool
-
 	ListDirectory func(path string, showHidden bool) (*contracts.DirectoryListing, error)
+}
 
+type ServiceBatchConfig struct {
 	StartOperation                 func(kind contracts.OperationType, title, source, dest string) *internalops.ActiveOperation
 	PromptConflict                 func(event contracts.ConflictEvent)
 	ClassifyError                  func(error) contracts.AppErrorCode
@@ -88,54 +88,65 @@ type ServiceConfig struct {
 	IsArchive                      func(string) bool
 }
 
+type ServiceConfig struct {
+	Core      *Core
+	Elevation *internalelevation.Service
+	Events    ServiceEventsConfig
+	Directory ServiceDirectoryConfig
+	Batch     ServiceBatchConfig
+}
+
 func NewServices(config ServiceConfig) *Services {
+	batch := config.Batch
+	directory := config.Directory
+
 	return &Services{
 		Elevation: config.Elevation,
 		Archive: internalarchive.NewService(
 			config.Core.ArchiveCache,
 			func(opType contracts.OperationType, title, source, dest string) internalarchive.Operation {
-				return &archiveOperationAdapter{op: config.StartOperation(opType, title, source, dest)}
+				return &archiveOperationAdapter{op: batch.StartOperation(opType, title, source, dest)}
 			},
 		),
 		Batch: internalbatch.NewService(internalbatch.ServiceConfig{
-			StartOperation:   config.StartOperation,
-			ConflictPrompter: internalbatch.ConflictPrompterFunc(config.PromptConflict),
+			StartOperation:   batch.StartOperation,
+			ConflictPrompter: internalbatch.ConflictPrompterFunc(batch.PromptConflict),
 			BatchErr: func(source, destination string, err error) contracts.BatchItemError {
 				return contracts.BatchItemError{
 					Source:      source,
 					Destination: destination,
 					Error:       err.Error(),
-					Code:        config.ClassifyError(err),
+					Code:        batch.ClassifyError(err),
 				}
 			},
-			IsPermissionDenied:             config.IsPermissionDenied,
-			ShouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
-			RunElevatedCopy:                config.RunElevatedCopy,
-			RunElevatedMove:                config.RunElevatedMove,
-			RunElevatedDelete:              config.RunElevatedDelete,
+			IsPermissionDenied:             batch.IsPermissionDenied,
+			ShouldRetryDeleteWithElevation: batch.ShouldRetryDeleteWithElevation,
+			RunElevatedCopy:                batch.RunElevatedCopy,
+			RunElevatedMove:                batch.RunElevatedMove,
+			RunElevatedDelete:              batch.RunElevatedDelete,
 			MoveToTrash:                    internalplatform.MoveToTrash,
-			CalculateSize:                  config.CalculateSize,
+			CalculateSize:                  batch.CalculateSize,
 			ResolvePath:                    nativeResolvePath,
 			ToPublicPath:                   pathref.FromNativePath,
-			GetFileInfo:                    config.GetFileInfo,
-			CopyPath:                       config.CopyBatchPath,
-			ExtractNestedArchive:           config.ExtractNestedArchive,
-			Normalize:                      config.Normalize,
-			ArchiveEntryPath:               config.ArchiveEntryPath,
-			IsArchive:                      config.IsArchive,
+			GetFileInfo:                    batch.GetFileInfo,
+			CopyPath:                       batch.CopyBatchPath,
+			ExtractNestedArchive:           batch.ExtractNestedArchive,
+			Normalize:                      batch.Normalize,
+			ArchiveEntryPath:               batch.ArchiveEntryPath,
+			IsArchive:                      batch.IsArchive,
 		}),
 		Converter: config.Core.Converter,
 		DirStream: internalruntime.NewDirStreamService(
-			config.EmitEvent,
-			config.ElevatedList,
-			config.BuildFileInfo,
-			config.IsHidden,
+			config.Events.EmitEvent,
+			directory.ElevatedList,
+			directory.BuildFileInfo,
+			directory.IsHidden,
 			nativeResolvePath,
 		),
 		Utility: config.newUtility(),
 		Navigation: internalnav.NewService(
 			config.Core.NavigationManager,
-			config.ListDirectory,
+			directory.ListDirectory,
 		),
 		Workspace: internalworkspace.NewService(config.Core.WorkspaceManager),
 	}
@@ -143,6 +154,6 @@ func NewServices(config ServiceConfig) *Services {
 
 func (c ServiceConfig) newUtility() *internalutility.Service {
 	return internalutility.NewService(internalutility.ServiceConfig{
-		EmitEvent: c.EmitEvent,
+		EmitEvent: c.Events.EmitEvent,
 	})
 }

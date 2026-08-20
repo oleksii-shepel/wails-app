@@ -46,30 +46,38 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 	})
 
 	services := NewServices(ServiceConfig{
-		Core:                           core,
-		Elevation:                      elevation,
-		EmitEvent:                      func(name string, data interface{}) { state.Runtime.EmitEvent(state.Ctx, name, data) },
-		ElevatedList:                   filesystem.ElevatedList,
-		BuildFileInfo:                  config.BuildFileInfo,
-		IsHidden:                       config.IsHidden,
-		ListDirectory:                  state.ListDirectory,
-		StartOperation:                 state.StartOperation,
-		PromptConflict:                 state.PromptConflict,
-		ClassifyError:                  config.ClassifyError,
-		IsPermissionDenied:             config.IsPermissionDenied,
-		ShouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
-		RunElevatedCopy:                filesystem.RunElevatedCopy,
-		RunElevatedMove:                filesystem.RunElevatedMove,
-		RunElevatedDelete:              filesystem.RunElevatedDelete,
-		CalculateSize:                  config.CalculateSize,
-		GetFileInfo:                    filesystem.GetFileInfo,
-		CopyBatchPath: func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error {
-			return state.copyBatchPath(source, destination, recursive, streamToFile)
+		Core:      core,
+		Elevation: elevation,
+		Events: ServiceEventsConfig{
+			EmitEvent: func(name string, data interface{}) {
+				state.Runtime.EmitEvent(state.Ctx, name, data)
+			},
 		},
-		ExtractNestedArchive: state.ExtractNestedArchive,
-		Normalize:            config.Normalize,
-		ArchiveEntryPath:     config.ArchiveEntryPath,
-		IsArchive:            config.IsArchive,
+		Directory: ServiceDirectoryConfig{
+			ElevatedList:  filesystem.ElevatedList,
+			BuildFileInfo: config.BuildFileInfo,
+			IsHidden:      config.IsHidden,
+			ListDirectory: state.ListDirectory,
+		},
+		Batch: ServiceBatchConfig{
+			StartOperation:                 state.StartOperation,
+			PromptConflict:                 state.PromptConflict,
+			ClassifyError:                  config.ClassifyError,
+			IsPermissionDenied:             config.IsPermissionDenied,
+			ShouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
+			RunElevatedCopy:                filesystem.RunElevatedCopy,
+			RunElevatedMove:                filesystem.RunElevatedMove,
+			RunElevatedDelete:              filesystem.RunElevatedDelete,
+			CalculateSize:                  config.CalculateSize,
+			GetFileInfo:                    filesystem.GetFileInfo,
+			CopyBatchPath: func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error {
+				return state.copyBatchPath(source, destination, recursive, streamToFile)
+			},
+			ExtractNestedArchive: state.ExtractNestedArchive,
+			Normalize:            config.Normalize,
+			ArchiveEntryPath:     config.ArchiveEntryPath,
+			IsArchive:            config.IsArchive,
+		},
 	})
 
 	state.Archive = services.Archive

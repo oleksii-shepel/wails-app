@@ -23,7 +23,7 @@ interface PluginPolicyDraft {
       <div class="plugins-header">
         <div>
           <h3 class="section-title">Plugins</h3>
-          <p class="section-desc">Manage discovered plugin packages, trust, permissions and activation health.</p>
+          <p class="section-desc">Manage discovered plugin packages, trust, availability, permissions and runtime health.</p>
         </div>
         <div class="plugins-header-actions">
           <button type="button" class="btn btn-secondary btn-small" [disabled]="refreshing" (click)="refresh()">
@@ -57,15 +57,17 @@ interface PluginPolicyDraft {
             </p>
           </div>
 
-          <label class="plugin-enable" [title]="snapshot.plugin.discovered.valid ? 'Enable or disable this plugin' : 'Invalid packages cannot be enabled'">
-            <input
-              type="checkbox"
-              [checked]="enabledValue(snapshot)"
-              [disabled]="isBusy(snapshot) || !snapshot.plugin.discovered.valid"
-              (change)="toggleEnabled(snapshot, $any($event.target).checked)"
-            />
-            <span>Enabled</span>
-          </label>
+          <button
+            *ngIf="isTrustedForCurrentVersion(snapshot)"
+            type="button"
+            class="btn btn-small plugin-availability-action"
+            [class.btn-primary]="!enabledValue(snapshot)"
+            [class.btn-secondary]="enabledValue(snapshot)"
+            [disabled]="isBusy(snapshot)"
+            (click)="setEnabled(snapshot, !enabledValue(snapshot))"
+          >
+            {{ enabledValue(snapshot) ? 'Disable' : 'Enable' }}
+          </button>
         </header>
 
         <div *ngIf="snapshot.reason" class="plugin-reason">{{ snapshot.reason }}</div>
@@ -87,7 +89,7 @@ interface PluginPolicyDraft {
               <span *ngIf="trustedValue(snapshot) && !isTrustedForCurrentVersion(snapshot)" class="state-warn">Review required after upgrade</span>
               <span *ngIf="!trustedValue(snapshot)" class="state-muted">Not trusted</span>
             </div>
-            <p>Trust grants all permissions requested by this exact plugin version.</p>
+            <p>Trust grants all permissions requested by this exact plugin version and enables it initially.</p>
             <button
               type="button"
               class="btn btn-secondary btn-small"
@@ -127,24 +129,6 @@ interface PluginPolicyDraft {
             </div>
           </section>
         </div>
-
-        <footer *ngIf="snapshot.plugin.discovered.valid" class="plugin-card-actions">
-          <button
-            *ngIf="snapshot.status !== 'active'"
-            type="button"
-            class="btn btn-primary btn-small"
-            [disabled]="isBusy(snapshot) || !snapshot.plugin.readyToActivate || snapshot.status === 'loader-unavailable'"
-            (click)="activate(snapshot)"
-          >Activate</button>
-          <button
-            *ngIf="snapshot.status === 'active'"
-            type="button"
-            class="btn btn-secondary btn-small"
-            [disabled]="isBusy(snapshot)"
-            (click)="deactivate(snapshot)"
-          >Deactivate</button>
-          <span *ngIf="isBusy(snapshot)" class="plugin-working">Working…</span>
-        </footer>
       </article>
     </section>
   `,
@@ -165,6 +149,7 @@ interface PluginPolicyDraft {
     .plugin-card.invalid { border-color: color-mix(in srgb, var(--vsc-error) 45%, transparent); }
     .plugin-card.quarantined { border-color: color-mix(in srgb, var(--vsc-warning) 45%, transparent); }
     .plugin-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+    .plugin-availability-action { flex: 0 0 auto; min-width: 72px; }
     .plugin-identity { min-width: 0; }
     .plugin-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .plugin-version, .plugin-id { font-family: var(--font-mono, monospace); font-size: 11px; opacity: .66; }
@@ -173,7 +158,6 @@ interface PluginPolicyDraft {
     .plugin-status[data-status="active"] { background: color-mix(in srgb, var(--vsc-success) 18%, transparent); }
     .plugin-status[data-status="failed"], .plugin-status[data-status="invalid"] { background: color-mix(in srgb, var(--vsc-error) 18%, transparent); }
     .plugin-status[data-status="quarantined"], .plugin-status[data-status="permissions-required"] { background: color-mix(in srgb, var(--vsc-warning) 18%, transparent); }
-    .plugin-enable { display: flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 12px; }
     .plugin-reason { background: var(--vsc-neutral-overlay-subtle); }
     .plugin-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .plugin-block { border: 1px solid var(--border-color, var(--vsc-neutral-overlay-soft)); border-radius: 5px; padding: 10px; min-width: 0; }
@@ -297,13 +281,19 @@ export class PluginSettingsPanelComponent implements OnInit {
     }
   }
 
-  toggleEnabled(snapshot: ManagedPluginRuntimeSnapshot, enabled: boolean): void {
-    this.updatePolicy(snapshot, policy => ({ ...policy, enabled }));
+  async setEnabled(snapshot: ManagedPluginRuntimeSnapshot, enabled: boolean): Promise<void> {
+    const id = snapshot.plugin.discovered.manifest.id;
+    await this.runFor(snapshot, () => this.coordinator.setEnabled(id, enabled));
+    this.capturePolicy(this.snapshots);
   }
 
   toggleTrusted(snapshot: ManagedPluginRuntimeSnapshot): void {
     const trusted = !this.trustedValue(snapshot);
-    this.updatePolicy(snapshot, policy => ({ ...policy, trusted }));
+    this.updatePolicy(snapshot, policy => ({
+      ...policy,
+      trusted,
+      enabled: trusted ? true : false,
+    }));
   }
 
   togglePermission(snapshot: ManagedPluginRuntimeSnapshot, permission: PluginPermission, granted: boolean): void {
@@ -379,13 +369,7 @@ export class PluginSettingsPanelComponent implements OnInit {
     await this.runFor(snapshot, () => this.coordinator.clearQuarantine(snapshot.plugin.discovered.manifest.id));
   }
 
-  async activate(snapshot: ManagedPluginRuntimeSnapshot): Promise<void> {
-    await this.runFor(snapshot, () => this.coordinator.activate(snapshot.plugin.discovered.manifest.id));
-  }
 
-  async deactivate(snapshot: ManagedPluginRuntimeSnapshot): Promise<void> {
-    await this.runFor(snapshot, () => this.coordinator.deactivate(snapshot.plugin.discovered.manifest.id));
-  }
 
   formatStatus(status: string): string {
     return status.replace(/-/g, ' ');

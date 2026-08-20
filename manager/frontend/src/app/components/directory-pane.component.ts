@@ -202,7 +202,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
       (focusin)="activateRequested.emit()"
-      (mousedown)="onPaneMouseDown($event)">
+      (mousedown)="activateRequested.emit()">
 
       <div
         #tabStrip
@@ -346,7 +346,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </div>
 
       <div class="action-bar">
-
         <div class="view-switcher" role="group" aria-label="Directory view">
           <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
           <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
@@ -703,16 +702,54 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <ng-template #viewerSurface>
         <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
+          <div class="viewer-toolbar">
+            <span class="viewer-label">{{ viewerTab.autoFollow ? 'Preview' : 'Viewer' }}</span>
+            <span class="viewer-kind">{{ viewerTab.viewerId || 'Auto' }}</span>
+            <span class="viewer-path" [title]="viewerTab.archiveContext?.entryPath || viewerTab.targetPath">
+              {{ viewerTab.archiveContext?.entryPath || viewerTab.targetPath }}
+            </span>
+
+            <button
+              type="button"
+              *ngIf="viewerTab.sourceTabId || viewerTab.sourceDir"
+              (click)="returnToViewerSource()"
+              title="Return to source folder">
+              Folder
+            </button>
+
+            <span class="viewer-separator"></span>
+
+            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
+            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
+            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
+            <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
+            <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
+            <button type="button" [disabled]="!viewerSupports('zoom100')" (click)="viewerInvoke('zoom100')" title="Actual size (Ctrl+1)">1:1</button>
+
+            <span class="viewer-separator"></span>
+
+            <button
+              type="button"
+              [disabled]="!!viewerTab.archiveContext"
+              (click)="openActiveViewerExternally()"
+              title="Open with external application">
+              External
+            </button>
+            <button
+              type="button"
+              [disabled]="viewerTab.isPinned || !viewerTab.isClosable"
+              (click)="closeActiveTab()"
+              title="Close viewer (Ctrl+W)">
+              ×
+            </button>
+          </div>
+
           <app-viewer-host-surface
             #viewerHost
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
             [archiveContext]="viewerTab.archiveContext"
-            [viewerId]="viewerTab.viewerId"
-            [viewerState]="viewerTab"
-            (returnSource)="returnToViewerSource()"
-            (external)="openActiveViewerExternally()"
-            (close)="closeActiveTab()">
+            [viewerId]="viewerTab.viewerId">
           </app-viewer-host-surface>
         </div>
       </ng-template>
@@ -953,28 +990,15 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .action-bar {
       display: flex;
       align-items: center;
-      flex-wrap: nowrap;
       gap: 4px;
-      height: 34px;
       min-height: 34px;
-      max-height: 34px;
-      box-sizing: border-box;
       padding: 3px 8px;
-      overflow-x: auto;
-      overflow-y: hidden;
-      scrollbar-width: none;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
 
-    .action-bar::-webkit-scrollbar { display: none; }
-
     .action-bar button {
-      height: 26px;
       min-height: 26px;
-      max-height: 26px;
-      flex: 0 0 auto;
-      white-space: nowrap;
       padding: 3px 9px;
       border: 1px solid transparent;
       border-radius: 4px;
@@ -1001,7 +1025,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .view-switcher {
       display: flex;
-      flex: 0 0 auto;
       gap: 2px;
     }
 
@@ -1013,13 +1036,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .sort-controls {
       display: flex;
       align-items: center;
-      flex: 0 0 auto;
       gap: 2px;
     }
 
     .sort-controls select {
       height: 26px;
-      flex: 0 0 auto;
       max-width: 110px;
       padding: 0 5px;
       border: 1px solid var(--vsc-border, var(--vsc-border));
@@ -1438,6 +1459,64 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       background: var(--vsc-editor-background, var(--vsc-editor-background));
     }
 
+    .viewer-toolbar {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) 28px;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      font-size: 11px;
+    }
+
+    .viewer-label {
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      font-weight: 600;
+    }
+
+    .viewer-kind {
+      flex: 0 0 auto;
+      padding: 1px 5px;
+      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border-radius: 3px;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .viewer-separator {
+      width: 1px;
+      height: 18px;
+      background: var(--vsc-border, var(--vsc-border));
+      flex: 0 0 auto;
+    }
+
+    .viewer-path {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+    }
+
+    .viewer-toolbar button {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 17px;
+    }
+
+    .viewer-toolbar button:hover {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+    }
+
     app-viewer-host-surface {
       display: flex;
       flex: 1 1 auto;
@@ -1607,7 +1686,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private workspaceTabsReady = false;
   private workspaceRestoreGeneration = 0;
   private interactionGeneration = 0;
-  private restoreCursorOnBackgroundClick = false;
   private scrollPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private projectionEntriesRef: FileInfo[] | null = null;
   private projectionSortField = '';
@@ -1662,7 +1740,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         ? this.paneRoot?.nativeElement
         : this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
-          : this.activeListViewport;
+          : this.listViewport?.nativeElement;
 
     target?.focus({ preventScroll: true });
   }
@@ -1753,7 +1831,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   viewportSnapshot(): { topName: string | null; ratio: number } {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
-      : this.activeListViewport;
+      : this.listViewport?.nativeElement;
     if (!viewport) return { topName: null, ratio: 0 };
 
     const max = Math.max(1, viewport.scrollHeight - viewport.clientHeight);
@@ -1776,7 +1854,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   syncViewportToPeer(snapshot: { topName: string | null; ratio: number }): void {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
-      : this.activeListViewport;
+      : this.listViewport?.nativeElement;
     if (!viewport) return;
 
     if (snapshot.topName) {
@@ -1810,17 +1888,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   comparisonStatus(path: string): PaneComparisonStatus | null {
     return this.comparisonStatuses.get(path) ?? null;
-  }
-
-  comparisonMarker(path: string): 'newer' | 'older' | 'only' | 'type' | 'different' | null {
-    const status = this.comparisonStatus(path);
-    if (!status || status === 'same') return null;
-    if (status === 'only-left') return this.paneId === 'left' ? 'only' : null;
-    if (status === 'only-right') return this.paneId === 'right' ? 'only' : null;
-    if (status === 'left-newer') return this.paneId === 'left' ? 'newer' : 'older';
-    if (status === 'right-newer') return this.paneId === 'right' ? 'newer' : 'older';
-    if (status === 'type-different') return 'type';
-    return 'different';
   }
 
   isComparisonDifferent(path: string): boolean {
@@ -2133,10 +2200,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
-  private get activeListViewport(): HTMLElement | undefined {
-    return this.listViewport?.nativeElement;
-  }
-
   get panelColumnContext(): PanelColumnContext {
     const resolved = this.activePanelSource;
     return {
@@ -2336,10 +2399,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntryCount(): number {
-    if (this.backendPresentationActive) {
-      return this.backendVisibleCount + (this.showPresentationParent ? 1 : 0);
-    }
-    return this.visibleEntries.length;
+    return this.backendPresentationActive
+      ? this.backendVisibleCount
+      : (this.streamRenderActive ? this.visibleEntries.length : this.visibleEntries.length);
   }
 
   get totalEntryCount(): number {
@@ -2358,21 +2420,20 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get visibleEntries(): FileInfo[] {
     if (this.backendPresentationActive) {
-      return this.withPresentationParent(this.entries);
+      return this.entries;
     }
 
     if (this.streamRenderActive) {
       const query = this.filterText.trim().toLocaleLowerCase();
-      if (!query) return this.withPresentationParent(this.entries);
+      if (!query) return this.entries;
 
-      // Parent navigation is structural UI and remains visible regardless of
-      // filtering. Tree is the only view that intentionally omits it.
-      const filtered = this.entries.filter(entry =>
-        entry.path === '__parent__' ||
+      // Keep filtering responsive while a stream is still growing, but defer
+      // global sorting until completion. Sorting the full accumulated list on
+      // every incoming batch is the main-thread failure mode we are avoiding.
+      return this.entries.filter(entry =>
         entry.name.toLocaleLowerCase().includes(query) ||
         entry.path.toLocaleLowerCase().includes(query)
       );
-      return this.withPresentationParent(filtered);
     }
 
     if (
@@ -2396,7 +2457,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
     }
 
-    return this.withPresentationParent(this.projectionCache);
+    return this.projectionCache;
   }
 
   get listVirtualWindow(): VirtualWindow {
@@ -2419,23 +2480,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   get renderedEntries(): FileInfo[] {
     const window = this.listVirtualWindow;
     if (this.backendPresentationActive) {
-      const parentOffset = this.showPresentationParent ? 1 : 0;
-      const sourceStart = Math.max(0, window.start - parentOffset);
-      const sourceEnd = Math.max(sourceStart, window.end - parentOffset);
-
-      this.queueBackendWindow(sourceStart, sourceEnd);
-
-      const start = Math.max(0, sourceStart - this.backendWindowOffset);
+      this.queueBackendWindow(window.start, window.end);
+      const start = Math.max(0, window.start - this.backendWindowOffset);
       const end = Math.max(start, Math.min(
         this.entries.length,
-        sourceEnd - this.backendWindowOffset,
+        window.end - this.backendWindowOffset,
       ));
-      const rendered = this.entries.slice(start, end);
-
-      if (parentOffset && window.start === 0) {
-        return [this.presentationParentEntry(), ...rendered];
-      }
-      return rendered;
+      return this.entries.slice(start, end);
     }
     return window.enabled
       ? this.visibleEntries.slice(window.start, window.end)
@@ -2446,13 +2497,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!this.backendPresentationActive) {
       return this.listVirtualWindow.start;
     }
-    if (this.showPresentationParent && this.listVirtualWindow.start === 0) {
-      return 0;
-    }
-    return Math.max(
-      this.listVirtualWindow.start,
-      this.backendWindowOffset + (this.showPresentationParent ? 1 : 0),
-    );
+    return Math.max(this.listVirtualWindow.start, this.backendWindowOffset);
   }
 
   get treeVirtualWindow(): VirtualWindow {
@@ -2475,7 +2520,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   private estimatedGridColumns(): number {
     const width =
-      this.activeListViewport?.clientWidth ||
+      this.listViewport?.nativeElement.clientWidth ||
       this.virtualViewportWidth ||
       800;
 
@@ -2488,15 +2533,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       target ??
       (this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.activeListViewport);
+        : this.listViewport?.nativeElement);
 
     if (!viewport) return;
 
     this.virtualScrollTop = Math.max(0, viewport.scrollTop);
     this.virtualViewportHeight = Math.max(
-      this.viewMode === 'grid'
-        ? this.gridRowExtent
-        : this.listRowExtent,
+      this.viewMode === 'grid' ? this.gridRowExtent : this.listRowExtent,
       viewport.clientHeight || 600,
     );
     this.virtualViewportWidth = Math.max(108, viewport.clientWidth || 800);
@@ -2516,29 +2559,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.path,
       this.entries,
     );
-  }
-
-  private get showPresentationParent(): boolean {
-    return this.isDirectoryTab && this.viewMode !== 'tree' && !this.atRoot;
-  }
-
-  private presentationParentEntry(): FileInfo {
-    return {
-      name: '..',
-      path: '__parent__',
-      type: FileType.DIRECTORY,
-      size: 0,
-      modified: 0,
-    } as FileInfo;
-  }
-
-  private withPresentationParent(entries: FileInfo[]): FileInfo[] {
-    if (this.viewMode === 'tree') {
-      return entries.filter(entry => entry.path !== '__parent__');
-    }
-    if (!this.showPresentationParent) return entries;
-    if (entries.some(entry => entry.path === '__parent__')) return entries;
-    return [this.presentationParentEntry(), ...entries];
   }
 
   get canBack(): boolean {
@@ -3487,17 +3507,74 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.moveFilterCursor(-1);
   }
 
+  private normalizeLocationInput(path: string): string {
+    let value = path.trim();
+    if (!value) return value;
+
+    // Address-bar path normalization can prepend one slash to a URI scheme,
+    // e.g. `/registry:`. Remove it only when the remainder is unambiguously
+    // a scheme, never for an ordinary POSIX path.
+    if (/^\/[a-z][a-z0-9+.-]*:/i.test(value)) {
+      value = value.slice(1);
+    }
+
+    return value;
+  }
+
+  private schemeOfLocation(path: string): string {
+    const value = this.normalizeLocationInput(path);
+    if (!value) return 'filesystem';
+
+    const match = /^([a-z][a-z0-9+.-]*):/i.exec(value);
+    return match?.[1]?.toLowerCase() ?? 'filesystem';
+  }
+
+  private canonicalizePluginLocation(path: string): string {
+    const value = this.normalizeLocationInput(path);
+    if (!value) return value;
+
+    const scheme = this.schemeOfLocation(value);
+    if (scheme === 'filesystem') return value;
+
+    if (value.toLowerCase() === `${scheme}:`) {
+      return `${scheme}://`;
+    }
+
+    return value;
+  }
+
   private async activatePluginsForLocation(path: string): Promise<void> {
-    const value = path.trim();
+    const value = this.canonicalizePluginLocation(path);
     if (!value) return;
 
-    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(value);
-    const scheme = match?.[1]?.toLowerCase() ?? 'filesystem';
+    const scheme = this.schemeOfLocation(value);
+    if (scheme === 'filesystem') return;
 
-    try {
-      await this.pluginLifecycle.activateByEvent(`onScheme:${scheme}`);
-    } catch {
-      // Plugin lifecycle records activation failure/quarantine independently.
+    const results = await this.pluginLifecycle.activateByEvent(
+      `onScheme:${scheme}`,
+    );
+
+    const failed = results.find(result => !result.activated);
+    if (failed) {
+      throw new Error(
+        failed.error ||
+        `Plugin ${failed.pluginId} failed to activate for ${scheme}://.`,
+      );
+    }
+
+    // A plugin scheme must be claimed after its activation event. Never allow
+    // an unknown scheme to fall through to the filesystem source: on Windows
+    // that turns `registry://` into an invalid native filename.
+    const resolved = this.panelSources.resolve({ path: value });
+    if (resolved.source.kind === 'filesystem') {
+      if (results.length === 0) {
+        throw new Error(
+          `No enabled plugin is registered for the ${scheme}:// scheme.`,
+        );
+      }
+      throw new Error(
+        `Plugin activation completed, but no panel source registered the ${scheme}:// scheme.`,
+      );
     }
   }
 
@@ -3505,11 +3582,27 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.cancelInlineRename(false);
     this.syncActiveDirSessionState();
     if (!this.isDirectoryTab) return;
-    this.lastAction = `navigate: ${path}`;
+
+    const location = this.canonicalizePluginLocation(path);
+    this.lastAction = `navigate: ${location}`;
 
     void (async () => {
-      await this.activatePluginsForLocation(path);
-      await this.load(path, { history: 'record' });
+      try {
+        await this.activatePluginsForLocation(location);
+        await this.load(location, { history: 'record' });
+      } catch (error) {
+        // Preserve the requested plugin location instead of reverting to the
+        // previous filesystem directory. This also exposes the actual plugin
+        // activation/registration error to the user.
+        this.path = location;
+        this.error = error instanceof Error
+          ? error.message
+          : String(error);
+        this.lastAction = `navigate failed: ${location}`;
+        this.emitPathChange(location);
+        this.syncActiveDirSessionState();
+        this.cdr.markForCheck();
+      }
     })();
   }
 
@@ -3609,40 +3702,22 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
-  async openEntry(entry: FileInfo): Promise<void> {
+  openEntry(entry: FileInfo): void {
     this.setSingleSelection(entry);
 
     if (entry.path === '__parent__') {
-      await this.navigateUp();
+      void this.navigateUp();
       return;
-    }
-
-    const resolvedSource = this.activePanelSource.source;
-    if (resolvedSource.activateEntry) {
-      const handled = await Promise.resolve(
-        resolvedSource.activateEntry({
-          path: this.path,
-          entries: this.entries,
-          inArchive: this.isInArchive,
-          archiveTopLevel:
-            (this.currentArchiveFrame?.nestedChain.length ?? 0) === 0,
-        }, entry),
-      );
-
-      if (handled) {
-        await this.refresh();
-        return;
-      }
     }
 
     if (this.isInArchive) {
       if (entry.type === FileType.DIRECTORY) {
-        await this.navigateArchiveInto(entry.path);
+        void this.navigateArchiveInto(entry.path);
         return;
       }
 
       if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
-        await this.openNestedArchiveEntry(entry);
+        void this.openNestedArchiveEntry(entry);
         return;
       }
 
@@ -3652,13 +3727,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (entry.type === FileType.DIRECTORY) {
       this.lastAction = `open directory: ${entry.name}`;
-      await this.load(entry.path, { history: 'record' });
+      void this.load(entry.path, { history: 'record' });
       return;
     }
 
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
       this.lastAction = `open archive: ${entry.name}`;
-      await this.load(entry.path, { history: 'record' });
+      void this.load(entry.path, { history: 'record' });
       return;
     }
 
@@ -3940,44 +4015,24 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
-  onPaneMouseDown(event: MouseEvent): void {
-    if (event.defaultPrevented) return;
-
-    // Remember the pre-activation state. The parent may synchronously flip
-    // `active` as soon as activateRequested is emitted.
-    this.restoreCursorOnBackgroundClick = !this.active;
-    this.activateRequested.emit();
-  }
-
   onBackgroundClick(event: MouseEvent): void {
-    if (event.defaultPrevented) {
-      this.restoreCursorOnBackgroundClick = false;
-      return;
-    }
+    if (event.defaultPrevented) return;
 
     const target = event.target as HTMLElement | null;
     if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
-      this.restoreCursorOnBackgroundClick = false;
       return;
     }
 
     this.markUserInteraction();
+    this.selectedPaths = new Set();
+    this.cursorPath = null;
+    this.anchorPath = null;
+    this.lastAction = 'selection cleared';
+    this.cursorChange.emit(null);
 
-    // Empty space changes focus/active-pane ownership only. It must never clear
-    // or replace an existing selection/cursor.
-    if (this.restoreCursorOnBackgroundClick) {
-      this.restoreCursorOnBackgroundClick = false;
+    const current = event.currentTarget as HTMLElement | null;
+    current?.focus({ preventScroll: true });
 
-      // Preserve an existing working cursor/selection. Only recover when this
-      // pane genuinely has no selection state at all.
-      if (!this.cursorPath && this.selectedPaths.size === 0) {
-        this.recoverVisibleCursor();
-      }
-    }
-
-    this.restoreCursorOnBackgroundClick = false;
-    this.focusContent();
-    this.lastAction = 'pane focused';
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
@@ -4399,9 +4454,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.activeListViewport;
+        : this.listViewport?.nativeElement;
 
-    const rowHeight = this.viewMode === 'grid' ? 110 : 30;
+    const rowHeight = this.viewMode === 'grid' ? 110 : 28;
     const pageSize = Math.max(
       1,
       Math.floor((viewport?.clientHeight ?? 280) / rowHeight),
@@ -7313,7 +7368,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.activeListViewport;
+        : this.listViewport?.nativeElement;
     return Math.max(0, viewport?.scrollTop ?? 0);
   }
 
@@ -7632,7 +7687,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.activeListViewport;
+        : this.listViewport?.nativeElement;
     if (!viewport) return;
 
     viewport.scrollTop = Math.max(0, scrollTop);
@@ -8653,7 +8708,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.activeListViewport;
+        : this.listViewport?.nativeElement;
 
     if (viewport) {
       const index =
@@ -8698,7 +8753,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       const host =
         this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
-          : this.activeListViewport;
+          : this.listViewport?.nativeElement;
 
       host
         ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`)

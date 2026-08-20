@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "reassembly.registry",
   "name": "Windows Registry",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "apiVersion": "^2.0.0",
   "description": "Windows Registry browser and editor with plugin-owned frontend UX and native backend. The registry:// scheme exists only while this plugin is active.",
   "target": {
@@ -17,33 +17,15 @@
     "protocol": 1
   },
   "permissions": [
-    "commands",
-    "toolbar",
-    "contextMenu",
     "panelSources",
-    "schemes",
-    "dialogs",
     "backend.execute"
   ],
   "activationEvents": [
-    "onScheme:registry",
-    "onCommand:reassembly.registry.open"
+    "onScheme:registry"
   ],
   "contributes": {
     "schemes": [
       "registry"
-    ],
-    "commands": [
-      "reassembly.registry.newKey",
-      "reassembly.registry.newValue",
-      "reassembly.registry.edit",
-      "reassembly.registry.delete",
-      "reassembly.registry.open",
-      "reassembly.registry.open.currentUser",
-      "reassembly.registry.open.localMachine",
-      "reassembly.registry.open.classesRoot",
-      "reassembly.registry.open.users",
-      "reassembly.registry.open.currentConfig"
     ]
   }
 }

@@ -71,6 +71,7 @@ import { FileContextMenuComponent, type FileContextMenuState } from './file-cont
 import type { SearchResultItem } from '../services/global-search.service';
 import { tabSurfaceId } from '../surfaces/tab-surface';
 import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState } from './pane-peer.port';
+import type { PanePresentation, PanePresentationPort } from './pane-component.contract';
 
 declare const window: any;
 
@@ -162,7 +163,7 @@ declare const window: any;
     }
   `]
 })
-export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort {
+export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort, PanePresentationPort {
   private readonly dirStream: DirListStreamController;
   private readonly dirSessions = new Map<string, DirSurfaceSession>();
   private readonly dirTabStateController = new DirTabStateController();
@@ -224,6 +225,51 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
       selectPeerByName: name => this.selectPeerByNameForPeer(name),
       selectPaths: paths => this.selectPeerPaths(paths),
     };
+  }
+
+  panePresentation(): PanePresentation {
+    const sortField = this.sortField === 'size' || this.sortField === 'modified' || this.sortField === 'type'
+      ? this.sortField
+      : 'name';
+    return {
+      viewMode: this.currentView,
+      sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+      filterText: this.filterQuery?.text ?? '',
+      filterVisible: !!this.filterQuery?.text,
+    };
+  }
+
+  applyMirroredPresentation(
+    presentation: PanePresentation,
+    options: { filter?: boolean } = {},
+  ): void {
+    if (this.activeSurfaceId !== 'dir') return;
+
+    this.applyingMirroredPresentation = true;
+    try {
+      this.currentView = presentation.viewMode;
+      this.sortField = presentation.sortField;
+      this.sortDirection = presentation.sortDirection;
+      this.directoriesFirst = presentation.directoriesFirst;
+      if (options.filter) {
+        this.filterQuery = {
+          ...this.filterQuery,
+          text: presentation.filterText,
+        };
+      }
+      this.applyFilter();
+      this.persistDirTabState();
+      this.cdr.markForCheck();
+    } finally {
+      this.applyingMirroredPresentation = false;
+    }
+  }
+
+  private emitPresentationChange(): void {
+    if (this.applyingMirroredPresentation || this.activeSurfaceId !== 'dir') return;
+    this.presentationChange.emit(this.panePresentation());
   }
 
   get toolbarActions(): PresentedCommand[] {
@@ -352,6 +398,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   @Input() showBreadcrumbs = true;
 
   @Output() pathChange = new EventEmitter<string>();
+  @Output() presentationChange = new EventEmitter<PanePresentation>();
   @Output() previewTargetChange = new EventEmitter<string>();
   @Output() activeTabChange = new EventEmitter<TabInfo>();
   @Output() copyToOther = new EventEmitter<string[]>();
@@ -367,6 +414,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   lastSeenActiveTabId: string | null = null;
   lastSeenActiveTabPath: string | null = null;
   fileContextMenu: FileContextMenuState | null = null;
+  private applyingMirroredPresentation = false;
 
   private readonly navigationController: FilePaneNavigationController;
   private readonly archiveController = new FilePaneArchiveController();
@@ -1007,14 +1055,17 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
 
   async onViewChange(view: ViewLayout): Promise<void> {
     await this.uiController.onViewChange(this.uiHost, view);
+    this.emitPresentationChange();
   }
 
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
     this.uiController.onSortChange(this.uiHost, sort);
+    this.emitPresentationChange();
   }
 
   onDirectoriesFirstChange(value: boolean): void {
     this.uiController.onDirectoriesFirstChange(this.uiHost, value);
+    this.emitPresentationChange();
   }
 
   onColorizeByMimeChange(value: boolean): void {

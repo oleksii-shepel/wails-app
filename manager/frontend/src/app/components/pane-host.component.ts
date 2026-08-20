@@ -11,6 +11,7 @@ import type {
   PaneSelection,
   PaneTabs,
   PaneViewerCommands,
+  PaneViewportPort,
   PaneViewportSnapshot,
 } from './pane-component.contract';
 import { RegistryPaneComponent } from './registry-pane.component';
@@ -159,6 +160,7 @@ export class PaneHostComponent implements PanePeerPort {
   get selection(): PaneSelection | undefined { return this.activeComponent; }
   get commands(): PaneCommands | undefined { return this.activeComponent; }
   get presentation(): PanePresentationPort | undefined { return this.activeComponent; }
+  get viewport(): PaneViewportPort | undefined { return this.activeComponent; }
   get tabCommands(): PaneTabs | undefined { return this.activeComponent; }
   get viewerCommands(): PaneViewerCommands | undefined { return this.activeComponent; }
   get path(): string { return this.activeComponent?.path ?? ''; }

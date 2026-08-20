@@ -93,9 +93,12 @@ export interface PaneSelection {
 
 export interface PanePresentationPort {
   panePresentation(): PanePresentation;
+  applyMirroredPresentation(presentation: PanePresentation, options?: unknown): void | Promise<void>;
+}
+
+export interface PaneViewportPort {
   viewportSnapshot(): PaneViewportSnapshot;
   syncViewportToPeer(snapshot: PaneViewportSnapshot): void;
-  applyMirroredPresentation(presentation: PanePresentation, options?: unknown): void;
 }
 
 export interface PaneTabs {
@@ -159,6 +162,7 @@ export interface PaneComponent
     PaneNavigation,
     PaneSelection,
     PanePresentationPort,
+    PaneViewportPort,
     PaneTabs,
     PaneViewerCommands,
     PaneCommands {}

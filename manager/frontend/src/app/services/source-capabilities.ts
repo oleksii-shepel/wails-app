@@ -40,6 +40,7 @@ export function getSourceCapabilities(
       return LOCAL;
     case 'memory':
     case 'smb':
+    case 'registry':
       return MUTABLE;
     case 'gdrive':
     case 'dropbox':

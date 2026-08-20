@@ -1,6 +1,6 @@
 import { FileType } from '../shared/protocol';
 import type { FileInfo } from '../shared/protocol-enhanced';
-import { PanelSourceRegistryService, RegistryPanelSource } from './panel-source-registry.service';
+import { PanelSourceRegistryService } from './panel-source-registry.service';
 
 function entry(path: string): FileInfo {
   const name = path.split('/').pop() || path;
@@ -140,7 +140,34 @@ describe('PanelSourceRegistryService', () => {
 
     expect(service.resolve({ path: 'registry://HKEY_CURRENT_USER/Software' }).source.id).toBe('filesystem');
 
-    service.register(new RegistryPanelSource(directories as any));
+    service.register({
+      id: 'registry',
+      kind: 'registry' as const,
+      title: 'Registry',
+      canHandle: (context: any) => directories.getPathKind(context.path, context.entries ?? []) === 'registry',
+      capabilities: () => ({
+        read: true,
+        create: true,
+        delete: true,
+        rename: true,
+        trash: false,
+      }),
+      list: async (context: any, showHidden: boolean) => {
+        const listing = await directories.listDirectory(context.path, showHidden);
+        return {
+          location: {
+            path: listing.path || context.path,
+            sourceId: 'registry',
+            sourceKind: 'registry' as const,
+          },
+          entries: listing.entries,
+        };
+      },
+      getRootPath: (context: any) => directories.getRootPath(context.path, context.entries ?? []),
+      getParentPath: (context: any) => directories.getParentPath(context.path),
+      joinChildPath: (context: any, name: string) => directories.joinChildPath(context.path, name),
+      supportsStreaming: (context: any) => directories.supportsStreaming(context.path),
+    });
     const resolved = service.resolve({ path: 'registry://HKEY_CURRENT_USER/Software' });
     expect(resolved.source.id).toBe('registry');
     expect(resolved.source.kind).toBe('registry');

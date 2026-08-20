@@ -6,7 +6,7 @@ import {
   PluginLifecycleCoordinatorService,
   type ManagedPluginRuntimeSnapshot,
 } from '../services/plugin-lifecycle-coordinator.service';
-import type { PluginPermission } from '../plugin/plugin-manifest';
+import type { PluginBackendPrivilege, PluginPermission } from '../plugin/plugin-manifest';
 
 interface PluginPolicyDraft {
   enabled: boolean;
@@ -84,12 +84,25 @@ interface PluginPolicyDraft {
         <div *ngIf="snapshot.plugin.discovered.valid" class="plugin-grid">
           <section class="plugin-block">
             <div class="plugin-block-heading">
+              <strong>Privilege</strong>
+              <span
+                [class.state-good]="pluginPrivilege(snapshot) === 'normal' || processElevated"
+                [class.state-warn]="pluginPrivilege(snapshot) === 'elevated' && !processElevated"
+              >
+                {{ pluginPrivilege(snapshot) }}
+              </span>
+            </div>
+            <p>{{ pluginPrivilegeMode(snapshot) }}</p>
+          </section>
+
+          <section class="plugin-block">
+            <div class="plugin-block-heading">
               <strong>Trust</strong>
               <span *ngIf="isTrustedForCurrentVersion(snapshot)" class="state-good">Trusted for this version</span>
               <span *ngIf="trustedValue(snapshot) && !isTrustedForCurrentVersion(snapshot)" class="state-warn">Review required after upgrade</span>
               <span *ngIf="!trustedValue(snapshot)" class="state-muted">Not trusted</span>
             </div>
-            <p>Trust grants all permissions requested by this exact plugin version and enables it initially.</p>
+            <p>Trust grants all permissions requested by this exact plugin version.</p>
             <button
               type="button"
               class="btn btn-secondary btn-small"
@@ -185,6 +198,7 @@ export class PluginSettingsPanelComponent implements OnInit {
 
   snapshots: ManagedPluginRuntimeSnapshot[] = [];
   pluginDirectory = '';
+  processElevated = false;
   error = '';
   refreshing = false;
   openingDirectory = false;
@@ -246,11 +260,16 @@ export class PluginSettingsPanelComponent implements OnInit {
     this.error = '';
     this.renderNow();
     try {
-      this.snapshots = await withTimeout(
-        this.coordinator.sync(),
+      const [snapshots, processElevated] = await withTimeout(
+        Promise.all([
+          this.coordinator.sync(),
+          this.api.isProcessElevated(),
+        ]),
         10_000,
         'Plugin refresh timed out.',
       );
+      this.snapshots = snapshots;
+      this.processElevated = processElevated;
       if (!this.dirty) {
         this.capturePolicy(this.snapshots);
       } else {
@@ -289,11 +308,7 @@ export class PluginSettingsPanelComponent implements OnInit {
 
   toggleTrusted(snapshot: ManagedPluginRuntimeSnapshot): void {
     const trusted = !this.trustedValue(snapshot);
-    this.updatePolicy(snapshot, policy => ({
-      ...policy,
-      trusted,
-      enabled: trusted ? true : false,
-    }));
+    this.updatePolicy(snapshot, policy => ({ ...policy, trusted }));
   }
 
   togglePermission(snapshot: ManagedPluginRuntimeSnapshot, permission: PluginPermission, granted: boolean): void {
@@ -380,6 +395,21 @@ export class PluginSettingsPanelComponent implements OnInit {
     if (state.lastActivationStatus === 'never') return 'Never';
     const suffix = state.lastActivatedAt ? ` · ${new Date(state.lastActivatedAt).toLocaleString()}` : '';
     return `${state.lastActivationStatus}${suffix}`;
+  }
+
+  pluginPrivilege(snapshot: ManagedPluginRuntimeSnapshot): PluginBackendPrivilege {
+    return snapshot.plugin.discovered.manifest.backend?.privilege === 'elevated'
+      ? 'elevated'
+      : 'normal';
+  }
+
+  pluginPrivilegeMode(snapshot: ManagedPluginRuntimeSnapshot): string {
+    if (this.pluginPrivilege(snapshot) !== 'elevated') {
+      return 'Runs in normal manager mode.';
+    }
+    return this.processElevated
+      ? 'Manager is currently elevated.'
+      : 'Requires elevated manager mode.';
   }
 
   private async loadPluginDirectory(): Promise<void> {

@@ -6,8 +6,6 @@ import (
 
 	internalbrowserpane "wails-app/internal/browserpane"
 	"wails-app/vfs/archive/cache"
-
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App is the Wails binding surface and thin wrapper around internal state.
@@ -53,32 +51,7 @@ func (a *App) Shutdown() {
 }
 
 func (a *App) BeforeClose(ctx context.Context) bool {
-	if a.State == nil || a.State.Workspace == nil {
-		return false
-	}
-
-	prefs := a.State.Workspace.GetPreferences()
-	if !prefs.ConfirmOnClose {
-		return false
-	}
-
-	choice, err := wailsruntime.MessageDialog(ctx, wailsruntime.MessageDialogOptions{
-		Type:    wailsruntime.QuestionDialog,
-		Title:   "Close File Manager?",
-		Message: "Are you sure you want to close the application?",
-	})
-	if err != nil {
-		// A dialog failure must not trap the application in a non-closable state.
-		return false
-	}
-
-	return beforeCloseChoicePreventsShutdown(choice)
-}
-
-func beforeCloseChoicePreventsShutdown(choice string) bool {
-	// Wails QuestionDialog returns the canonical "Yes"/"No" result even when
-	// Windows renders localized button captions.
-	return choice != "Yes"
+	return false
 }
 
 func (a *App) EmitEvent(name string, data interface{}) {

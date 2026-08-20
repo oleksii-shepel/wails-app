@@ -2,6 +2,7 @@
   "name": "reassembly-workspace",
   "private": true,
   "scripts": {
+    "dev:app": "node scripts/run-wails-dev.mjs",
     "build:plugins": "npm run build --workspace @reassembly/registry-plugin",
     "build:frontend": "npm run build:plugins && npm --prefix manager/frontend run build",
     "build:go": "go build ./manager/...",

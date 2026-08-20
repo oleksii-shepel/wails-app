@@ -34,12 +34,22 @@ function parentPath(path) {
   return slash < 0 ? ROOT : `${ROOT}${body.slice(0, slash)}`;
 }
 
-function toFileInfo(entry) {
+function toFileInfo(entry, basePath) {
   const kind = String(entry?.kind ?? '').toLowerCase();
   const preview = String(entry?.preview ?? '');
+  const name = String(entry?.name ?? '');
+
+  // `name` is authoritative for Registry spelling because it comes directly
+  // from Windows enumeration. Rebuild navigable child paths from the canonical
+  // listing path + that exact name instead of propagating a stale/case-folded
+  // entry.path from any transport/cache layer.
+  const path = name
+    ? joinPath(basePath, name)
+    : normalizePath(entry?.path ?? basePath ?? ROOT);
+
   return {
-    name: String(entry?.name ?? ''),
-    path: normalizePath(entry?.path ?? ROOT),
+    name,
+    path,
     type: kind === 'key' ? 'DIRECTORY' : 'FILE',
     size: kind === 'value' ? new TextEncoder().encode(preview).byteLength : 0,
     created: 0,
@@ -88,14 +98,15 @@ export async function activate(ctx) {
     async list(context) {
       const path = normalizePath(context?.path ?? ROOT);
       const result = await ctx.backend.call('registry.list', { path });
+      const locationPath = normalizePath(result?.path ?? path);
       return {
         location: {
-          path: normalizePath(result?.path ?? path),
+          path: locationPath,
           sourceId: 'registry',
           sourceKind: 'registry',
         },
         entries: Array.isArray(result?.entries)
-          ? result.entries.map(toFileInfo)
+          ? result.entries.map(entry => toFileInfo(entry, locationPath))
           : [],
       };
     },

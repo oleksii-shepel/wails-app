@@ -1790,6 +1790,7 @@ export namespace pluginpackage {
 	export class BackendEntry {
 	    entry: string;
 	    protocol: number;
+	    privilege?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new BackendEntry(source);
@@ -1799,6 +1800,7 @@ export namespace pluginpackage {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.entry = source["entry"];
 	        this.protocol = source["protocol"];
+	        this.privilege = source["privilege"];
 	    }
 	}
 	export class FrontendEntry {

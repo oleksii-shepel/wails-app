@@ -43,6 +43,8 @@ interface PluginStateBindings {
   GetPluginPackageStates(): Promise<unknown[]>;
   GetPluginPackageState(pluginId: string): Promise<unknown>;
   UpdatePluginPackageState(pluginId: string, patch: PluginPackageStatePatch): Promise<unknown>;
+  EnsureUniversalPluginHostPrivilege(pluginId: string): Promise<boolean>;
+  EnsureStartupPluginHostPrivilege?(): Promise<boolean>;
   QuarantinePluginPackage(pluginId: string, reason: string): Promise<unknown>;
   RecordPluginActivation(pluginId: string, success: boolean, activationError: string): Promise<unknown>;
 }
@@ -74,8 +76,31 @@ export class PluginInstallationStateService {
     return normalizePluginPackageState(await appBindings().GetPluginPackageState(pluginId));
   }
 
+  async ensureStartupHostPrivilege(): Promise<boolean> {
+    return !!(await appBindings().EnsureStartupPluginHostPrivilege?.());
+  }
+
   async setEnabled(pluginId: string, enabled: boolean): Promise<PluginPackageState> {
-    return this.update(pluginId, { enabled });
+    const state = await this.update(pluginId, { enabled });
+    if (!enabled) return state;
+
+    const bindings = appBindings();
+    if (!bindings.EnsureUniversalPluginHostPrivilege) {
+      await this.update(pluginId, { enabled: false });
+      throw new Error(
+        'Plugin privilege binding is unavailable. Regenerate Wails bindings and restart Manager.',
+      );
+    }
+
+    try {
+      await bindings.EnsureUniversalPluginHostPrivilege(pluginId);
+      return state;
+    } catch (error) {
+      // Enabling is transactional with privilege acquisition. If UAC is
+      // cancelled or relaunch fails, do not leave the plugin enabled.
+      await this.update(pluginId, { enabled: false });
+      throw error;
+    }
   }
 
   async setTrusted(pluginId: string, trusted: boolean): Promise<PluginPackageState> {

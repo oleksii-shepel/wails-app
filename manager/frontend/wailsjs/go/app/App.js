@@ -214,6 +214,14 @@ export function EmptyTrash() {
   return window['go']['app']['App']['EmptyTrash']();
 }
 
+export function EnsureStartupPluginHostPrivilege() {
+  return window['go']['app']['App']['EnsureStartupPluginHostPrivilege']();
+}
+
+export function EnsureUniversalPluginHostPrivilege(arg1) {
+  return window['go']['app']['App']['EnsureUniversalPluginHostPrivilege'](arg1);
+}
+
 export function ExtractNestedArchive(arg1, arg2) {
   return window['go']['app']['App']['ExtractNestedArchive'](arg1, arg2);
 }

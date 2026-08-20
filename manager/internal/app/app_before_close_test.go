@@ -1,21 +1,13 @@
 package app
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestBeforeCloseChoiceAllowsConfirmedShutdown(t *testing.T) {
-	if beforeCloseChoicePreventsShutdown("Yes") {
-		t.Fatal("affirmative QuestionDialog response must allow shutdown")
-	}
-}
-
-func TestBeforeCloseChoicePreventsNegativeShutdown(t *testing.T) {
-	if !beforeCloseChoicePreventsShutdown("No") {
-		t.Fatal("negative QuestionDialog response must prevent shutdown")
-	}
-}
-
-func TestBeforeCloseChoicePreventsDismissedDialog(t *testing.T) {
-	if !beforeCloseChoicePreventsShutdown("") {
-		t.Fatal("dismissed confirmation must prevent shutdown")
+func TestBeforeCloseNeverPreventsShutdown(t *testing.T) {
+	app := &App{}
+	if app.BeforeClose(context.Background()) {
+		t.Fatal("shutdown should not be blocked by a confirmation dialog")
 	}
 }

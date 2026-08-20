@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	ManifestFileName        = "plugin.json"
-	MaxManifestBytes        = 1 << 20
-	MaxPluginArchiveBytes   = 256 << 20
-	MaxPluginArchiveEntry   = 128 << 20
+	ManifestFileName      = "plugin.json"
+	MaxManifestBytes      = 1 << 20
+	MaxPluginArchiveBytes = 256 << 20
+	MaxPluginArchiveEntry = 128 << 20
 )
 
 var pluginIDPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
@@ -33,8 +33,9 @@ type FrontendEntry struct {
 }
 
 type BackendEntry struct {
-	Entry    string `json:"entry"`
-	Protocol int    `json:"protocol"`
+	Entry     string `json:"entry"`
+	Protocol  int    `json:"protocol"`
+	Privilege string `json:"privilege,omitempty"`
 }
 
 type Manifest struct {
@@ -178,8 +179,8 @@ func readDirectoryPackage(pkgDir, manifestPath string) DiscoveredPackage {
 
 func readArchivePackage(archivePath string) DiscoveredPackage {
 	result := DiscoveredPackage{
-		Kind: "archive",
-		Path: archivePath,
+		Kind:         "archive",
+		Path:         archivePath,
 		ManifestPath: archivePath + "!/" + ManifestFileName,
 	}
 	info, err := os.Stat(archivePath)
@@ -306,6 +307,11 @@ func validateArchiveManifest(m Manifest) []string {
 		}
 		if m.Backend.Protocol <= 0 {
 			errors = append(errors, "backend protocol must be positive")
+		}
+		switch m.Backend.Privilege {
+		case "", "normal", "elevated":
+		default:
+			errors = append(errors, `backend privilege must be "normal" or "elevated"`)
 		}
 	}
 	return errors

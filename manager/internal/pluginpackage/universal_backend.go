@@ -27,6 +27,7 @@ type BackendProcess struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	reader *bufio.Reader
+	stop   func() error
 	nextID int64
 }
 
@@ -39,6 +40,10 @@ func StartBackend(pkg PreparedPackage) (*BackendProcess, error) {
 		return nil, fmt.Errorf("backend entry escapes plugin cache")
 	}
 
+	return startBackendForPrivilege(entry, pkg.Manifest.Backend.Privilege)
+}
+
+func startInheritedBackend(entry string) (*BackendProcess, error) {
 	cmd := exec.Command(entry)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -54,18 +59,25 @@ func StartBackend(pkg PreparedPackage) (*BackendProcess, error) {
 		return nil, err
 	}
 
-	return &BackendProcess{
-		cmd: cmd,
-		stdin: stdin,
+	process := &BackendProcess{
+		cmd:    cmd,
+		stdin:  stdin,
 		reader: bufio.NewReader(stdout),
-	}, nil
+	}
+	process.stop = func() error {
+		_ = stdin.Close()
+		killErr := cmd.Process.Kill()
+		_ = cmd.Wait()
+		return killErr
+	}
+	return process, nil
 }
 
 func (p *BackendProcess) Call(method string, params json.RawMessage) (json.RawMessage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.cmd == nil {
+	if p.stdin == nil || p.reader == nil {
 		return nil, fmt.Errorf("backend is stopped")
 	}
 	p.nextID++
@@ -100,14 +112,20 @@ func (p *BackendProcess) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.cmd == nil {
+	if p.stdin == nil {
 		return nil
 	}
-	_ = p.stdin.Close()
-	killErr := p.cmd.Process.Kill()
-	_ = p.cmd.Wait()
+	var err error
+	if p.stop != nil {
+		err = p.stop()
+	} else {
+		err = p.stdin.Close()
+	}
+	p.stdin = nil
+	p.reader = nil
 	p.cmd = nil
-	return killErr
+	p.stop = nil
+	return err
 }
 
 type BackendManager struct {

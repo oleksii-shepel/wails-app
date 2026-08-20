@@ -13,7 +13,7 @@
   "browser": "chrome",
   "headless": false,
   "coverage": false,
-  "port": 8888,
+  "port": 8891,
   "viteBuildOptions": {
     "target": "es2022",
     "sourcemap": true,
@@ -29,11 +29,13 @@
       "timeout": 120000
     }
   },
+  "angularOptions": {
+    "enableJitCompiler": true
+  },
   "htmlOptions": {
     "title": "Jasmine Test Runner",
     "preludeModules": [
-      "zone.js",
-      "@angular/compiler"
+      "zone.js"
     ]
   },
   "suppressConsoleLogs": false

@@ -37,9 +37,16 @@ export interface PluginFrontendEntry {
   entry: string;
 }
 
+export type PluginBackendPrivilege = 'normal' | 'elevated';
+
 export interface PluginBackendEntry {
   entry: string;
   protocol: number;
+  /**
+   * Process privilege requested by the backend.
+   * Omitted is equivalent to `normal`.
+   */
+  privilege?: PluginBackendPrivilege;
 }
 
 export interface PluginManifest {
@@ -96,6 +103,9 @@ export function validatePluginManifest(
     }
     if (!manifest.backend?.entry?.trim() || !Number.isInteger(manifest.backend.protocol) || manifest.backend.protocol <= 0) {
       errors.push('Universal plugin backend entry and positive protocol are required.');
+    }
+    if (manifest.backend?.privilege && manifest.backend.privilege !== 'normal' && manifest.backend.privilege !== 'elevated') {
+      errors.push('Universal plugin backend privilege must be "normal" or "elevated".');
     }
   }
   if (!manifest.id?.trim() || !PLUGIN_ID.test(manifest.id)) {

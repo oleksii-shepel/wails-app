@@ -157,7 +157,9 @@ export class PluginLifecycleCoordinatorService {
   }
 
   async setTrusted(pluginId: string, trusted: boolean): Promise<PluginPackageState> {
-    return this.installation.setTrusted(pluginId, trusted);
+    const state = await this.installation.setTrusted(pluginId, trusted);
+    await this.sync();
+    return state;
   }
 
   async setGrantedPermissions(

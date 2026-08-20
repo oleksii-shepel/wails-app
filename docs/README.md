@@ -145,7 +145,9 @@ Both Unix platforms rely on macFUSE (macOS) or the kernel FUSE driver (Linux) an
 
 ## Live Development
 
-To run in live development mode, run `wails dev` in the project directory. This launches the Angular frontend in Wails live-reload mode together with the Go backend so frontend and backend changes can be iterated together.
+To run in live development mode on Windows, use `npm run dev:app` from the workspace root. The wrapper launches `wails dev` in `manager/` with `-ldflags "-H windowsgui"` so the dev executable remains a GUI app during elevated relaunches.
+
+On non-Windows platforms, `wails dev` in the project directory remains fine.
 
 ## Building
 

@@ -117,6 +117,10 @@ export function EmitEvent(arg1:string,arg2:any):Promise<void>;
 
 export function EmptyTrash():Promise<void>;
 
+export function EnsureStartupPluginHostPrivilege():Promise<boolean>;
+
+export function EnsureUniversalPluginHostPrivilege(arg1:string):Promise<boolean>;
+
 export function ExtractNestedArchive(arg1:string,arg2:Array<string>):Promise<Array<number>>;
 
 export function FileInfo(arg1:string):Promise<contracts.FileInfo>;

@@ -1,4 +1,5 @@
 import { DirectoryPaneComponent } from './directory-pane.component';
+import { markerForSide } from './correspondence-policy';
 
 describe('DirectoryPane comparison markers', () => {
   function component(side: 'left' | 'right'): DirectoryPaneComponent {
@@ -14,14 +15,14 @@ describe('DirectoryPane comparison markers', () => {
     const right = component('right');
     right.comparisonStatuses = new Map([['R/a', 'left-newer'] as const]);
 
-    expect(left.comparisonMarker('L/a')).toBe('newer');
-    expect(right.comparisonMarker('R/a')).toBe('older');
+    expect(markerForSide(left.comparisonStatus('L/a')!, left.paneId)).toBe('newer');
+    expect(markerForSide(right.comparisonStatus('R/a')!, right.paneId)).toBe('older');
   });
 
   it('marks only-here entries on the side where they exist', () => {
     const left = component('left');
     left.comparisonStatuses = new Map([['L/a', 'only-left'] as const]);
-    expect(left.comparisonMarker('L/a')).toBe('only');
+    expect(markerForSide(left.comparisonStatus('L/a')!, left.paneId)).toBe('only-here');
   });
 
   it('distinguishes type mismatch from ordinary difference', () => {
@@ -31,7 +32,9 @@ describe('DirectoryPane comparison markers', () => {
       ['L/size', 'size-different'],
     ] as const);
 
-    expect(pane.comparisonMarker('L/type')).toBe('type');
-    expect(pane.comparisonMarker('L/size')).toBe('different');
+    expect(pane.comparisonStatus('L/type')).toBe('type-different');
+    expect(pane.comparisonStatus('L/size')).toBe('size-different');
+    expect(pane.isComparisonDifferent('L/type')).toBe(true);
+    expect(pane.isComparisonDifferent('L/size')).toBe(true);
   });
 });

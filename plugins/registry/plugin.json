@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "id": "reassembly.registry",
   "name": "Windows Registry",
-  "version": "1.2.6",
+  "version": "1.3.1",
   "apiVersion": "^2.0.0",
   "description": "Windows Registry browser and editor with plugin-owned frontend UX and native backend. The registry:// scheme exists only while this plugin is active.",
   "target": {
@@ -14,7 +14,8 @@
   },
   "backend": {
     "entry": "backend/plugin.exe",
-    "protocol": 1
+    "protocol": 1,
+    "privilege": "elevated"
   },
   "permissions": [
     "panelSources",

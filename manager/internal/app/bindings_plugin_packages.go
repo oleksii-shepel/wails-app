@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	internalelevation "wails-app/internal/elevation"
 
 	pluginpackage "wails-app/internal/pluginpackage"
 )
@@ -154,6 +158,47 @@ func (a *App) ReadUniversalPluginFrontendEntry(pluginID string) (string, error) 
 	return string(data), nil
 }
 
+// EnsureUniversalPluginHostPrivilege is called when the user explicitly enables
+// a universal plugin. The enabled state is persisted before this call.
+func (a *App) EnsureUniversalPluginHostPrivilege(pluginID string) (bool, error) {
+	pkg, err := a.PrepareUniversalPluginPackage(pluginID)
+	if err != nil {
+		return false, err
+	}
+	if pkg.Manifest.Backend == nil || pkg.Manifest.Backend.Privilege != "elevated" {
+		return false, nil
+	}
+	return a.relaunchElevatedAndQuit()
+}
+
+// EnsureStartupPluginHostPrivilege checks persisted plugin policy at startup
+// and relaunches Manager elevated when an enabled universal plugin requires it.
+func (a *App) EnsureStartupPluginHostPrivilege() (bool, error) {
+	root, err := a.GetPluginDirectory()
+	if err != nil {
+		return false, err
+	}
+	packages, err := pluginpackage.Discover(root)
+	if err != nil {
+		return false, err
+	}
+	store, err := pluginPackageStateStore()
+	if err != nil {
+		return false, err
+	}
+	if err := store.Reconcile(packages); err != nil {
+		return false, err
+	}
+	states, err := store.List()
+	if err != nil {
+		return false, err
+	}
+	if !requiresStartupPluginHostPrivilege(packages, states) {
+		return false, nil
+	}
+	return a.relaunchElevatedAndQuit()
+}
+
 func (a *App) CallUniversalPluginBackend(pluginID, method, paramsJSON string) (interface{}, error) {
 	pkg, err := a.PrepareUniversalPluginPackage(pluginID)
 	if err != nil {
@@ -175,7 +220,6 @@ func (a *App) CallUniversalPluginBackend(pluginID, method, paramsJSON string) (i
 	if len(result) == 0 {
 		return nil, nil
 	}
-
 	var value interface{}
 	if err := json.Unmarshal(result, &value); err != nil {
 		return nil, fmt.Errorf("backend returned invalid JSON result: %w", err)
@@ -185,4 +229,44 @@ func (a *App) CallUniversalPluginBackend(pluginID, method, paramsJSON string) (i
 
 func (a *App) StopUniversalPluginBackend(pluginID string) error {
 	return pluginpackage.DefaultBackendManager.Stop(pluginID)
+}
+
+func (a *App) relaunchElevatedAndQuit() (bool, error) {
+	if internalelevation.IsProcessElevated() {
+		return false, nil
+	}
+	if err := internalelevation.RelaunchCurrentProcessElevated(); err != nil {
+		return false, err
+	}
+
+	if a.State != nil && a.State.Ctx != nil {
+		ctx := a.State.Ctx
+		go func() {
+			time.Sleep(250 * time.Millisecond)
+			wailsruntime.Quit(ctx)
+		}()
+	}
+	return true, nil
+}
+
+func requiresStartupPluginHostPrivilege(
+	packages []pluginpackage.DiscoveredPackage,
+	states []pluginpackage.PackageState,
+) bool {
+	enabled := make(map[string]bool, len(states))
+	for _, state := range states {
+		enabled[state.PluginID] = state.Enabled
+	}
+	for _, pkg := range packages {
+		if !pkg.Valid || pkg.Kind != "archive" {
+			continue
+		}
+		if pkg.Manifest.Backend == nil || pkg.Manifest.Backend.Privilege != "elevated" {
+			continue
+		}
+		if enabled[pkg.Manifest.ID] {
+			return true
+		}
+	}
+	return false
 }

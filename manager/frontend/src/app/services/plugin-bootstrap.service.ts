@@ -6,6 +6,7 @@ import {
   type PluginActivationEventResult,
 } from './plugin-lifecycle-coordinator.service';
 import { BackendPluginCommandBridgeService } from './backend-plugin-command-bridge.service';
+import { PluginInstallationStateService } from './plugin-installation-state.service';
 
 export type PluginBootstrapStatus =
   | 'idle'
@@ -39,6 +40,7 @@ export class PluginBootstrapService {
 
   constructor(
     private readonly lifecycle: PluginLifecycleCoordinatorService,
+    private readonly installation: PluginInstallationStateService,
     @Optional() private readonly backendCommands?: BackendPluginCommandBridgeService,
   ) {}
 
@@ -80,6 +82,22 @@ export class PluginBootstrapService {
 
   private async runInitialize(selectionProvider: () => string[]): Promise<PluginBootstrapSnapshot> {
     const bootstrapErrors: string[] = [];
+    try {
+      const relaunched = await this.installation.ensureStartupHostPrivilege();
+      if (relaunched) {
+        const snapshot: PluginBootstrapSnapshot = {
+          status: 'initializing',
+          runtimes: [],
+          startupActivations: [],
+          errors: [],
+        };
+        this.publish(snapshot);
+        return snapshot;
+      }
+    } catch (error) {
+      bootstrapErrors.push(`startup privilege: ${errorMessage(error)}`);
+    }
+
     if (this.backendCommands) {
       try {
         await this.backendCommands.start(selectionProvider);

@@ -16,7 +16,6 @@ import (
 	"wails-app/vfs/memory"
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
-	"wails-app/vfs/registry"
 
 	_ "wails-app/vfs/archive/7z"
 	_ "wails-app/vfs/archive/rar"
@@ -30,12 +29,6 @@ func InitVFS(memoryFS *memory.FS) (*vfslib.Unified, error) {
 
 	if memoryFS != nil {
 		if _, err := vfs.Mount("/memory", memoryFS, false, "Memory", vfslib.VolumeMemory); err != nil {
-			return nil, err
-		}
-	}
-
-	if regFS, err := registry.New(); err == nil {
-		if _, err := vfs.Mount("/registry", regFS, false, "Registry", vfslib.VolumeRegistry); err != nil {
 			return nil, err
 		}
 	}

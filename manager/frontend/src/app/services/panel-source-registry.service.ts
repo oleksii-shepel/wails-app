@@ -1,11 +1,5 @@
 import { Injectable } from '@angular/core';
 
-import {
-  RegistryPanelSource as RegistryPluginPanelSource,
-  type RegistryFileInfo,
-} from '@reassembly/registry-plugin';
-
-
 import type { FileInfo } from '../shared/protocol-enhanced';
 import { DirectorySourceService } from './directory-source.service';
 import {
@@ -140,97 +134,6 @@ class ArchivePanelSource extends BasePanelSource {
 
   override supportsStreaming(): boolean {
     return false;
-  }
-}
-
-/** @deprecated Prefer registering builtin.registry through Registry plugin. */
-export class RegistryPanelSource extends BasePanelSource {
-  readonly id = 'registry';
-  readonly kind = 'registry' as const;
-  readonly title = 'Registry';
-
-  private readonly delegate: RegistryPluginPanelSource;
-
-  constructor(directories: DirectorySourceService) {
-    super(directories);
-    this.delegate = new RegistryPluginPanelSource({
-      getPathKind: (path, entries) =>
-        directories.getPathKind(path, entries as any),
-      listDirectory: async (path, showHidden) => {
-        const listing = await directories.listDirectory(path, showHidden);
-        return {
-          path: listing.path,
-          entries: listing.entries as unknown as RegistryFileInfo[],
-        };
-      },
-      getRootPath: (path, entries) =>
-        directories.getRootPath(path, entries as any),
-      getParentPath: path =>
-        directories.getParentPath(path),
-      joinChildPath: (path, childName) =>
-        directories.joinChildPath(path, childName),
-      supportsStreaming: path =>
-        directories.supportsStreaming(path),
-      capabilities: path =>
-        getSourceCapabilities(path),
-    });
-  }
-
-  canHandle(context: PanelSourceContext): boolean {
-    return this.delegate.canHandle(context as any);
-  }
-
-  capabilities(context: PanelSourceContext): SourceCapabilities {
-    return this.delegate.capabilities(context as any);
-  }
-
-  override async list(
-    context: PanelSourceContext,
-    showHidden: boolean,
-  ): Promise<PanelSourceListing> {
-    return await this.delegate.list(
-      context as any,
-      showHidden,
-    ) as unknown as PanelSourceListing;
-  }
-
-  override getRootPath(context: PanelSourceContext): string | null {
-    return this.delegate.getRootPath(context as any);
-  }
-
-  override getParentPath(context: PanelSourceContext): string {
-    return this.delegate.getParentPath(context as any);
-  }
-
-  override joinChildPath(
-    context: PanelSourceContext,
-    childName: string,
-  ): string {
-    return this.delegate.joinChildPath(context as any, childName);
-  }
-
-  override supportsStreaming(context: PanelSourceContext): boolean {
-    return this.delegate.supportsStreaming(context as any);
-  }
-
-  override activateEntry(
-    context: PanelSourceContext,
-    entry: FileInfo,
-  ): boolean | Promise<boolean> {
-    return this.delegate.activateEntry(
-      context as any,
-      entry as unknown as RegistryFileInfo,
-    );
-  }
-
-  override canPreviewEntry(
-    context: PanelSourceContext,
-    entry: FileInfo,
-  ): boolean {
-    return this.delegate.canPreviewEntry(
-      context as any,
-      entry as unknown as RegistryFileInfo,
-    );
   }
 }
 

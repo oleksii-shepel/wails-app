@@ -6,7 +6,6 @@ import {
   ViewChild,
 } from '@angular/core';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
-import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
 import { DualPaneComponent } from './components/dual-pane.component';
 import { OperationSurfaceComponent } from './components/operation-surface.component';
 import { ActionFeedbackComponent } from './components/action-feedback.component';
@@ -30,7 +29,6 @@ import { InputCustomizationService } from './services/input-customization.servic
     SettingsDialogComponent,
     TrashDialogComponent,
     ConfirmDialogComponent,
-    RegistryPluginHostComponent,
   ],
   template: `
     <main class="app-shell">
@@ -44,7 +42,6 @@ import { InputCustomizationService } from './services/input-customization.servic
       <app-settings-dialog></app-settings-dialog>
       <app-trash-dialog></app-trash-dialog>
       <app-confirm-dialog></app-confirm-dialog>
-      <reassembly-registry-plugin-host></reassembly-registry-plugin-host>
     </main>
   `,
   styles: [`

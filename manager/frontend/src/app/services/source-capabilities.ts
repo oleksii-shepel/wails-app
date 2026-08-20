@@ -23,14 +23,6 @@ const MUTABLE: SourceCapabilities = Object.freeze({
 });
 
 const LOCAL: SourceCapabilities = Object.freeze({ ...MUTABLE, trash: true });
-const REGISTRY: SourceCapabilities = Object.freeze({
-  read: true,
-  create: true,
-  delete: true,
-  rename: true,
-  trash: false,
-});
-
 export function getSourceCapabilities(
   location: string,
   options?: { inArchive?: boolean },
@@ -49,8 +41,6 @@ export function getSourceCapabilities(
     case 'memory':
     case 'smb':
       return MUTABLE;
-    case 'registry':
-      return REGISTRY;
     case 'gdrive':
     case 'dropbox':
     case 'onedrive':

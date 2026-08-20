@@ -37,12 +37,6 @@ import type {
 import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
-import {
-  createRegistryPlugin,
-  RegistryKeyEditorService,
-  RegistryValueEditorService,
-  type RegistryFileInfo,
-} from '@reassembly/registry-plugin';
 import { AutorunPanelSource } from './autorun-panel-source.service';
 import { SystemSurfacePanelSource, systemField } from './system-surface-panel-source';
 import { SYSTEM_SURFACES } from './system-surface-definitions';
@@ -70,8 +64,6 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly resultsPanels = inject(ResultsPanelService);
   private readonly api = inject(ApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
-  private readonly registryValueEditor = inject(RegistryValueEditorService);
-  private readonly registryKeyEditor = inject(RegistryKeyEditorService);
   private readonly autorunSource = inject(AutorunPanelSource);
 
   private readonly backends = new Map<string, PluginBackend>();
@@ -85,7 +77,6 @@ export class PluginManagerService implements PluginRegistryAPI {
   readonly panelColumns: PanelColumnContribution[] = [];
 
   constructor() {
-    this.registerBuiltinRegistryProvider();
     this.registerBuiltinAutorunProvider();
     this.registerBuiltinSystemProviders();
     this.registerBuiltinRemoteProviders();
@@ -419,60 +410,6 @@ export class PluginManagerService implements PluginRegistryAPI {
       if (cat) return cat;
     }
     return null;
-  }
-
-  private registerBuiltinRegistryProvider(): void {
-    const plugin = createRegistryPlugin({
-      panelSource: {
-        getPathKind: (path, entries) =>
-          this.directories.getPathKind(path, entries as any),
-        listDirectory: async (path, showHidden) => {
-          const listing = await this.directories.listDirectory(path, showHidden);
-          return {
-            path: listing.path,
-            entries: listing.entries as unknown as RegistryFileInfo[],
-          };
-        },
-        getRootPath: (path, entries) =>
-          this.directories.getRootPath(path, entries as any),
-        getParentPath: path =>
-          this.directories.getParentPath(path),
-        joinChildPath: (path, childName) =>
-          this.directories.joinChildPath(path, childName),
-        supportsStreaming: path =>
-          this.directories.supportsStreaming(path),
-        capabilities: path =>
-          getSourceCapabilities(path),
-      },
-      operations: {
-        joinPaths: parts => this.api.joinPaths(parts),
-        createDirectory: (path, recursive) =>
-          this.api.createDirectory(path, recursive),
-        writeFile: (path, content, encoding) =>
-          this.api.writeFile(path, content, encoding),
-        getFileInfo: path =>
-          this.api.getFileInfo(path) as unknown as Promise<RegistryFileInfo>,
-        moveFile: (source, destination) =>
-          this.api.moveFile(source, destination),
-        readFile: (path, encoding) =>
-          this.api.readFile(path, encoding),
-        writeRegistryValue: (path, type, data) =>
-          this.api.writeRegistryValue(path, type, data),
-        deletePath: (path, recursive, useTrash) =>
-          this.api.deletePath(path, recursive, useTrash),
-        prompt: request =>
-          this.confirmDialog.prompt(request),
-        confirm: request =>
-          this.confirmDialog.confirm(request),
-      },
-      keyEditor: this.registryKeyEditor,
-      valueEditor: this.registryValueEditor,
-    });
-
-    this.registerBackend(
-      plugin.backend as PluginBackend,
-      plugin.descriptor as PluginDescriptor,
-    );
   }
 
   private registerBuiltinAutorunProvider(): void {

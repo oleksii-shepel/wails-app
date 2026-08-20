@@ -433,109 +433,6 @@ class SearchAutocompleteProvider implements SchemeAutocompleteProvider {
 }
 
 /**
- * Registry scheme provider: Windows registry paths.
- */
-class RegistryAutocompleteProvider implements SchemeAutocompleteProvider {
-  scheme = 'registry';
-
-  constructor(private readonly directorySource: DirectorySourceService) {}
-
-  canHandle(query: string): boolean {
-    const normalized = normalizePath((query || '').trim().replace(/\\/g, '/'));
-    return /^registry:\/\//i.test(normalized);
-  }
-
-  shouldFetch(query: string): boolean {
-    const q = (query || '').trim();
-    if (!q) return false;
-    const n = normalizePath(q);
-    return /^registry:\/\/(?:\/.*)?$/i.test(n) && n !== 'registry://';
-  }
-
-  splitContext(query: string): { dirPath: string; prefix: string } {
-    const q = normalizePath((query || '').replace(/\\/g, '/'));
-    if (!q || q.toLowerCase() === 'registry://') {
-      return { dirPath: 'registry://', prefix: '' };
-    }
-
-    if (q.endsWith('/')) {
-      return { dirPath: q, prefix: '' };
-    }
-
-    const lastSlash = q.lastIndexOf('/');
-    if (lastSlash > 'registry://'.length - 1) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-
-    return { dirPath: 'registry://', prefix: q.slice('registry://'.length) };
-  }
-
-  async fetchSuggestions(dirPath: string, prefix: string): Promise<PathSuggestion[]> {
-    return this.getRegistrySuggestions(dirPath, prefix);
-  }
-
-  async streamSuggestions(
-    dirPath: string,
-    prefix: string,
-    onBatch: (suggestions: PathSuggestion[]) => void,
-  ): Promise<PathSuggestion[]> {
-    const suggestions = await this.fetchSuggestions(dirPath, prefix);
-    onBatch(suggestions);
-    return suggestions;
-  }
-
-  supportsStreaming(_path: string): boolean {
-    return false;
-  }
-
-  getRootPath(_path: string): string | null {
-    return 'registry://';
-  }
-
-  joinChildPath(basePath: string, childName: string): string {
-    const trimmed = (basePath || 'registry://').replace(/\/+$/, '');
-    if (trimmed === 'registry://') {
-      return `${trimmed}${childName}`;
-    }
-    return `${trimmed}/${childName}`;
-  }
-
-  private async getRegistrySuggestions(dirPath: string, prefix: string): Promise<PathSuggestion[]> {
-    try {
-      const listing = await this.directorySource.listDirectory(dirPath, false);
-      return this.filterAndFormatSuggestions(listing.entries, prefix);
-    } catch {
-      return [];
-    }
-  }
-
-  private filterAndFormatSuggestions(entries: FileInfo[] = [], prefix: string): PathSuggestion[] {
-    const prefixLower = prefix.toLowerCase();
-    const accumulated: PathSuggestion[] = [];
-    const seenNames = new Set<string>();
-
-    for (const entry of entries) {
-      // For registry, include both keys and values that are "directory-like"
-      if (entry.type !== FileType.DIRECTORY) continue;
-      if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
-      if (seenNames.has(entry.name)) continue;
-      seenNames.add(entry.name);
-
-      accumulated.push({
-        path: normalizePath(entry.path),
-        displayName: entry.name,
-        matchType: 'directory',
-        score: 100,
-        exists: true,
-      });
-    }
-
-    accumulated.sort((a, b) => a.path.localeCompare(b.path));
-    return accumulated;
-  }
-}
-
-/**
  * SMB scheme provider: Windows file sharing (SMB/CIFS).
  */
 class SmbAutocompleteProvider implements SchemeAutocompleteProvider {
@@ -845,7 +742,6 @@ export class SchemeAutocompleteService {
     this.providers = [
       // Specialized providers for specific schemes (order matters for canHandle matching)
       new SearchAutocompleteProvider(),
-      new RegistryAutocompleteProvider(directorySource),
       new SmbAutocompleteProvider(directorySource),
       new ArchiveAutocompleteProvider(directorySource),
       // Generic filesystem provider (catch-all for filesystem://, local paths, etc.)

@@ -25,6 +25,9 @@ import (
 func InitVFS() (*vfslib.Unified, error) {
 	manager := mount.NewManager(osfs.New("/"))
 	vfs := vfslib.NewUnified(manager)
+	if err := mountBuiltInFilesystems(vfs); err != nil {
+		return nil, err
+	}
 	return vfs, nil
 }
 

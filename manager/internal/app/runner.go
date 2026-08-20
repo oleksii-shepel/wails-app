@@ -104,6 +104,10 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		}
 	}
 
+	if startState != options.Maximised {
+		x, y, width, height = fitStartupWindowBounds(x, y, width, height, hasPosition)
+	}
+
 	wrappedStartup := onStartup
 	if hasPosition && startState != options.Maximised {
 		savedX, savedY, savedW, savedH := x, y, width, height

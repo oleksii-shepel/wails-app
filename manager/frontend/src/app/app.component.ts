@@ -1,6 +1,8 @@
 import {
+  ChangeDetectorRef,
   Component,
   HostListener,
+  NgZone,
   OnInit,
   OnDestroy,
   ViewChild,
@@ -35,6 +37,9 @@ import { InputCustomizationService } from './services/input-customization.servic
   template: `
     <main class="app-shell">
       <app-dual-pane *ngIf="pluginsReady" #manager></app-dual-pane>
+      <div *ngIf="!pluginsReady" class="startup-shell" aria-live="polite">
+        Loading workspace…
+      </div>
 
 
       <app-operation-surface></app-operation-surface>
@@ -63,6 +68,15 @@ import { InputCustomizationService } from './services/input-customization.servic
       background: var(--vsc-editor-background, var(--vsc-editor-background));
       color: var(--vsc-foreground, var(--vsc-foreground));
     }
+
+    .startup-shell {
+      display: grid;
+      place-items: center;
+      width: 100%;
+      height: 100%;
+      font: 14px/1.4 var(--vsc-font-family, system-ui, sans-serif);
+      color: var(--vsc-description-foreground, var(--vsc-foreground));
+    }
   `],
 })
 export class AppComponent implements OnInit, OnDestroy {
@@ -80,6 +94,8 @@ export class AppComponent implements OnInit, OnDestroy {
     private readonly pluginBootstrap: PluginBootstrapService,
     private readonly modalStack: ModalStackService,
     private readonly inputCustomization: InputCustomizationService,
+    private readonly ngZone: NgZone,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   @HostListener('document:keydown.escape', ['$event'])
@@ -104,7 +120,10 @@ export class AppComponent implements OnInit, OnDestroy {
     try {
       await this.pluginBootstrap.initialize(() => []);
     } finally {
-      this.pluginsReady = true;
+      this.ngZone.run(() => {
+        this.pluginsReady = true;
+        this.cdr.markForCheck();
+      });
     }
   }
 }

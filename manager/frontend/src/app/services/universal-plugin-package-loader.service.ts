@@ -16,7 +16,7 @@ interface UniversalPluginBindings {
     errors?: string[];
   }>;
   ReadUniversalPluginFrontendEntry(pluginId: string): Promise<string>;
-  CallUniversalPluginBackend(pluginId: string, method: string, params: unknown): Promise<unknown>;
+  CallUniversalPluginBackend(pluginId: string, method: string, paramsJSON: string): Promise<unknown>;
   StopUniversalPluginBackend(pluginId: string): Promise<void>;
 }
 
@@ -96,7 +96,11 @@ export class UniversalPluginPackageLoaderService implements PluginPackageLoader 
           api: context.api,
           backend: {
             call: <T>(method: string, params?: unknown) =>
-              bindings.CallUniversalPluginBackend(pluginId, method, params ?? null) as Promise<T>,
+              bindings.CallUniversalPluginBackend(
+                pluginId,
+                method,
+                JSON.stringify(params ?? {}),
+              ) as Promise<T>,
           },
           hasPermission: permission =>
             context.permissions.has(permission as any),

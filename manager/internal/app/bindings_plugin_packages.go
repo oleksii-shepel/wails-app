@@ -154,15 +154,20 @@ func (a *App) ReadUniversalPluginFrontendEntry(pluginID string) (string, error) 
 	return string(data), nil
 }
 
-func (a *App) CallUniversalPluginBackend(pluginID, method string, params interface{}) (interface{}, error) {
+func (a *App) CallUniversalPluginBackend(pluginID, method, paramsJSON string) (interface{}, error) {
 	pkg, err := a.PrepareUniversalPluginPackage(pluginID)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return nil, err
+
+	raw := json.RawMessage(paramsJSON)
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
 	}
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("backend params are not valid JSON")
+	}
+
 	result, err := pluginpackage.DefaultBackendManager.Call(pkg, method, raw)
 	if err != nil {
 		return nil, err
@@ -170,6 +175,7 @@ func (a *App) CallUniversalPluginBackend(pluginID, method string, params interfa
 	if len(result) == 0 {
 		return nil, nil
 	}
+
 	var value interface{}
 	if err := json.Unmarshal(result, &value); err != nil {
 		return nil, fmt.Errorf("backend returned invalid JSON result: %w", err)

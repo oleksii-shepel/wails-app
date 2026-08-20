@@ -137,9 +137,11 @@ func dispatch(method string, raw json.RawMessage) (any, error) {
 func okResult(err error) (any,error) { if err != nil { return nil,err }; return map[string]any{"ok":true},nil }
 
 func normalize(path string) string {
-    p := strings.TrimSpace(strings.ReplaceAll(path,"\\","/"))
-    p = strings.TrimPrefix(strings.ToLower(p), "registry://")
-    p = strings.Trim(p,"/")
+    p := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+    if len(p) >= len("registry://") && strings.EqualFold(p[:len("registry://")], "registry://") {
+        p = p[len("registry://"):]
+    }
+    p = strings.Trim(p, "/")
     return p
 }
 

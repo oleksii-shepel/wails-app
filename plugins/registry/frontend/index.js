@@ -11,7 +11,11 @@ const ROOT = 'registry://';
 function normalizePath(path) {
   const raw = String(path || ROOT).trim().replace(/\\/g, '/');
   if (!/^registry:\/\//i.test(raw)) return raw;
-  return `registry://${raw.slice(raw.indexOf('://') + 3).replace(/^\/+/, '')}`;
+
+  // Registry locations are opaque hierarchical strings, not web URLs.
+  // Preserve the spelling of every registry component exactly.
+  const body = raw.slice(raw.indexOf('://') + 3).replace(/^\/+/, '');
+  return body ? `${ROOT}${body}` : ROOT;
 }
 
 function joinPath(base, child) {

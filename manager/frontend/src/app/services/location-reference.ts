@@ -18,9 +18,35 @@ const LOCATION_ICONS: Readonly<Record<string, string>> = {
   surface: '◫',
 };
 
+interface OpaqueLocationParts {
+  readonly scheme: string;
+  readonly body: string;
+  readonly pathBody: string;
+  readonly query: URLSearchParams;
+}
+
+function splitOpaqueLocation(location: string): OpaqueLocationParts | null {
+  const value = (location ?? '').trim();
+  const match = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(value);
+  if (!match) return null;
+
+  const body = match[2] ?? '';
+  const queryIndex = body.indexOf('?');
+  const pathBody = queryIndex >= 0 ? body.slice(0, queryIndex) : body;
+  const queryText = queryIndex >= 0 ? body.slice(queryIndex + 1) : '';
+
+  return {
+    // Scheme comparison is case-insensitive, but the location string itself is
+    // never reconstructed from this normalized value.
+    scheme: match[1].toLowerCase(),
+    body,
+    pathBody,
+    query: new URLSearchParams(queryText),
+  };
+}
+
 export function schemeOfLocation(location: string): string {
-  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec((location ?? '').trim());
-  return match ? match[1].toLowerCase() : 'filesystem';
+  return splitOpaqueLocation(location)?.scheme ?? 'filesystem';
 }
 
 export function kindOfLocation(locationOrScheme: string): LocationKind {
@@ -35,7 +61,10 @@ export function kindOfLocation(locationOrScheme: string): LocationKind {
 export function canonicalizeLocation(location: string): string {
   const trimmed = (location ?? '').trim();
   if (!trimmed) return '';
-  return schemeOfLocation(trimmed) === 'filesystem' ? normalizePath(trimmed) : trimmed;
+
+  // Non-filesystem locations are opaque provider-owned identifiers.
+  // Do not feed them through URL, pathname, hostname, or case normalization.
+  return splitOpaqueLocation(trimmed) ? trimmed : normalizePath(trimmed);
 }
 
 export function locationIdentity(location: string): string {
@@ -49,19 +78,17 @@ export function locationIdentity(location: string): string {
 export function locationLabel(location: string): string {
   const canonical = canonicalizeLocation(location);
   if (!canonical) return '';
-  const scheme = schemeOfLocation(canonical);
 
-  if (scheme !== 'filesystem') {
-    try {
-      const url = new URL(canonical);
-      const query = url.searchParams.get('pattern') || url.searchParams.get('q');
-      if (query) return query;
-      const tail = url.pathname.split('/').filter(Boolean).at(-1);
-      return tail || `${scheme} location`;
-    } catch {
-      const withoutScheme = canonical.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
-      return withoutScheme.split('/').filter(Boolean).at(-1) || `${scheme} location`;
-    }
+  const opaque = splitOpaqueLocation(canonical);
+  if (opaque) {
+    const query = opaque.query.get('pattern') || opaque.query.get('q');
+    if (query) return query;
+
+    // Important: never use `new URL(canonical)` here. For plugin schemes,
+    // the first component after `://` is not a hostname. URL parsing would
+    // case-fold it (for example HKEY_LOCAL_MACHINE -> hkey_local_machine).
+    const tail = opaque.pathBody.split('/').filter(Boolean).at(-1);
+    return tail || `${opaque.scheme} location`;
   }
 
   const segments = buildSegments(canonical);

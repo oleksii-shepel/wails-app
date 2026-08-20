@@ -1,7 +1,10 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	pluginpackage "wails-app/internal/pluginpackage"
 )
@@ -18,10 +21,8 @@ func (a *App) GetPluginDirectory() (string, error) {
 	return pluginpackage.DefaultDirectory(pluginPackageAppName)
 }
 
-// DiscoverPluginPackages scans immediate child directories containing plugin.json.
-// It validates package metadata and returns diagnostics without loading executable code.
-// Valid packages are reconciled with the separate persisted state store so observational
-// metadata such as lastSeenVersion stays current without changing user trust decisions.
+// DiscoverPluginPackages scans immediate child directories and .zip archives.
+// ZIP discovery is metadata-only; archives are not extracted until policy allows installation.
 func (a *App) DiscoverPluginPackages() ([]pluginpackage.DiscoveredPackage, error) {
 	root, err := a.GetPluginDirectory()
 	if err != nil {
@@ -41,7 +42,6 @@ func (a *App) DiscoverPluginPackages() ([]pluginpackage.DiscoveredPackage, error
 	return packages, nil
 }
 
-// GetPluginPackageStates returns persisted user decisions and runtime health.
 func (a *App) GetPluginPackageStates() ([]pluginpackage.PackageState, error) {
 	store, err := pluginPackageStateStore()
 	if err != nil {
@@ -50,8 +50,6 @@ func (a *App) GetPluginPackageStates() ([]pluginpackage.PackageState, error) {
 	return store.List()
 }
 
-// GetPluginPackageState returns persisted state for one plugin. Unknown plugins
-// receive conservative defaults without being persisted until changed/reconciled.
 func (a *App) GetPluginPackageState(pluginID string) (pluginpackage.PackageState, error) {
 	store, err := pluginPackageStateStore()
 	if err != nil {
@@ -60,8 +58,6 @@ func (a *App) GetPluginPackageState(pluginID string) (pluginpackage.PackageState
 	return store.Get(pluginID)
 }
 
-// UpdatePluginPackageState persists explicit user decisions: enablement, trust,
-// granted permissions, and clearing an existing quarantine.
 func (a *App) UpdatePluginPackageState(pluginID string, patch pluginpackage.PackageStatePatch) (pluginpackage.PackageState, error) {
 	pkg, err := a.findDiscoveredPluginPackage(pluginID)
 	if err != nil {
@@ -105,7 +101,6 @@ func (a *App) findDiscoveredPluginPackage(pluginID string) (pluginpackage.Discov
 	return pluginpackage.DiscoveredPackage{}, fmt.Errorf("plugin %s is not installed", pluginID)
 }
 
-// QuarantinePluginPackage prevents automatic activation until explicitly cleared.
 func (a *App) QuarantinePluginPackage(pluginID, reason string) (pluginpackage.PackageState, error) {
 	store, err := pluginPackageStateStore()
 	if err != nil {
@@ -114,11 +109,74 @@ func (a *App) QuarantinePluginPackage(pluginID, reason string) (pluginpackage.Pa
 	return store.Quarantine(pluginID, reason)
 }
 
-// RecordPluginActivation records activation health independently from package discovery.
 func (a *App) RecordPluginActivation(pluginID string, success bool, activationError string) (pluginpackage.PackageState, error) {
 	store, err := pluginPackageStateStore()
 	if err != nil {
 		return pluginpackage.PackageState{}, err
 	}
 	return store.RecordActivation(pluginID, success, activationError)
+}
+
+// PrepareUniversalPluginPackage validates and extracts an archive into the per-user cache.
+// Callers should only invoke this after the existing trust/permission policy admits the package.
+func (a *App) PrepareUniversalPluginPackage(pluginID string) (pluginpackage.PreparedPackage, error) {
+	pkg, err := a.findDiscoveredPluginPackage(pluginID)
+	if err != nil {
+		return pluginpackage.PreparedPackage{}, err
+	}
+	if pkg.Kind != "archive" {
+		return pluginpackage.PreparedPackage{}, fmt.Errorf("plugin %s is not an archive package", pluginID)
+	}
+	return pluginpackage.PrepareUniversalArchive(pluginPackageAppName, pkg)
+}
+
+// ReadUniversalPluginFrontendEntry returns only the manifest-declared frontend entry.
+func (a *App) ReadUniversalPluginFrontendEntry(pluginID string) (string, error) {
+	pkg, err := a.PrepareUniversalPluginPackage(pluginID)
+	if err != nil {
+		return "", err
+	}
+	if pkg.Manifest.Frontend == nil {
+		return "", fmt.Errorf("plugin %s has no frontend entry", pluginID)
+	}
+	path := filepath.Join(pkg.CachePath, filepath.FromSlash(pkg.Manifest.Frontend.Entry))
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("frontend entry is not a regular file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (a *App) CallUniversalPluginBackend(pluginID, method string, params interface{}) (interface{}, error) {
+	pkg, err := a.PrepareUniversalPluginPackage(pluginID)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := pluginpackage.DefaultBackendManager.Call(pkg, method, raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	var value interface{}
+	if err := json.Unmarshal(result, &value); err != nil {
+		return nil, fmt.Errorf("backend returned invalid JSON result: %w", err)
+	}
+	return value, nil
+}
+
+func (a *App) StopUniversalPluginBackend(pluginID string) error {
+	return pluginpackage.DefaultBackendManager.Stop(pluginID)
 }

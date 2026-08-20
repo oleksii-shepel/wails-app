@@ -235,7 +235,7 @@ export function PathExists(arg1:string):Promise<boolean>;
 
 export function Ping():Promise<number>;
 
-export function PrepareUniversalPluginPackage(arg1:string):Promise<pluginpackage.UniversalPackage>;
+export function PrepareUniversalPluginPackage(arg1:string):Promise<pluginpackage.PreparedPackage>;
 
 export function ProbeArchiveFile(arg1:string,arg2:Array<string>,arg3:string):Promise<contracts.FileProbe>;
 

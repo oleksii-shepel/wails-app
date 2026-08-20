@@ -7,6 +7,7 @@ import {
   type PluginPackageState,
 } from './plugin-installation-state.service';
 import { DirectoryPluginPackageLoaderService } from './directory-plugin-package-loader.service';
+import { UniversalPluginPackageLoaderService } from './universal-plugin-package-loader.service';
 import {
   PluginPlatformService,
   type PluginRuntimeSnapshot,
@@ -45,9 +46,13 @@ export class PluginLifecycleCoordinatorService {
     private readonly installation: PluginInstallationStateService,
     private readonly platform: PluginPlatformService,
     directoryLoader?: DirectoryPluginPackageLoaderService,
+    archiveLoader?: UniversalPluginPackageLoaderService,
   ) {
     if (directoryLoader && !this.platform.hasLoader(directoryLoader.kind)) {
       this.platform.registerLoader(directoryLoader);
+    }
+    if (archiveLoader && !this.platform.hasLoader(archiveLoader.kind)) {
+      this.platform.registerLoader(archiveLoader);
     }
   }
 
@@ -244,7 +249,7 @@ export class PluginLifecycleCoordinatorService {
 
   private sourceFor(pkg: ManagedPluginPackage): PluginPackageSource {
     return {
-      kind: 'directory',
+      kind: pkg.discovered.kind,
       uri: pkg.discovered.path,
       metadata: {
         managedBy: POLICY_SOURCE_OWNER,

@@ -1,6 +1,5 @@
 import { Injectable } from '@angular/core';
 import type {
-  PluginActivationContext,
   PluginPackage,
   PluginPackageLoader,
   PluginPackageSource,
@@ -10,6 +9,7 @@ import type { PluginManifest } from '../plugin/plugin-manifest';
 interface UniversalPluginBindings {
   PrepareUniversalPluginPackage(pluginId: string): Promise<{
     manifest: PluginManifest;
+    kind: 'archive';
     archivePath: string;
     cachePath: string;
     valid: boolean;
@@ -20,18 +20,20 @@ interface UniversalPluginBindings {
   StopUniversalPluginBackend(pluginId: string): Promise<void>;
 }
 
-interface UniversalFrontendModule {
-  activate(context: UniversalFrontendContext): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
-}
-
 interface UniversalFrontendContext {
   readonly pluginId: string;
   readonly manifest: PluginManifest;
-  readonly api: PluginActivationContext['api'];
+  readonly api: any;
   readonly backend: {
     call<T = unknown>(method: string, params?: unknown): Promise<T>;
   };
   hasPermission(permission: string): boolean;
+}
+
+interface UniversalFrontendModule {
+  activate(
+    context: UniversalFrontendContext,
+  ): void | (() => void | Promise<void>) | Promise<void | (() => void | Promise<void>)>;
 }
 
 function appBindings(): UniversalPluginBindings {
@@ -79,15 +81,16 @@ export class UniversalPluginPackageLoaderService implements PluginPackageLoader 
         `Universal plugin ${pluginId} is invalid: ${(prepared.errors ?? []).join(' ')}`,
       );
     }
-    const frontendSource = await appBindings().ReadUniversalPluginFrontendEntry(pluginId);
-    const frontend = await importFrontend(frontendSource, pluginId);
 
+    const sourceText = await appBindings().ReadUniversalPluginFrontendEntry(pluginId);
+    const frontend = await importFrontend(sourceText, pluginId);
     let dispose: void | (() => void | Promise<void>);
+
     return {
       manifest: prepared.manifest,
       activate: async context => {
         const bindings = appBindings();
-        const universalContext: UniversalFrontendContext = {
+        dispose = await frontend.activate({
           pluginId,
           manifest: context.manifest,
           api: context.api,
@@ -97,8 +100,7 @@ export class UniversalPluginPackageLoaderService implements PluginPackageLoader 
           },
           hasPermission: permission =>
             context.permissions.has(permission as any),
-        };
-        dispose = await frontend.activate(universalContext);
+        });
       },
       deactivate: async () => {
         try {

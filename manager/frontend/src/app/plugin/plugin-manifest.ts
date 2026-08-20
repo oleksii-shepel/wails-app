@@ -1,5 +1,6 @@
-export const PLUGIN_API_VERSION = '1.0.0';
-export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1 as const;
+export const PLUGIN_API_VERSION = '2.0.0';
+export const PLUGIN_MANIFEST_SCHEMA_VERSION = 2 as const;
+export type PluginManifestSchemaVersion = 1 | 2;
 
 export type PluginPermission =
   | 'commands'
@@ -17,7 +18,8 @@ export type PluginPermission =
   | 'filesystem.write'
   | 'network'
   | 'process'
-  | 'clipboard';
+  | 'clipboard'
+  | 'backend.execute';
 
 export type PluginActivationEvent =
   | 'onStartup'
@@ -26,8 +28,22 @@ export type PluginActivationEvent =
   | `onScheme:${string}`
   | `onSurface:${string}`;
 
+export interface PluginTarget {
+  os: 'windows' | 'linux' | 'darwin';
+  arch: 'x64' | 'arm64';
+}
+
+export interface PluginFrontendEntry {
+  entry: string;
+}
+
+export interface PluginBackendEntry {
+  entry: string;
+  protocol: number;
+}
+
 export interface PluginManifest {
-  schemaVersion: typeof PLUGIN_MANIFEST_SCHEMA_VERSION;
+  schemaVersion: PluginManifestSchemaVersion;
   id: string;
   name: string;
   version: string;
@@ -37,6 +53,9 @@ export interface PluginManifest {
   license?: string;
   /** Compatibility range for the host plugin API, e.g. ^1.0.0 or 1.x. */
   apiVersion?: string;
+  target?: PluginTarget;
+  frontend?: PluginFrontendEntry;
+  backend?: PluginBackendEntry;
   permissions?: readonly PluginPermission[];
   activationEvents?: readonly PluginActivationEvent[];
   contributes?: {
@@ -65,8 +84,19 @@ export function validatePluginManifest(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (manifest.schemaVersion !== PLUGIN_MANIFEST_SCHEMA_VERSION) {
+  if (manifest.schemaVersion !== 1 && manifest.schemaVersion !== 2) {
     errors.push(`Unsupported plugin manifest schema ${manifest.schemaVersion}.`);
+  }
+  if (manifest.schemaVersion === 2) {
+    if (!manifest.target?.os || !manifest.target?.arch) {
+      errors.push('Universal plugin target is required.');
+    }
+    if (!manifest.frontend?.entry?.trim()) {
+      errors.push('Universal plugin frontend entry is required.');
+    }
+    if (!manifest.backend?.entry?.trim() || !Number.isInteger(manifest.backend.protocol) || manifest.backend.protocol <= 0) {
+      errors.push('Universal plugin backend entry and positive protocol are required.');
+    }
   }
   if (!manifest.id?.trim() || !PLUGIN_ID.test(manifest.id)) {
     errors.push('Plugin id must be a lowercase identifier containing letters, digits, dot, dash, or underscore.');
@@ -75,7 +105,8 @@ export function validatePluginManifest(
   if (!manifest.version?.trim() || !SEMVER.test(manifest.version)) {
     errors.push(`Plugin ${manifest.id || '<unknown>'} has an invalid semantic version.`);
   }
-  if (manifest.apiVersion && !isPluginApiCompatible(manifest.apiVersion, hostApiVersion)) {
+  const compatibilityHostVersion = manifest.schemaVersion === 1 ? '1.0.0' : hostApiVersion;
+  if (manifest.apiVersion && !isPluginApiCompatible(manifest.apiVersion, compatibilityHostVersion)) {
     errors.push(
       `Plugin ${manifest.id || '<unknown>'} requires plugin API ${manifest.apiVersion}, host provides ${hostApiVersion}.`,
     );

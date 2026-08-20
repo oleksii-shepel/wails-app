@@ -1787,6 +1787,46 @@ export namespace plugin {
 
 export namespace pluginpackage {
 	
+	export class BackendEntry {
+	    entry: string;
+	    protocol: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackendEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry = source["entry"];
+	        this.protocol = source["protocol"];
+	    }
+	}
+	export class FrontendEntry {
+	    entry: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FrontendEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry = source["entry"];
+	    }
+	}
+	export class Target {
+	    os: string;
+	    arch: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Target(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.os = source["os"];
+	        this.arch = source["arch"];
+	    }
+	}
 	export class Manifest {
 	    schemaVersion: number;
 	    id: string;
@@ -1797,6 +1837,9 @@ export namespace pluginpackage {
 	    homepage?: string;
 	    license?: string;
 	    apiVersion?: string;
+	    target?: Target;
+	    frontend?: FrontendEntry;
+	    backend?: BackendEntry;
 	    permissions?: string[];
 	    activationEvents?: string[];
 	    contributes?: Record<string, any>;
@@ -1816,13 +1859,35 @@ export namespace pluginpackage {
 	        this.homepage = source["homepage"];
 	        this.license = source["license"];
 	        this.apiVersion = source["apiVersion"];
+	        this.target = this.convertValues(source["target"], Target);
+	        this.frontend = this.convertValues(source["frontend"], FrontendEntry);
+	        this.backend = this.convertValues(source["backend"], BackendEntry);
 	        this.permissions = source["permissions"];
 	        this.activationEvents = source["activationEvents"];
 	        this.contributes = source["contributes"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DiscoveredPackage {
 	    manifest: Manifest;
+	    kind: string;
 	    path: string;
 	    manifestPath: string;
 	    valid: boolean;
@@ -1836,6 +1901,7 @@ export namespace pluginpackage {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.manifest = this.convertValues(source["manifest"], Manifest);
+	        this.kind = source["kind"];
 	        this.path = source["path"];
 	        this.manifestPath = source["manifestPath"];
 	        this.valid = source["valid"];
@@ -1881,6 +1947,7 @@ export namespace pluginpackage {
 	        this.targetCommandId = source["targetCommandId"];
 	    }
 	}
+	
 	export class FrontendPlacement {
 	    id: string;
 	    commandId: string;
@@ -1989,106 +2056,9 @@ export namespace pluginpackage {
 	        this.clearQuarantine = source["clearQuarantine"];
 	    }
 	}
-	export class UniversalBackendEntry {
-	    entry: string;
-	    protocol: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new UniversalBackendEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.entry = source["entry"];
-	        this.protocol = source["protocol"];
-	    }
-	}
-	export class UniversalEntry {
-	    entry: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UniversalEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.entry = source["entry"];
-	    }
-	}
-	export class UniversalTarget {
-	    os: string;
-	    arch: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UniversalTarget(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.os = source["os"];
-	        this.arch = source["arch"];
-	    }
-	}
-	export class UniversalManifest {
-	    schemaVersion: number;
-	    id: string;
-	    name: string;
-	    version: string;
-	    description?: string;
-	    author?: string;
-	    homepage?: string;
-	    license?: string;
-	    apiVersion?: string;
-	    target: UniversalTarget;
-	    frontend: UniversalEntry;
-	    backend: UniversalBackendEntry;
-	    permissions?: string[];
-	    activationEvents?: string[];
-	    contributes?: Record<string, any>;
-	
-	    static createFrom(source: any = {}) {
-	        return new UniversalManifest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.schemaVersion = source["schemaVersion"];
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.description = source["description"];
-	        this.author = source["author"];
-	        this.homepage = source["homepage"];
-	        this.license = source["license"];
-	        this.apiVersion = source["apiVersion"];
-	        this.target = this.convertValues(source["target"], UniversalTarget);
-	        this.frontend = this.convertValues(source["frontend"], UniversalEntry);
-	        this.backend = this.convertValues(source["backend"], UniversalBackendEntry);
-	        this.permissions = source["permissions"];
-	        this.activationEvents = source["activationEvents"];
-	        this.contributes = source["contributes"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class UniversalPackage {
-	    manifest: UniversalManifest;
+	export class PreparedPackage {
+	    manifest: Manifest;
+	    kind: string;
 	    archivePath: string;
 	    cachePath: string;
 	    valid: boolean;
@@ -2096,12 +2066,13 @@ export namespace pluginpackage {
 	    warnings?: string[];
 	
 	    static createFrom(source: any = {}) {
-	        return new UniversalPackage(source);
+	        return new PreparedPackage(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.manifest = this.convertValues(source["manifest"], UniversalManifest);
+	        this.manifest = this.convertValues(source["manifest"], Manifest);
+	        this.kind = source["kind"];
 	        this.archivePath = source["archivePath"];
 	        this.cachePath = source["cachePath"];
 	        this.valid = source["valid"];

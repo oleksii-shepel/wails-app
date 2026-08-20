@@ -30,8 +30,8 @@ type BackendProcess struct {
 	nextID int64
 }
 
-func StartBackend(pkg UniversalPackage) (*BackendProcess, error) {
-	if pkg.CachePath == "" {
+func StartBackend(pkg PreparedPackage) (*BackendProcess, error) {
+	if pkg.CachePath == "" || pkg.Manifest.Backend == nil {
 		return nil, fmt.Errorf("plugin %s is not prepared", pkg.Manifest.ID)
 	}
 	entry := filepath.Join(pkg.CachePath, filepath.FromSlash(pkg.Manifest.Backend.Entry))
@@ -46,23 +46,25 @@ func StartBackend(pkg UniversalPackage) (*BackendProcess, error) {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		stdin.Close()
+		_ = stdin.Close()
 		return nil, err
 	}
-	// stderr intentionally inherits no protocol channel. The host can add a
-	// bounded diagnostics buffer later without mixing it with stdout RPC.
 	if err := cmd.Start(); err != nil {
-		stdin.Close()
+		_ = stdin.Close()
 		return nil, err
 	}
+
 	return &BackendProcess{
-		cmd: cmd, stdin: stdin, reader: bufio.NewReader(stdout),
+		cmd: cmd,
+		stdin: stdin,
+		reader: bufio.NewReader(stdout),
 	}, nil
 }
 
 func (p *BackendProcess) Call(method string, params json.RawMessage) (json.RawMessage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	if p.cmd == nil {
 		return nil, fmt.Errorf("backend is stopped")
 	}
@@ -97,14 +99,15 @@ func (p *BackendProcess) Call(method string, params json.RawMessage) (json.RawMe
 func (p *BackendProcess) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	if p.cmd == nil {
 		return nil
 	}
 	_ = p.stdin.Close()
-	err := p.cmd.Process.Kill()
-	_, _ = p.cmd.Process.Wait()
+	killErr := p.cmd.Process.Kill()
+	_ = p.cmd.Wait()
 	p.cmd = nil
-	return err
+	return killErr
 }
 
 type BackendManager struct {
@@ -116,7 +119,7 @@ func NewBackendManager() *BackendManager {
 	return &BackendManager{backends: make(map[string]*BackendProcess)}
 }
 
-func (m *BackendManager) Call(pkg UniversalPackage, method string, params json.RawMessage) (json.RawMessage, error) {
+func (m *BackendManager) Call(pkg PreparedPackage, method string, params json.RawMessage) (json.RawMessage, error) {
 	m.mu.Lock()
 	backend := m.backends[pkg.Manifest.ID]
 	if backend == nil {
@@ -137,6 +140,7 @@ func (m *BackendManager) Stop(pluginID string) error {
 	backend := m.backends[pluginID]
 	delete(m.backends, pluginID)
 	m.mu.Unlock()
+
 	if backend == nil {
 		return nil
 	}

@@ -1,8 +1,11 @@
 import { Injectable } from '@angular/core';
 import type { PluginManifest } from '../plugin/plugin-manifest';
 
+export type PluginPackageKind = 'directory' | 'archive';
+
 export interface DiscoveredPluginPackage {
   manifest: PluginManifest;
+  kind: PluginPackageKind;
   path: string;
   manifestPath: string;
   valid: boolean;
@@ -39,6 +42,7 @@ export function normalizeDiscoveredPluginPackage(value: unknown): DiscoveredPlug
   const raw = (value ?? {}) as Record<string, unknown>;
   return {
     manifest: (raw['manifest'] ?? {}) as PluginManifest,
+    kind: raw['kind'] === 'archive' ? 'archive' : 'directory',
     path: typeof raw['path'] === 'string' ? raw['path'] : '',
     manifestPath: typeof raw['manifestPath'] === 'string' ? raw['manifestPath'] : '',
     valid: raw['valid'] === true,

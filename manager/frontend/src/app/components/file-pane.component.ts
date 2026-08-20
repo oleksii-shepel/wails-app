@@ -71,7 +71,7 @@ import { FileContextMenuComponent, type FileContextMenuState } from './file-cont
 import type { SearchResultItem } from '../services/global-search.service';
 import { tabSurfaceId } from '../surfaces/tab-surface';
 import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState } from './pane-peer.port';
-import type { PanePresentation, PanePresentationPort } from './pane-component.contract';
+import type { PanePresentation, PanePresentationPort, PaneViewportPort, PaneViewportSnapshot } from './pane-component.contract';
 
 declare const window: any;
 
@@ -107,7 +107,8 @@ declare const window: any;
         [active]="item.active"
         [class.tab-surface--inactive]="!item.active"
         [attr.aria-hidden]="!item.active ? true : null"
-        (firstEntryArrived)="item.active && onSurfaceFirstEntry()">
+        (firstEntryArrived)="item.active && onSurfaceFirstEntry()"
+        (viewportChange)="item.active && onViewportChanged()">
       </app-surface-outlet>
 
       <app-file-context-menu
@@ -163,7 +164,7 @@ declare const window: any;
     }
   `]
 })
-export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort, PanePresentationPort {
+export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort, PanePresentationPort, PaneViewportPort {
   private readonly dirStream: DirListStreamController;
   private readonly dirSessions = new Map<string, DirSurfaceSession>();
   private readonly dirTabStateController = new DirTabStateController();
@@ -184,6 +185,52 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
 
   get browserCommands(): FilePaneBrowserCommands {
     return this.browserCommandsFactory.create(this.browserCommandsSource);
+  }
+
+
+  viewportSnapshot(): PaneViewportSnapshot {
+    if (!this.isDirectoryTab) return { topName: null, ratio: 0 };
+
+    const metrics = this.fileViewContainer?.getScrollMetrics() ?? {
+      scrollTop: 0,
+      scrollHeight: 0,
+      clientHeight: 0,
+    };
+    const maxScroll = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
+    const ratio = maxScroll > 0
+      ? Math.max(0, Math.min(1, metrics.scrollTop / maxScroll))
+      : 0;
+    const visible = this.filteredEntries.filter(entry => entry.path !== PARENT_ENTRY_PATH);
+    const approxIndex = visible.length > 1
+      ? Math.min(visible.length - 1, Math.max(0, Math.floor(ratio * (visible.length - 1))))
+      : 0;
+
+    return {
+      topName: visible[approxIndex]?.name ?? null,
+      ratio,
+    };
+  }
+
+  syncViewportToPeer(snapshot: PaneViewportSnapshot): void {
+    if (!this.isDirectoryTab) return;
+
+    const visible = this.filteredEntries.filter(entry => entry.path !== PARENT_ENTRY_PATH);
+    const named = snapshot.topName
+      ? visible.find(entry => entry.name === snapshot.topName)
+      : undefined;
+    if (named) {
+      this.fileViewContainer?.scrollToCursorPath(named.path);
+      return;
+    }
+
+    const metrics = this.fileViewContainer?.getScrollMetrics();
+    if (!metrics) return;
+    const maxScroll = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
+    this.fileViewContainer?.setScrollTop(maxScroll * Math.max(0, Math.min(1, snapshot.ratio)));
+  }
+
+  onViewportChanged(): void {
+    this.viewportChange.emit(this.viewportSnapshot());
   }
 
   get sourceCapabilities() {
@@ -399,6 +446,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
 
   @Output() pathChange = new EventEmitter<string>();
   @Output() presentationChange = new EventEmitter<PanePresentation>();
+  @Output() viewportChange = new EventEmitter<PaneViewportSnapshot>();
   @Output() previewTargetChange = new EventEmitter<string>();
   @Output() activeTabChange = new EventEmitter<TabInfo>();
   @Output() copyToOther = new EventEmitter<string[]>();

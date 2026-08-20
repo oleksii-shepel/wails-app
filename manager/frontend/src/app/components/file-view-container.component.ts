@@ -85,7 +85,8 @@ export type ViewLayout = ViewMode;
           (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
           (dragDrop)="onViewDragDrop($event)"
-          (rename)="rename.emit($event)">
+          (rename)="rename.emit($event)"
+          (viewportChange)="viewportChange.emit()">
         </app-file-list>
 
         <app-file-grid
@@ -104,7 +105,8 @@ export type ViewLayout = ViewMode;
           (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
           (dragDrop)="onViewDragDrop($event)"
-          (rename)="rename.emit($event)">
+          (rename)="rename.emit($event)"
+          (viewportChange)="viewportChange.emit()">
         </app-file-grid>
 
         <app-file-tree
@@ -127,7 +129,8 @@ export type ViewLayout = ViewMode;
           (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onTreeDragStart($event)"
           (dragDrop)="onTreeDragDrop($event)"
-          (rename)="onTreeRename($event)">
+          (rename)="onTreeRename($event)"
+          (viewportChange)="viewportChange.emit()">
         </app-file-tree>
 
         <app-file-details
@@ -153,7 +156,8 @@ export type ViewLayout = ViewMode;
           (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
           (dragDrop)="onViewDragDrop($event)"
-          (rename)="rename.emit($event)">
+          (rename)="rename.emit($event)"
+          (viewportChange)="viewportChange.emit()">
         </app-file-details>
       </div>
     </div>
@@ -269,6 +273,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Output() dragDrop        = new EventEmitter<{ event: DragEvent; source: FileInfo[]; targetPath: string }>();
   @Output() rename          = new EventEmitter<{ entry: FileInfo; newName: string }>();
   @Output() browserPaneSplitChange = new EventEmitter<number>();
+  @Output() viewportChange = new EventEmitter<void>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
@@ -566,6 +571,22 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
         return this.treeComponent?.getScrollTop() ?? 0;
       default:
         return 0;
+    }
+  }
+
+
+  getScrollMetrics(): { scrollTop: number; scrollHeight: number; clientHeight: number } {
+    switch (this.currentView) {
+      case 'list':
+        return this.listComponent?.getScrollMetrics() ?? { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
+      case 'grid':
+        return this.gridComponent?.getScrollMetrics() ?? { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
+      case 'details':
+        return this.detailsComponent?.getScrollMetrics() ?? { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
+      case 'tree':
+        return this.treeComponent?.getScrollMetrics() ?? { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
+      default:
+        return { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
     }
   }
 

@@ -541,6 +541,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
   @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
+  @Output() viewportChange = new EventEmitter<void>();
 
   private readonly VIRTUAL_THRESHOLD = 100;
   private readonly DEFAULT_ROW_HEIGHT = 24;
@@ -647,6 +648,16 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   getScrollTop(): number {
     return this.detailsBodyRef?.nativeElement?.scrollTop ?? 0;
+  }
+
+
+  getScrollMetrics(): { scrollTop: number; scrollHeight: number; clientHeight: number } {
+    const element = this.detailsBodyRef?.nativeElement;
+    return {
+      scrollTop: element?.scrollTop ?? 0,
+      scrollHeight: element?.scrollHeight ?? 0,
+      clientHeight: element?.clientHeight ?? 0,
+    };
   }
 
   setScrollTop(top: number): void {
@@ -932,6 +943,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       if (this.updateVirtualWindow()) {
         this.cdr.markForCheck();
       }
+      this.viewportChange.emit();
     });
   }
 

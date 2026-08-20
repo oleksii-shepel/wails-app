@@ -38,6 +38,7 @@ export class SurfaceOutletComponent implements OnChanges {
   @Input() active = false;
   /** Re-emits `firstEntryArrived` from dynamic surfaces so parents may react. */
   @Output() firstEntryArrived = new EventEmitter<void>();
+  @Output() viewportChange = new EventEmitter<void>();
 
   component: Type<unknown> | null = null;
   outletInputs: Record<string, unknown> = {};
@@ -93,10 +94,16 @@ export class SurfaceOutletComponent implements OnChanges {
         if (!inst) return;
         // Clean up previous subscription
         try { this.mountedSubscription?.unsubscribe(); } catch {}
+        const subscriptions: Array<{ unsubscribe: () => void }> = [];
         if (inst.firstEntryArrived && typeof inst.firstEntryArrived.subscribe === 'function') {
-          const sub = inst.firstEntryArrived.subscribe(() => this.firstEntryArrived.emit());
-          this.mountedSubscription = { unsubscribe: () => sub.unsubscribe() };
+          subscriptions.push(inst.firstEntryArrived.subscribe(() => this.firstEntryArrived.emit()));
         }
+        if (inst.viewportChange && typeof inst.viewportChange.subscribe === 'function') {
+          subscriptions.push(inst.viewportChange.subscribe(() => this.viewportChange.emit()));
+        }
+        this.mountedSubscription = subscriptions.length
+          ? { unsubscribe: () => subscriptions.forEach(subscription => subscription.unsubscribe()) }
+          : null;
       }, 0);
     }).catch(() => {
       if (seq !== this.resolveSeq) return;

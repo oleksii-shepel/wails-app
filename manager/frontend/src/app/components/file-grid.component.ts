@@ -443,6 +443,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
   @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
+  @Output() viewportChange = new EventEmitter<void>();
 
   FileType = FileType;
   
@@ -591,6 +592,16 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   getScrollTop(): number {
     return this.gridContainerRef?.nativeElement?.scrollTop ?? 0;
+  }
+
+
+  getScrollMetrics(): { scrollTop: number; scrollHeight: number; clientHeight: number } {
+    const element = this.gridContainerRef?.nativeElement;
+    return {
+      scrollTop: element?.scrollTop ?? 0,
+      scrollHeight: element?.scrollHeight ?? 0,
+      clientHeight: element?.clientHeight ?? 0,
+    };
   }
 
   setScrollTop(top: number): void {
@@ -908,6 +919,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       if (windowChanged) {
         this.cdr.markForCheck();
       }
+      this.viewportChange.emit();
     });
   }
 

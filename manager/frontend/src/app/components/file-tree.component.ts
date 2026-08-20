@@ -441,6 +441,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Output() dragStart = new EventEmitter<{ event: DragEvent; nodes: TreeNode[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: TreeNode[]; target: DropTarget }>();
   @Output() rename = new EventEmitter<{ node: TreeNode; newName: string }>();
+  @Output() viewportChange = new EventEmitter<void>();
 
   @ViewChild('renameInput') renameInput?: ElementRef<HTMLInputElement>;
   @ViewChild('treeContainer') treeContainer?: ElementRef<HTMLElement>;
@@ -638,6 +639,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       if (this.updateVirtualWindow()) {
         this.zone.run(() => this.cdr.markForCheck());
       }
+      this.viewportChange.emit();
     });
   }
 
@@ -793,6 +795,16 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   getScrollTop(): number {
     return this.treeContainer?.nativeElement?.scrollTop ?? 0;
+  }
+
+
+  getScrollMetrics(): { scrollTop: number; scrollHeight: number; clientHeight: number } {
+    const element = this.treeContainer?.nativeElement;
+    return {
+      scrollTop: element?.scrollTop ?? 0,
+      scrollHeight: element?.scrollHeight ?? 0,
+      clientHeight: element?.clientHeight ?? 0,
+    };
   }
 
   setScrollTop(top: number): void {

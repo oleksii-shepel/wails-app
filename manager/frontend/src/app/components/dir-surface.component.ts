@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input, ViewChild } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import { ActionBarComponent } from './action-bar.component';
 import { AddressBarComponent } from './address-bar.component';
 import { ArchiveMoveWarningComponent } from './archive-move-warning.component';
@@ -77,6 +77,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
         (nodeDoubleClick)="vm.onNodeDoubleClick($event)"
         (dragDrop)="vm.onDragDrop($event)"
         (browserPaneSplitChange)="vm.onBrowserPaneSplitChange($event)"
+        (viewportChange)="viewportChange.emit()"
         (rename)="vm.onRename($event)">
       </app-file-view-container>
     </div>
@@ -149,4 +150,5 @@ export class DirSurfaceComponent {
   @Input() pinSurfaceId = 'dir';
   @Input() surfaceActive = true;
   @Input() surfacePath = '';
+  @Output() viewportChange = new EventEmitter<void>();
 }

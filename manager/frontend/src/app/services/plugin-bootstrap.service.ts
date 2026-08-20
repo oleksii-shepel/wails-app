@@ -80,6 +80,10 @@ export class PluginBootstrapService {
     return this.shutdownPromise;
   }
 
+  bindSelectionProvider(selectionProvider: () => string[]): void {
+    this.backendCommands?.setSelectionProvider(selectionProvider);
+  }
+
   private async runInitialize(selectionProvider: () => string[]): Promise<PluginBootstrapSnapshot> {
     const bootstrapErrors: string[] = [];
     try {

@@ -85,6 +85,10 @@ export class BackendPluginCommandBridgeService {
     await this.refresh();
   }
 
+  setSelectionProvider(selectionProvider: PluginSelectionProvider): void {
+    this.selectionProvider = selectionProvider;
+  }
+
   async refresh(): Promise<void> {
     const plugins = await this.api.listBackendPlugins();
     this.clearRegisteredCommands();

@@ -1,10 +1,11 @@
 import {
-  AfterViewInit,
   Component,
   HostListener,
+  OnInit,
   OnDestroy,
   ViewChild,
 } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { DualPaneComponent } from './components/dual-pane.component';
 import { OperationSurfaceComponent } from './components/operation-surface.component';
@@ -21,6 +22,7 @@ import { InputCustomizationService } from './services/input-customization.servic
   selector: 'app-root',
   standalone: true,
   imports: [
+    CommonModule,
     DualPaneComponent,
     OperationSurfaceComponent,
     ActionFeedbackComponent,
@@ -32,7 +34,7 @@ import { InputCustomizationService } from './services/input-customization.servic
   ],
   template: `
     <main class="app-shell">
-      <app-dual-pane #manager></app-dual-pane>
+      <app-dual-pane *ngIf="pluginsReady" #manager></app-dual-pane>
 
 
       <app-operation-surface></app-operation-surface>
@@ -63,9 +65,16 @@ import { InputCustomizationService } from './services/input-customization.servic
     }
   `],
 })
-export class AppComponent implements AfterViewInit, OnDestroy {
+export class AppComponent implements OnInit, OnDestroy {
   @ViewChild('manager')
-  private manager?: DualPaneComponent;
+  set manager(value: DualPaneComponent | undefined) {
+    if (!value) return;
+    this.pluginBootstrap.bindSelectionProvider(
+      () => value.pluginSelectionPaths() ?? [],
+    );
+  }
+
+  pluginsReady = false;
 
   constructor(
     private readonly pluginBootstrap: PluginBootstrapService,
@@ -83,13 +92,19 @@ export class AppComponent implements AfterViewInit, OnDestroy {
     keyboardEvent.stopPropagation();
   }
 
-  ngAfterViewInit(): void {
-    void this.pluginBootstrap.initialize(
-      () => this.manager?.pluginSelectionPaths() ?? [],
-    );
+  ngOnInit(): void {
+    void this.bootstrapPlugins();
   }
 
   ngOnDestroy(): void {
     void this.pluginBootstrap.shutdown();
+  }
+
+  private async bootstrapPlugins(): Promise<void> {
+    try {
+      await this.pluginBootstrap.initialize(() => []);
+    } finally {
+      this.pluginsReady = true;
+    }
   }
 }

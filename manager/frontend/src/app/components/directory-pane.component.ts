@@ -8080,6 +8080,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         this.selectedPaths = new Set();
         this.anchorPath = null;
       }
+      // Preserve the requested location in the address bar when loading fails
+      // so unavailable plugin/registry roots do not fall back to "/".
+      this.path = requestedPath;
       this.error = error instanceof Error ? error.message : String(error);
       return false;
     } finally {

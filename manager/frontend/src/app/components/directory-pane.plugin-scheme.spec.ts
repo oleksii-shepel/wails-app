@@ -22,4 +22,9 @@ describe('Directory pane strict plugin-scheme navigation', () => {
     expect(source).toContain('this.emitPathChange(location);');
     expect(source).toContain('this.error = error instanceof Error');
   });
+
+  it('preserves the requested location when a directory load fails', () => {
+    expect(source).toContain('this.path = requestedPath;');
+    expect(source).toContain('unavailable plugin/registry roots do not fall back to "/"');
+  });
 });

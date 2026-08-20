@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"sync"
 
-	internalbrowserpane "wails-app/internal/browserpane"
 	"wails-app/vfs/archive/cache"
 )
 
@@ -12,15 +10,13 @@ import (
 type App struct {
 	*State
 	isProcessElevated func() bool
-	streamBaseURL     string
-	streamBaseURLMu   sync.RWMutex
-	browserPanes      *internalbrowserpane.Service
-	browserPanesMu    sync.Mutex
+	hostResources     *hostResources
 }
 
 func NewApp(isProcessElevated func() bool) *App {
 	return &App{
 		isProcessElevated: isProcessElevated,
+		hostResources:     newHostResources(),
 	}
 }
 
@@ -35,12 +31,7 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) Shutdown() {
-	a.browserPanesMu.Lock()
-	service := a.browserPanes
-	a.browserPanesMu.Unlock()
-	if service != nil {
-		_ = service.Shutdown()
-	}
+	a.hostResourcesOrCreate().shutdown()
 	if a.State != nil {
 		a.State.Shutdown()
 	}
@@ -70,18 +61,6 @@ func (a *App) IsProcessElevated() bool {
 	return a.isProcessElevated != nil && a.isProcessElevated()
 }
 
-func (a *App) SetStreamBaseURL(baseURL string) {
-	a.streamBaseURLMu.Lock()
-	a.streamBaseURL = baseURL
-	a.streamBaseURLMu.Unlock()
-}
-
-func (a *App) StreamBaseURL() string {
-	a.streamBaseURLMu.RLock()
-	defer a.streamBaseURLMu.RUnlock()
-	return a.streamBaseURL
-}
-
 // ArchCache returns the shared archive LRU cache so the stream middleware
 // can open archive entries without buffering them in JS.
 func (a *App) ArchCache() *cache.Cache {
@@ -89,13 +68,4 @@ func (a *App) ArchCache() *cache.Cache {
 		return nil
 	}
 	return a.State.archCache
-}
-
-func (a *App) browserPaneService() *internalbrowserpane.Service {
-	a.browserPanesMu.Lock()
-	defer a.browserPanesMu.Unlock()
-	if a.browserPanes == nil {
-		a.browserPanes = internalbrowserpane.NewService(a.EmitEvent)
-	}
-	return a.browserPanes
 }

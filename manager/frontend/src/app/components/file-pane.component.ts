@@ -59,7 +59,7 @@ import { BatchRenameDialogService } from '../services/batch-rename-dialog.servic
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
-import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
+import { buildActionAvailability, NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 import { adaptPluginToolbarActions, buildBuiltinPaneToolbarActions } from './pane-toolbar-action';
@@ -77,6 +77,10 @@ import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState
 import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, PaneTabState, PaneViewerState } from './pane-state.port';
 import type { PanePresentation, PanePresentationPort, PaneViewportPort, PaneViewportSnapshot } from './pane-component.contract';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
+import { PaneFileCommandsController, type PaneFileCommandsHost } from './pane-file-commands.controller';
+import { PaneFileToolsController, type PaneFileToolsHost } from './pane-file-tools.controller';
+import type { PaneComparisonStatus } from '../services/pane-comparison.service';
+import type { PaneCommands, PaneNavigation, PaneSelection, PaneTabs, PaneViewerCommands } from './pane-component.contract';
 
 declare const window: any;
 
@@ -90,7 +94,7 @@ declare const window: any;
     FileContextMenuComponent,
   ],
   template: `
-    <div class="file-pane" [class.file-pane--archive]="isInArchive()">
+    <div class="file-pane" [class.file-pane--archive]="isInArchive()" (pointerdown)="activateRequested.emit()">
       <app-tab-bar
         *ngIf="showTabBar"
         [paneId]="paneId"
@@ -181,6 +185,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   private readonly shortcutCommandsFactory = new FilePaneShortcutCommandsFactory();
   private readonly stateRuntimeFactory = new FilePaneStateRuntimeFactory();
   private readonly clipboardCommands: PaneClipboardController;
+  private readonly fileCommands: PaneFileCommandsController;
+  private readonly fileTools: PaneFileToolsController;
   private readonly surfaceContextFactory = new FilePaneSurfaceContextFactory();
   private readonly surfaceHostsFactory = new FilePaneSurfaceHostsFactory();
   private activeDirTabId: string | null = null;
@@ -195,7 +201,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
 
 
   viewportSnapshot(): PaneViewportSnapshot {
-    if (!this.isDirectoryTab) return { topName: null, ratio: 0 };
+    if (this.activeSurfaceId !== 'dir') return { topName: null, ratio: 0 };
 
     const metrics = this.fileViewContainer?.getScrollMetrics() ?? {
       scrollTop: 0,
@@ -218,7 +224,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   }
 
   syncViewportToPeer(snapshot: PaneViewportSnapshot): void {
-    if (!this.isDirectoryTab) return;
+    if (this.activeSurfaceId !== 'dir') return;
 
     const visible = this.filteredEntries.filter(entry => entry.path !== PARENT_ENTRY_PATH);
     const named = snapshot.topName
@@ -350,6 +356,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
       selectPaths: paths => this.selectPeerPaths(paths),
     };
   }
+
+  get presentation(): PanePresentationPort { return this; }
+  get viewport(): PaneViewportPort { return this; }
 
   panePresentation(): PanePresentation {
     const sortField = this.sortField === 'size' || this.sortField === 'modified' || this.sortField === 'type'
@@ -516,11 +525,22 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
   @Input() paneActive = true;
-  @Input() actionAvailability: ActionAvailability = NO_ACTIONS;
+  private actionAvailabilityOverride: ActionAvailability | null = null;
+  @Input() set actionAvailability(value: ActionAvailability | null | undefined) { this.actionAvailabilityOverride = value ?? null; }
+  get actionAvailability(): ActionAvailability {
+    return this.actionAvailabilityOverride ?? buildActionAvailability({
+      source: this.sourceCapabilities,
+      selectedCount: this.selectedEntries.length,
+      hasClipboard: !!this.fileClipboard.payload,
+    });
+  }
   @Input() showTabBar = true;
   @Input() showPathBar = true;
   @Input() showBreadcrumbs = true;
+  @Input() comparisonStatuses: ReadonlyMap<string, PaneComparisonStatus> = new Map<string, PaneComparisonStatus>();
 
+  @Output() activateRequested = new EventEmitter<void>();
+  @Output() cursorChange = new EventEmitter<FileInfo | null>();
   @Output() pathChange = new EventEmitter<string>();
   @Output() presentationChange = new EventEmitter<PanePresentation>();
   @Output() viewportChange = new EventEmitter<PaneViewportSnapshot>();
@@ -1022,6 +1042,177 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
     await this.clipboardCommands.paste(this.clipboardHost);
   }
 
+  private get fileCommandsHost(): PaneFileCommandsHost {
+    const pane = this;
+    return {
+      get path() { return pane.currentPath; },
+      get selectedEntries() { return pane.selectedEntries; },
+      get cursorEntry() { return pane.peerState.cursorEntry; },
+      get canCreate() { return pane.mutationState.canCreate; },
+      get isDirectoryTab() { return pane.contextState.isDirectoryTab; },
+      get isInArchive() { return pane.contextState.isInArchive; },
+      refresh: () => pane.refreshCurrentPathTransparently(),
+      selectPath: (path: string) => {
+        const entry = pane.entries.find(candidate => candidate.path === path);
+        if (!entry) return;
+        pane.onSelectionChange([entry]);
+        pane.stateRuntime.scrollToCursorPath(path);
+      },
+    };
+  }
+
+  newFile(): Promise<void> { return this.fileCommands.newFile(this.fileCommandsHost); }
+  newDocumentTemplate(kind: 'text' | 'markdown' | 'json'): Promise<void> { return this.fileCommands.newDocumentTemplate(this.fileCommandsHost, kind); }
+  moveSelectionToNewFolder(): Promise<void> { return this.fileCommands.moveSelectionToNewFolder(this.fileCommandsHost); }
+  duplicateSelected(): Promise<void> { return this.fileCommands.duplicateSelected(this.fileCommandsHost); }
+  createLinkForSelected(kind: 'symbolic' | 'hard'): Promise<void> { return this.fileCommands.createLinkForSelected(this.fileCommandsHost, kind); }
+  createShortcutForSelected(): Promise<void> { return this.fileCommands.createShortcutForSelected(this.fileCommandsHost); }
+
+  private get fileToolsHost(): PaneFileToolsHost {
+    const pane = this;
+    return {
+      get path() { return pane.currentPath; },
+      get selectedEntries() { return pane.selectedEntries; },
+      get cursorEntry() { return pane.peerState.cursorEntry; },
+      get canCreate() { return pane.mutationState.canCreate; },
+      get isDirectoryTab() { return pane.contextState.isDirectoryTab; },
+      get isInArchive() { return pane.contextState.isInArchive; },
+      refresh: () => pane.refreshCurrentPathTransparently(),
+      selectPath: path => pane.peerSelection.selectPaths([path]),
+    };
+  }
+
+  get navigation(): PaneNavigation {
+    return {
+      refresh: async () => { await this.refreshCurrentPathTransparently(); },
+      focusContent: () => this.fileViewContainer?.focusContent?.(),
+      focusLocation: () => this.shortcuts.focus.focusAddressBar(),
+      focusFilter: () => this.shortcuts.focus.focusFilter(),
+      goBack: async () => {
+        try { const listing = await window.go.app.App.NavBack(this.paneId); if (listing?.path) await this.loadDirectory(listing.path); } catch { /* history unavailable */ }
+      },
+      goForward: async () => {
+        try { const listing = await window.go.app.App.NavForward(this.paneId); if (listing?.path) await this.loadDirectory(listing.path); } catch { /* history unavailable */ }
+      },
+      navigateUp: () => { void this.navigationController.onNavigateUp(this.navigationHost); },
+      navigateTo: path => this.onPathChange(path),
+      navigateLinkedLocation: (path, options) => this.navigateToPeerLocation(path, options as any),
+      canNavigateToLocation: path => this.canNavigateToPeerLocation(path),
+      currentLocationAvailable: () => this.canNavigateToPeerLocation(this.currentPath),
+      jumpNavigationHistory: async path => this.navigateToPeerLocation(path, { history: 'record', preserveCursor: false }),
+    };
+  }
+
+  get selection(): PaneSelection {
+    const pane = this;
+    const selectWhere = (predicate: (entry: FileInfo) => boolean) => pane.onSelectionChange(pane.filteredEntries.filter(entry => entry.path !== PARENT_ENTRY_PATH && predicate(entry)));
+    return {
+      get cursorEntry() { return pane.peerState.cursorEntry; },
+      get cursorPath() { return pane.selectionCursorPath; },
+      get selectedPaths() { return pane.selectedFiles; },
+      get selectedEntries() { return pane.selectedEntries; },
+      moveCursor: (delta, extend = false) => {
+        const step = delta < 0 ? -1 : 1;
+        const count = Math.max(1, Math.abs(delta));
+        for (let i = 0; i < count; i++) extend ? pane.stateController.onExtendSelection(pane.stateHost, step as -1 | 1) : (step < 0 ? pane.shortcuts.selection.moveCursorUp() : pane.shortcuts.selection.moveCursorDown());
+        pane.cursorChange.emit(pane.peerState.cursorEntry);
+      },
+      moveCursorHome: () => { pane.shortcuts.selection.moveCursorHome(); pane.cursorChange.emit(pane.peerState.cursorEntry); },
+      moveCursorEnd: () => { pane.shortcuts.selection.moveCursorEnd(); pane.cursorChange.emit(pane.peerState.cursorEntry); },
+      moveCursorPage: direction => { direction < 0 ? pane.shortcuts.selection.moveCursorPageUp() : pane.shortcuts.selection.moveCursorPageDown(); pane.cursorChange.emit(pane.peerState.cursorEntry); },
+      selectAll: () => pane.shortcuts.selection.selectAll(),
+      clearSelection: () => pane.shortcuts.selection.deselectAll(),
+      toggleCurrentSelection: () => pane.shortcuts.selection.markCurrentItem(),
+      extendSelection: delta => pane.stateController.onExtendSelection(pane.stateHost, (delta < 0 ? -1 : 1)),
+      invertSelection: () => pane.shortcuts.selection.invertSelection(),
+      selectSameExtension: () => pane.shortcuts.selection.selectSameExtension(),
+      selectSameType: () => { const current = pane.peerState.cursorEntry; if (current) selectWhere(entry => entry.type === current.type); },
+      selectFiles: () => selectWhere(entry => entry.type !== FileType.DIRECTORY),
+      selectFolders: () => selectWhere(entry => entry.type === FileType.DIRECTORY),
+      unselectFiles: () => pane.onSelectionChange(pane.selectedEntries.filter(entry => entry.type === FileType.DIRECTORY)),
+      unselectFolders: () => pane.onSelectionChange(pane.selectedEntries.filter(entry => entry.type !== FileType.DIRECTORY)),
+      selectByMaskPrompt: async () => { pane.shortcuts.selection.selectByMask(); },
+      unselectByMaskPrompt: async () => { pane.shortcuts.selection.unselectByMask(); },
+      selectPaths: paths => pane.selectPeerPaths(paths),
+      selectComparisonItem: path => pane.selectPeerPaths([path]),
+      recoverVisibleCursor: () => pane.focusController.ensureCursorVisibleOnActivation(pane.focusHost),
+      calculateSelectedSize: () => pane.fileTools.calculateSelectedSize(pane.fileToolsHost),
+      selectPeerByName: name => pane.selectPeerByNameForPeer(name),
+    };
+  }
+
+  get commands(): PaneCommands {
+    const pane = this;
+    const writeText = async (lines: string[]) => { if (lines.length && navigator.clipboard?.writeText) await navigator.clipboard.writeText(lines.join('\n')); };
+    return {
+      copySelected: () => pane.copySelected(),
+      cutSelected: () => pane.cutSelected(),
+      paste: () => pane.paste(),
+      deleteSelected: async permanent => { if (permanent) { const paths = Array.from(pane.stateRuntime.getEffectiveSelection()).filter(path => path !== PARENT_ENTRY_PATH); if (paths.length) { await pane.apiService.batchDelete(paths, true, false); await pane.refreshCurrentPathTransparently(); } return; } await pane.operationsController.onDeleteSelected(pane.operationsHost); },
+      renameSelected: () => pane.operationsController.onRenameSelected(pane.operationsHost),
+      newFolder: () => pane.operationsController.onCreateFolder(pane.operationsHost),
+      newFile: () => pane.newFile(),
+      newDocumentTemplate: kind => pane.newDocumentTemplate((kind === 'markdown' || kind === 'json') ? kind : 'text'),
+      moveSelectionToNewFolder: () => pane.moveSelectionToNewFolder(),
+      duplicateSelected: () => pane.duplicateSelected(),
+      revealSelectedInFileManager: () => pane.fileTools.revealSelectedInFileManager(pane.fileToolsHost),
+      touchSelectedModifiedTime: () => pane.fileTools.touchSelectedModifiedTime(pane.fileToolsHost),
+      editSelectedAttributes: () => pane.fileTools.editSelectedAttributes(pane.fileToolsHost),
+      showSelectedProperties: () => pane.fileTools.showSelectedProperties(pane.fileToolsHost),
+      showSelectedChecksum: () => pane.fileTools.showSelectedChecksum(pane.fileToolsHost),
+      copySelectedPaths: () => writeText(pane.selectedEntries.map(entry => entry.path)),
+      copySelectedRelativePaths: () => writeText(pane.selectedEntries.map(entry => entry.path.startsWith(pane.currentPath) ? entry.path.slice(pane.currentPath.length).replace(/^[/\\]+/, '') : entry.name)),
+      copySelectedFileUris: () => writeText(pane.selectedEntries.map(entry => `file://${entry.path.replace(/\\/g, '/')}`)),
+      copySelectedNames: () => writeText(pane.selectedEntries.map(entry => entry.name)),
+      createLinkForSelected: kind => pane.createLinkForSelected(kind),
+      createShortcutForSelected: () => pane.createShortcutForSelected(),
+      createZipFromSelection: () => pane.fileTools.createZipFromSelection(pane.fileToolsHost),
+      extractSelectedTo: async (destinationDir, flattenPaths = false) => { await pane.archiveController.extractSelected(pane.archiveHost, flattenPaths, destinationDir); return true; },
+      transferArchiveSelectionTo: async (destinationDir, operation) => {
+        if (!pane.isInArchive()) return null;
+        const selected = pane.selectedEntries.map(entry => entry.path);
+        await pane.archiveController.extractSelected(pane.archiveHost, false, destinationDir);
+        if (operation === 'move' && selected.length) await pane.archiveController.deleteSelectedFromArchive(pane.archiveHost, new Set(selected));
+        return { succeeded: selected.length, total: selected.length, failed: 0, skipped: 0 };
+      },
+      treeLeft: () => pane.shortcuts.selection.moveCursorLeft(),
+      treeRight: () => pane.shortcuts.selection.moveCursorRight(),
+    };
+  }
+
+  get tabCommands(): PaneTabs {
+    const pane = this;
+    return {
+      closeActiveTab: () => pane.shortcuts.tabs.closeCurrentTab(),
+      newTab: () => pane.onNewTab(),
+      nextTab: () => pane.shortcuts.tabs.nextTab(),
+      previousTab: () => pane.shortcuts.tabs.previousTab(),
+      jumpToTab: index => { const tab = pane.tabs[index]; if (tab) void pane.onTabChange(tab); },
+      closeOtherTabs: () => { const active = pane.tabState.activeTab; for (const tab of [...pane.tabs]) if (tab.id !== active?.id && !tab.isPinned) pane.onTabClose(tab); },
+      closeTabsToRight: () => { const active = pane.tabState.activeTab; const index = pane.tabs.findIndex(tab => tab.id === active?.id); for (const tab of pane.tabs.slice(index + 1)) if (!tab.isPinned) pane.onTabClose(tab); },
+      toggleActiveTabPin: () => pane.shortcuts.tabs.togglePinCurrentTab(),
+      exportActiveTabId: () => pane.tabState.activeTab?.id ?? null,
+      exportTabCount: () => pane.tabs.length,
+      restoreWorkspaceState: async () => { await pane.loadPaneState(); },
+      reloadWorkspaceTabs: async preferredTabId => { await pane.loadPaneState(); if (preferredTabId) { const tab = pane.tabs.find(item => item.id === preferredTabId); if (tab) await pane.onTabChange(tab); } },
+    };
+  }
+
+  get viewerCommands(): PaneViewerCommands {
+    const pane = this;
+    return {
+      openEntry: entry => pane.onNavigate(entry),
+      openViewer: (entry, _viewerId, autoFollow = false) => pane.previewController.openFrozenPreviewTab(pane.previewHost, entry.path, { sourcePane: pane.paneId, sourceTabId: pane.currentTabId, sourceDir: pane.currentPath, autoFollow }),
+      openSelectedWithViewer: async _viewerId => { const entry = pane.peerState.cursorEntry; if (entry && entry.type !== FileType.DIRECTORY) await pane.previewController.openEditorPath(pane.previewHost, entry.path); },
+      openQuickView: entry => { void pane.previewController.openEditorPath(pane.previewHost, entry.path); },
+      openActiveViewerExternally: async () => { const path = pane.activeViewerTargetPath; if (path && !pane.activeViewerArchiveContext) await pane.apiService.openFile(path); },
+      returnToViewerSource: async () => { const viewer = pane.tabState.activeViewerTab as any; if (!viewer) return; const source = viewer.sourceTabId ? pane.tabs.find(tab => tab.id === viewer.sourceTabId) : null; if (source) await pane.onTabChange(source); else if (viewer.sourceDir) pane.onPathChange(viewer.sourceDir); },
+      openResultsPanel: async (title, entries, metadata) => { const path = pane.panelSources.createResultsPanel(title, [...entries], metadata as any); const tab = pane.workspaceService.addTab(pane.paneId, path, true); if (tab) { pane.tabs = pane.workspaceService.getTabs(pane.paneId); await pane.onTabChange(tab); } },
+      openRecentFilesPanel: async () => { /* recent-files command remains shell-owned */ },
+      openSurfaceTab: async (surfaceId, title, location) => { const tab = pane.workspaceService.addSurfaceTab(pane.paneId, location?.trim() || `surface://${encodeURIComponent(surfaceId)}`, surfaceId, { title: title || surfaceId, activate: true }); if (tab) { pane.tabs = pane.workspaceService.getTabs(pane.paneId); await pane.onTabChange(tab); } },
+    };
+  }
+
   constructor(
     private apiService: ApiService,
     private workspaceService: WorkspaceService,
@@ -1053,6 +1244,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
       this.operationHistory,
       this.actionFeedback,
       this.confirmDialog,
+    );
+    this.fileCommands = new PaneFileCommandsController(
+      this.apiService,
+      this.confirmDialog,
+      this.operationHistory,
+    );
+    this.fileTools = new PaneFileToolsController(
+      this.apiService,
+      this.confirmDialog,
+      this.operationHistory,
     );
     this.navigationController = new FilePaneNavigationController();
   }
@@ -1583,6 +1784,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
 
   onSelectionChange(entries: FileInfo[]): void {
     this.stateController.onSelectionChange(this.stateHost, entries);
+    this.cursorChange.emit(this.peerState.cursorEntry);
   }
 
   measureCurrentDirectorySize(): void {

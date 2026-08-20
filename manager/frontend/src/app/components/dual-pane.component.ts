@@ -41,7 +41,7 @@ import {
   type BatchRenameItem,
 } from '../services/batch-rename-dialog.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
-import { PaneHostComponent } from './pane-host.component';
+import { FilePaneComponent } from './file-pane.component';
 import { WorkspaceSwitcherComponent } from './workspace-switcher.component';
 import { PathHistoryComponent } from './path-history.component';
 import { QuickAccessComponent, type QuickAccessTarget } from './quick-access.component';
@@ -391,7 +391,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   standalone: true,
   imports: [
     CommonModule,
-    PaneHostComponent,
+    FilePaneComponent,
     ContextMenuComponent,
     InputCenterComponent,
     KeyboardHelpComponent,
@@ -586,25 +586,21 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
-        <app-pane-host
+        <app-file-pane
           #leftPane
           paneId="left"
-          [active]="activePaneId === 'left'"
+          [workspace]="activeWorkspace"
+          [paneActive]="activePaneId === 'left'"
           [showHidden]="showHidden"
-          [currentPathPinned]="isPanePathPinned(leftPane)"
-          [pluginToolbarActions]="pluginToolbarActionsFor(leftPane)"
+          [comparisonStatuses]="leftComparisonStatuses"
           (activateRequested)="activate('left')"
-          (remoteRecoveryRequested)="openRemoteConnections()"
-          (togglePinRequested)="togglePanePin(leftPane)"
-          (locationChange)="onLinkedPaneLocationChange('left', $event)"
+          (pathChange)="onLinkedPaneLocationChange('left', $event)"
           (cursorChange)="onLinkedPaneCursorChange('left', $event)"
           (presentationChange)="onPanePresentationChange('left', $event)"
           (viewportChange)="onPaneViewportChange('left', $event)"
-          (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
-          (backgroundContextMenu)="openBackgroundMenu('left', $event)"
-          (navigationTrailRequested)="openNavigationTrail('left', $event)"
-          (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
-        </app-pane-host>
+          (copyToOther)="activate('left'); copyToOther()"
+          (moveToOther)="activate('left'); moveToOther()">
+        </app-file-pane>
       </div>
 
       <div
@@ -627,25 +623,21 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
-        <app-pane-host
+        <app-file-pane
           #rightPane
           paneId="right"
-          [active]="activePaneId === 'right'"
+          [workspace]="activeWorkspace"
+          [paneActive]="activePaneId === 'right'"
           [showHidden]="showHidden"
-          [currentPathPinned]="isPanePathPinned(rightPane)"
-          [pluginToolbarActions]="pluginToolbarActionsFor(rightPane)"
+          [comparisonStatuses]="rightComparisonStatuses"
           (activateRequested)="activate('right')"
-          (remoteRecoveryRequested)="openRemoteConnections()"
-          (togglePinRequested)="togglePanePin(rightPane)"
-          (locationChange)="onLinkedPaneLocationChange('right', $event)"
+          (pathChange)="onLinkedPaneLocationChange('right', $event)"
           (cursorChange)="onLinkedPaneCursorChange('right', $event)"
           (presentationChange)="onPanePresentationChange('right', $event)"
           (viewportChange)="onPaneViewportChange('right', $event)"
-          (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
-          (backgroundContextMenu)="openBackgroundMenu('right', $event)"
-          (navigationTrailRequested)="openNavigationTrail('right', $event)"
-          (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
-        </app-pane-host>
+          (copyToOther)="activate('right'); copyToOther()"
+          (moveToOther)="activate('right'); moveToOther()">
+        </app-file-pane>
       </div>
 
       <app-command-palette
@@ -990,8 +982,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   pathHistory?: PathHistoryComponent;
   @ViewChild('quickAccess')
   quickAccess?: QuickAccessComponent;
-  @ViewChild('leftPane') leftPane?: PaneHostComponent;
-  @ViewChild('rightPane') rightPane?: PaneHostComponent;
+  @ViewChild('leftPane') leftPane?: FilePaneComponent;
+  @ViewChild('rightPane') rightPane?: FilePaneComponent;
   @ViewChild('remoteConnections') remoteConnections?: RemoteConnectionsComponent;
 
   activePaneId: PaneId = 'left';
@@ -1113,11 +1105,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     return this.operationHistory.recentSyncs(5);
   }
 
-  get activePane(): PaneHostComponent | undefined {
+  get activeWorkspace() { return this.workspaceService.getActiveWorkspace(); }
+
+  get activePane(): FilePaneComponent | undefined {
     return this.activePaneId === 'left' ? this.leftPane : this.rightPane;
   }
 
-  get otherPane(): PaneHostComponent | undefined {
+  get otherPane(): FilePaneComponent | undefined {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
   }
 
@@ -1130,7 +1124,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   pluginToolbarActionsFor(
-    pane: PaneHostComponent | undefined,
+    pane: FilePaneComponent | undefined,
   ): readonly PresentedCommand[] {
     if (!pane?.contextState.isDirectoryTab) return [];
 
@@ -1147,7 +1141,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   private pluginContextMenuItems(
-    pane: PaneHostComponent | undefined,
+    pane: FilePaneComponent | undefined,
     targetPath: string,
   ): ContextMenuItem[] {
     if (!pane?.contextState.isDirectoryTab) return [];
@@ -4697,7 +4691,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
 
   isPanePathPinned(
-    pane: PaneHostComponent | undefined,
+    pane: FilePaneComponent | undefined,
   ): boolean {
     const location = pane?.pinState.location?.trim();
     if (!location) return false;
@@ -4710,7 +4704,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   togglePanePin(
-    pane: PaneHostComponent | undefined,
+    pane: FilePaneComponent | undefined,
   ): void {
     const location = pane?.pinState.location?.trim();
     if (!pane || !location) return;
@@ -4900,7 +4894,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     const panes = [this.leftPane, this.rightPane]
-      .filter((pane): pane is PaneHostComponent => !!pane);
+      .filter((pane): pane is FilePaneComponent => !!pane);
 
     await Promise.all(
       panes
@@ -5706,7 +5700,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const destination = this.otherPane;
     if (!source || !destination) return;
 
-    const selected = Array.from(source.selection?.selectedPaths ?? []);
+    const selected = Array.from(source.selection?.selectedPaths ?? []) as string[];
     if (selected.length === 0) return;
 
     if (source.contextState.isInArchive) {

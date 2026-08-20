@@ -79,6 +79,7 @@ export class FilePaneDirectoryController {
   private activeDirStreamPreserveUI = false;
   private pendingFocusPath: string | null = null;
   private loadRequestId = 0;
+  private streamBaseEntries: FileInfo[] = [];
 
   bind(host: FilePaneDirectoryHost): void {
     EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
@@ -90,8 +91,14 @@ export class FilePaneDirectoryController {
 
     host.dirStream.bind(host.paneId, {
       onMeta: (event, isFirst) => host.runInAngular(() => this.handleDirStreamMeta(host, event, isFirst)),
-      onBatch: (event, baseEntries) => host.runInAngular(() => this.handleDirStreamBatch(host, event, baseEntries)),
-      onDone: (event, baseEntries) => host.runInAngular(() => this.handleDirStreamDone(host, event, baseEntries)),
+      onBatch: (event, baseEntries) => host.runInAngular(() => {
+        this.streamBaseEntries = baseEntries;
+        this.handleDirStreamBatch(host, event, baseEntries);
+      }),
+      onDone: (event) => host.runInAngular(() => {
+        this.handleDirStreamDone(host, event, this.streamBaseEntries);
+        this.streamBaseEntries = [];
+      }),
       onError: (event) => host.runInAngular(() => this.handleDirStreamError(host, event)),
     });
   }
@@ -109,6 +116,7 @@ export class FilePaneDirectoryController {
     const requestId = ++this.loadRequestId;
     const requestTabId = host.currentTabId;
     await host.dirStream.cancelActive();
+    this.streamBaseEntries = [];
     host.exitArchive();
     host.clearArchiveState();
     this.activeDirStreamPreserveUI = !!opts?.preserveUI;

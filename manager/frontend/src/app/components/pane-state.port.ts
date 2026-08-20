@@ -1,5 +1,6 @@
 import type { SourceCapabilities } from '../services/source-capabilities';
 import type { FileInfo } from '../shared/protocol';
+import type { ResolvedPanelSource } from '../services/panel-source';
 
 /** Location/surface state used by the manager shell. */
 export interface PaneContextState {
@@ -9,7 +10,7 @@ export interface PaneContextState {
   readonly activeSurfaceId: string;
   readonly viewMode: string;
   readonly sourceCapabilities: SourceCapabilities;
-  readonly activePanelSource: unknown;
+  readonly activePanelSource: ResolvedPanelSource;
   readonly currentArchiveFrame: unknown;
   readonly isDirectoryTab: boolean;
   readonly isInArchive: boolean;

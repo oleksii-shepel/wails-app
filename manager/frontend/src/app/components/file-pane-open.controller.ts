@@ -33,7 +33,14 @@ export class FilePaneOpenController {
   private activateProviderEntry(host: FilePaneOpenHost, entry: FileInfo): boolean {
     const context = { path: host.currentPath, entries: host.entries, inArchive: host.isInArchive() };
     const source = host.panelSources.resolve(context).source;
-    return source.activateEntry?.(context, entry) ?? false;
+    const activation = source.activateEntry?.(context, entry);
+    if (activation === undefined) return false;
+    if (typeof activation === 'boolean') return activation;
+
+    void activation.catch(error =>
+      console.error('Failed to activate provider entry:', error)
+    );
+    return true;
   }
 
   private openExternalFile(host: FilePaneOpenHost, path: string): void {

@@ -125,7 +125,7 @@ export class FilePaneOperationsController {
         await host.loadDirectory(postDeletePath, { preserveUI: true });
       }
 
-      const result = await host.apiService.batchDelete(Array.from(effective), true, true, host.paneId);
+      const result = await host.apiService.batchDelete(Array.from(effective), true, true);
       if (result.failed > 0) {
         const msg = (result.errors ?? []).map((error: any) => `${error.source}: ${error.error}`).join('\n');
         host.confirmDialog.alert(`Delete Completed With Errors\n${result.failed} item(s) failed:\n${msg}`);
@@ -214,7 +214,7 @@ export class FilePaneOperationsController {
         })
       );
 
-      const result = await host.apiService.batchMove(moves, true, host.paneId);
+      const result = await host.apiService.batchMove(moves, true);
       if (result?.failed && result.failed > 0) {
         const firstError = result.errors?.[0];
         throw new Error(firstError?.error || 'Batch rename failed');
@@ -322,7 +322,7 @@ export class FilePaneOperationsController {
       const folderName = attempt === 1 ? 'New Folder' : `New Folder (${attempt})`;
       const newPath: string = await window.go.app.App.JoinPaths([targetDir, folderName]);
       try {
-        const result = await host.apiService.createDirectory(newPath, false, host.paneId);
+        const result = await host.apiService.createDirectory(newPath, false);
         if (!result?.success) {
           throw new Error(result?.message || 'Create directory failed');
         }
@@ -447,7 +447,7 @@ export class FilePaneOperationsController {
         return;
       }
 
-      const result = await host.apiService.batchMove([{ source: entry.path, destination, exactDestination: true }], true, host.paneId);
+      const result = await host.apiService.batchMove([{ source: entry.path, destination, exactDestination: true }], true);
       if (result?.failed && result.failed > 0) {
         const firstError = result.errors?.[0];
         throw new Error(firstError?.error || 'Rename failed');

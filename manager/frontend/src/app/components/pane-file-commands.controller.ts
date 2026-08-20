@@ -161,7 +161,7 @@ export class PaneFileCommandsController {
       this.history.record({
         label: `${kind === 'symbolic' ? 'Create symbolic link' : 'Create hard link'} ${cleanName}`,
         undo: () => this.api.deleteFile(destination, true, false),
-        redo: create,
+        redo: async () => { await create(); },
       });
       await host.refresh();
       host.selectPath(destination);
@@ -197,7 +197,7 @@ export class PaneFileCommandsController {
       this.history.record({
         label: `Create shortcut ${name}`,
         undo: () => this.api.deleteFile(destination, true, false),
-        redo: create,
+        redo: async () => { await create(); },
       });
       await host.refresh();
       host.selectPath(destination);
@@ -227,7 +227,7 @@ export class PaneFileCommandsController {
       this.history.record({
         label: `${spec.historyLabel} ${cleanName}`,
         undo: () => this.api.deleteFile(destination, true, false),
-        redo: create,
+        redo: async () => { await create(); },
       });
       await host.refresh();
       host.selectPath(destination);

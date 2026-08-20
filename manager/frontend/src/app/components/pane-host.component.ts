@@ -70,7 +70,7 @@ import { PanelSourcePaneSession } from './panel-source-pane-session';
 
         <app-tab-bar
           [paneId]="paneId"
-          [tabs]="provider.tabs"
+          [tabs]="provider.tabs.slice()"
           [activeTabId]="provider.activeTab?.id ?? ''"
           [inArchive]="false"
           (tabChange)="onProviderTabChange($event)"
@@ -469,7 +469,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   get navigation(): PaneNavigation | undefined { return this.activeComponent; }
-  get selection(): PaneSelection | undefined { return this.activeComponent; }
+  get selection(): PaneSelection { return this.activeComponent!; }
   get commands(): PaneCommands | undefined { return this.activeComponent; }
   get presentation(): PanePresentationPort | undefined { return this.activeComponent; }
   get viewport(): PaneViewportPort | undefined { return this.activeComponent; }

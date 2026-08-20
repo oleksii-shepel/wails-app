@@ -50,6 +50,9 @@ import { FilePaneTabsController, type FilePaneTabsHost } from './file-pane-tabs.
 import { FilePaneStateController, type FilePaneStateHost } from './file-pane-state.controller';
 import { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { FileClipboardService } from '../services/file-clipboard.service';
+import { OperationHistoryService } from '../services/operation-history.service';
+import { ActionFeedbackService } from '../services/action-feedback.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { OperationService } from '../services/operation.service';
 import { BatchRenameDialogService } from '../services/batch-rename-dialog.service';
@@ -71,7 +74,9 @@ import { FileContextMenuComponent, type FileContextMenuState } from './file-cont
 import type { SearchResultItem } from '../services/global-search.service';
 import { tabSurfaceId } from '../surfaces/tab-surface';
 import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState } from './pane-peer.port';
+import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, PaneTabState, PaneViewerState } from './pane-state.port';
 import type { PanePresentation, PanePresentationPort, PaneViewportPort, PaneViewportSnapshot } from './pane-component.contract';
+import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
 
 declare const window: any;
 
@@ -164,7 +169,7 @@ declare const window: any;
     }
   `]
 })
-export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort, PanePresentationPort, PaneViewportPort {
+export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort, PanePresentationPort, PaneViewportPort, PaneStatePort {
   private readonly dirStream: DirListStreamController;
   private readonly dirSessions = new Map<string, DirSurfaceSession>();
   private readonly dirTabStateController = new DirTabStateController();
@@ -175,6 +180,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   private readonly browserCommandsFactory = new FilePaneBrowserCommandsFactory();
   private readonly shortcutCommandsFactory = new FilePaneShortcutCommandsFactory();
   private readonly stateRuntimeFactory = new FilePaneStateRuntimeFactory();
+  private readonly clipboardCommands: PaneClipboardController;
   private readonly surfaceContextFactory = new FilePaneSurfaceContextFactory();
   private readonly surfaceHostsFactory = new FilePaneSurfaceHostsFactory();
   private activeDirTabId: string | null = null;
@@ -237,6 +243,77 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
     return getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() });
   }
 
+
+  get contextState(): PaneContextState {
+    const pane = this;
+    return {
+      get path() { return pane.currentPath; },
+      get entries() { return pane.entries; },
+      get visibleEntries() { return pane.filteredEntries; },
+      get activeSurfaceId() { return pane.activeSurfaceId; },
+      get viewMode() { return pane.currentView; },
+      get sourceCapabilities() { return pane.sourceCapabilities; },
+      get activePanelSource() {
+        return pane.panelSources.resolve({ path: pane.currentPath, entries: pane.entries });
+      },
+      get currentArchiveFrame() { return pane.archiveStack[pane.archiveStack.length - 1] ?? null; },
+      get isDirectoryTab() { return pane.activeSurfaceId === 'dir'; },
+      get isInArchive() { return pane.isInArchive(); },
+    };
+  }
+
+  get tabState(): PaneTabState {
+    const pane = this;
+    return {
+      get tabs() { return pane.tabs; },
+      get activeTab() {
+        return pane.workspaceService.getActiveTab(pane.paneId)
+          ?? pane.tabs.find(tab => tab.id === pane.currentTabId)
+          ?? null;
+      },
+      get activeViewerTab() {
+        const tab = pane.workspaceService.getActiveTab(pane.paneId)
+          ?? pane.tabs.find(candidate => candidate.id === pane.currentTabId)
+          ?? null;
+        return tab?.kind === 'viewer' ? tab : null;
+      },
+    };
+  }
+
+  get viewerState(): PaneViewerState {
+    const pane = this;
+    return {
+      get mountedViewer() { return pane.viewer ?? null; },
+      get viewerArchiveContext() { return (pane.tabState.activeViewerTab as any)?.archiveContext ?? null; },
+    };
+  }
+
+  get pinState(): PanePinState {
+    const pane = this;
+    return {
+      get location() {
+        const tab = pane.tabState.activeTab as any;
+        return tab?.path ?? pane.currentPath ?? '';
+      },
+      get surfaceId() { return pane.activeSurfaceId || 'dir'; },
+      get title() {
+        const tab = pane.tabState.activeTab as any;
+        return tab?.title?.trim() || tab?.path || pane.currentPath || '';
+      },
+    };
+  }
+
+  get mutationState(): PaneMutationState {
+    const pane = this;
+    return {
+      get hasSelection() { return pane.selectedFiles.size > 0; },
+      get canCreate() { return pane.actionAvailability.createFolder; },
+      get canRename() { return pane.actionAvailability.rename; },
+      get canDelete() { return pane.actionAvailability.deleteSelected; },
+      get canCut() { return pane.actionAvailability.cutSelected; },
+      get canPaste() { return pane.actionAvailability.paste; },
+    };
+  }
 
   get peerState(): PanePeerState {
     const pane = this;
@@ -912,6 +989,39 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
     return this.surfaceContextFactory.getActiveViewerArchiveContext(this.surfaceContextSource);
   }
 
+
+  get selectedEntries(): FileInfo[] {
+    if (!this.selectedFiles.size) return [];
+    return this.entries.filter(entry =>
+      entry.path !== PARENT_ENTRY_PATH && this.selectedFiles.has(entry.path),
+    );
+  }
+
+  private get clipboardHost(): PaneClipboardHost {
+    const pane = this;
+    return {
+      get paneId() { return pane.paneId; },
+      get path() { return pane.currentPath; },
+      get selectedEntries() { return pane.selectedEntries; },
+      get canCut() { return pane.mutationState.canCut && pane.contextState.isDirectoryTab && !pane.contextState.isInArchive; },
+      get canPaste() { return pane.mutationState.canPaste && pane.contextState.isDirectoryTab; },
+      get currentArchiveFrame() { return pane.archiveStack[pane.archiveStack.length - 1] ?? null; },
+      refresh: () => pane.refreshCurrentPathTransparently(),
+    };
+  }
+
+  copySelected(): void {
+    this.clipboardCommands.copy(this.clipboardHost);
+  }
+
+  cutSelected(): void {
+    this.clipboardCommands.cut(this.clipboardHost);
+  }
+
+  async paste(): Promise<void> {
+    await this.clipboardCommands.paste(this.clipboardHost);
+  }
+
   constructor(
     private apiService: ApiService,
     private workspaceService: WorkspaceService,
@@ -920,6 +1030,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
     private directorySource: DirectorySourceService,
     private panelSources: PanelSourceRegistryService,
     private confirmDialog: ConfirmDialogService,
+    private fileClipboard: FileClipboardService,
+    private operationHistory: OperationHistoryService,
+    private actionFeedback: ActionFeedbackService,
     private remoteConnectDialog: RemoteConnectDialogService,
     private operationService: OperationService,
     private batchRenameDialog: BatchRenameDialogService,
@@ -933,6 +1046,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeer
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
     this.operationsController = new FilePaneOperationsController(this.operationService, this.batchRenameDialog);
+    this.clipboardCommands = new PaneClipboardController(
+      this.fileClipboard,
+      this.apiService,
+      this.archiveService,
+      this.operationHistory,
+      this.actionFeedback,
+      this.confirmDialog,
+    );
     this.navigationController = new FilePaneNavigationController();
   }
 

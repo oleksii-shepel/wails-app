@@ -61,6 +61,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
+import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -2349,6 +2350,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       : path.trim(),
   );
 
+  private readonly clipboardCommands: PaneClipboardController;
+
   constructor(
     private readonly api: ApiService,
     private readonly directorySource: DirectorySourceService,
@@ -2370,6 +2373,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly cdr: ChangeDetectorRef,
   ) {
     this.dirStream = new DirListStreamController(this.api);
+    this.clipboardCommands = new PaneClipboardController(
+      this.fileClipboard,
+      this.api,
+      this.archiveService,
+      this.operationHistory,
+      this.actionFeedback,
+      this.confirmDialog,
+    );
   }
 
   get cursorEntry(): FileInfo | null {
@@ -5095,36 +5106,26 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  private get clipboardHost(): PaneClipboardHost {
+    const pane = this;
+    return {
+      get paneId() { return pane.paneId; },
+      get path() { return pane.path; },
+      get selectedEntries() { return pane.selectedEntries; },
+      get canCut() { return pane.canCut; },
+      get canPaste() { return pane.canPaste; },
+      get currentArchiveFrame() { return pane.currentArchiveFrame; },
+      refresh: () => pane.refresh(),
+      focusContent: () => pane.focusContent(),
+    };
+  }
+
   copySelected(): void {
-    const entries = this.selectedEntries;
-    if (entries.length === 0) return;
-
-    this.fileClipboard.set({
-      operation: 'copy',
-      paths: entries.map(entry => entry.path),
-      sourcePaneId: this.paneId,
-      archiveFrame: this.cloneCurrentArchiveFrame(),
-    });
-
-    this.lastAction = `copy ${entries.length}`;
-    this.cdr.markForCheck();
+    this.clipboardCommands.copy(this.clipboardHost);
   }
 
   cutSelected(): void {
-    if (!this.canCut) return;
-
-    const entries = this.selectedEntries;
-    if (entries.length === 0) return;
-
-    this.fileClipboard.set({
-      operation: 'cut',
-      paths: entries.map(entry => entry.path),
-      sourcePaneId: this.paneId,
-      archiveFrame: this.cloneCurrentArchiveFrame(),
-    });
-
-    this.lastAction = `cut ${entries.length}`;
-    this.cdr.markForCheck();
+    this.clipboardCommands.cut(this.clipboardHost);
   }
 
   async newDocumentTemplate(
@@ -6893,164 +6894,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async paste(): Promise<void> {
-    const clipboard = this.fileClipboard.payload;
-    if (!clipboard || !this.canPaste) return;
-
-    try {
-      if (clipboard.archiveFrame) {
-        const result = clipboard.operation === 'copy'
-          ? await this.archiveService.copy(
-              clipboard.archiveFrame,
-              clipboard.paths,
-              this.path,
-            )
-          : await this.archiveService.move(
-              clipboard.archiveFrame,
-              clipboard.paths,
-              this.path,
-            );
-
-        this.lastAction =
-          `paste archive ${clipboard.operation}: ` +
-          `${result.succeeded}/${result.total}`;
-
-        if (
-          clipboard.operation === 'cut' &&
-          result.failed === 0 &&
-          result.sourceRemoved
-        ) {
-          this.fileClipboard.clear();
-        }
-
-        await this.refresh();
-
-        if (result.failed > 0) {
-          await this.confirmDialog.alert({
-            title: 'Paste Completed with Errors',
-            message:
-              `${result.failed} archive entr${
-                result.failed === 1 ? 'y' : 'ies'
-              } could not be ${
-                clipboard.operation === 'copy' ? 'extracted' : 'moved'
-              }.`,
-          });
-        }
-        return;
-      }
-
-      const items = await Promise.all(
-        clipboard.paths.map(async source => ({
-          source,
-          destination: await this.api.joinPaths([
-            this.path,
-            this.leafName(source),
-          ]),
-        })),
-      );
-
-      const result =
-        clipboard.operation === 'copy'
-          ? await this.api.batchCopy(items, true)
-          : await this.api.batchMove(items, true);
-
-      const affected = result.affectedPaths ?? [];
-      if (
-        result.failed === 0 &&
-        result.skipped === 0 &&
-        affected.length === result.succeeded &&
-        affected.length > 0
-      ) {
-        this.operationHistory.record({
-          label: `${clipboard.operation === 'copy' ? 'Paste copy' : 'Paste move'} ${affected.length} item${affected.length === 1 ? '' : 's'}`,
-          kind: clipboard.operation === 'copy' ? 'paste-copy' : 'paste-move',
-          affectedPaths: affected.map(item => item.destination),
-          summary: `${affected.length} item${affected.length === 1 ? '' : 's'}`,
-          undo: async () => {
-            if (clipboard.operation === 'copy') {
-              const deletion = await this.api.batchDelete(
-                affected.map(item => item.destination), true, false,
-              );
-              if (deletion.failed > 0 || deletion.skipped > 0) {
-                throw new Error('Undo paste copy failed.');
-              }
-              return;
-            }
-            const back = await this.api.batchMove(
-              affected.map(item => ({
-                source: item.destination,
-                destination: item.source,
-                exactDestination: true,
-              })), true,
-            );
-            if (back.failed > 0 || back.skipped > 0) {
-              throw new Error('Undo paste move failed.');
-            }
-          },
-          redo: async () => {
-            const forward = affected.map(item => ({
-              source: item.source,
-              destination: item.destination,
-              exactDestination: true,
-            }));
-            const redone = clipboard.operation === 'copy'
-              ? await this.api.batchCopy(forward, true)
-              : await this.api.batchMove(forward, true);
-            if (redone.failed > 0 || redone.skipped > 0) {
-              throw new Error('Redo paste operation failed.');
-            }
-          },
-        });
-      } else if (result.succeeded > 0 || result.failed > 0 || result.skipped > 0) {
-        this.operationHistory.recordOutcome({
-          label: `${clipboard.operation === 'copy' ? 'Paste copy' : 'Paste move'} ${result.total} item${result.total === 1 ? '' : 's'}`,
-          kind: clipboard.operation === 'copy' ? 'paste-copy' : 'paste-move',
-          reversible: false,
-          affectedPaths: affected.map(item => item.destination),
-          state: result.failed > 0 || result.skipped > 0 ? 'partial' : 'completed',
-          summary: `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
-        });
-      }
-
-      this.lastAction =
-        `${clipboard.operation === 'copy' ? 'paste copy' : 'paste move'}: ` +
-        `${result.succeeded}/${result.total}`;
-
-      if (clipboard.operation === 'cut' && result.failed === 0) {
-        this.fileClipboard.clear();
-      }
-
-      if (result.failed === 0 && result.skipped === 0) {
-        this.actionFeedback.success(
-          clipboard.operation === 'copy' ? 'Paste completed' : 'Move completed',
-          `${result.succeeded} item${result.succeeded === 1 ? '' : 's'}`,
-        );
-      } else {
-        this.actionFeedback.warning(
-          'Paste completed with issues',
-          `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
-        );
-      }
-
-      await this.refresh();
-      this.focusContent();
-
-      if (result.failed > 0 || result.skipped > 0) {
-        await this.confirmDialog.alert({
-          title: 'Paste Completed with Issues',
-          message:
-            [
-              result.failed > 0
-                ? `${result.failed} item${result.failed === 1 ? '' : 's'} failed.`
-                : '',
-              result.skipped > 0
-                ? `${result.skipped} item${result.skipped === 1 ? '' : 's'} were skipped.`
-                : '',
-            ].filter(Boolean).join('\n'),
-        });
-      }
-    } catch (error) {
-      await this.showOperationError('Paste', error);
-    }
+    await this.clipboardCommands.paste(this.clipboardHost);
   }
 
 

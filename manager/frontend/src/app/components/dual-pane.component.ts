@@ -438,10 +438,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         *ngIf="workspacePresentation?.kind !== 'tool'"
         class="comparison-surface"
         [visible]="comparisonVisible"
-        [leftEntries]="leftPane?.entries ?? []"
-        [rightEntries]="rightPane?.entries ?? []"
-        [leftPath]="leftPane?.path ?? ''"
-        [rightPath]="rightPane?.path ?? ''"
+        [leftEntries]="leftPane?.contextState.entries ?? []"
+        [rightEntries]="rightPane?.contextState.entries ?? []"
+        [leftPath]="leftPane?.contextState.path ?? ''"
+        [rightPath]="rightPane?.contextState.path ?? ''"
         [recursive]="comparisonRecursive"
         [scanning]="recursiveComparisonScanning"
         [error]="recursiveComparisonError"
@@ -685,15 +685,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <app-path-history
         #pathHistory
         [paneId]="activePaneId"
-        [currentPath]="activePane?.path ?? ''"
+        [currentPath]="activePane?.contextState.path ?? ''"
         (navigate)="navigateFromHistory($event)">
       </app-path-history>
 
       <app-quick-access
         #quickAccess
         [paneId]="activePaneId"
-        [currentPath]="activePane?.path ?? ''"
-        [currentSurfaceId]="activePane?.activeSurfaceId || 'dir'"
+        [currentPath]="activePane?.contextState.path ?? ''"
+        [currentSurfaceId]="activePane?.contextState.activeSurfaceId || 'dir'"
         (navigate)="navigateFromQuickAccess($event)"
         (openTarget)="openQuickAccessTarget($event)">
       </app-quick-access>
@@ -1123,8 +1123,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   pluginSelectionPaths(): string[] {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return [];
-    return pane.selectedEntries
+    if (!pane?.contextState.isDirectoryTab) return [];
+    return pane.selection.selectedEntries
       .filter(entry => entry.path && entry.path !== '__parent__')
       .map(entry => entry.path);
   }
@@ -1132,11 +1132,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   pluginToolbarActionsFor(
     pane: PaneHostComponent | undefined,
   ): readonly PresentedCommand[] {
-    if (!pane?.isDirectoryTab) return [];
+    if (!pane?.contextState.isDirectoryTab) return [];
 
     const context: ToolbarContext = {
-      selectedPaths: pane.selectedEntries.map(entry => entry.path),
-      currentDirectory: pane.path,
+      selectedPaths: pane.selection.selectedEntries.map(entry => entry.path),
+      currentDirectory: pane.contextState.path,
     };
 
     return adaptPluginToolbarActions(
@@ -1150,12 +1150,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     pane: PaneHostComponent | undefined,
     targetPath: string,
   ): ContextMenuItem[] {
-    if (!pane?.isDirectoryTab) return [];
+    if (!pane?.contextState.isDirectoryTab) return [];
 
     const context: MenuContext = {
       targetPath,
-      selectedPaths: pane.selectedEntries.map(entry => entry.path),
-      currentDirectory: pane.path,
+      selectedPaths: pane.selection.selectedEntries.map(entry => entry.path),
+      currentDirectory: pane.contextState.path,
     };
 
     return this.pluginManager
@@ -1190,7 +1190,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             source: 'palette',
             context: {
               paneId: this.activePaneId,
-              path: this.activePane?.path ?? '',
+              path: this.activePane?.contextState.path ?? '',
               selectedPaths: this.pluginSelectionPaths(),
             },
           });
@@ -1218,7 +1218,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
               source: 'palette',
               context: {
                 paneId: this.activePaneId,
-                path: this.activePane?.path ?? '',
+                path: this.activePane?.contextState.path ?? '',
                 selectedPaths: this.pluginSelectionPaths(),
               },
             });
@@ -1325,11 +1325,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   get paneLocationRelation(): ReturnType<typeof analyzePaneLocations>['relation'] {
-    return analyzePaneLocations(this.leftPane?.path ?? '', this.rightPane?.path ?? '').relation;
+    return analyzePaneLocations(this.leftPane?.contextState.path ?? '', this.rightPane?.contextState.path ?? '').relation;
   }
 
   get paneRelationLabel(): string {
-    const result = analyzePaneLocations(this.leftPane?.path ?? '', this.rightPane?.path ?? '');
+    const result = analyzePaneLocations(this.leftPane?.contextState.path ?? '', this.rightPane?.contextState.path ?? '');
     if (result.relation === 'same') return 'Same location';
     if (result.relation === 'left-inside-right') return `Left is ${result.depthDelta} level${result.depthDelta === 1 ? '' : 's'} deeper`;
     if (result.relation === 'right-inside-left') return `Right is ${result.depthDelta} level${result.depthDelta === 1 ? '' : 's'} deeper`;
@@ -1337,7 +1337,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   get paneRelationTitle(): string {
-    return `Left: ${this.leftPane?.path || '—'}\nRight: ${this.rightPane?.path || '—'}`;
+    return `Left: ${this.leftPane?.contextState.path || '—'}\nRight: ${this.rightPane?.contextState.path || '—'}`;
   }
 
   toggleMirrorPresentation(): void {
@@ -1345,10 +1345,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (!this.mirrorPresentation) this.mirrorFilter = false;
 
     if (this.mirrorPresentation && this.activePane) {
-      this.onPanePresentationChange(
-        this.activePaneId,
-        this.activePane.panePresentation(),
-      );
+      const presentation = this.activePane.presentation?.panePresentation();
+      if (presentation) {
+        this.onPanePresentationChange(this.activePaneId, presentation);
+      }
     }
 
     this.linkStatus = this.mirrorPresentation ? 'presentation mirrored' : '';
@@ -1361,10 +1361,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.mirrorFilter = !this.mirrorFilter;
 
     if (this.mirrorFilter && this.activePane) {
-      this.onPanePresentationChange(
-        this.activePaneId,
-        this.activePane.panePresentation(),
-      );
+      const presentation = this.activePane.presentation?.panePresentation();
+      if (presentation) {
+        this.onPanePresentationChange(this.activePaneId, presentation);
+      }
     }
 
     this.linkStatus = this.mirrorFilter ? 'filter mirrored' : 'filter independent';
@@ -1380,9 +1380,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (!this.mirrorPresentation) return;
 
     const target = paneId === 'left' ? this.rightPane : this.leftPane;
-    if (!target?.isDirectoryTab) return;
+    if (!target?.contextState.isDirectoryTab) return;
 
-    target.applyMirroredPresentation(presentation, {
+    target.presentation?.applyMirroredPresentation(presentation, {
       filter: this.mirrorFilter,
     });
     this.linkStatus = this.mirrorFilter
@@ -1402,7 +1402,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.linkStatus = '';
 
     if (this.linkedNavigation) {
-      this.linkedRoots = { left:this.leftPane?.path ?? '', right:this.rightPane?.path ?? '' };
+      this.linkedRoots = { left:this.leftPane?.contextState.path ?? '', right:this.rightPane?.contextState.path ?? '' };
       this.linkStatus = 'roots linked';
     } else {
       this.linkedRoots = null;
@@ -1672,8 +1672,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   async saveCurrentPanePreset(): Promise<void> {
-    const left = this.leftPane?.path ?? '';
-    const right = this.rightPane?.path ?? '';
+    const left = this.leftPane?.contextState.path ?? '';
+    const right = this.rightPane?.contextState.path ?? '';
     if (!left || !right) return;
 
     const suggested =
@@ -1730,11 +1730,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   ): Promise<void> {
     const leftPane = this.leftPane;
     const rightPane = this.rightPane;
-    if (!leftPane?.isDirectoryTab || !rightPane?.isDirectoryTab) return;
+    if (!leftPane?.contextState.isDirectoryTab || !rightPane?.contextState.isDirectoryTab) return;
 
     const [leftExists, rightExists] = await Promise.all([
-      leftPane.canNavigateToLocation(preset.roots.left),
-      rightPane.canNavigateToLocation(preset.roots.right),
+      leftPane.navigation?.canNavigateToLocation(preset.roots.left),
+      rightPane.navigation?.canNavigateToLocation(preset.roots.right),
     ]);
 
     if (!leftExists || !rightExists) {
@@ -1751,11 +1751,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.restoringPaneIntelligence = true;
     try {
       const [leftLoaded, rightLoaded] = await Promise.all([
-        leftPane.navigateLinkedLocation(preset.roots.left, {
+        leftPane.navigation?.navigateLinkedLocation(preset.roots.left, {
           history: 'record',
           preserveCursor: false,
         }),
-        rightPane.navigateLinkedLocation(preset.roots.right, {
+        rightPane.navigation?.navigateLinkedLocation(preset.roots.right, {
           history: 'record',
           preserveCursor: false,
         }),
@@ -1841,12 +1841,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       if (
         this.linkedNavigation &&
         !this.linkedRoots &&
-        this.leftPane?.path &&
-        this.rightPane?.path
+        this.leftPane?.contextState.path &&
+        this.rightPane?.contextState.path
       ) {
         this.linkedRoots = {
-          left: this.leftPane.path,
-          right: this.rightPane.path,
+          left: this.leftPane.contextState.path,
+          right: this.rightPane.contextState.path,
         };
       }
 
@@ -1864,9 +1864,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   get canMatchOtherPane(): boolean {
-    return !!this.activePane?.isDirectoryTab &&
-      !!this.otherPane?.isDirectoryTab &&
-      !!this.activePane.path;
+    return !!this.activePane?.contextState.isDirectoryTab &&
+      !!this.otherPane?.contextState.isDirectoryTab &&
+      !!this.activePane.contextState.path;
   }
 
   get canSwapLinkedRoots(): boolean {
@@ -1883,7 +1883,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   } | null {
     const source = this.activePane;
     const peer = this.otherPane;
-    const cursor = source?.cursorEntry;
+    const cursor = source?.selection?.cursorEntry;
 
     if (!source || !peer || !cursor || cursor.path === '__parent__') return null;
 
@@ -1897,7 +1897,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     });
 
     if (!item) {
-      const peerEntry = peer.entries.find(candidate =>
+      const peerEntry = peer.contextState.entries.find(candidate =>
         candidate.path !== '__parent__' &&
         candidate.name.toLocaleLowerCase() === cursor.name.toLocaleLowerCase()
       ) ?? null;
@@ -1942,23 +1942,23 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const source = this.activePane;
     const target = this.otherPane;
 
-    if (!source?.isDirectoryTab || !target?.isDirectoryTab || !source.path) {
+    if (!source?.contextState.isDirectoryTab || !target?.contextState.isDirectoryTab || !source.contextState.path) {
       return;
     }
 
-    if (source.path === target.path) {
+    if (source.contextState.path === target.contextState.path) {
       this.linkStatus = 'already matched';
       this.cdr.markForCheck();
       return;
     }
 
-    if (!(await target.canNavigateToLocation(source.path))) {
-      this.linkStatus = `cannot match: ${source.path}`;
+    if (!(await target.navigation?.canNavigateToLocation(source.contextState.path))) {
+      this.linkStatus = `cannot match: ${source.contextState.path}`;
       this.cdr.markForCheck();
       return;
     }
 
-    const loaded = await target.navigateLinkedLocation(source.path, {
+    const loaded = await target.navigation?.navigateLinkedLocation(source.contextState.path, {
       history: 'record',
       preserveCursor: false,
     });
@@ -1988,9 +1988,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const targetPaneId: PaneId =
       this.activePaneId === 'left' ? 'right' : 'left';
 
-    target.selectComparisonItem(correspondence.peerEntry.path);
+    target.selection?.selectComparisonItem(correspondence.peerEntry.path);
     this.activate(targetPaneId, true);
-    target.openEntry(correspondence.peerEntry);
+    void target.viewerCommands?.openEntry(correspondence.peerEntry);
 
     this.linkStatus = `opened peer: ${correspondence.name}`;
     this.cdr.markForCheck();
@@ -1999,21 +1999,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   async transferCurrentToPeer(operation: 'copy' | 'move'): Promise<void> {
     const sourcePane = this.activePane;
     const destinationPane = this.otherPane;
-    const source = sourcePane?.cursorEntry;
+    const source = sourcePane?.selection?.cursorEntry;
 
     if (
-      !sourcePane?.isDirectoryTab ||
-      !destinationPane?.isDirectoryTab ||
+      !sourcePane?.contextState.isDirectoryTab ||
+      !destinationPane?.contextState.isDirectoryTab ||
       !source ||
-      source.path === '__parent__'
+      source.contextState.path === '__parent__'
     ) {
       return;
     }
 
     const decision = canTransferBetween(
       operation,
-      sourcePane.sourceCapabilities,
-      destinationPane.sourceCapabilities,
+      sourcePane.contextState.sourceCapabilities,
+      destinationPane.contextState.sourceCapabilities,
     );
 
     if (!decision.allowed) {
@@ -2024,11 +2024,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     const destination = await this.api.joinPaths([
-      destinationPane.path,
+      destinationPane.contextState.path,
       source.name,
     ]);
 
-    if (destination === source.path) {
+    if (destination === source.contextState.path) {
       this.linkStatus = 'same resource';
       this.cdr.markForCheck();
       return;
@@ -2037,7 +2037,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (operation === 'move') {
       const confirmed = await this.confirmDialog.confirm({
         title: 'Move to Other Pane',
-        message: `Move "${source.name}" to ${destinationPane.path}?`,
+        message: `Move "${source.name}" to ${destinationPane.contextState.path}?`,
         confirmText: 'Move',
       });
       if (!confirmed) return;
@@ -2045,7 +2045,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     try {
       const request = [{
-        source: source.path,
+        source: source.contextState.path,
         destination,
         exactDestination: true,
       }];
@@ -2111,18 +2111,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       }
 
       await Promise.all([
-        destinationPane.refresh(),
+        destinationPane.navigation?.refresh(),
         operation === 'move'
-          ? sourcePane.refresh()
+          ? sourcePane.navigation?.refresh()
           : Promise.resolve(),
       ]);
 
       this.invalidatePaneComparison('file operation changed pane contents');
-      sourcePane.recoverVisibleCursor();
-      destinationPane.recoverVisibleCursor();
+      sourcePane.selection?.recoverVisibleCursor();
+      destinationPane.selection?.recoverVisibleCursor();
 
       if (result.succeeded > 0) {
-        destinationPane.selectComparisonItem(destination);
+        destinationPane.selection?.selectComparisonItem(destination);
         this.linkStatus =
           `${operation === 'copy' ? 'copied' : 'moved'} peer: ${source.name}`;
       }
@@ -2153,30 +2153,30 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private canTransferCurrentToPeer(operation: 'copy' | 'move'): boolean {
     const sourcePane = this.activePane;
     const destinationPane = this.otherPane;
-    const source = sourcePane?.cursorEntry;
+    const source = sourcePane?.selection?.cursorEntry;
 
     if (
-      !sourcePane?.isDirectoryTab ||
-      !destinationPane?.isDirectoryTab ||
+      !sourcePane?.contextState.isDirectoryTab ||
+      !destinationPane?.contextState.isDirectoryTab ||
       !source ||
-      source.path === '__parent__'
+      source.contextState.path === '__parent__'
     ) {
       return false;
     }
 
     return canTransferBetween(
       operation,
-      sourcePane.sourceCapabilities,
-      destinationPane.sourceCapabilities,
+      sourcePane.contextState.sourceCapabilities,
+      destinationPane.contextState.sourceCapabilities,
     ).allowed;
   }
 
   private currentPanePairSignature(): string {
     return [
-      this.leftPane?.path ?? '',
-      this.rightPane?.path ?? '',
-      this.leftPane?.visibleEntries?.length ?? 0,
-      this.rightPane?.visibleEntries?.length ?? 0,
+      this.leftPane?.contextState.path ?? '',
+      this.rightPane?.contextState.path ?? '',
+      this.leftPane?.contextState.visibleEntries?.length ?? 0,
+      this.rightPane?.contextState.visibleEntries?.length ?? 0,
     ].join('|');
   }
 
@@ -2207,8 +2207,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     try {
       const [leftAvailable, rightAvailable] = await Promise.all([
-        left.currentLocationAvailable(),
-        right.currentLocationAvailable(),
+        left.navigation?.currentLocationAvailable(),
+        right.navigation?.currentLocationAvailable(),
       ]);
 
       if (epoch !== this.paneIntelligenceEpoch) return false;
@@ -2228,8 +2228,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       if (this.linkedNavigation && this.linkedRoots) {
         const [leftRootAvailable, rightRootAvailable] = await Promise.all([
-          left.canNavigateToLocation(this.linkedRoots.left),
-          right.canNavigateToLocation(this.linkedRoots.right),
+          left.navigation?.canNavigateToLocation(this.linkedRoots.left),
+          right.navigation?.canNavigateToLocation(this.linkedRoots.right),
         ]);
 
         if (epoch !== this.paneIntelligenceEpoch) return false;
@@ -2299,10 +2299,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     if (this.syncScroll && this.activePane) {
-      this.onPaneViewportChange(
-        this.activePaneId,
-        this.activePane.viewportSnapshot(),
-      );
+      const snapshot = this.activePane.viewport?.viewportSnapshot();
+      if (snapshot) {
+        this.onPaneViewportChange(this.activePaneId, snapshot);
+      }
     }
   }
 
@@ -2314,11 +2314,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     void this.ensurePaneIntelligenceHealth('scroll sync');
     const target = paneId === 'left' ? this.rightPane : this.leftPane;
-    if (!target?.isDirectoryTab) return;
+    if (!target?.contextState.isDirectoryTab) return;
 
     this.scrollSyncGuard = true;
     try {
-      target.syncViewportToPeer(snapshot);
+      target.viewport?.syncViewportToPeer(snapshot);
       this.linkStatus = snapshot.topName
         ? `aligned near: ${snapshot.topName}`
         : 'scroll ratio aligned';
@@ -2374,7 +2374,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.persistPaneIntelligence();
     this.cdr.markForCheck();
 
-    const cursor = this.activePane?.cursorEntry;
+    const cursor = this.activePane?.selection.cursorEntry;
     if (this.followSelection && cursor) {
       this.onLinkedPaneCursorChange(this.activePaneId, cursor);
     }
@@ -2402,7 +2402,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (mirrored === targetPane.path) {
+    if (mirrored === targetPane.contextState.path) {
       this.linkStatus = 'aligned';
       this.cdr.markForCheck();
       return;
@@ -2411,7 +2411,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     let peer = mirrored;
     let exact = true;
 
-    if (!(await targetPane.canNavigateToLocation(peer))) {
+    if (!(await targetPane.navigation?.canNavigateToLocation(peer))) {
       exact = false;
       const candidates = mirroredPeerCandidates(
         path,
@@ -2421,7 +2421,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       peer = '';
       for (const candidate of candidates) {
-        if (await targetPane.canNavigateToLocation(candidate)) {
+        if (await targetPane.navigation?.canNavigateToLocation(candidate)) {
           peer = candidate;
           break;
         }
@@ -2436,7 +2436,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     this.linkedNavigationGuard++;
     try {
-      const loaded = await targetPane.navigateLinkedLocation(peer, {
+      const loaded = await targetPane.navigation?.navigateLinkedLocation(peer, {
         history: 'record',
         preserveCursor: false,
       });
@@ -2458,7 +2458,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     this.linkedSelectionGuard = true;
     try {
-      const followed = targetPane.selectPeerByName(entry.name);
+      const followed = targetPane.selection?.selectPeerByName(entry.name);
       this.linkStatus = followed ? `follow: ${entry.name}` : `no peer: ${entry.name}`;
     } finally {
       this.linkedSelectionGuard = false;
@@ -2512,10 +2512,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   openGlobalSearch(): void {
-    const root = this.activePane?.isDirectoryTab
-      ? this.activePane.path
-      : this.otherPane?.isDirectoryTab
-        ? this.otherPane.path
+    const root = this.activePane?.contextState.isDirectoryTab
+      ? this.activePane.contextState.path
+      : this.otherPane?.contextState.isDirectoryTab
+        ? this.otherPane.contextState.path
         : '';
     if (!root) return;
     this.globalSearchOverlay?.open(root);
@@ -2533,39 +2533,39 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   async quickPathJump(): Promise<void> {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
+    if (!pane?.contextState.isDirectoryTab) return;
 
     const path = (await this.confirmDialog.prompt({
       title: 'Go to Path',
       message: 'Enter a local, VFS, or remote location.',
       confirmText: 'Go',
-      defaultValue: pane.path,
+      defaultValue: pane.contextState.path,
       historyKey: 'reassembly.path.jump',
     }))?.trim();
 
     if (!path) return;
-    pane.navigateTo(path);
+    pane.navigation?.navigateTo(path);
   }
 
   quickViewActive(): void {
     const pane = this.activePane;
-    const entry = pane?.cursorEntry;
-    if (!pane?.isDirectoryTab || !entry) return;
+    const entry = pane?.selection.cursorEntry;
+    if (!pane?.contextState.isDirectoryTab || !entry) return;
     if (entry.type === FileType.DIRECTORY) return;
-    pane.openQuickView(entry);
+    pane.viewerCommands?.openQuickView(entry);
   }
 
   async openActiveExternally(): Promise<void> {
     const pane = this.activePane;
     if (!pane) return;
 
-    if (pane.activeTab?.kind === 'viewer') {
-      await pane.openActiveViewerExternally();
+    if (pane.tabState.activeTab?.kind === 'viewer') {
+      await pane.viewerCommands?.openActiveViewerExternally();
       return;
     }
 
-    const entry = pane.cursorEntry;
-    if (!pane.isDirectoryTab || !entry) return;
+    const entry = pane.selection.cursorEntry;
+    if (!pane.contextState.isDirectoryTab || !entry) return;
     if (entry.type === FileType.DIRECTORY) return;
 
     try {
@@ -2581,18 +2581,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   async openActiveWithChooser(): Promise<void> {
     const pane = this.activePane;
     const entry =
-      pane?.activeTab?.kind === 'viewer'
-        ? pane.activeViewerTab
-        : pane?.cursorEntry;
+      pane?.tabState.activeTab?.kind === 'viewer'
+        ? pane.tabState.activeViewerTab
+        : pane?.selection.cursorEntry;
 
     const path =
-      pane?.activeTab?.kind === 'viewer'
-        ? pane.activeViewerTab?.targetPath
-        : pane?.cursorEntry?.path;
+      pane?.tabState.activeTab?.kind === 'viewer'
+        ? pane.tabState.activeViewerTab?.targetPath
+        : pane?.selection.cursorEntry?.path;
 
-    if (!pane || !path || pane.isInArchive) return;
-    if (pane.activeTab?.kind !== 'viewer' &&
-        pane.cursorEntry?.type === FileType.DIRECTORY) return;
+    if (!pane || !path || pane.contextState.isInArchive) return;
+    if (pane.tabState.activeTab?.kind !== 'viewer' &&
+        pane.selection.cursorEntry?.type === FileType.DIRECTORY) return;
 
     try {
       const osInfo = await this.api.getOSInfo();
@@ -2625,8 +2625,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private async handleDriveTopologyChange(): Promise<void> {
     await this.ensurePaneIntelligenceHealth('storage topology changed');
     await Promise.all([
-      this.leftPane?.isDirectoryTab ? this.leftPane.navigation?.refresh() : Promise.resolve(),
-      this.rightPane?.isDirectoryTab ? this.rightPane.navigation?.refresh() : Promise.resolve(),
+      this.leftPane?.contextState.isDirectoryTab ? this.leftPane.navigation?.refresh() : Promise.resolve(),
+      this.rightPane?.contextState.isDirectoryTab ? this.rightPane.navigation?.refresh() : Promise.resolve(),
     ]);
     this.lastTransfer = 'drives/roots changed';
     this.cdr.markForCheck();
@@ -2638,11 +2638,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   navigateFromRemoteConnections(path: string): void {
-    const pane = this.activePane?.isDirectoryTab ? this.activePane :
-      this.otherPane?.isDirectoryTab ? this.otherPane : null;
+    const pane = this.activePane?.contextState.isDirectoryTab ? this.activePane :
+      this.otherPane?.contextState.isDirectoryTab ? this.otherPane : null;
     if (!pane || !path) return;
-    pane.navigateTo(path);
-    pane.lastAction = `remote: ${path}`;
+    pane.navigation?.navigateTo(path);
     this.cdr.markForCheck();
   }
 
@@ -2655,28 +2654,28 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   openSearchResult(entry: FileInfo): void {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
+    if (!pane?.contextState.isDirectoryTab) return;
 
     if (entry.type === FileType.DIRECTORY) {
-      pane.navigateTo(entry.path);
+      pane.navigation?.navigateTo(entry.path);
       return;
     }
 
-    pane.openViewer(entry);
+    pane.viewerCommands?.openViewer(entry);
   }
 
   async openSearchResultsPanel(
     request: SearchResultsPanelRequest,
   ): Promise<void> {
-    const pane = this.activePane?.isDirectoryTab
+    const pane = this.activePane?.contextState.isDirectoryTab
       ? this.activePane
-      : this.otherPane?.isDirectoryTab
+      : this.otherPane?.contextState.isDirectoryTab
         ? this.otherPane
         : null;
 
     if (!pane || request.entries.length === 0) return;
 
-    await pane.openResultsPanel(
+    await pane.viewerCommands?.openResultsPanel(
       request.title,
       request.entries,
       request.query.startsWith('recent:')
@@ -2701,15 +2700,15 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   async openDiscoveryPanelPath(path: string): Promise<void> {
     if (!/^results:\/\//i.test(path)) return;
 
-    const pane = this.activePane?.isDirectoryTab
+    const pane = this.activePane?.contextState.isDirectoryTab
       ? this.activePane
-      : this.otherPane?.isDirectoryTab
+      : this.otherPane?.contextState.isDirectoryTab
         ? this.otherPane
         : null;
 
     if (!pane) return;
 
-    const loaded = await pane.navigateLinkedLocation(path, {
+    const loaded = await pane.navigation?.navigateLinkedLocation(path, {
       history: 'record',
       preserveCursor: false,
     });
@@ -2774,7 +2773,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const summary = result.summary;
     this.workspacePresentation = this.workspaceSurfaces.openToolWorkspace(
-      `Compare: ${this.leafName(this.leftPane.path)} ↔ ${this.leafName(this.rightPane.path)}`,
+      `Compare: ${this.leafName(this.leftPane.contextState.path)} ↔ ${this.leafName(this.rightPane.contextState.path)}`,
       splitLayout(
         'vertical',
         surfaceLayout(
@@ -2784,8 +2783,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             'Comparison',
             'primary',
             {
-              leftPath: this.leftPane.path,
-              rightPath: this.rightPane.path,
+              leftPath: this.leftPane.contextState.path,
+              rightPath: this.rightPane.contextState.path,
               recursive: this.comparisonRecursive,
               rows,
               busy: false,
@@ -2824,11 +2823,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   async openDetailsWorkspace(): Promise<void> {
     const pane = this.activePane;
-    const entry = pane?.cursorEntry;
+    const entry = pane?.selection.cursorEntry;
     if (!pane || !entry) return;
 
     try {
-      const info = pane.isInArchive
+      const info = pane.contextState.isInArchive
         ? entry
         : await this.api.getFileInfo(entry.path);
 
@@ -2841,7 +2840,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       };
 
       const size =
-        !pane.isInArchive && info.type === FileType.DIRECTORY
+        !pane.contextState.isInArchive && info.type === FileType.DIRECTORY
           ? await this.api.dirSizeRecursive(info.path)
           : Number(info.size) || 0;
 
@@ -2864,8 +2863,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             'primary',
             {
               path: info.path,
-              sourceKind: pane.activePanelSource.source.kind,
-              inArchive: pane.isInArchive,
+              sourceKind: pane.contextState.activePanelSource.source.kind,
+              inArchive: pane.contextState.isInArchive,
               busy: false,
               error: '',
               refreshedAt: new Date().toLocaleTimeString(),
@@ -2879,10 +2878,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
                 { label: 'Accessed', value: timestamp(info.accessed) },
                 { label: 'Permissions', value: info.permissions || '—' },
                 { label: 'Symbolic link', value: info.isSymlink ? 'Yes' : 'No' },
-                { label: 'Source', value: pane.activePanelSource.source.title },
+                { label: 'Source', value: pane.contextState.activePanelSource.source.title },
               ],
             },
-            pane.isInArchive
+            pane.contextState.isInArchive
               ? [{ id: 'refresh', title: 'Refresh' }]
               : [
                   { id: 'refresh', title: 'Refresh' },
@@ -3273,35 +3272,33 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   openSearchContainingFolder(entry: FileInfo): void {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
+    if (!pane?.contextState.isDirectoryTab) return;
 
     const target = entry.type === FileType.DIRECTORY
       ? entry.path
       : this.parentLocation(entry.path);
 
-    pane.navigateTo(target);
-    pane.lastAction = `search folder: ${target}`;
+    pane.navigation?.navigateTo(target);
     this.cdr.markForCheck();
   }
 
   navigateFromTools(path: string): void {
-    const pane = this.activePane?.isDirectoryTab
+    const pane = this.activePane?.contextState.isDirectoryTab
       ? this.activePane
-      : this.otherPane?.isDirectoryTab
+      : this.otherPane?.contextState.isDirectoryTab
         ? this.otherPane
         : null;
 
     if (!pane || !path) return;
-    pane.navigateTo(path);
-    pane.lastAction = `tools: ${path}`;
+    pane.navigation?.navigateTo(path);
     this.cdr.markForCheck();
   }
 
   openTools(page: 'operations' | 'disk' | 'duplicates'): void {
-    const rootPath = this.activePane?.isDirectoryTab
-      ? this.activePane.path
-      : this.otherPane?.isDirectoryTab
-        ? this.otherPane.path
+    const rootPath = this.activePane?.contextState.isDirectoryTab
+      ? this.activePane.contextState.path
+      : this.otherPane?.contextState.isDirectoryTab
+        ? this.otherPane.contextState.path
         : '';
 
     this.toolsCenter?.open(page, rootPath);
@@ -3310,7 +3307,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   async batchRenameActiveSelection(): Promise<void> {
     const pane = this.activePane;
 
-    if (!pane?.isDirectoryTab) {
+    if (!pane?.contextState.isDirectoryTab) {
       await this.confirmDialog.alert({
         title: 'Batch Rename',
         message: 'Batch Rename is available from a directory pane.',
@@ -3318,7 +3315,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (!pane.sourceCapabilities.rename) {
+    if (!pane.contextState.sourceCapabilities.rename) {
       await this.confirmDialog.alert({
         title: 'Batch Rename',
         message: 'This location does not allow renaming.',
@@ -3326,7 +3323,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const selected = pane.selectedEntries;
+    const selected = pane.selection.selectedEntries;
     if (selected.length < 2) {
       await this.confirmDialog.alert({
         title: 'Batch Rename',
@@ -3343,7 +3340,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       newName: entry.name,
     }));
 
-    const renamed = await this.batchRenameDialog.openDialog(items, pane.path);
+    const renamed = await this.batchRenameDialog.openDialog(items, pane.contextState.path);
     if (!renamed?.length) return;
 
     const moves = await Promise.all(
@@ -3393,9 +3390,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     if (!pane) return;
 
-    await pane.reloadWorkspaceTabs(restored.tab.id);
-    pane.lastAction = `reopen tab: ${restored.tab.title}`;
-    pane.focusContent();
+    await pane.tabCommands?.reloadWorkspaceTabs(restored.tab.id);
+    pane.navigation?.focusContent();
     this.closedTabsVisible = false;
     this.cdr.markForCheck();
   }
@@ -3416,9 +3412,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     if (!pane) return;
 
-    await pane.reloadWorkspaceTabs(restored.tab.id);
-    pane.lastAction = `reopen tab: ${restored.tab.title}`;
-    pane.focusContent();
+    await pane.tabCommands?.reloadWorkspaceTabs(restored.tab.id);
+    pane.navigation?.focusContent();
     this.closedTabsVisible = false;
     this.cdr.markForCheck();
   }
@@ -3428,10 +3423,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const destination = this.otherPane;
     if (!source || !destination) return;
 
-    const tabId = source.exportActiveTabId();
+    const tabId = source.tabCommands?.exportActiveTabId();
     if (!tabId) return;
 
-    const toIndex = destination.exportTabCount();
+    const toIndex = destination.tabCommands?.exportTabCount() ?? 0;
     const moved = this.workspaceService.moveTab(
       this.activePaneId,
       this.activePaneId === 'left' ? 'right' : 'left',
@@ -3444,8 +3439,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.activePaneId === 'left' ? 'right' : 'left';
 
     await Promise.all([
-      source.reloadWorkspaceTabs(),
-      destination.reloadWorkspaceTabs(tabId),
+      source.tabCommands?.reloadWorkspaceTabs(),
+      destination.tabCommands?.reloadWorkspaceTabs(tabId),
     ]);
 
     this.activate(destinationId);
@@ -3456,10 +3451,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const pane = this.activePane;
     if (!pane) return;
 
-    const tabId = pane.exportActiveTabId();
+    const tabId = pane.tabCommands?.exportActiveTabId();
     if (!tabId) return;
 
-    const currentCount = pane.exportTabCount();
+    const currentCount = pane.tabCommands?.exportTabCount() ?? 0;
     const workspace = this.workspaceService.activeWorkspace$.value;
     const paneState =
       this.activePaneId === 'left'
@@ -3483,7 +3478,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     );
     if (!moved) return;
 
-    await pane.reloadWorkspaceTabs(tabId);
+    await pane.tabCommands?.reloadWorkspaceTabs(tabId);
     this.cdr.markForCheck();
   }
 
@@ -3492,7 +3487,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       const label = await this.operationHistory.undo();
       if (!label) return;
       await this.refreshBothPanes();
-      if (this.activePane) this.activePane.lastAction = `undo: ${label}`;
       this.cdr.markForCheck();
     } catch (error) {
       await this.confirmDialog.alert({
@@ -3507,7 +3501,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       const label = await this.operationHistory.redo();
       if (!label) return;
       await this.refreshBothPanes();
-      if (this.activePane) this.activePane.lastAction = `redo: ${label}`;
       this.cdr.markForCheck();
     } catch (error) {
       await this.confirmDialog.alert({
@@ -3519,11 +3512,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   async openTerminalHere(): Promise<void> {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab || pane.isInArchive || !pane.path) return;
+    if (!pane?.contextState.isDirectoryTab || pane.contextState.isInArchive || !pane.contextState.path) return;
 
     try {
-      await this.api.openTerminalAt(pane.path);
-      pane.lastAction = `terminal: ${pane.path}`;
+      await this.api.openTerminalAt(pane.contextState.path);
       this.cdr.markForCheck();
     } catch (error) {
       await this.confirmDialog.alert({
@@ -3552,12 +3544,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   addActiveSelectionToBasket(): void {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
+    if (!pane?.contextState.isDirectoryTab) return;
 
-    const paths = pane.selectedPaths.size > 0
-      ? Array.from(pane.selectedPaths)
-      : pane.cursorPath
-        ? [pane.cursorPath]
+    const paths = pane.selection.selectedPaths.size > 0
+      ? Array.from(pane.selection.selectedPaths)
+      : pane.selection.cursorPath
+        ? [pane.selection.cursorPath]
         : [];
 
     if (paths.length === 0) return;
@@ -3566,8 +3558,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       paths,
       `pane:${this.activePaneId}`,
     );
-
-    pane.lastAction = `basket: +${added}`;
     this.cdr.markForCheck();
   }
 
@@ -3634,12 +3624,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const destination =
       destinationSide === 'left' ? this.leftPane : this.rightPane;
 
-    if (!destination?.isDirectoryTab || !destination.path) return;
+    if (!destination?.contextState.isDirectoryTab || !destination.contextState.path) return;
 
     const paths = this.selectionBasketService.paths;
     if (paths.length === 0) return;
 
-    if (!destination.sourceCapabilities.create) {
+    if (!destination.contextState.sourceCapabilities.create) {
       await this.confirmDialog.alert({
         title: 'Basket Transfer',
         message: 'The destination pane is read-only.',
@@ -3648,7 +3638,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     for (const sourcePath of paths) {
-      const decision = canTransferBetween(operation, getSourceCapabilities(sourcePath), destination.sourceCapabilities);
+      const decision = canTransferBetween(operation, getSourceCapabilities(sourcePath), destination.contextState.sourceCapabilities);
       if (!decision.allowed) {
         await this.confirmDialog.alert(transferBlockedMessage(operation, decision));
         return;
@@ -3670,7 +3660,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         paths.map(async source => ({
           source,
           destination: await this.api.joinPaths([
-            destination.path,
+            destination.contextState.path,
             this.leafName(source),
           ]),
         })),
@@ -3683,7 +3673,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.lastTransfer =
         `basket ${operation}: ${result.succeeded}/${result.total}`;
 
-      await destination.refresh();
+      await destination.navigation?.refresh();
 
       // On a complete move, the basket no longer represents existing source
       // locations. Copies intentionally remain in the working set.
@@ -3716,10 +3706,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   canComparePanes(): boolean {
     return !!this.leftPane &&
       !!this.rightPane &&
-      this.leftPane.isDirectoryTab &&
-      this.rightPane.isDirectoryTab &&
-      !!this.leftPane.path &&
-      !!this.rightPane.path;
+      this.leftPane.contextState.isDirectoryTab &&
+      this.rightPane.contextState.isDirectoryTab &&
+      !!this.leftPane.contextState.path &&
+      !!this.rightPane.contextState.path;
   }
 
   get paneComparisonResult(): PaneComparisonResult {
@@ -3727,8 +3717,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.comparisonRecursive &&
       !!this.recursiveComparisonResult &&
       !!this.recursiveComparisonRoots &&
-      this.recursiveComparisonRoots.left === this.leftPane?.path &&
-      this.recursiveComparisonRoots.right === this.rightPane?.path;
+      this.recursiveComparisonRoots.left === this.leftPane?.contextState.path &&
+      this.recursiveComparisonRoots.right === this.rightPane?.contextState.path;
 
     if (this.verifiedComparisonResult && !this.comparisonRecursive) {
       return this.verifiedComparisonResult;
@@ -3739,8 +3729,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     return this.paneComparison.compare(
-      this.leftPane?.entries ?? [],
-      this.rightPane?.entries ?? [],
+      this.leftPane?.contextState.entries ?? [],
+      this.rightPane?.contextState.entries ?? [],
       { policy: this.comparisonPolicy },
     );
   }
@@ -3766,8 +3756,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     const base = this.paneComparison.compare(
-      this.leftPane?.entries ?? [],
-      this.rightPane?.entries ?? [],
+      this.leftPane?.contextState.entries ?? [],
+      this.rightPane?.contextState.entries ?? [],
       { policy },
     );
     if (policy === 'hash' || policy === 'content') {
@@ -3850,8 +3840,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     try {
       const result = await this.recursivePaneComparison.compare(
         this.api,
-        this.leftPane.path,
-        this.rightPane.path,
+        this.leftPane.contextState.path,
+        this.rightPane.contextState.path,
         { showHidden: this.showHidden },
       );
 
@@ -3859,8 +3849,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ? await this.paneComparison.verify(this.api, result.comparison, this.comparisonPolicy)
         : this.paneComparison.fromItems(result.comparison.items, this.comparisonPolicy);
       this.recursiveComparisonRoots = {
-        left: this.leftPane.path,
-        right: this.rightPane.path,
+        left: this.leftPane.contextState.path,
+        right: this.rightPane.contextState.path,
       };
 
       if (result.truncated) {
@@ -3939,7 +3929,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       : this.paneComparison.rightDifferencePaths(result);
 
     const pane = side === 'left' ? this.leftPane : this.rightPane;
-    pane?.selectPaths(paths);
+    pane?.selection?.selectPaths(paths);
     this.activate(side);
   }
 
@@ -3971,7 +3961,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         return {
           source,
           destination: await this.api.joinPaths([
-            destinationPane.path,
+            destinationPane.contextState.path,
             relativePath,
           ]),
         };
@@ -4018,8 +4008,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       const leftToRight = item.direction === 'left-to-right';
       const source = leftToRight ? item.leftPath : item.rightPath;
       const destinationRoot = leftToRight
-        ? this.rightPane?.path
-        : this.leftPane?.path;
+        ? this.rightPane?.contextState.path
+        : this.leftPane?.contextState.path;
 
       if (!source || !destinationRoot) continue;
 
@@ -4045,8 +4035,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.operationHistory.recordSync({
       startedAt,
       completedAt: Date.now(),
-      leftRoot: this.leftPane?.path ?? '',
-      rightRoot: this.rightPane?.path ?? '',
+      leftRoot: this.leftPane?.contextState.path ?? '',
+      rightRoot: this.rightPane?.contextState.path ?? '',
       mode,
       recursive: this.comparisonRecursive,
       planned: items.length,
@@ -4113,23 +4103,22 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   async extractArchiveSelectionToOther(): Promise<void> {
     const source = this.activePane;
     const destination = this.otherPane;
-    if (!source?.isInArchive || !destination?.isDirectoryTab) return;
+    if (!source?.contextState.isInArchive || !destination?.contextState.isDirectoryTab) return;
 
-    const extracted = await source.extractSelectedTo(destination.path);
+    const extracted = await source.commands?.extractSelectedTo(destination.contextState.path);
     if (!extracted) return;
 
     this.lastTransfer = 'archive extract to other pane';
-    destination.lastAction = 'received extracted archive entries';
-    await destination.refresh();
+    await destination.navigation?.refresh();
     this.cdr.markForCheck();
   }
 
   async extractArchiveSelectionToFolder(): Promise<void> {
     const source = this.activePane;
-    if (!source?.isInArchive) return;
+    if (!source?.contextState.isInArchive) return;
 
-    const suggested = this.otherPane?.isDirectoryTab
-      ? this.otherPane.path
+    const suggested = this.otherPane?.contextState.isDirectoryTab
+      ? this.otherPane.contextState.path
       : '';
 
     const destination = (await this.confirmDialog.prompt({
@@ -4142,12 +4131,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     if (!destination) return;
 
-    const extracted = await source.extractSelectedTo(destination);
+    const extracted = await source.commands?.extractSelectedTo(destination);
     if (!extracted) return;
 
     if (
-      this.leftPane?.path === destination ||
-      this.rightPane?.path === destination
+      this.leftPane?.contextState.path === destination ||
+      this.rightPane?.contextState.path === destination
     ) {
       await this.refreshBothPanes();
     }
@@ -4178,7 +4167,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const sourcePane = payload.sourcePaneId === 'left' ? this.leftPane : this.rightPane;
     const operation = dragOperationFromModifiers(event);
 
-    const sourceCapabilities = sourcePane?.sourceCapabilities ?? {
+    const sourceCapabilities = sourcePane?.contextState.sourceCapabilities ?? {
       read: true,
       create: false,
       delete: operation === 'move',
@@ -4189,7 +4178,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const decision = canTransferBetween(
       operation,
       sourceCapabilities,
-      targetPane.sourceCapabilities,
+      targetPane.contextState.sourceCapabilities,
     );
 
     if (!decision.allowed) {
@@ -4205,21 +4194,20 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const dropDecision = decideInternalDrop({
       entries,
-      sourceDirectory: sourcePane?.path ?? payload.sourceDirectory ?? '',
+      sourceDirectory: sourcePane?.contextState.path ?? payload.sourceDirectory ?? '',
       targetDirectory: targetPath,
       operation,
     });
 
     if (dropDecision.validity !== 'allowed') {
       this.lastDrop = `ignored: ${dropDecision.reason.toLocaleLowerCase()}`;
-      targetPane.lastAction = this.lastDrop;
       this.cdr.markForCheck();
       return;
     }
 
     try {
-      if (sourcePane?.isInArchive) {
-        const result = await sourcePane.transferArchiveSelectionTo(
+      if (sourcePane?.contextState.isInArchive) {
+        const result = await sourcePane.commands?.transferArchiveSelectionTo(
           targetPath,
           operation,
         );
@@ -4228,12 +4216,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.lastDrop =
           `archive ${operation} drop: ${result.succeeded}/${result.total}`;
         this.lastTransfer = this.lastDrop;
-        targetPane.lastAction = this.lastDrop;
 
-        await targetPane.refresh();
+        await targetPane.navigation?.refresh();
 
         if (operation === 'move' && result.sourceRemoved) {
-          await sourcePane.refresh();
+          await sourcePane.navigation?.refresh();
         }
 
         if (result.failed > 0) {
@@ -4316,23 +4303,22 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
         (result.failed > 0 ? ` · ${result.failed} failed` : '');
       this.lastTransfer = this.lastDrop;
-      targetPane.lastAction = this.lastDrop;
 
-      await targetPane.refresh();
+      await targetPane.navigation?.refresh();
 
       if (
         operation === 'move' &&
         sourcePane &&
         sourcePane !== targetPane
       ) {
-        await sourcePane.refresh();
+        await sourcePane.navigation?.refresh();
       } else if (
         operation === 'move' &&
         sourcePane &&
         sourcePane === targetPane &&
-        targetPath !== sourcePane.path
+        targetPath !== sourcePane.contextState.path
       ) {
-        await sourcePane.refresh();
+        await sourcePane.navigation?.refresh();
       }
 
       if (result.failed > 0 || result.skipped > 0) {
@@ -4410,11 +4396,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
     const isArchive = entry.type === FileType.ARCHIVE;
-    const selectionCount = pane?.selectedEntries.length ?? 0;
-    const canRename = !!pane?.canRename;
-    const canMutate = !!pane?.isDirectoryTab && !pane.isInArchive;
-    const canCreate = !!pane?.canCreate;
-    const canDelete = !!pane?.canDelete;
+    const selectionCount = pane?.selection.selectedEntries.length ?? 0;
+    const canRename = !!pane?.mutationState.canRename;
+    const canMutate = !!pane?.contextState.isDirectoryTab && !pane.contextState.isInArchive;
+    const canCreate = !!pane?.mutationState.canCreate;
+    const canDelete = !!pane?.mutationState.canDelete;
 
     const items: ContextMenuItem[] = [];
 
@@ -4430,7 +4416,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (!isParent) {
       this.pushMenuSection(items, [
         ...(canRename ? [this.menuCommand(COMMAND.rename, 'Rename', 'F2')] : []),
-        ...(selectionCount > 1 && !!pane?.sourceCapabilities.rename
+        ...(selectionCount > 1 && !!pane?.contextState.sourceCapabilities.rename
           ? [this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R')]
           : []),
         this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
@@ -4559,7 +4545,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const items: ContextMenuItem[] = [];
 
     this.pushMenuSection(items, [
-      ...(pane?.canCreate ? [
+      ...(pane?.mutationState.canCreate ? [
         this.menuCommand(COMMAND.newFolder, 'New Folder', 'F7'),
         this.menuCommand(COMMAND.newFile, 'New File'),
         this.menuCommand(COMMAND.newTextDocument, 'New Text Document'),
@@ -4615,14 +4601,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const pluginItems = this.pluginContextMenuItems(
       pane,
-      pane?.path ?? '',
+      pane?.contextState.path ?? '',
     );
     if (pluginItems.length) this.pushMenuSection(items, pluginItems);
 
     this.contextMenu = {
       x: event.clientX,
       y: event.clientY,
-      title: pane?.path || 'Folder',
+      title: pane?.contextState.path || 'Folder',
       items: normalizeContextMenuItems(items),
     };
     this.cdr.markForCheck();
@@ -4634,7 +4620,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.closeContextMenu(false);
       this.navigationTrailCommands.clear();
       const pane = trail.paneId === 'left' ? this.leftPane : this.rightPane;
-      void pane?.jumpNavigationHistory(trail.path);
+      void pane?.navigation?.jumpNavigationHistory(trail.path);
       return;
     }
 
@@ -4647,7 +4633,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       source: 'context-menu',
       context: {
         paneId: this.activePaneId,
-        path: this.activePane?.path ?? '',
+        path: this.activePane?.contextState.path ?? '',
         selectedPaths: this.pluginSelectionPaths(),
       },
     });
@@ -4713,23 +4699,23 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   isPanePathPinned(
     pane: PaneHostComponent | undefined,
   ): boolean {
-    const location = pane?.pinnableLocation?.trim();
+    const location = pane?.pinState.location?.trim();
     if (!location) return false;
 
     return this.pinnedLocations.isPinned(
       this.pinnedLocations.load(),
       location,
-      pane?.pinnableSurfaceId || 'dir',
+      pane?.pinState.surfaceId || 'dir',
     );
   }
 
   togglePanePin(
     pane: PaneHostComponent | undefined,
   ): void {
-    const location = pane?.pinnableLocation?.trim();
+    const location = pane?.pinState.location?.trim();
     if (!pane || !location) return;
 
-    const surfaceId = pane.pinnableSurfaceId || 'dir';
+    const surfaceId = pane.pinState.surfaceId || 'dir';
     let pins = this.pinnedLocations.load();
     const pinned = this.pinnedLocations.isPinned(
       pins,
@@ -4743,11 +4729,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         location,
         surfaceId,
       );
-      pane.lastAction = `unpin: ${pane.pinnableTitle}`;
     } else {
       const pin = this.pinnedLocations.create(
         location,
-        pane.pinnableTitle,
+        pane.pinState.title,
         surfaceId === 'dir' ? undefined : '◆',
         Date.now(),
         surfaceId,
@@ -4758,7 +4743,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ...pins.filter(existing => existing.id !== pin.id),
         pin,
       ];
-      pane.lastAction = `pin: ${pane.pinnableTitle}`;
     }
 
     this.pinnedLocations.save(pins);
@@ -4767,19 +4751,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   navigateFromHistory(path: string): void {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
+    if (!pane?.contextState.isDirectoryTab) return;
 
-    pane.navigateTo(path);
-    pane.lastAction = `history: ${path}`;
+    pane.navigation?.navigateTo(path);
     this.cdr.markForCheck();
   }
 
   navigateFromQuickAccess(path: string): void {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
+    if (!pane?.contextState.isDirectoryTab) return;
 
-    pane.navigateTo(path);
-    pane.lastAction = `quick access: ${path}`;
+    pane.navigation?.navigateTo(path);
     this.cdr.markForCheck();
   }
 
@@ -4791,20 +4773,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const surfaceId = target.surfaceId?.trim() || 'dir';
     if (surfaceId === 'dir') {
-      if (!pane.isDirectoryTab) return;
-      pane.navigateTo(target.path);
-      pane.lastAction = `quick access: ${target.path}`;
+      if (!pane.contextState.isDirectoryTab) return;
+      pane.navigation?.navigateTo(target.contextState.path);
       this.cdr.markForCheck();
       return;
     }
 
-    await pane.openSurfaceTab(
+    await pane.viewerCommands?.openSurfaceTab(
       surfaceId,
       target.label,
-      target.path,
+      target.contextState.path,
     );
-    pane.lastAction =
-      `quick access surface: ${target.label || surfaceId}`;
     this.cdr.markForCheck();
   }
 
@@ -4925,13 +4904,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     await Promise.all(
       panes
-        .filter(pane => pane.isDirectoryTab)
-        .map(pane => pane.refresh()),
+        .filter(pane => pane.contextState.isDirectoryTab)
+        .map(pane => pane.navigation?.refresh()),
     );
-
-    for (const pane of panes) {
-      pane.lastAction = next ? 'show hidden' : 'hide hidden';
-    }
 
     this.cdr.markForCheck();
   }
@@ -5119,11 +5094,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openSettings, 'Settings', 'Settings', () => this.openSettings());
     descriptor(COMMAND.openPluginSettings, 'Plugin Settings', 'Settings', () => this.openSettings('plugins'));
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
-    descriptor(COMMAND.togglePaneLink, 'Toggle Linked Pane Navigation', 'Pane Intelligence', () => this.toggleLinkedNavigation(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
-    descriptor(COMMAND.togglePaneMirror, 'Toggle Pane Presentation Mirroring', 'Pane Intelligence', () => this.toggleMirrorPresentation(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
+    descriptor(COMMAND.togglePaneLink, 'Toggle Linked Pane Navigation', 'Pane Intelligence', () => this.toggleLinkedNavigation(), () => !!this.leftPane?.contextState.isDirectoryTab && !!this.rightPane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.togglePaneMirror, 'Toggle Pane Presentation Mirroring', 'Pane Intelligence', () => this.toggleMirrorPresentation(), () => !!this.leftPane?.contextState.isDirectoryTab && !!this.rightPane?.contextState.isDirectoryTab);
     descriptor(COMMAND.togglePaneFilterMirror, 'Toggle Pane Filter Mirroring', 'Pane Intelligence', () => this.toggleMirrorFilter(), () => this.mirrorPresentation);
-    descriptor(COMMAND.togglePaneScrollSync, 'Toggle Synchronized Pane Scrolling', 'Pane Intelligence', () => this.toggleSyncScroll(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
-    descriptor(COMMAND.togglePaneFollow, 'Toggle Pane Follow Selection', 'Pane Intelligence', () => this.toggleFollowSelection(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
+    descriptor(COMMAND.togglePaneScrollSync, 'Toggle Synchronized Pane Scrolling', 'Pane Intelligence', () => this.toggleSyncScroll(), () => !!this.leftPane?.contextState.isDirectoryTab && !!this.rightPane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.togglePaneFollow, 'Toggle Pane Follow Selection', 'Pane Intelligence', () => this.toggleFollowSelection(), () => !!this.leftPane?.contextState.isDirectoryTab && !!this.rightPane?.contextState.isDirectoryTab);
     descriptor(COMMAND.matchOtherPane, 'Match Other Pane to Active Location', 'Pane Intelligence', () => this.matchOtherPaneToActive(), () => this.canMatchOtherPane);
     descriptor(COMMAND.swapPaneRoots, 'Swap Linked Pane Roots', 'Pane Intelligence', () => this.swapLinkedRoots(), () => this.canSwapLinkedRoots);
     descriptor(COMMAND.openPeer, 'Open Current Peer Item', 'Pane Intelligence', () => this.openCurrentCounterpart(), () => this.canOpenCurrentCounterpart);
@@ -5131,7 +5106,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.moveToPeer, 'Move Current Item to Other Pane', 'Pane Intelligence', () => this.transferCurrentToPeer('move'), () => this.canMoveCurrentToPeer);
     descriptor(COMMAND.previousDifference, 'Previous Pane Difference', 'Pane Intelligence', () => this.navigateDifference(-1), () => this.differenceCount > 0);
     descriptor(COMMAND.nextDifference, 'Next Pane Difference', 'Pane Intelligence', () => this.navigateDifference(1), () => this.differenceCount > 0);
-    descriptor(COMMAND.savePanePreset, 'Save Pane Pair Preset', 'Pane Intelligence', () => this.saveCurrentPanePreset(), () => !!this.leftPane?.path && !!this.rightPane?.path);
+    descriptor(COMMAND.savePanePreset, 'Save Pane Pair Preset', 'Pane Intelligence', () => this.saveCurrentPanePreset(), () => !!this.leftPane?.contextState.path && !!this.rightPane?.contextState.path);
     descriptor(COMMAND.applyPanePreset, 'Apply Pane Pair Preset…', 'Pane Intelligence', () => this.chooseAndApplyPanePreset(), () => this.panePairPresets.length > 0);
     descriptor(COMMAND.widenLeftPane, 'Widen Left Pane', 'Layout', () => this.adjustSplit(5));
     descriptor(COMMAND.widenRightPane, 'Widen Right Pane', 'Layout', () => this.adjustSplit(-5));
@@ -5140,8 +5115,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.cursorDown, 'Move Cursor Down', 'Navigation', () => this.activePane?.selection?.moveCursor(1));
     descriptor(COMMAND.open, 'Open Selected Item', 'Navigation', () => {
       const pane = this.activePane;
-      const entry = pane?.cursorEntry;
-      if (pane && entry) pane.openEntry(entry);
+      const entry = pane?.selection.cursorEntry;
+      if (pane && entry) void pane.viewerCommands?.openEntry(entry);
     });
     descriptor(COMMAND.up, 'Parent Directory', 'Navigation', () => this.activePane?.navigation?.navigateUp());
     descriptor(COMMAND.back, 'Back', 'Navigation', () => this.activePane?.navigation?.goBack());
@@ -5154,7 +5129,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Selection',
       () => this.activePane?.selection?.selectSameExtension(),
       () => {
-        const entry = this.activePane?.cursorEntry;
+        const entry = this.activePane?.selection.cursorEntry;
         return !!entry && entry.type !== FileType.DIRECTORY;
       },
     );
@@ -5163,32 +5138,32 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Select Same Type',
       'Selection',
       () => this.activePane?.selection?.selectSameType(),
-      () => !!this.activePane?.cursorEntry,
+      () => !!this.activePane?.selection.cursorEntry,
     );
     descriptor(COMMAND.clearSelection, 'Clear Selection', 'Selection', () => this.activePane?.selection?.clearSelection());
     descriptor(COMMAND.refresh, 'Refresh', 'Navigation', () => this.activePane?.navigation?.refresh());
-    descriptor(COMMAND.rename, 'Rename', 'File Operations', () => this.activePane?.commands?.renameSelected(), () => !!this.activePane?.canRename);
-    descriptor(COMMAND.newFile, 'New File', 'File Operations', () => this.activePane?.commands?.newFile(), () => !!this.activePane?.canCreate && !this.activePane?.isInArchive);
+    descriptor(COMMAND.rename, 'Rename', 'File Operations', () => this.activePane?.commands?.renameSelected(), () => !!this.activePane?.mutationState.canRename);
+    descriptor(COMMAND.newFile, 'New File', 'File Operations', () => this.activePane?.commands?.newFile(), () => !!this.activePane?.mutationState.canCreate && !this.activePane?.contextState.isInArchive);
     descriptor(
       COMMAND.newTextDocument,
       'New Text Document',
       'File Operations',
       () => this.activePane?.commands?.newDocumentTemplate('text'),
-      () => !!this.activePane?.canCreate && !this.activePane?.isInArchive,
+      () => !!this.activePane?.mutationState.canCreate && !this.activePane?.contextState.isInArchive,
     );
     descriptor(
       COMMAND.newMarkdownDocument,
       'New Markdown Document',
       'File Operations',
       () => this.activePane?.commands?.newDocumentTemplate('markdown'),
-      () => !!this.activePane?.canCreate && !this.activePane?.isInArchive,
+      () => !!this.activePane?.mutationState.canCreate && !this.activePane?.contextState.isInArchive,
     );
     descriptor(
       COMMAND.newJsonDocument,
       'New JSON Document',
       'File Operations',
       () => this.activePane?.commands?.newDocumentTemplate('json'),
-      () => !!this.activePane?.canCreate && !this.activePane?.isInArchive,
+      () => !!this.activePane?.mutationState.canCreate && !this.activePane?.contextState.isInArchive,
     );
     descriptor(
       COMMAND.createShortcut,
@@ -5196,47 +5171,47 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'File Operations',
       () => this.activePane?.commands?.createShortcutForSelected(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!this.activePane?.canCreate &&
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.canCreate &&
         !!(
-          this.activePane?.cursorEntry ||
-          this.activePane?.selectedEntries.length
+          this.activePane?.selection.cursorEntry ||
+          this.activePane?.selection.selectedEntries.length
         ),
     );
-    descriptor(COMMAND.properties, 'Properties', 'File Operations', () => this.activePane?.commands?.showSelectedProperties(), () => !!this.activePane?.cursorEntry);
+    descriptor(COMMAND.properties, 'Properties', 'File Operations', () => this.activePane?.commands?.showSelectedProperties(), () => !!this.activePane?.selection.cursorEntry);
     descriptor(
       COMMAND.detailsWorkspace,
       'Open Full Details Workspace',
       'Workspace',
       () => this.openDetailsWorkspace(),
-      () => !!this.activePane?.cursorEntry,
+      () => !!this.activePane?.selection.cursorEntry,
     );
     descriptor(COMMAND.deletePermanent, 'Delete Permanently', 'File Operations', () => this.activePane?.commands?.deleteSelected(true), () => this.canDeleteActiveSelection());
-    descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.commands?.newFolder(), () => !!this.activePane?.canCreate);
+    descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.commands?.newFolder(), () => !!this.activePane?.mutationState.canCreate);
     descriptor(
       COMMAND.moveSelectionToNewFolder,
       'Move Selection to New Folder',
       'File Operations',
       () => this.activePane?.commands?.moveSelectionToNewFolder(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!this.activePane?.canCreate &&
-        (this.activePane?.selectedEntries.length ?? 0) > 0,
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.canCreate &&
+        (this.activePane?.selection.selectedEntries.length ?? 0) > 0,
     );
     descriptor(COMMAND.deleteSelected, 'Delete', 'File Operations', () => this.deleteActiveSelection(), () => this.canDeleteActiveSelection());
-    descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.commands?.copySelected(), () => !!this.activePane?.hasSelection);
-    descriptor(COMMAND.cut, 'Cut', 'File Operations', () => this.activePane?.commands?.cutSelected(), () => !!this.activePane?.canCut);
-    descriptor(COMMAND.paste, 'Paste', 'File Operations', () => this.activePane?.commands?.paste(), () => !!this.activePane?.canPaste);
+    descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.commands?.copySelected(), () => !!this.activePane?.mutationState.hasSelection);
+    descriptor(COMMAND.cut, 'Cut', 'File Operations', () => this.activePane?.commands?.cutSelected(), () => !!this.activePane?.mutationState.canCut);
+    descriptor(COMMAND.paste, 'Paste', 'File Operations', () => this.activePane?.commands?.paste(), () => !!this.activePane?.mutationState.canPaste);
     descriptor(
       COMMAND.copyPath,
       'Copy Path',
       'Files',
       () => this.activePane?.commands?.copySelectedPaths(),
       () => !!(
-        this.activePane?.cursorEntry ||
-        this.activePane?.selectedEntries.length
+        this.activePane?.selection.cursorEntry ||
+        this.activePane?.selection.selectedEntries.length
       ),
     );
     descriptor(
@@ -5245,10 +5220,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Files',
       () => this.activePane?.commands?.copySelectedRelativePaths(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
+        !!this.activePane?.contextState.isDirectoryTab &&
         !!(
-          this.activePane?.cursorEntry ||
-          this.activePane?.selectedEntries.length
+          this.activePane?.selection.cursorEntry ||
+          this.activePane?.selection.selectedEntries.length
         ),
     );
     descriptor(
@@ -5257,11 +5232,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Files',
       () => this.activePane?.commands?.copySelectedFileUris(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
         !!(
-          this.activePane?.cursorEntry ||
-          this.activePane?.selectedEntries.length
+          this.activePane?.selection.cursorEntry ||
+          this.activePane?.selection.selectedEntries.length
         ),
     );
     descriptor(
@@ -5270,11 +5245,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Files',
       () => this.activePane?.commands?.revealSelectedInFileManager(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
         !!(
-          this.activePane?.cursorEntry ||
-          this.activePane?.selectedEntries.length
+          this.activePane?.selection.cursorEntry ||
+          this.activePane?.selection.selectedEntries.length
         ),
     );
     descriptor(
@@ -5283,11 +5258,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Files',
       () => this.activePane?.commands?.touchSelectedModifiedTime(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
         !!(
-          this.activePane?.cursorEntry ||
-          this.activePane?.selectedEntries.length
+          this.activePane?.selection.cursorEntry ||
+          this.activePane?.selection.selectedEntries.length
         ),
     );
     descriptor(
@@ -5296,8 +5271,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Files',
       () => this.activePane?.commands?.copySelectedNames(),
       () => !!(
-        this.activePane?.cursorEntry ||
-        this.activePane?.selectedEntries.length
+        this.activePane?.selection.cursorEntry ||
+        this.activePane?.selection.selectedEntries.length
       ),
     );
     descriptor(
@@ -5306,10 +5281,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'File Operations',
       () => this.activePane?.commands?.duplicateSelected(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!this.activePane?.canCreate &&
-        (this.activePane?.selectedEntries.length ?? 0) > 0,
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.canCreate &&
+        (this.activePane?.selection.selectedEntries.length ?? 0) > 0,
     );
     descriptor(
       COMMAND.createSymlink,
@@ -5317,10 +5292,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'File Operations',
       () => this.activePane?.commands?.createLinkForSelected('symbolic'),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!this.activePane?.canCreate &&
-        !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.canCreate &&
+        !!(this.activePane?.selection.cursorEntry || this.activePane?.selection.selectedEntries.length),
     );
     descriptor(
       COMMAND.createHardlink,
@@ -5329,11 +5304,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       () => this.activePane?.commands?.createLinkForSelected('hard'),
       () => {
         const entry =
-          this.activePane?.cursorEntry ??
-          this.activePane?.selectedEntries[0];
-        return !!this.activePane?.isDirectoryTab &&
-          !this.activePane?.isInArchive &&
-          !!this.activePane?.canCreate &&
+          this.activePane?.selection.cursorEntry ??
+          this.activePane?.selection.selectedEntries[0];
+        return !!this.activePane?.contextState.isDirectoryTab &&
+          !this.activePane?.contextState.isInArchive &&
+          !!this.activePane?.mutationState.canCreate &&
           !!entry &&
           entry.type !== FileType.DIRECTORY;
       },
@@ -5344,9 +5319,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Navigation',
       () => this.openTerminalHere(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!this.activePane?.path,
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.contextState.path,
     );
     descriptor(COMMAND.undo, 'Undo', 'Edit', () => this.undoLastOperation(), () => this.operationHistory.canUndo);
     descriptor(COMMAND.redo, 'Redo', 'Edit', () => this.redoLastOperation(), () => this.operationHistory.canRedo);
@@ -5356,10 +5331,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Create ZIP Archive',
       'Archive',
       () => this.activePane?.commands?.createZipFromSelection(),
-      () => !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!this.activePane?.canCreate &&
-        (this.activePane?.selectedEntries.length ?? 0) > 0,
+      () => !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.canCreate &&
+        (this.activePane?.selection.selectedEntries.length ?? 0) > 0,
     );
     descriptor(
       COMMAND.checksum,
@@ -5367,9 +5342,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Files',
       () => this.activePane?.commands?.showSelectedChecksum(),
       () => {
-        const entry = this.activePane?.cursorEntry ?? this.activePane?.selectedEntries[0];
+        const entry = this.activePane?.selection.cursorEntry ?? this.activePane?.selection.selectedEntries[0];
         return !!entry &&
-          !this.activePane?.isInArchive &&
+          !this.activePane?.contextState.isInArchive &&
           entry.type !== FileType.DIRECTORY;
       },
     );
@@ -5378,18 +5353,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Calculate Size',
       'Files',
       () => this.activePane?.selection?.calculateSelectedSize(),
-      () => !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+      () => !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!(this.activePane?.selection.cursorEntry || this.activePane?.selection.selectedEntries.length),
     );
     descriptor(
       COMMAND.attributes,
       'Attributes / Permissions',
       'Files',
       () => this.activePane?.commands?.editSelectedAttributes(),
-      () => !!this.activePane?.isDirectoryTab &&
-        !this.activePane?.isInArchive &&
-        !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+      () => !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!(this.activePane?.selection.cursorEntry || this.activePane?.selection.selectedEntries.length),
     );
     descriptor(
       COMMAND.openTrash,
@@ -5424,8 +5399,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.moveTabToOtherPane, 'Move Tab to Other Pane', 'Tab Management', () => this.moveActiveTabToOtherPane());
     descriptor(COMMAND.moveTabLeft, 'Move Tab Left', 'Tab Management', () => this.reorderActiveTab(-1));
     descriptor(COMMAND.moveTabRight, 'Move Tab Right', 'Tab Management', () => this.reorderActiveTab(1));
-    descriptor(COMMAND.closeOtherTabs, 'Close Other Tabs', 'Tab Management', () => this.activePane?.tabCommands?.closeOtherTabs(), () => (this.activePane?.tabs.length ?? 0) > 1);
-    descriptor(COMMAND.closeTabsToRight, 'Close Tabs to the Right', 'Tab Management', () => this.activePane?.tabCommands?.closeTabsToRight(), () => (this.activePane?.tabs.length ?? 0) > 1);
+    descriptor(COMMAND.closeOtherTabs, 'Close Other Tabs', 'Tab Management', () => this.activePane?.tabCommands?.closeOtherTabs(), () => (this.activePane?.tabState.tabs.length ?? 0) > 1);
+    descriptor(COMMAND.closeTabsToRight, 'Close Tabs to the Right', 'Tab Management', () => this.activePane?.tabCommands?.closeTabsToRight(), () => (this.activePane?.tabState.tabs.length ?? 0) > 1);
     descriptor(COMMAND.jumpTab1, 'Jump to Tab 1', 'Tab Management', () => this.activePane?.tabCommands?.jumpToTab(0));
     descriptor(COMMAND.jumpTab2, 'Jump to Tab 2', 'Tab Management', () => this.activePane?.tabCommands?.jumpToTab(1));
     descriptor(COMMAND.jumpTab3, 'Jump to Tab 3', 'Tab Management', () => this.activePane?.tabCommands?.jumpToTab(2));
@@ -5441,16 +5416,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.viewerZoomOut, 'Zoom Viewer Out', 'Viewer', () => this.invokeViewer('zoomOut'), () => this.hasViewerMethod('zoomOut'));
     descriptor(COMMAND.viewerFit, 'Fit Viewer', 'Viewer', () => this.invokeViewer('resetZoom'), () => this.hasViewerMethod('resetZoom'));
     descriptor(COMMAND.viewerActualSize, 'Viewer Actual Size', 'Viewer', () => this.invokeViewer('zoom100'), () => this.hasViewerMethod('zoom100'));
-    descriptor(COMMAND.viewerReturnSource, 'Return to Viewer Source Folder', 'Viewer', () => this.activePane?.viewerCommands?.returnToViewerSource(), () => !!this.activePane?.activeViewerTab?.sourceTabId || !!this.activePane?.activeViewerTab?.sourceDir);
-    descriptor(COMMAND.viewerOpenExternal, 'Open Viewer File Externally', 'Viewer', () => this.activePane?.viewerCommands?.openActiveViewerExternally(), () => !!this.activePane?.activeViewerTab && !this.activePane.viewerArchiveContext);
-    descriptor(COMMAND.openAsText, 'Open as Text Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('text'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
-    descriptor(COMMAND.openAsBinary, 'Open as Binary Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('binary'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
-    descriptor(COMMAND.openAsImage, 'Open as Image Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('image'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
-    descriptor(COMMAND.openAsMarkdown, 'Open as Markdown Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('markdown'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
-    descriptor(COMMAND.openAsPdf, 'Open as PDF Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('pdf'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
-    descriptor(COMMAND.openAsLegacy, 'Open with Legacy Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('legacy'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.viewerReturnSource, 'Return to Viewer Source Folder', 'Viewer', () => this.activePane?.viewerCommands?.returnToViewerSource(), () => !!this.activePane?.tabState.activeViewerTab?.sourceTabId || !!this.activePane?.tabState.activeViewerTab?.sourceDir);
+    descriptor(COMMAND.viewerOpenExternal, 'Open Viewer File Externally', 'Viewer', () => this.activePane?.viewerCommands?.openActiveViewerExternally(), () => !!this.activePane?.tabState.activeViewerTab && !this.activePane.viewerState.viewerArchiveContext);
+    descriptor(COMMAND.openAsText, 'Open as Text Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('text'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsBinary, 'Open as Binary Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('binary'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsImage, 'Open as Image Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('image'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsMarkdown, 'Open as Markdown Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('markdown'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsPdf, 'Open as PDF Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('pdf'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsLegacy, 'Open with Legacy Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('legacy'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
-    descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.navigation?.focusFilter(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.navigation?.focusFilter(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
     descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.workspaceSwitcher?.open());
     descriptor(
@@ -5475,7 +5450,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Pin or Unpin Current Location',
       'Navigation',
       () => this.togglePanePin(this.activePane),
-      () => !!this.activePane?.pinnableLocation,
+      () => !!this.activePane?.pinState.location,
     );
     descriptor(
       COMMAND.showPinnedLocations,
@@ -5488,14 +5463,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Tree Collapse or Parent',
       'Navigation',
       () => this.activePane?.commands?.treeLeft(),
-      () => this.activePane?.viewMode === 'tree',
+      () => this.activePane?.contextState.viewMode === 'tree',
     );
     descriptor(
       COMMAND.treeRight,
       'Tree Expand or Child',
       'Navigation',
       () => this.activePane?.commands?.treeRight(),
-      () => this.activePane?.viewMode === 'tree',
+      () => this.activePane?.contextState.viewMode === 'tree',
     );
     descriptor(
       COMMAND.comparePanes,
@@ -5588,46 +5563,46 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       () => this.canComparePanes(),
     );
 
-    descriptor(COMMAND.toggleCurrentSelection, 'Toggle Current Selection', 'Selection', () => this.activePane?.selection?.toggleCurrentSelection(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.extendSelectionUp, 'Extend Selection Up', 'Selection', () => this.activePane?.selection?.extendSelection(-1), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.extendSelectionDown, 'Extend Selection Down', 'Selection', () => this.activePane?.selection?.extendSelection(1), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.selectByMask, 'Select by Mask', 'Selection', () => this.activePane?.selection?.selectByMaskPrompt(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.unselectByMask, 'Unselect by Mask', 'Selection', () => this.activePane?.selection?.unselectByMaskPrompt(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.invertSelection, 'Invert Selection', 'Selection', () => this.activePane?.selection?.invertSelection(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.selectSameExtension, 'Select Same Extension', 'Selection', () => this.activePane?.selection?.selectSameExtension(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.selectFiles, 'Select Visible Files', 'Selection', () => this.activePane?.selection?.selectFiles(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.selectFolders, 'Select Visible Folders', 'Selection', () => this.activePane?.selection?.selectFolders(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.unselectFiles, 'Unselect Visible Files', 'Selection', () => this.activePane?.selection?.unselectFiles(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.unselectFolders, 'Unselect Visible Folders', 'Selection', () => this.activePane?.selection?.unselectFolders(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.selectSameType, 'Select Same Type', 'Selection', () => this.activePane?.selection?.selectSameType(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry);
-    descriptor(COMMAND.cursorHome, 'Move Cursor to First', 'Navigation', () => this.activePane?.selection?.moveCursorHome(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.cursorEnd, 'Move Cursor to Last', 'Navigation', () => this.activePane?.selection?.moveCursorEnd(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.cursorPageUp, 'Page Up', 'Navigation', () => this.activePane?.selection?.moveCursorPage(-1), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.cursorPageDown, 'Page Down', 'Navigation', () => this.activePane?.selection?.moveCursorPage(1), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.toggleCurrentSelection, 'Toggle Current Selection', 'Selection', () => this.activePane?.selection?.toggleCurrentSelection(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.extendSelectionUp, 'Extend Selection Up', 'Selection', () => this.activePane?.selection?.extendSelection(-1), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.extendSelectionDown, 'Extend Selection Down', 'Selection', () => this.activePane?.selection?.extendSelection(1), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.selectByMask, 'Select by Mask', 'Selection', () => this.activePane?.selection?.selectByMaskPrompt(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.unselectByMask, 'Unselect by Mask', 'Selection', () => this.activePane?.selection?.unselectByMaskPrompt(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.invertSelection, 'Invert Selection', 'Selection', () => this.activePane?.selection?.invertSelection(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.selectSameExtension, 'Select Same Extension', 'Selection', () => this.activePane?.selection?.selectSameExtension(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.selectFiles, 'Select Visible Files', 'Selection', () => this.activePane?.selection?.selectFiles(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.selectFolders, 'Select Visible Folders', 'Selection', () => this.activePane?.selection?.selectFolders(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.unselectFiles, 'Unselect Visible Files', 'Selection', () => this.activePane?.selection?.unselectFiles(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.unselectFolders, 'Unselect Visible Folders', 'Selection', () => this.activePane?.selection?.unselectFolders(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.selectSameType, 'Select Same Type', 'Selection', () => this.activePane?.selection?.selectSameType(), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry);
+    descriptor(COMMAND.cursorHome, 'Move Cursor to First', 'Navigation', () => this.activePane?.selection?.moveCursorHome(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.cursorEnd, 'Move Cursor to Last', 'Navigation', () => this.activePane?.selection?.moveCursorEnd(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.cursorPageUp, 'Page Up', 'Navigation', () => this.activePane?.selection?.moveCursorPage(-1), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.cursorPageDown, 'Page Down', 'Navigation', () => this.activePane?.selection?.moveCursorPage(1), () => !!this.activePane?.contextState.isDirectoryTab);
 
     descriptor(COMMAND.openBasket, 'Open Selection Basket', 'Tools', () => this.selectionBasket?.show());
-    descriptor(COMMAND.addToBasket, 'Add to Selection Basket', 'Selection', () => this.addActiveSelectionToBasket(), () => !!this.activePane?.isDirectoryTab && (!!this.activePane?.hasSelection || !!this.activePane?.cursorPath));
+    descriptor(COMMAND.addToBasket, 'Add to Selection Basket', 'Selection', () => this.addActiveSelectionToBasket(), () => !!this.activePane?.contextState.isDirectoryTab && (!!this.activePane?.mutationState.hasSelection || !!this.activePane?.selection.cursorPath));
     descriptor(COMMAND.clearBasket, 'Clear Selection Basket', 'Tools', () => this.selectionBasketService.clear(), () => this.selectionBasketService.snapshot.length > 0);
 
     descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
-    descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openTools('disk'), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.recentFiles, 'Recent Files', 'Tools', () => this.activePane?.viewerCommands?.openRecentFilesPanel(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openTools('disk'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.recentFiles, 'Recent Files', 'Tools', () => this.activePane?.viewerCommands?.openRecentFilesPanel(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(
       COMMAND.batchRename,
       'Batch Rename',
       'File Operations',
       () => this.batchRenameActiveSelection(),
       () =>
-        !!this.activePane?.isDirectoryTab &&
-        this.activePane.sourceCapabilities.rename,
+        !!this.activePane?.contextState.isDirectoryTab &&
+        this.activePane.contextState.sourceCapabilities.rename,
     );
     descriptor(
       COMMAND.extractArchiveSelection,
       'Extract Archive Selection',
       'Archive',
       () => this.extractArchiveSelectionToFolder(),
-      () => !!this.activePane?.isInArchive && !!this.activePane?.hasSelection,
+      () => !!this.activePane?.contextState.isInArchive && !!this.activePane?.mutationState.hasSelection,
     );
     descriptor(
       COMMAND.extractArchiveToOther,
@@ -5635,16 +5610,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Archive',
       () => this.extractArchiveSelectionToOther(),
       () =>
-        !!this.activePane?.isInArchive &&
-        !!this.activePane?.hasSelection &&
-        !!this.otherPane?.isDirectoryTab &&
-        !!this.otherPane?.sourceCapabilities.create,
+        !!this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.hasSelection &&
+        !!this.otherPane?.contextState.isDirectoryTab &&
+        !!this.otherPane?.contextState.sourceCapabilities.create,
     );
 
-    descriptor(COMMAND.globalSearch, 'Open Global Search', 'Search & Filter', () => this.openGlobalSearch(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.quickPathJump, 'Quick Path Jump', 'Navigation', () => this.quickPathJump(), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.quickView, 'Quick View', 'File Operations', () => this.quickViewActive(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
-    descriptor(COMMAND.openWithExternal, 'Open with External App', 'File Operations', () => this.openActiveExternally(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.globalSearch, 'Open Global Search', 'Search & Filter', () => this.openGlobalSearch(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.quickPathJump, 'Quick Path Jump', 'Navigation', () => this.quickPathJump(), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.quickView, 'Quick View', 'File Operations', () => this.quickViewActive(), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openWithExternal, 'Open with External App', 'File Operations', () => this.openActiveExternally(), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(
       COMMAND.openWithChooser,
       'Open With…',
@@ -5652,13 +5627,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       () => this.openActiveWithChooser(),
       () => {
         const pane = this.activePane;
-        if (!pane || pane.isInArchive) return false;
-        if (pane.activeTab?.kind === 'viewer') {
-          return !pane.activeViewerTab?.archiveContext;
+        if (!pane || pane.contextState.isInArchive) return false;
+        if (pane.tabState.activeTab?.kind === 'viewer') {
+          return !pane.tabState.activeViewerTab?.archiveContext;
         }
-        return !!pane.isDirectoryTab &&
-          !!pane.cursorEntry &&
-          pane.cursorEntry.type !== FileType.DIRECTORY;
+        return !!pane.contextState.isDirectoryTab &&
+          !!pane.selection.cursorEntry &&
+          pane.selection.cursorEntry.type !== FileType.DIRECTORY;
       },
     );
     descriptor(COMMAND.remoteConnect, 'Connect Remote Location', 'Navigation', () => this.connectRemote());
@@ -5668,8 +5643,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   private activeViewer(): any {
     const pane = this.activePane;
-    if (!pane || pane.activeTab?.kind !== 'viewer') return null;
-    return pane.mountedViewer;
+    if (!pane || pane.tabState.activeTab?.kind !== 'viewer') return null;
+    return pane.viewerState.mountedViewer;
   }
 
   private hasViewerMethod(method: string): boolean {
@@ -5682,47 +5657,47 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const fn = viewer?.[method];
     if (typeof fn !== 'function') return;
     fn.call(viewer);
-    if (this.activePane) this.activePane.lastAction = `viewer: ${method}`;
     this.cdr.markForCheck();
   }
 
   private canDeleteActiveSelection(): boolean {
     const pane = this.activePane;
     if (!pane) return false;
-    if (pane.activeTab?.kind === 'viewer') return this.hasViewerMethod('deleteSelected');
-    return pane.canDelete;
+    if (pane.tabState.activeTab?.kind === 'viewer') return this.hasViewerMethod('deleteSelected');
+    return pane.mutationState.canDelete;
   }
 
   private deleteActiveSelection(): void {
     const pane = this.activePane;
     if (!pane) return;
-    if (pane.activeTab?.kind === 'viewer') {
+    if (pane.tabState.activeTab?.kind === 'viewer') {
       this.invokeViewer('deleteSelected');
       return;
     }
-    void pane.deleteSelected();
+    void pane.commands?.deleteSelected();
   }
 
   private canTransfer(operation: 'copy' | 'move'): boolean {
     const source = this.activePane;
     const destination = this.otherPane;
-    if (!source || !destination || !source.hasSelection || !destination.path) {
+    if (!source || !destination || !source.mutationState.hasSelection || !destination.contextState.path) {
       return false;
     }
 
-    if (source.isInArchive) {
-      if (!destination.sourceCapabilities.create) return false;
+    if (source.contextState.isInArchive) {
+      if (!destination.contextState.sourceCapabilities.create) return false;
       if (operation === 'copy') return true;
 
       // ArchiveService.move can only truly remove the source from a top-level
       // archive. Nested archive moves are intentionally not presented as moves.
-      return (source.currentArchiveFrame?.nestedChain.length ?? 1) === 0;
+      const frame = source.contextState.currentArchiveFrame as { nestedChain?: readonly unknown[] } | null;
+      return (frame?.nestedChain?.length ?? 1) === 0;
     }
 
     return canTransferBetween(
       operation,
-      source.sourceCapabilities,
-      destination.sourceCapabilities,
+      source.contextState.sourceCapabilities,
+      destination.contextState.sourceCapabilities,
     ).allowed;
   }
 
@@ -5731,11 +5706,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const destination = this.otherPane;
     if (!source || !destination) return;
 
-    const selected = Array.from(source.selectedPaths);
+    const selected = Array.from(source.selection?.selectedPaths ?? []);
     if (selected.length === 0) return;
 
-    if (source.isInArchive) {
-      if (!destination.sourceCapabilities.create) {
+    if (source.contextState.isInArchive) {
+      if (!destination.contextState.sourceCapabilities.create) {
         await this.confirmDialog.alert({
           title: 'Archive Transfer',
           message: 'The destination pane is read-only.',
@@ -5743,18 +5718,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const result = await source.transferArchiveSelectionTo(
-        destination.path,
+      const result = await source.commands?.transferArchiveSelectionTo(
+        destination.contextState.path,
         operation,
       );
       if (!result) return;
 
       this.lastTransfer =
         `archive ${operation}: ${result.succeeded}/${result.total}`;
-      destination.lastAction =
-        `received archive ${operation}: ${result.succeeded}/${result.total}`;
 
-      await destination.refresh();
+      await destination.navigation?.refresh();
 
       if (operation === 'move' && !result.sourceRemoved) {
         await this.confirmDialog.alert({
@@ -5777,7 +5750,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const decision = canTransferBetween(operation, source.sourceCapabilities, destination.sourceCapabilities);
+    const decision = canTransferBetween(operation, source.contextState.sourceCapabilities, destination.contextState.sourceCapabilities);
     if (!decision.allowed) {
       await this.confirmDialog.alert(transferBlockedMessage(operation, decision));
       return;
@@ -5786,7 +5759,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     try {
       const items = await Promise.all(selected.map(async sourcePath => ({
         source: sourcePath,
-        destination: await this.api.joinPaths([destination.path, this.leafName(sourcePath)]),
+        destination: await this.api.joinPaths([destination.contextState.path, this.leafName(sourcePath)]),
       })));
 
       const queueId = this.powerFileOperations.enqueue(operation, items);
@@ -5851,12 +5824,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       }
 
       this.lastTransfer = `${operation}: ${result.succeeded}/${result.total}`;
-      source.lastAction = `${operation} to ${this.otherPaneId()}: ${result.succeeded}/${result.total}`;
-      destination.lastAction = `received ${operation}: ${result.succeeded}/${result.total}`;
 
-      await destination.refresh();
+      await destination.navigation?.refresh();
       if (operation === 'move') {
-        await source.refresh();
+        await source.navigation?.refresh();
       }
 
       if (result.failed > 0) {

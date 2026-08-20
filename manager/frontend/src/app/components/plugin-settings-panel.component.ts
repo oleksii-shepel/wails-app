@@ -9,7 +9,6 @@ import {
 import type { PluginBackendPrivilege, PluginPermission } from '../plugin/plugin-manifest';
 
 interface PluginPolicyDraft {
-  enabled: boolean;
   trusted: boolean;
   grantedPermissions: PluginPermission[];
 }
@@ -61,12 +60,12 @@ interface PluginPolicyDraft {
             *ngIf="isTrustedForCurrentVersion(snapshot)"
             type="button"
             class="btn btn-small plugin-availability-action"
-            [class.btn-primary]="!enabledValue(snapshot)"
-            [class.btn-secondary]="enabledValue(snapshot)"
+            [class.btn-primary]="!availabilityEnabled(snapshot)"
+            [class.btn-secondary]="availabilityEnabled(snapshot)"
             [disabled]="isBusy(snapshot)"
-            (click)="setEnabled(snapshot, !enabledValue(snapshot))"
+            (click)="setEnabled(snapshot, !availabilityEnabled(snapshot))"
           >
-            {{ enabledValue(snapshot) ? 'Disable' : 'Enable' }}
+            {{ availabilityEnabled(snapshot) ? 'Disable' : 'Enable' }}
           </button>
         </header>
 
@@ -227,8 +226,8 @@ export class PluginSettingsPanelComponent implements OnInit {
     return this.busyIds.has(snapshot.plugin.discovered.manifest.id);
   }
 
-  enabledValue(snapshot: ManagedPluginRuntimeSnapshot): boolean {
-    return this.policyFor(snapshot).enabled;
+  availabilityEnabled(snapshot: ManagedPluginRuntimeSnapshot): boolean {
+    return snapshot.plugin.state.enabled;
   }
 
   trustedValue(snapshot: ManagedPluginRuntimeSnapshot): boolean {
@@ -333,8 +332,8 @@ export class PluginSettingsPanelComponent implements OnInit {
         const draft = this.draftPolicy.get(id);
         if (!baseline || !draft) continue;
 
-        // Apply permission/trust policy before enabled state so disabling a
-        // plugin does not prevent the remaining policy from being persisted.
+        // Trust and permission edits are saved independently from availability.
+        // Enable/disable is an immediate action handled only by the button.
         if (draft.trusted !== baseline.trusted) {
           await withTimeout(
             this.coordinator.setTrusted(id, draft.trusted),
@@ -348,14 +347,6 @@ export class PluginSettingsPanelComponent implements OnInit {
             this.coordinator.setGrantedPermissions(id, draft.grantedPermissions),
             10_000,
             `Saving permission settings timed out for ${id}.`,
-          );
-        }
-
-        if (draft.enabled !== baseline.enabled) {
-          await withTimeout(
-            this.coordinator.setEnabled(id, draft.enabled),
-            10_000,
-            `Saving enabled setting timed out for ${id}.`,
           );
         }
       }
@@ -427,7 +418,6 @@ export class PluginSettingsPanelComponent implements OnInit {
 
   private policyFromSnapshot(snapshot: ManagedPluginRuntimeSnapshot): PluginPolicyDraft {
     return {
-      enabled: snapshot.plugin.state.enabled,
       trusted: snapshot.plugin.state.trusted,
       grantedPermissions: [...snapshot.plugin.state.grantedPermissions],
     };
@@ -537,7 +527,6 @@ export class PluginSettingsPanelComponent implements OnInit {
 
 function clonePolicy(policy: PluginPolicyDraft): PluginPolicyDraft {
   return {
-    enabled: policy.enabled,
     trusted: policy.trusted,
     grantedPermissions: [...policy.grantedPermissions],
   };
@@ -545,7 +534,6 @@ function clonePolicy(policy: PluginPolicyDraft): PluginPolicyDraft {
 
 function normalizePolicy(policy: PluginPolicyDraft): PluginPolicyDraft {
   return {
-    enabled: !!policy.enabled,
     trusted: !!policy.trusted,
     grantedPermissions: [...new Set(policy.grantedPermissions)].sort(),
   };
@@ -559,8 +547,7 @@ function samePermissions(left: readonly PluginPermission[], right: readonly Plug
 }
 
 function samePolicy(left: PluginPolicyDraft, right: PluginPolicyDraft): boolean {
-  return left.enabled === right.enabled &&
-    left.trusted === right.trusted &&
+  return left.trusted === right.trusted &&
     samePermissions(left.grantedPermissions, right.grantedPermissions);
 }
 

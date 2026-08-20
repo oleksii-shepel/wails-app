@@ -8,6 +8,7 @@ export interface DiscoveredPluginPackage {
   kind: PluginPackageKind;
   path: string;
   manifestPath: string;
+  fingerprint: string;
   valid: boolean;
   errors: string[];
   warnings: string[];
@@ -45,6 +46,7 @@ export function normalizeDiscoveredPluginPackage(value: unknown): DiscoveredPlug
     kind: raw['kind'] === 'archive' ? 'archive' : 'directory',
     path: typeof raw['path'] === 'string' ? raw['path'] : '',
     manifestPath: typeof raw['manifestPath'] === 'string' ? raw['manifestPath'] : '',
+    fingerprint: typeof raw['fingerprint'] === 'string' ? raw['fingerprint'] : '',
     valid: raw['valid'] === true,
     errors: stringArray(raw['errors']),
     warnings: stringArray(raw['warnings']),

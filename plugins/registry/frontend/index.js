@@ -7,6 +7,14 @@
  */
 
 const ROOT = 'registry://';
+let presentationModulePromise = null;
+
+function loadPresentationModule() {
+  if (!presentationModulePromise) {
+    presentationModulePromise = import('../dist/fesm2022/reassembly-registry-plugin.mjs');
+  }
+  return presentationModulePromise;
+}
 
 function normalizePath(path) {
   const raw = String(path || ROOT).trim().replace(/\\/g, '/');
@@ -64,7 +72,7 @@ function toFileInfo(entry, basePath) {
 }
 
 export async function activate(ctx) {
-  if (!ctx?.api?.registerPanelSource) {
+  if (!ctx?.api?.registerPanelSource || !ctx?.api?.registerPanelPresentation) {
     throw new Error('Universal host does not expose the scoped plugin registry API.');
   }
   if (!ctx?.backend?.call) {
@@ -131,6 +139,19 @@ export async function activate(ctx) {
   // ScopedPluginRegistry owns cleanup and removes this contribution when the
   // plugin is deactivated/uninstalled.
   ctx.api.registerPanelSource(source);
+  ctx.api.registerPanelPresentation({
+    id: 'reassembly.registry.presentation',
+    score(context) {
+      return context?.sourceKind === 'registry' &&
+        (context?.viewMode === 'list' || context?.viewMode === 'details')
+        ? 100
+        : 0;
+    },
+    async load() {
+      const module = await loadPresentationModule();
+      return module.RegistryPanelPresentationComponent;
+    },
+  });
 
   return () => {
     // Intentionally empty. The host scope owns contribution cleanup.

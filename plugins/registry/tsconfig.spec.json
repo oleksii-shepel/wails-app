@@ -3,9 +3,11 @@
   "compilerOptions": {
     "noEmit": true,
     "types": [
-      "jasmine"
+      "jasmine",
+      "node"
     ]
   },
+  "exclude": [],
   "include": [
     "src/**/*.spec.ts",
     "src/**/*.d.ts"

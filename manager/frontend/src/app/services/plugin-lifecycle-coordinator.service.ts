@@ -198,6 +198,7 @@ export class PluginLifecycleCoordinatorService {
     const staleRuntime = runtime && (
       runtime.manifest.version !== pkg.discovered.manifest.version ||
       runtime.source?.uri !== source.uri ||
+      runtime.source?.metadata?.['fingerprint'] !== source.metadata?.['fingerprint'] ||
       !samePermissions(runtime.grantedPermissions, pkg.effectiveGrantedPermissions)
     );
 
@@ -258,6 +259,7 @@ export class PluginLifecycleCoordinatorService {
         pluginId: pkg.discovered.manifest.id,
         manifestPath: pkg.discovered.manifestPath,
         version: pkg.discovered.manifest.version,
+        fingerprint: pkg.discovered.fingerprint,
       },
     };
   }

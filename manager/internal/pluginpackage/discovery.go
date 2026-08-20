@@ -61,6 +61,7 @@ type DiscoveredPackage struct {
 	Kind         string   `json:"kind"`
 	Path         string   `json:"path"`
 	ManifestPath string   `json:"manifestPath"`
+	Fingerprint  string   `json:"fingerprint,omitempty"`
 	Valid        bool     `json:"valid"`
 	Errors       []string `json:"errors,omitempty"`
 	Warnings     []string `json:"warnings,omitempty"`
@@ -151,6 +152,9 @@ func Discover(root string) ([]DiscoveredPackage, error) {
 
 func readDirectoryPackage(pkgDir, manifestPath string) DiscoveredPackage {
 	result := DiscoveredPackage{Kind: "directory", Path: pkgDir, ManifestPath: manifestPath}
+	if info, err := os.Stat(manifestPath); err == nil {
+		result.Fingerprint = fileFingerprint(info)
+	}
 	file, err := os.Open(manifestPath)
 	if err != nil {
 		result.Errors = []string{err.Error()}
@@ -188,6 +192,7 @@ func readArchivePackage(archivePath string) DiscoveredPackage {
 		result.Errors = []string{err.Error()}
 		return result
 	}
+	result.Fingerprint = fileFingerprint(info)
 	if info.Size() > MaxPluginArchiveBytes {
 		result.Errors = []string{fmt.Sprintf("plugin archive exceeds %d bytes", MaxPluginArchiveBytes)}
 		return result
@@ -326,6 +331,13 @@ func hostTarget() Target {
 		arch = "arm64"
 	}
 	return Target{OS: runtime.GOOS, Arch: arch}
+}
+
+func fileFingerprint(info os.FileInfo) string {
+	if info == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d-%d", info.ModTime().UnixNano(), info.Size())
 }
 
 func validateRelativeEntry(name string) error {

@@ -1,8 +1,18 @@
 import { CommonModule } from '@angular/common';
 import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 
-import { DirectoryPaneComponent, type PanePresentation } from './directory-pane.component';
-import type { PaneComponent, PaneViewportSnapshot } from './pane-component.contract';
+import { DirectoryPaneComponent } from './directory-pane.component';
+import type {
+  PaneCommands,
+  PaneComponent,
+  PaneNavigation,
+  PanePresentation,
+  PanePresentationPort,
+  PaneSelection,
+  PaneTabs,
+  PaneViewerCommands,
+  PaneViewportSnapshot,
+} from './pane-component.contract';
 import { RegistryPaneComponent } from './registry-pane.component';
 import type { PresentedCommand } from './presented-command';
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
@@ -112,6 +122,15 @@ export class PaneHostComponent {
   }
 
   get component(): PaneComponent | undefined { return this.activeComponent; }
+
+  // Transitional capability ports. New shell code should depend on the narrow
+  // capability it needs instead of the full PaneComponent compatibility facade.
+  get navigation(): PaneNavigation | undefined { return this.activeComponent; }
+  get selection(): PaneSelection | undefined { return this.activeComponent; }
+  get commands(): PaneCommands | undefined { return this.activeComponent; }
+  get presentation(): PanePresentationPort | undefined { return this.activeComponent; }
+  get tabCommands(): PaneTabs | undefined { return this.activeComponent; }
+  get viewerCommands(): PaneViewerCommands | undefined { return this.activeComponent; }
   get path(): string { return this.activeComponent?.path ?? ''; }
   get entries(): FileInfo[] { return this.activeComponent?.entries ?? []; }
   get tabs() { return this.activeComponent?.tabs ?? []; }

@@ -41,7 +41,6 @@ import {
   type BatchRenameItem,
 } from '../services/batch-rename-dialog.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
-import { DirectoryPaneComponent } from './directory-pane.component';
 import { PaneHostComponent } from './pane-host.component';
 import { WorkspaceSwitcherComponent } from './workspace-switcher.component';
 import { PathHistoryComponent } from './path-history.component';
@@ -91,7 +90,7 @@ import { adaptPluginToolbarActions } from './pane-toolbar-action';
 import { presentPluginCommand } from './plugin-command-presentation';
 import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './pane-link-policy';
-import type { PanePresentation } from './directory-pane.component';
+import type { PanePresentation } from './pane-component.contract';
 import { InputCenterComponent } from './input-center.component';
 import { KeyboardHelpComponent } from './keyboard-help.component';
 import { OperationJournalComponent } from './operation-journal.component';

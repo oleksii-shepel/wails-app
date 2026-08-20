@@ -18,8 +18,7 @@ import { getSourceCapabilities, type SourceCapabilities } from '../services/sour
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import type { PresentedCommand } from './presented-command';
-import type { PaneComponent } from './pane-component.contract';
-import type { PanePresentation } from './directory-pane.component';
+import type { PaneComponent, PanePresentation } from './pane-component.contract';
 
 type RegistryViewMode = 'list' | 'details';
 type RegistryEntryKind = 'parent' | 'hive' | 'key' | 'value';

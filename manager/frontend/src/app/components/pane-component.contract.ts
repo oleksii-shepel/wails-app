@@ -1,13 +1,25 @@
 import type { SourceCapabilities } from '../services/source-capabilities';
 import type { FileInfo } from '../shared/protocol';
-import type { PanePresentation } from './directory-pane.component';
+
+export type DirectoryView = 'list' | 'grid' | 'details' | 'tree';
+export type SortField = 'name' | 'size' | 'modified' | 'type';
+export type SortDirection = 'asc' | 'desc';
+
+export interface PanePresentation {
+  readonly viewMode: DirectoryView;
+  readonly sortField: SortField;
+  readonly sortDirection: SortDirection;
+  readonly directoriesFirst: boolean;
+  readonly filterText: string;
+  readonly filterVisible: boolean;
+}
 
 export type PaneViewportSnapshot = {
   topName: string | null;
   ratio: number;
 };
 
-export interface PaneComponent {
+export interface PaneState {
   readonly path: string;
   readonly entries: FileInfo[];
   readonly tabs: readonly unknown[];
@@ -16,10 +28,6 @@ export interface PaneComponent {
   readonly activeSurfaceId: string;
   readonly viewMode: string;
   readonly visibleEntries: readonly FileInfo[];
-  readonly cursorEntry: FileInfo | null;
-  readonly cursorPath: string | null;
-  readonly selectedPaths: ReadonlySet<string>;
-  readonly selectedEntries: FileInfo[];
   readonly sourceCapabilities: SourceCapabilities;
   readonly activePanelSource: any;
   readonly mountedViewer: any;
@@ -37,7 +45,9 @@ export interface PaneComponent {
   readonly isInArchive: boolean;
   readonly isDirectoryTab: boolean;
   lastAction: string;
+}
 
+export interface PaneNavigation {
   refresh(): Promise<void>;
   focusContent(): void;
   focusLocation(): void;
@@ -50,32 +60,17 @@ export interface PaneComponent {
   canNavigateToLocation(path: string): boolean | Promise<boolean>;
   currentLocationAvailable(): Promise<boolean>;
   jumpNavigationHistory(path: string): Promise<any>;
-  panePresentation(): PanePresentation;
-  viewportSnapshot(): PaneViewportSnapshot;
-  syncViewportToPeer(snapshot: PaneViewportSnapshot): void;
-  applyMirroredPresentation(presentation: PanePresentation, options?: unknown): void;
+}
+
+export interface PaneSelection {
+  readonly cursorEntry: FileInfo | null;
+  readonly cursorPath: string | null;
+  readonly selectedPaths: ReadonlySet<string>;
+  readonly selectedEntries: FileInfo[];
   moveCursor(delta: number, extend?: boolean): void;
   moveCursorHome(extend?: boolean): void;
   moveCursorEnd(extend?: boolean): void;
   moveCursorPage(direction: -1 | 1, extend?: boolean): void;
-  openEntry(entry: FileInfo): void | Promise<void>;
-  openViewer(entry: FileInfo, viewerId?: string | null, autoFollow?: boolean): any;
-  openSelectedWithViewer(viewerId: string): Promise<void>;
-  openQuickView(entry: FileInfo): void;
-  openActiveViewerExternally(): Promise<void>;
-  returnToViewerSource(): Promise<void>;
-  closeActiveTab(): void;
-  newTab(): void;
-  nextTab(): void;
-  previousTab(): void;
-  jumpToTab(index: number): void;
-  closeOtherTabs(): void;
-  closeTabsToRight(): void;
-  toggleActiveTabPin(): void;
-  exportActiveTabId(): string | null;
-  exportTabCount(): number;
-  restoreWorkspaceState(): Promise<void>;
-  reloadWorkspaceTabs(preferredTabId?: string): Promise<any>;
   selectAll(): void;
   clearSelection(): void;
   toggleCurrentSelection(): void;
@@ -93,6 +88,44 @@ export interface PaneComponent {
   selectComparisonItem(path: string): void;
   recoverVisibleCursor(): void;
   calculateSelectedSize(): Promise<void>;
+  selectPeerByName(name: string): boolean;
+}
+
+export interface PanePresentationPort {
+  panePresentation(): PanePresentation;
+  viewportSnapshot(): PaneViewportSnapshot;
+  syncViewportToPeer(snapshot: PaneViewportSnapshot): void;
+  applyMirroredPresentation(presentation: PanePresentation, options?: unknown): void;
+}
+
+export interface PaneTabs {
+  closeActiveTab(): void;
+  newTab(): void;
+  nextTab(): void;
+  previousTab(): void;
+  jumpToTab(index: number): void;
+  closeOtherTabs(): void;
+  closeTabsToRight(): void;
+  toggleActiveTabPin(): void;
+  exportActiveTabId(): string | null;
+  exportTabCount(): number;
+  restoreWorkspaceState(): Promise<void>;
+  reloadWorkspaceTabs(preferredTabId?: string): Promise<any>;
+}
+
+export interface PaneViewerCommands {
+  openEntry(entry: FileInfo): void | Promise<void>;
+  openViewer(entry: FileInfo, viewerId?: string | null, autoFollow?: boolean): any;
+  openSelectedWithViewer(viewerId: string): Promise<void>;
+  openQuickView(entry: FileInfo): void;
+  openActiveViewerExternally(): Promise<void>;
+  returnToViewerSource(): Promise<void>;
+  openResultsPanel(title: string, entries: readonly FileInfo[], metadata?: unknown): Promise<any>;
+  openRecentFilesPanel(): Promise<void>;
+  openSurfaceTab(surfaceId: string, title?: string, location?: string): Promise<void>;
+}
+
+export interface PaneCommands {
   copySelected(): void;
   cutSelected(): void;
   paste(): Promise<void>;
@@ -115,12 +148,17 @@ export interface PaneComponent {
   createLinkForSelected(kind: 'symbolic' | 'hard'): Promise<void>;
   createShortcutForSelected(): Promise<void>;
   createZipFromSelection(): Promise<void>;
-  openResultsPanel(title: string, entries: readonly FileInfo[], metadata?: unknown): Promise<any>;
-  openRecentFilesPanel(): Promise<void>;
-  openSurfaceTab(surfaceId: string, title?: string, location?: string): Promise<void>;
   extractSelectedTo(destinationDir: string, flattenPaths?: boolean): Promise<boolean>;
   transferArchiveSelectionTo(destinationDir: string, operation: 'copy' | 'move'): Promise<any>;
   treeLeft(): void;
   treeRight(): void;
-  selectPeerByName(name: string): boolean;
 }
+
+export interface PaneComponent
+  extends PaneState,
+    PaneNavigation,
+    PaneSelection,
+    PanePresentationPort,
+    PaneTabs,
+    PaneViewerCommands,
+    PaneCommands {}

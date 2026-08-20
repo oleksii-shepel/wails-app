@@ -59,6 +59,7 @@ import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
+import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
 import {
   collapseNestedDragEntries,
@@ -84,20 +85,6 @@ import {
   selectPathRange,
   togglePathSelection,
 } from './selection-policy';
-
-export type DirectoryView = 'list' | 'grid' | 'details' | 'tree';
-export type SortField = 'name' | 'size' | 'modified' | 'type';
-export type SortDirection = 'asc' | 'desc';
-
-export interface PanePresentation {
-  readonly viewMode: DirectoryView;
-  readonly sortField: SortField;
-  readonly sortDirection: SortDirection;
-  readonly directoriesFirst: boolean;
-  readonly filterText: string;
-  readonly filterVisible: boolean;
-}
-
 
 interface TreeRow {
   entry: FileInfo;

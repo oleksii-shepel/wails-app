@@ -855,7 +855,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['workspace']) {
-      // The input is bound to FileBrowserComponent.activeWorkspace which starts as null.
+      // The workspace input may start as null while the active workspace hydrates.
       // That means the *first* change Angular sees is often null, and the transition
       // to a real workspace would be a later change. Always load once we have a
       // non-null workspace so tabs/pane render without requiring a user click.
@@ -1298,7 +1298,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Archive move operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   /**
-   * Called by FileBrowserComponent after it has resolved destDir.
+   * Called by the active browser shell after it has resolved destDir.
    * Shows the confirmation dialog; executePendingMove runs when user confirms.
    */
   initiatePendingMove(entries: string[], destDir: string): void {

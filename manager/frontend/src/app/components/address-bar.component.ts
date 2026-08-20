@@ -462,12 +462,15 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
     const raw = this.displayPath || '/';
     const normalized = raw.replace(/\\/g, '/');
 
-    const scheme = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i.exec(normalized);
+    const scheme = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(normalized);
     if (scheme) {
-      const prefix = scheme[1];
+      const schemeName = scheme[1];
+      const prefix = `${schemeName}://`;
       const parts = scheme[2].split('/').filter(Boolean);
       const segments: BreadcrumbSegment[] = [{
-        label: prefix.replace('://', ''),
+        // Show the semantic scheme root, not a folder-looking name.
+        // Preserve the scheme spelling supplied by the location.
+        label: `${schemeName}:`,
         path: prefix,
         root: true,
         archiveBoundary: false,
@@ -477,6 +480,7 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
       for (const part of parts) {
         current = `${current}${current.endsWith('/') ? '' : '/'}${part}`;
         segments.push({
+          // Presentation is case-preserving. Never case-fold breadcrumb labels.
           label: part,
           path: current,
           root: false,

@@ -481,6 +481,35 @@ export function buildSegments(p: string): PathSegment[] {
     return segs;
   }
 
+  // Generic contributed URI scheme. Specialized schemes above keep their
+  // own presentation; other plugin schemes still render as a semantic root.
+  const genericScheme = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(p);
+  if (genericScheme && genericScheme[1].toLowerCase() !== 'filesystem') {
+    const scheme = genericScheme[1];
+    const rel = genericScheme[2] ?? '';
+    const parts = rel ? rel.split('/').filter(Boolean) : [];
+    const rootLabel = `${scheme}:`;
+    const rootPath = `${scheme}://`;
+
+    const segs: PathSegment[] = [{
+      label: rootLabel,
+      fullPath: rootPath,
+      isRoot: true,
+      rootLabel,
+    }];
+
+    parts.forEach((part, i) => {
+      segs.push({
+        // Presentation preserves source-provided casing. Case folding belongs
+        // only in comparison/identity code, never breadcrumb labels.
+        label: part,
+        fullPath: `${rootPath}${parts.slice(0, i + 1).join('/')}`,
+        isRoot: false,
+      });
+    });
+    return segs;
+  }
+
   const driveReference = canonicalDriveReference(p);
   if (driveReference) {
     const rest = driveReference.slice('filesystem://'.length);

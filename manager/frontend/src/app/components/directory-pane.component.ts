@@ -3599,7 +3599,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
           ? error.message
           : String(error);
         this.lastAction = `navigate failed: ${location}`;
-        this.emitPathChange(location);
         this.syncActiveDirSessionState();
         this.cdr.markForCheck();
       }

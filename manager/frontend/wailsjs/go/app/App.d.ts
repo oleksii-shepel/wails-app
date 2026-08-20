@@ -57,7 +57,7 @@ export function BrowserPaneSync(arg1:contracts.BrowserPaneSyncRequest):Promise<v
 
 export function BuildSearchAlias(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
-export function CallUniversalPluginBackend(arg1:string,arg2:string,arg3:any):Promise<any>;
+export function CallUniversalPluginBackend(arg1:string,arg2:string,arg3:string):Promise<any>;
 
 export function CanConvertImage(arg1:string):Promise<boolean>;
 

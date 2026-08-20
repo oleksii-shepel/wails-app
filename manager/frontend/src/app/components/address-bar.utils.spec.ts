@@ -30,4 +30,9 @@ describe('address-bar alias normalization', () => {
     expect(canonicalizePathReference(uncPath)).toBe('smb://fileserver/share/docs');
     expect(normalizePath(uncPath)).toBe('smb://fileserver/share/docs');
   });
+
+  it('repairs a bare registry scheme back to the registry root', () => {
+    expect(canonicalizePathReference('registry:')).toBe('registry://');
+    expect(normalizePath('registry:')).toBe('registry://');
+  });
 });

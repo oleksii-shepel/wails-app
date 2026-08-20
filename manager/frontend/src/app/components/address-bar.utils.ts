@@ -230,6 +230,9 @@ function isRegistryReference(p: string): boolean {
 
 function normalizeRegistryReference(p: string): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
+  if (/^registry:$/i.test(normalized)) {
+    return REGISTRY_ROOT;
+  }
   const match = /^registry:\/\/(.*)?$/i.exec(normalized);
   if (!match) return normalized;
   const rest = (match[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/+$/, '');
@@ -245,6 +248,10 @@ export function canonicalizePathReference(p: string): string {
   }
 
   let n = p.replace(/\\/g, '/');
+
+  if (/^registry:$/i.test(n.trim())) {
+    return REGISTRY_ROOT;
+  }
 
   // Convert UNC paths (//host/share/...) to smb:// scheme
   const uncMatch = /^\/\/([^/]+)(\/.*)?$/.exec(n);

@@ -68,11 +68,11 @@ export function normalizeRegistryPath(path: string): string {
 export function joinRegistryPath(parts: readonly string[]): string {
   if (!parts.length) return ROOT;
   const [head, ...tail] = parts;
-  let result = normalizeRegistryPath(head || ROOT).replace(/\/+$/, '');
+  let result = normalizeRegistryPath(head || ROOT);
   for (const part of tail) {
     const segment = String(part ?? '').replace(/^\/+|\/+$/g, '');
     if (!segment) continue;
-    result = result === 'registry:' ? `${ROOT}${segment}` : `${result}/${segment}`;
+    result = result === ROOT ? `${ROOT}${segment}` : `${result.replace(/\/+$/, '')}/${segment}`;
   }
   return normalizeRegistryPath(result);
 }

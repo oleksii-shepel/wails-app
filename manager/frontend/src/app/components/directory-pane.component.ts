@@ -27,8 +27,14 @@ import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
 import { calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
-import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
+import type {
+  PanelColumnContribution,
+  PanelColumnContext,
+  PanelPresentationContribution,
+  PanelPresentationModel,
+} from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
+import { PanelPresentationOutletComponent } from './panel-presentation-outlet.component';
 import {
   ArchiveService,
   type ArchiveFrame,
@@ -186,6 +192,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
   imports: [
     CommonModule,
     AddressBarComponent,
+    PanelPresentationOutletComponent,
     FilterComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
@@ -523,7 +530,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </div>
       </div>
 
-      <div class="details-header" *ngIf="!error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
+      <app-panel-presentation-outlet
+        *ngIf="!error && activePanelPresentation as presentation"
+        [presentation]="presentation"
+        [model]="panelPresentationModel">
+      </app-panel-presentation-outlet>
+
+      <div class="details-header" *ngIf="!activePanelPresentation && !error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
         <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
         <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
@@ -532,7 +545,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
-        *ngIf="!error && viewMode !== 'tree'"
+        *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
         [attr.aria-label]="'Files in ' + (path || 'location')"
@@ -2210,6 +2223,52 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     };
   }
 
+  get activePanelPresentation(): PanelPresentationContribution | null {
+    if (this.viewMode !== 'list' && this.viewMode !== 'details') return null;
+    return this.pluginManager.resolvePanelPresentation({
+      ...this.panelColumnContext,
+      viewMode: this.viewMode,
+    });
+  }
+
+  get panelPresentationModel(): PanelPresentationModel {
+    const window = this.listVirtualWindow;
+    return {
+      paneId: this.paneId,
+      path: this.path,
+      viewMode: this.viewMode,
+      entries: this.renderedEntries,
+      selectedPaths: this.selectedPaths,
+      cursorPath: this.cursorPath,
+      visibleEntryCount: this.visibleEntryCount,
+      renderedStart: this.renderedEntryStart,
+      virtualEnabled: window.enabled,
+      beforePx: window.beforePx,
+      afterPx: window.afterPx,
+      loading: this.loading,
+      filterText: this.filterText,
+      dragOverPath: this.dragOverPath,
+      dropIntent: this.dropIntent,
+      backgroundDropActive: this.backgroundDropActive,
+      host: {
+        scroll: event => this.onContentScroll(event),
+        backgroundClick: event => this.onBackgroundClick(event),
+        backgroundContextMenu: event => this.onBackgroundContextMenu(event),
+        backgroundDragOver: event => this.onBackgroundDragOver(event),
+        backgroundDragLeave: event => this.onBackgroundDragLeave(event),
+        backgroundDrop: event => this.onBackgroundDrop(event),
+        select: (entry, event) => this.selectFromPointer(entry, event),
+        open: entry => void this.openEntry(entry),
+        contextMenu: (entry, event) => this.onEntryContextMenu(entry, event),
+        dragStart: (entry, event) => this.onEntryDragStart(entry, event),
+        dragEnd: () => this.onDragEnd(),
+        dragOver: (entry, event) => this.onEntryDragOver(entry, event),
+        dragLeave: entry => this.onEntryDragLeave(entry),
+        drop: (entry, event) => this.onEntryDrop(entry, event),
+      },
+    };
+  }
+
   get pluginPanelColumns(): PanelColumnContribution[] {
     if (this.viewMode !== 'details') return [];
     return this.pluginManager.resolvePanelColumns(this.panelColumnContext);
@@ -2861,7 +2920,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   newTab(): void {
-    const path = this.path || '/';
+    const path = this.path || this.fallbackDirectoryPath();
     const persisted = this.workspaceService.addTab(this.paneId, path, true);
 
     if (persisted) {
@@ -4074,16 +4133,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   selectFromPointer(entry: FileInfo, event: MouseEvent): void {
     this.markUserInteraction();
-    this.cursorPath = entry.path;
 
     if (entry.path === '__parent__') {
-      this.selectedPaths = new Set();
-      this.anchorPath = null;
-      this.lastAction = 'select parent';
-      this.syncActiveDirSessionState();
-      this.cdr.markForCheck();
+      this.openEntry(entry);
       return;
     }
+
+    this.cursorPath = entry.path;
 
     if (event.shiftKey && this.anchorPath) {
       this.selectRange(this.anchorPath, entry.path);
@@ -7152,7 +7208,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     try {
       const drives = await this.api.listDrives();
-      const initialPath = drives[0]?.path || '/';
+      const initialPath = drives[0]?.path || this.fallbackDirectoryPath();
       const loaded = await this.load(initialPath, { history: 'record' });
       if (loaded && this.tabs.length === 0) {
         const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
@@ -7843,7 +7899,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const path =
       typeof tab.location === 'string'
         ? tab.location
-        : tab.location?.location || tab.path || '/';
+        : tab.location?.location || tab.path || this.fallbackDirectoryPath();
 
     const session = this.loadDirTabSession(tab.id);
 
@@ -8563,7 +8619,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private createDirectoryTab(path: string): Extract<Tab, { kind: 'dir' }> {
-    const normalized = path || '/';
+    const normalized = path || this.fallbackDirectoryPath();
     return {
       id: `${this.paneId}-tab-${++this.tabCounter}`,
       kind: 'dir',
@@ -8586,6 +8642,44 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       isClosable: true,
       isPinned: false,
     };
+  }
+
+  private fallbackDirectoryPath(): string {
+    const candidates: string[] = [];
+
+    const current = (this.path || '').trim();
+    if (current && current !== '/') {
+      candidates.push(current);
+    }
+
+    for (const tab of this.tabs) {
+      if (tab.kind !== 'dir') continue;
+      const candidate = (tab.path || '').trim();
+      if (candidate && candidate !== '/') {
+        candidates.push(candidate);
+      }
+    }
+
+    for (const tab of this.workspaceService.getTabs(this.paneId)) {
+      const candidate = String(tab.location?.location ?? tab.path ?? '').trim();
+      if (candidate && candidate !== '/') {
+        candidates.push(candidate);
+      }
+    }
+
+    const exact = candidates[0];
+    if (exact) {
+      return exact;
+    }
+
+    const workspaceRoot = this.workspaceService.getAllTabPaths().find(path =>
+      /^filesystem:\/\/[a-z](?:\/.*)?$/i.test((path || '').trim()),
+    );
+    if (workspaceRoot) {
+      return workspaceRoot.replace(/^(filesystem:\/\/[a-z]).*$/i, '$1');
+    }
+
+    return '/';
   }
 
   private syncActiveTab(path: string): void {

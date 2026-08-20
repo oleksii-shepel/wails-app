@@ -1,3 +1,4 @@
+import type { Type } from '@angular/core';
 import type { ViewerContribution, ViewerRequest } from '../viewers/viewer-contribution';
 import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-contribution';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
@@ -56,6 +57,55 @@ export interface PanelColumnContribution {
   readonly inline?: boolean;
   score(context: PanelColumnContext): number;
   value(entry: FileInfo, context: PanelColumnContext): string | number | null | undefined;
+}
+
+export type PanelPresentationViewMode = 'list' | 'grid' | 'details' | 'tree';
+
+export interface PanelPresentationContext extends PanelColumnContext {
+  readonly viewMode: PanelPresentationViewMode;
+}
+
+export interface PanelPresentationHost {
+  scroll(event: Event): void;
+  backgroundClick(event: MouseEvent): void;
+  backgroundContextMenu(event: MouseEvent): void;
+  backgroundDragOver(event: DragEvent): void;
+  backgroundDragLeave(event: DragEvent): void;
+  backgroundDrop(event: DragEvent): void;
+  select(entry: FileInfo, event: MouseEvent): void;
+  open(entry: FileInfo): void;
+  contextMenu(entry: FileInfo, event: MouseEvent): void;
+  dragStart(entry: FileInfo, event: DragEvent): void;
+  dragEnd(): void;
+  dragOver(entry: FileInfo, event: DragEvent): void;
+  dragLeave(entry: FileInfo): void;
+  drop(entry: FileInfo, event: DragEvent): void;
+}
+
+export interface PanelPresentationModel {
+  readonly paneId: 'left' | 'right';
+  readonly path: string;
+  readonly viewMode: PanelPresentationViewMode;
+  readonly entries: readonly FileInfo[];
+  readonly selectedPaths: ReadonlySet<string>;
+  readonly cursorPath: string | null;
+  readonly visibleEntryCount: number;
+  readonly renderedStart: number;
+  readonly virtualEnabled: boolean;
+  readonly beforePx: number;
+  readonly afterPx: number;
+  readonly loading: boolean;
+  readonly filterText: string;
+  readonly dragOverPath: string | null;
+  readonly dropIntent: 'copy' | 'move' | 'invalid' | null;
+  readonly backgroundDropActive: boolean;
+  readonly host: PanelPresentationHost;
+}
+
+export interface PanelPresentationContribution {
+  readonly id: string;
+  score(context: PanelPresentationContext): number;
+  load(): Promise<Type<unknown>> | Type<unknown>;
 }
 
 export interface PluginCommandInfo {
@@ -154,6 +204,9 @@ export interface PluginRegistryAPI {
 
   registerPanelColumn(column: PanelColumnContribution): void;
   unregisterPanelColumn(id: string): void;
+
+  registerPanelPresentation(presentation: PanelPresentationContribution): void;
+  unregisterPanelPresentation(id: string): void;
 
   registerTheme(theme: ThemeContribution): void;
   unregisterTheme(id: string): void;

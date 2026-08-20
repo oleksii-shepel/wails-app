@@ -5,6 +5,7 @@ import type {
   ToolbarActionContribution,
   PluginResultsCollection,
   PanelColumnContribution,
+  PanelPresentationContribution,
 } from './plugin-registry-api';
 import type { PluginPermission } from './plugin-manifest';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
@@ -138,6 +139,13 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterPanelColumn(column.id));
   }
   unregisterPanelColumn(id: string): void { this.host.unregisterPanelColumn(id); }
+
+  registerPanelPresentation(presentation: PanelPresentationContribution): void {
+    this.assertActive(); this.require('panelSources');
+    this.host.registerPanelPresentation(presentation);
+    this.cleanups.push(() => this.host.unregisterPanelPresentation(presentation.id));
+  }
+  unregisterPanelPresentation(id: string): void { this.host.unregisterPanelPresentation(id); }
 
   registerTheme(theme: ThemeContribution): void {
     this.assertActive(); this.require('surfaces');

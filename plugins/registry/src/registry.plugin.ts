@@ -8,7 +8,9 @@ import {
   RegistryPanelSource,
   type RegistryPanelSourceHost,
 } from './registry-panel-source';
+import type { Type } from '@angular/core';
 import type { RegistryFileInfo } from './registry-model';
+import { RegistryPanelPresentationComponent } from './registry-panel-presentation.component';
 
 export interface RegistryCommandInvocation {
   source?: string;
@@ -49,9 +51,17 @@ export interface RegistryContextMenuContribution {
   score(context: RegistryMenuContext): number;
 }
 
+export interface RegistryPanelPresentationContribution {
+  readonly id: string;
+  score(context: { readonly sourceKind: string; readonly viewMode: string }): number;
+  load(): Promise<Type<unknown>> | Type<unknown>;
+}
+
 export interface RegistryPluginApi {
   registerPanelSource(source: RegistryPanelSource): void;
   unregisterPanelSource(id: string): void;
+  registerPanelPresentation(presentation: RegistryPanelPresentationContribution): void;
+  unregisterPanelPresentation(id: string): void;
   registerCommand(command: RegistryCommandDescriptor): void;
   unregisterCommand(id: string): void;
   registerToolbarAction(action: RegistryToolbarContribution): void;
@@ -286,10 +296,21 @@ export function createRegistryPlugin(
     },
   );
 
+  const presentation: RegistryPanelPresentationContribution = {
+    id: 'reassembly.registry.presentation',
+    score: context =>
+      context.sourceKind === 'registry' &&
+      (context.viewMode === 'list' || context.viewMode === 'details')
+        ? 100
+        : 0,
+    load: () => RegistryPanelPresentationComponent,
+  };
+
   const backend: RegistryPluginBackend = {
     id: 'reassembly.registry',
     onRegister: api => {
       api.registerPanelSource(source);
+      api.registerPanelPresentation(presentation);
 
       api.registerCommand({
         id: COMMAND.newKey,
@@ -447,6 +468,7 @@ export function createRegistryPlugin(
       api.unregisterCommand(COMMAND.newValue);
       api.unregisterCommand(COMMAND.newKey);
 
+      api.unregisterPanelPresentation(presentation.id);
       api.unregisterPanelSource(source.id);
     },
   };

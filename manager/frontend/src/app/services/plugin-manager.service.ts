@@ -10,6 +10,8 @@ import type {
   FileCategoryResolver,
   PanelColumnContribution,
   PanelColumnContext,
+  PanelPresentationContribution,
+  PanelPresentationContext,
   PluginResultsCollection,
 } from '../plugin/plugin-registry-api';
 import type { ViewerContribution } from '../viewers/viewer-contribution';
@@ -75,6 +77,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   readonly contextMenuItems: ContextMenuContribution[] = [];
   readonly fileCategories: FileCategoryResolver[] = [];
   readonly panelColumns: PanelColumnContribution[] = [];
+  readonly panelPresentations: PanelPresentationContribution[] = [];
 
   constructor() {
     this.registerBuiltinAutorunProvider();
@@ -249,6 +252,25 @@ export class PluginManagerService implements PluginRegistryAPI {
       .filter(candidate => candidate.score > 0)
       .sort((left, right) => right.score - left.score || left.column.id.localeCompare(right.column.id))
       .map(candidate => candidate.column);
+  }
+
+  registerPanelPresentation(presentation: PanelPresentationContribution): void {
+    const index = this.panelPresentations.findIndex(candidate => candidate.id === presentation.id);
+    if (index >= 0) this.panelPresentations.splice(index, 1, presentation);
+    else this.panelPresentations.push(presentation);
+  }
+
+  unregisterPanelPresentation(id: string): void {
+    const index = this.panelPresentations.findIndex(presentation => presentation.id === id);
+    if (index >= 0) this.panelPresentations.splice(index, 1);
+  }
+
+  resolvePanelPresentation(context: PanelPresentationContext): PanelPresentationContribution | null {
+    return this.panelPresentations
+      .map(presentation => ({ presentation, score: presentation.score(context) }))
+      .filter(candidate => candidate.score > 0)
+      .sort((left, right) => right.score - left.score || left.presentation.id.localeCompare(right.presentation.id))
+      .map(candidate => candidate.presentation)[0] ?? null;
   }
 
   registerRelatedLocation(contribution: RelatedLocationContribution): void {

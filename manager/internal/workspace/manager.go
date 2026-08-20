@@ -7,6 +7,7 @@ import (
 	"time"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 // Manager owns workspace persistence and converts between storage models and wire contracts.
@@ -241,6 +242,96 @@ func LoadStoredWindowState(appName string) *contracts.WindowState {
 		return nil
 	}
 	return fromStorageWindowState(state.Preferences.WindowState)
+}
+
+// LoadStoredState reads the persisted workspace state directly from disk
+// without instantiating a Manager. Returns nil when no state has been written
+// yet or the file is unreadable.
+func LoadStoredState(appName string) *State {
+	store, err := NewStore(appName)
+	if err != nil {
+		return nil
+	}
+	data, err := store.ReadState()
+	if err != nil {
+		return nil
+	}
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil
+	}
+	migrated, err := migrateState(state, data)
+	if err != nil {
+		return nil
+	}
+	return &migrated
+}
+
+// StoredStateRequiresElevation reports whether startup should relaunch elevated
+// before restoring persisted panes. This currently treats registry-backed pane
+// locations as requiring elevation on startup so the initial restore does not
+// fall back to a generic root before elevated access is available.
+func StoredStateRequiresElevation(appName string) bool {
+	state := LoadStoredState(appName)
+	return state != nil && storedStateRequiresElevation(*state)
+}
+
+func storedStateRequiresElevation(state State) bool {
+	if len(state.Workspaces) == 0 {
+		return false
+	}
+
+	if state.Preferences.ReopenLastWorkspace && state.ActiveWorkspaceID != "" {
+		if workspace, ok := state.Workspaces[state.ActiveWorkspaceID]; ok {
+			return workspaceRequiresElevation(workspace)
+		}
+	}
+
+	for _, workspace := range state.Workspaces {
+		if workspaceRequiresElevation(workspace) {
+			return true
+		}
+	}
+	return false
+}
+
+func workspaceRequiresElevation(workspace Config) bool {
+	return paneRequiresElevation(workspace.LeftPane) || paneRequiresElevation(workspace.RightPane)
+}
+
+func paneRequiresElevation(pane PaneState) bool {
+	for _, tab := range pane.Tabs {
+		if tabRequiresElevation(tab) {
+			return true
+		}
+	}
+	return false
+}
+
+func tabRequiresElevation(tab TabInfo) bool {
+	candidates := []string{
+		tab.Path,
+		tab.ViewerPath(),
+	}
+	if tab.Location != nil {
+		candidates = append(candidates, tab.Location.Location)
+	}
+	for _, candidate := range candidates {
+		if pathref.IsRegistry(pathref.Normalize(candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t TabInfo) ViewerPath() string {
+	if t.Viewer == nil {
+		return ""
+	}
+	if t.Viewer.TargetPath != "" {
+		return t.Viewer.TargetPath
+	}
+	return t.Viewer.SourceDir
 }
 
 func DefaultPreferences() contracts.UserPreferences {

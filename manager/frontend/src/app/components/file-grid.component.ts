@@ -1247,9 +1247,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       if (this.isParentEntry(entry)) {
         this.anchorPath = entry.path;
         this.selectionChange.emit([entry]);
-        if (this.singleClickToOpen) {
-          this.navigate.emit(entry);
-        }
+        this.navigate.emit(entry);
         return;
       }
       this.setCursor(entry.path);

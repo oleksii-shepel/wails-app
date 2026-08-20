@@ -1253,9 +1253,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (this.isParentEntry(entry)) {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
-      if (this.singleClickToOpen) {
-        this.navigate.emit(entry);
-      }
+      this.navigate.emit(entry);
       return;
     }
 

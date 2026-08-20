@@ -15,6 +15,7 @@ function host(): PluginRegistryAPI {
     registerRelatedLocation: fn(), unregisterRelatedLocation: fn(),
     registerPanelSource: fn(), unregisterPanelSource: fn(),
     registerPanelColumn: fn(), unregisterPanelColumn: fn(),
+    registerPanelPresentation: fn(), unregisterPanelPresentation: fn(),
     registerTheme: fn(), unregisterTheme: fn(),
     registerColumnProfile: fn(), unregisterColumnProfile: fn(),
     registerLayoutPreset: fn(), unregisterLayoutPreset: fn(),

@@ -240,7 +240,8 @@ export class WorkspaceService {
       if (!tab.surfaceId) changed = true;
       if (!tab.kind) changed = true;
 
-      const canonicalPath = this.normalizePersistedTabPath(tab.path, surfaceId, homePath);
+      const persistedPath = this.persistedNavigationTarget(tab, surfaceId);
+      const canonicalPath = this.normalizePersistedTabPath(persistedPath, surfaceId, homePath);
       if (canonicalPath !== (tab.path ?? '')) changed = true;
 
       const location = surfaceId === 'viewer'
@@ -282,6 +283,20 @@ export class WorkspaceService {
       activeTabId: nextActiveTabId,
       changed,
     };
+  }
+
+  private persistedNavigationTarget(tab: TabInfo, surfaceId: string): string | undefined {
+    if (surfaceId === 'viewer') {
+      return tab.path;
+    }
+
+    const location = tab.location?.location?.trim();
+    if (location) {
+      return location;
+    }
+
+    const path = tab.path?.trim();
+    return path || undefined;
   }
 
   private sanitizePaneUpdate(

@@ -94,6 +94,10 @@ export function BuildSearchAlias(arg1, arg2, arg3) {
   return window['go']['app']['App']['BuildSearchAlias'](arg1, arg2, arg3);
 }
 
+export function CallUniversalPluginBackend(arg1, arg2, arg3) {
+  return window['go']['app']['App']['CallUniversalPluginBackend'](arg1, arg2, arg3);
+}
+
 export function CanConvertImage(arg1) {
   return window['go']['app']['App']['CanConvertImage'](arg1);
 }
@@ -446,6 +450,10 @@ export function Ping() {
   return window['go']['app']['App']['Ping']();
 }
 
+export function PrepareUniversalPluginPackage(arg1) {
+  return window['go']['app']['App']['PrepareUniversalPluginPackage'](arg1);
+}
+
 export function ProbeArchiveFile(arg1, arg2, arg3) {
   return window['go']['app']['App']['ProbeArchiveFile'](arg1, arg2, arg3);
 }
@@ -484,6 +492,10 @@ export function ReadListDirStreamWindow(arg1, arg2, arg3) {
 
 export function ReadPluginFrontendModule(arg1) {
   return window['go']['app']['App']['ReadPluginFrontendModule'](arg1);
+}
+
+export function ReadUniversalPluginFrontendEntry(arg1) {
+  return window['go']['app']['App']['ReadUniversalPluginFrontendEntry'](arg1);
 }
 
 export function RecordPluginActivation(arg1, arg2, arg3) {
@@ -616,6 +628,10 @@ export function StopElevatedSession() {
 
 export function StopElevationSession() {
   return window['go']['app']['App']['StopElevationSession']();
+}
+
+export function StopUniversalPluginBackend(arg1) {
+  return window['go']['app']['App']['StopUniversalPluginBackend'](arg1);
 }
 
 export function StreamBaseURL() {

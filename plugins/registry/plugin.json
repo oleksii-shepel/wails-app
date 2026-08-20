@@ -1,25 +1,49 @@
 {
-  "schemaVersion": 1,
-  "id": "builtin.registry",
+  "schemaVersion": 2,
+  "id": "reassembly.registry",
   "name": "Windows Registry",
-  "version": "1.0.0",
-  "apiVersion": "^1.0.0",
-  "description": "Built-in Windows Registry panel source, presentation and actions.",
+  "version": "1.2.0",
+  "apiVersion": "^2.0.0",
+  "description": "Windows Registry browser and editor with plugin-owned frontend UX and native backend. The registry:// scheme exists only while this plugin is active.",
+  "target": {
+    "os": "windows",
+    "arch": "x64"
+  },
+  "frontend": {
+    "entry": "frontend/index.js"
+  },
+  "backend": {
+    "entry": "backend/plugin.exe",
+    "protocol": 1
+  },
   "permissions": [
     "commands",
     "toolbar",
     "contextMenu",
-    "panelSources"
+    "panelSources",
+    "schemes",
+    "dialogs",
+    "backend.execute"
   ],
   "activationEvents": [
-    "onStartup"
+    "onScheme:registry",
+    "onCommand:reassembly.registry.open"
   ],
   "contributes": {
+    "schemes": [
+      "registry"
+    ],
     "commands": [
-      "builtin.registry.newKey",
-      "builtin.registry.newValue",
-      "builtin.registry.edit",
-      "builtin.registry.delete"
+      "reassembly.registry.newKey",
+      "reassembly.registry.newValue",
+      "reassembly.registry.edit",
+      "reassembly.registry.delete",
+      "reassembly.registry.open",
+      "reassembly.registry.open.currentUser",
+      "reassembly.registry.open.localMachine",
+      "reassembly.registry.open.classesRoot",
+      "reassembly.registry.open.users",
+      "reassembly.registry.open.currentConfig"
     ]
   }
 }

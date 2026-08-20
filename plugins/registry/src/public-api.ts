@@ -6,4 +6,5 @@ export * from './registry-key-editor.service';
 export * from './registry-key-editor.component';
 export * from './registry-value-editor.service';
 export * from './registry-value-editor.component';
-export * from './registry-plugin-host.component';
+export * from './registry-plugin-host.component';export * from './universal/registry-backend';
+export * from './universal/registry-universal.plugin';

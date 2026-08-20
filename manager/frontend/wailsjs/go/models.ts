@@ -1989,6 +1989,144 @@ export namespace pluginpackage {
 	        this.clearQuarantine = source["clearQuarantine"];
 	    }
 	}
+	export class UniversalBackendEntry {
+	    entry: string;
+	    protocol: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniversalBackendEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry = source["entry"];
+	        this.protocol = source["protocol"];
+	    }
+	}
+	export class UniversalEntry {
+	    entry: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniversalEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entry = source["entry"];
+	    }
+	}
+	export class UniversalTarget {
+	    os: string;
+	    arch: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniversalTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.os = source["os"];
+	        this.arch = source["arch"];
+	    }
+	}
+	export class UniversalManifest {
+	    schemaVersion: number;
+	    id: string;
+	    name: string;
+	    version: string;
+	    description?: string;
+	    author?: string;
+	    homepage?: string;
+	    license?: string;
+	    apiVersion?: string;
+	    target: UniversalTarget;
+	    frontend: UniversalEntry;
+	    backend: UniversalBackendEntry;
+	    permissions?: string[];
+	    activationEvents?: string[];
+	    contributes?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new UniversalManifest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.homepage = source["homepage"];
+	        this.license = source["license"];
+	        this.apiVersion = source["apiVersion"];
+	        this.target = this.convertValues(source["target"], UniversalTarget);
+	        this.frontend = this.convertValues(source["frontend"], UniversalEntry);
+	        this.backend = this.convertValues(source["backend"], UniversalBackendEntry);
+	        this.permissions = source["permissions"];
+	        this.activationEvents = source["activationEvents"];
+	        this.contributes = source["contributes"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UniversalPackage {
+	    manifest: UniversalManifest;
+	    archivePath: string;
+	    cachePath: string;
+	    valid: boolean;
+	    errors?: string[];
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new UniversalPackage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.manifest = this.convertValues(source["manifest"], UniversalManifest);
+	        this.archivePath = source["archivePath"];
+	        this.cachePath = source["cachePath"];
+	        this.valid = source["valid"];
+	        this.errors = source["errors"];
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

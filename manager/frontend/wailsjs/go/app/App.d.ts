@@ -57,6 +57,8 @@ export function BrowserPaneSync(arg1:contracts.BrowserPaneSyncRequest):Promise<v
 
 export function BuildSearchAlias(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function CallUniversalPluginBackend(arg1:string,arg2:string,arg3:any):Promise<any>;
+
 export function CanConvertImage(arg1:string):Promise<boolean>;
 
 export function CancelArchiveReadStream(arg1:string):Promise<void>;
@@ -233,6 +235,8 @@ export function PathExists(arg1:string):Promise<boolean>;
 
 export function Ping():Promise<number>;
 
+export function PrepareUniversalPluginPackage(arg1:string):Promise<pluginpackage.UniversalPackage>;
+
 export function ProbeArchiveFile(arg1:string,arg2:Array<string>,arg3:string):Promise<contracts.FileProbe>;
 
 export function ProbeFile(arg1:string):Promise<contracts.FileProbe>;
@@ -252,6 +256,8 @@ export function ReadFileStream(arg1:string,arg2:number):Promise<string>;
 export function ReadListDirStreamWindow(arg1:string,arg2:number,arg3:number):Promise<runtime.DirStreamWindow>;
 
 export function ReadPluginFrontendModule(arg1:string):Promise<pluginpackage.FrontendModule>;
+
+export function ReadUniversalPluginFrontendEntry(arg1:string):Promise<string>;
 
 export function RecordPluginActivation(arg1:string,arg2:boolean,arg3:string):Promise<pluginpackage.PackageState>;
 
@@ -318,6 +324,8 @@ export function StartOperation(arg1:contracts.OperationType,arg2:string,arg3:str
 export function StopElevatedSession():Promise<void>;
 
 export function StopElevationSession():Promise<void>;
+
+export function StopUniversalPluginBackend(arg1:string):Promise<void>;
 
 export function StreamBaseURL():Promise<string>;
 

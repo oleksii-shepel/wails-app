@@ -1,0 +1,13 @@
+import archiver from 'archiver';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
+const root=resolve(import.meta.dirname,'..');
+const m=JSON.parse(readFileSync(resolve(root,'plugin.json'),'utf8'));
+const target=`${m.target.os}-${m.target.arch}`;
+const outDir=resolve(root,'artifacts'); const out=resolve(outDir,`${m.id}-${m.version}-${target}.zip`);
+for (const p of [m.frontend.entry,m.backend.entry,'dist']) if(!existsSync(resolve(root,p))) throw new Error(`Missing ${p}; run npm run build:plugin first.`);
+mkdirSync(outDir,{recursive:true}); rmSync(out,{force:true});
+const output=createWriteStream(out); const a=archiver('zip',{zlib:{level:9}});
+const done=new Promise((ok,fail)=>{output.on('close',ok);output.on('error',fail);a.on('error',fail)}); a.pipe(output);
+a.file(resolve(root,'plugin.json'),{name:'plugin.json'}); a.directory(resolve(root,'frontend'),'frontend'); a.file(resolve(root,m.backend.entry),{name:m.backend.entry}); a.directory(resolve(root,'dist'),'dist');
+await a.finalize(); await done; console.log(`Packed ${basename(out)} (${a.pointer()} bytes)`);

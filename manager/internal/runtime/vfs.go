@@ -369,7 +369,5 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		NestedChain: nestedChain,
 	}
 
-	registry.ApplyFileInfoMetadata(&file, entry)
-
 	return file
 }

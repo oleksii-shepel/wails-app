@@ -111,25 +111,25 @@ export interface RegistryPluginDefinition {
 }
 
 const COMMAND = {
-  newKey: 'builtin.registry.newKey',
-  newValue: 'builtin.registry.newValue',
-  edit: 'builtin.registry.edit',
-  delete: 'builtin.registry.delete',
+  newKey: 'reassembly.registry.newKey',
+  newValue: 'reassembly.registry.newValue',
+  edit: 'reassembly.registry.edit',
+  delete: 'reassembly.registry.delete',
 } as const;
 
 const TOOLBAR = {
-  newKey: 'builtin.registry.newKey.toolbar',
-  newValue: 'builtin.registry.newValue.toolbar',
-  edit: 'builtin.registry.edit.toolbar',
-  delete: 'builtin.registry.delete.toolbar',
-  refresh: 'builtin.registry.refresh.toolbar',
+  newKey: 'reassembly.registry.newKey.toolbar',
+  newValue: 'reassembly.registry.newValue.toolbar',
+  edit: 'reassembly.registry.edit.toolbar',
+  delete: 'reassembly.registry.delete.toolbar',
+  refresh: 'reassembly.registry.refresh.toolbar',
 } as const;
 
 const MENU = {
-  newKey: 'builtin.registry.newKey.menu',
-  newValue: 'builtin.registry.newValue.menu',
-  edit: 'builtin.registry.edit.menu',
-  delete: 'builtin.registry.delete.menu',
+  newKey: 'reassembly.registry.newKey.menu',
+  newValue: 'reassembly.registry.newValue.menu',
+  edit: 'reassembly.registry.edit.menu',
+  delete: 'reassembly.registry.delete.menu',
 } as const;
 
 function isRegistry(path: string): boolean {
@@ -198,17 +198,16 @@ export function createRegistryPlugin(
     }))?.trim();
     if (!name) return;
 
-    const value = await ops.prompt({
-      title: `Value — ${name}`,
-      message: 'Enter the value data.',
-      confirmText: 'Create',
-      defaultValue: '',
-      historyKey: 'reassembly.registry.newValue.data',
-    });
-    if (value === null) return;
-
     const path = await ops.joinPaths([context.currentDirectory, name]);
-    await ops.writeFile(path, value, 'utf8');
+    const value = await options.valueEditor.edit({
+      path,
+      name,
+      type: 'REG_SZ',
+      data: '',
+    });
+    if (!value) return;
+
+    await ops.writeRegistryValue(path, value.type, value.data);
   };
 
   const editEntry = async (context: RegistryMenuContext): Promise<void> => {
@@ -288,7 +287,7 @@ export function createRegistryPlugin(
   );
 
   const backend: RegistryPluginBackend = {
-    id: 'builtin.registry',
+    id: 'reassembly.registry',
     onRegister: api => {
       api.registerPanelSource(source);
 
@@ -455,9 +454,9 @@ export function createRegistryPlugin(
   return {
     backend,
     descriptor: {
-      id: 'builtin.registry',
+      id: 'reassembly.registry',
       name: 'Windows Registry',
-      version: '1.0.0',
+      version: '1.2.0',
       description: 'Registry panel source, presentation and Registry actions.',
       schemes: ['registry'],
     },

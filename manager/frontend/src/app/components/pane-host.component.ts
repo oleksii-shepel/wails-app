@@ -19,6 +19,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 import type { FileInfo } from '../shared/protocol';
 import { getSourceCapabilities, type SourceCapabilities } from '../services/source-capabilities';
 import { WorkspaceService } from '../services/workspace.service';
+import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState } from './pane-peer.port';
 
 @Component({
   selector: 'app-pane-host',
@@ -72,7 +73,7 @@ import { WorkspaceService } from '../services/workspace.service';
     </ng-template>
   `,
 })
-export class PaneHostComponent {
+export class PaneHostComponent implements PanePeerPort {
   @ViewChild('component') private inner?: DirectoryPaneComponent;
   @ViewChild('registry') private registry?: RegistryPaneComponent;
 
@@ -122,6 +123,35 @@ export class PaneHostComponent {
   }
 
   get component(): PaneComponent | undefined { return this.activeComponent; }
+
+  get peerState(): PanePeerState {
+    const host = this;
+    return {
+      get path() { return host.path; },
+      get entries() { return host.entries; },
+      get cursorEntry() { return host.cursorEntry; },
+      get selectedPaths() { return host.selectedPaths; },
+      get sourceCapabilities() { return host.sourceCapabilities; },
+      get isDirectoryTab() { return host.isDirectoryTab; },
+      get isInArchive() { return host.isInArchive; },
+    };
+  }
+
+  get peerNavigation(): PanePeerNavigation {
+    return {
+      refresh: () => this.refresh(),
+      canNavigateToLocation: path => this.canNavigateToLocation(path),
+      navigateLinkedLocation: (path, options) =>
+        this.navigateLinkedLocation(path, options).then(Boolean),
+    };
+  }
+
+  get peerSelection(): PanePeerSelection {
+    return {
+      selectPeerByName: name => this.selectPeerByName(name),
+      selectPaths: paths => this.selectPaths(paths),
+    };
+  }
 
   // Transitional capability ports. New shell code should depend on the narrow
   // capability it needs instead of the full PaneComponent compatibility facade.

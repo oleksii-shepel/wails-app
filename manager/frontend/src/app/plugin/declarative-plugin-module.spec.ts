@@ -6,7 +6,7 @@ describe('DeclarativePluginModule input contributions', () => {
       schemaVersion: 1,
       commands: [{
         id: 'refresh',
-        targetCommandId: 'reassembly.manager.refresh',
+        targetCommandId: 'pane.nav.refresh',
       }],
       bindings: [
         {

@@ -70,6 +70,7 @@ import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type Backg
 import { FileContextMenuComponent, type FileContextMenuState } from './file-context-menu.component';
 import type { SearchResultItem } from '../services/global-search.service';
 import { tabSurfaceId } from '../surfaces/tab-surface';
+import type { PanePeerNavigation, PanePeerPort, PanePeerSelection, PanePeerState } from './pane-peer.port';
 
 declare const window: any;
 
@@ -161,7 +162,7 @@ declare const window: any;
     }
   `]
 })
-export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
+export class FilePaneComponent implements OnInit, OnChanges, OnDestroy, PanePeerPort {
   private readonly dirStream: DirListStreamController;
   private readonly dirSessions = new Map<string, DirSurfaceSession>();
   private readonly dirTabStateController = new DirTabStateController();
@@ -186,6 +187,43 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   get sourceCapabilities() {
     return getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() });
+  }
+
+
+  get peerState(): PanePeerState {
+    const pane = this;
+    return {
+      get path() { return pane.currentPath; },
+      get entries() { return pane.entries; },
+      get cursorEntry() {
+        const path = pane.selectionCursorPath;
+        return path
+          ? pane.entries.find(entry => entry.path === path) ?? null
+          : null;
+      },
+      get selectedPaths() { return pane.selectedFiles; },
+      get sourceCapabilities() { return pane.sourceCapabilities; },
+      get isDirectoryTab() { return pane.activeSurfaceId === 'dir'; },
+      get isInArchive() { return pane.isInArchive(); },
+    };
+  }
+
+  get peerNavigation(): PanePeerNavigation {
+    return {
+      refresh: async () => {
+        this.browserCommands.navigation.refresh();
+      },
+      canNavigateToLocation: path => this.canNavigateToPeerLocation(path),
+      navigateLinkedLocation: (path, options) =>
+        this.navigateToPeerLocation(path, options),
+    };
+  }
+
+  get peerSelection(): PanePeerSelection {
+    return {
+      selectPeerByName: name => this.selectPeerByNameForPeer(name),
+      selectPaths: paths => this.selectPeerPaths(paths),
+    };
   }
 
   get toolbarActions(): PresentedCommand[] {
@@ -819,6 +857,67 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   trackTabSurface(_index: number, item: { ctx: SurfaceContext; active: boolean }): string {
     return item.ctx.tab.id;
+  }
+
+  private async canNavigateToPeerLocation(path: string): Promise<boolean> {
+    const target = path?.trim();
+    if (!target || this.activeSurfaceId !== 'dir') return false;
+
+    try {
+      await this.panelSources.listDirectory(target, this.showHidden);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async navigateToPeerLocation(
+    path: string,
+    options: { history?: 'record' | 'none'; preserveCursor?: boolean } = {},
+  ): Promise<boolean> {
+    const target = path?.trim();
+    if (!target || this.activeSurfaceId !== 'dir') return false;
+
+    const previousCursor = options.preserveCursor
+      ? this.selectionCursorPath
+      : null;
+
+    try {
+      await this.loadDirectory(target, {
+        preserveUI: options.preserveCursor ?? false,
+        focusPath: previousCursor ?? undefined,
+      });
+      return !this.error && normalizePath(this.currentPath) === normalizePath(target);
+    } catch {
+      return false;
+    }
+  }
+
+  private selectPeerByNameForPeer(name: string): boolean {
+    const folded = name?.trim().toLocaleLowerCase();
+    if (!folded || this.activeSurfaceId !== 'dir') return false;
+
+    const entry = this.filteredEntries.find(candidate =>
+      candidate.path !== PARENT_ENTRY_PATH &&
+      candidate.name.toLocaleLowerCase() === folded
+    ) ?? this.entries.find(candidate =>
+      candidate.path !== PARENT_ENTRY_PATH &&
+      candidate.name.toLocaleLowerCase() === folded
+    );
+    if (!entry) return false;
+
+    this.onSelectionChange([entry]);
+    return true;
+  }
+
+  private selectPeerPaths(paths: readonly string[]): void {
+    if (this.activeSurfaceId !== 'dir') return;
+    const wanted = new Set(paths);
+    this.onSelectionChange(
+      this.filteredEntries.filter(entry =>
+        entry.path !== PARENT_ENTRY_PATH && wanted.has(entry.path)
+      ),
+    );
   }
 
   ngOnInit(): void  {

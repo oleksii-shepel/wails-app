@@ -1,5 +1,6 @@
 import { RegistryPaneComponent } from './registry-pane.component';
 import { RegistryFileInfo, RegistryFileType } from './registry-model';
+import { readFileSync } from 'node:fs';
 
 function entry(
   path: string,
@@ -20,6 +21,10 @@ function entry(
 }
 
 describe('RegistryPaneComponent', () => {
+  const source = readFileSync(
+    new URL('./registry-pane.component.ts', import.meta.url),
+    'utf8',
+  );
   let component: RegistryPaneComponent;
 
   beforeEach(() => {
@@ -128,5 +133,11 @@ describe('RegistryPaneComponent', () => {
 
     expect(component.dataLabel(value)).toBe('(empty)');
     expect(component.metaLabel(value)).toContain('REG_SZ value');
+  });
+
+  it('keeps registry entries transparent until an interaction state paints them', () => {
+    expect(source).toContain('.registry-entry {');
+    expect(source).toContain('background: transparent;');
+    expect(source).toContain('.registry-entry-root {');
   });
 });

@@ -172,6 +172,7 @@ function truncateFileName(name: string, maxLength: number): string {
       gap: var(--vsc-padding-md);
       padding: var(--vsc-padding-sm) var(--vsc-padding-md);
       border-radius: var(--vsc-border-radius-sm);
+      background: transparent;
       cursor: pointer;
       transition: all var(--vsc-transition-fast);
       user-select: none;

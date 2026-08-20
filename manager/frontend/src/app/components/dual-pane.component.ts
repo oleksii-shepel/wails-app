@@ -41,7 +41,7 @@ import {
   type BatchRenameItem,
 } from '../services/batch-rename-dialog.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
-import { FilePaneComponent } from './file-pane.component';
+import { PaneHostComponent } from './pane-host.component';
 import { WorkspaceSwitcherComponent } from './workspace-switcher.component';
 import { PathHistoryComponent } from './path-history.component';
 import { QuickAccessComponent, type QuickAccessTarget } from './quick-access.component';
@@ -391,7 +391,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   standalone: true,
   imports: [
     CommonModule,
-    FilePaneComponent,
+    PaneHostComponent,
     ContextMenuComponent,
     InputCenterComponent,
     KeyboardHelpComponent,
@@ -586,21 +586,20 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
-        <app-file-pane
+        <app-pane-host
           #leftPane
           paneId="left"
-          [workspace]="activeWorkspace"
-          [paneActive]="activePaneId === 'left'"
+          [active]="activePaneId === 'left'"
           [showHidden]="showHidden"
           [comparisonStatuses]="leftComparisonStatuses"
           (activateRequested)="activate('left')"
-          (pathChange)="onLinkedPaneLocationChange('left', $event)"
+          (locationChange)="onLinkedPaneLocationChange('left', $event)"
           (cursorChange)="onLinkedPaneCursorChange('left', $event)"
           (presentationChange)="onPanePresentationChange('left', $event)"
           (viewportChange)="onPaneViewportChange('left', $event)"
           (copyToOther)="activate('left'); copyToOther()"
           (moveToOther)="activate('left'); moveToOther()">
-        </app-file-pane>
+        </app-pane-host>
       </div>
 
       <div
@@ -623,21 +622,20 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
-        <app-file-pane
+        <app-pane-host
           #rightPane
           paneId="right"
-          [workspace]="activeWorkspace"
-          [paneActive]="activePaneId === 'right'"
+          [active]="activePaneId === 'right'"
           [showHidden]="showHidden"
           [comparisonStatuses]="rightComparisonStatuses"
           (activateRequested)="activate('right')"
-          (pathChange)="onLinkedPaneLocationChange('right', $event)"
+          (locationChange)="onLinkedPaneLocationChange('right', $event)"
           (cursorChange)="onLinkedPaneCursorChange('right', $event)"
           (presentationChange)="onPanePresentationChange('right', $event)"
           (viewportChange)="onPaneViewportChange('right', $event)"
           (copyToOther)="activate('right'); copyToOther()"
           (moveToOther)="activate('right'); moveToOther()">
-        </app-file-pane>
+        </app-pane-host>
       </div>
 
       <app-command-palette
@@ -982,8 +980,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   pathHistory?: PathHistoryComponent;
   @ViewChild('quickAccess')
   quickAccess?: QuickAccessComponent;
-  @ViewChild('leftPane') leftPane?: FilePaneComponent;
-  @ViewChild('rightPane') rightPane?: FilePaneComponent;
+  @ViewChild('leftPane') leftPane?: PaneHostComponent;
+  @ViewChild('rightPane') rightPane?: PaneHostComponent;
   @ViewChild('remoteConnections') remoteConnections?: RemoteConnectionsComponent;
 
   activePaneId: PaneId = 'left';
@@ -1107,11 +1105,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   get activeWorkspace() { return this.workspaceService.getActiveWorkspace(); }
 
-  get activePane(): FilePaneComponent | undefined {
+  get activePane(): PaneHostComponent | undefined {
     return this.activePaneId === 'left' ? this.leftPane : this.rightPane;
   }
 
-  get otherPane(): FilePaneComponent | undefined {
+  get otherPane(): PaneHostComponent | undefined {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
   }
 
@@ -1124,7 +1122,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   pluginToolbarActionsFor(
-    pane: FilePaneComponent | undefined,
+    pane: PaneHostComponent | undefined,
   ): readonly PresentedCommand[] {
     if (!pane?.contextState.isDirectoryTab) return [];
 
@@ -1141,7 +1139,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   private pluginContextMenuItems(
-    pane: FilePaneComponent | undefined,
+    pane: PaneHostComponent | undefined,
     targetPath: string,
   ): ContextMenuItem[] {
     if (!pane?.contextState.isDirectoryTab) return [];
@@ -4698,7 +4696,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
 
   isPanePathPinned(
-    pane: FilePaneComponent | undefined,
+    pane: PaneHostComponent | undefined,
   ): boolean {
     const location = pane?.pinState.location?.trim();
     if (!location) return false;
@@ -4711,7 +4709,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   togglePanePin(
-    pane: FilePaneComponent | undefined,
+    pane: PaneHostComponent | undefined,
   ): void {
     const location = pane?.pinState.location?.trim();
     if (!pane || !location) return;
@@ -4901,7 +4899,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     const panes = [this.leftPane, this.rightPane]
-      .filter((pane): pane is FilePaneComponent => !!pane);
+      .filter((pane): pane is PaneHostComponent => !!pane);
 
     await Promise.all(
       panes

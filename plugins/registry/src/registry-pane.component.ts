@@ -344,6 +344,7 @@ export interface RegistryEntryDragEvent {
       gap: 6px;
       min-height: 34px;
       padding: 4px 8px;
+      background: transparent;
       cursor: default;
       user-select: none;
       color: var(--vsc-foreground);
@@ -557,12 +558,7 @@ export interface RegistryEntryDragEvent {
       padding: 10px 12px;
       border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-foreground-dim)) 65%, transparent);
       border-radius: 10px;
-      background:
-        linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--vsc-editor-background, #fff) 90%, var(--vsc-panel-background, #fff) 10%),
-          color-mix(in srgb, var(--vsc-editor-background, #fff) 96%, var(--vsc-accent-blue, #06c) 4%)
-        );
+      background: transparent;
     }
 
     .registry-entry-root .icon {

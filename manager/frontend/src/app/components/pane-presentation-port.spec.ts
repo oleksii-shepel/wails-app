@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 describe('pane presentation port convergence', () => {
   const contract = readFileSync(new URL('./pane-component.contract.ts', import.meta.url), 'utf8');
   const filePane = readFileSync(new URL('./file-pane.component.ts', import.meta.url), 'utf8');
+  const host = readFileSync(new URL('./pane-host.component.ts', import.meta.url), 'utf8');
 
   it('keeps presentation and viewport as separate capabilities', () => {
     expect(contract).toContain('interface PanePresentationPort');
@@ -27,9 +28,8 @@ describe('pane presentation port convergence', () => {
     expect(filePane).toContain('if (this.applyingMirroredPresentation');
   });
 
-  it('exposes viewport independently on the surviving pane', () => {
-    expect(filePane).toContain('PaneViewportPort');
-    expect(filePane).toContain('viewportSnapshot(): PaneViewportSnapshot');
-    expect(filePane).toContain('syncViewportToPeer(');
+  it('exposes viewport separately from presentation on the transitional host', () => {
+    expect(host).toContain('get presentation(): PanePresentationPort');
+    expect(host).toContain('get viewport(): PaneViewportPort');
   });
 });

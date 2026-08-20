@@ -1,27 +1,23 @@
 /**
  * Reassembly universal Registry frontend.
  *
- * This entry is deliberately self-contained: it does not import Angular or a
- * Manager-owned Registry module. It registers a PanelSource through the generic
- * scoped plugin API and delegates Registry I/O to the plugin backend process.
+ * Keep this entry intentionally simple while we rework pane architecture:
+ * the plugin owns the `registry://` source and backend bridge, while Manager
+ * continues to render the collection with its stable host-side pane pipeline.
  */
 
 const ROOT = 'registry://';
-let presentationModulePromise = null;
-
-function loadPresentationModule() {
-  if (!presentationModulePromise) {
-    presentationModulePromise = import('../dist/fesm2022/reassembly-registry-plugin.mjs');
-  }
-  return presentationModulePromise;
-}
+const ROOT_HIVES = Object.freeze([
+  'HKEY_CLASSES_ROOT',
+  'HKEY_CURRENT_USER',
+  'HKEY_LOCAL_MACHINE',
+  'HKEY_USERS',
+  'HKEY_CURRENT_CONFIG',
+]);
 
 function normalizePath(path) {
   const raw = String(path || ROOT).trim().replace(/\\/g, '/');
   if (!/^registry:\/\//i.test(raw)) return raw;
-
-  // Registry locations are opaque hierarchical strings, not web URLs.
-  // Preserve the spelling of every registry component exactly.
   const body = raw.slice(raw.indexOf('://') + 3).replace(/^\/+/, '');
   return body ? `${ROOT}${body}` : ROOT;
 }
@@ -46,11 +42,6 @@ function toFileInfo(entry, basePath) {
   const kind = String(entry?.kind ?? '').toLowerCase();
   const preview = String(entry?.preview ?? '');
   const name = String(entry?.name ?? '');
-
-  // `name` is authoritative for Registry spelling because it comes directly
-  // from Windows enumeration. Rebuild navigable child paths from the canonical
-  // listing path + that exact name instead of propagating a stale/case-folded
-  // entry.path from any transport/cache layer.
   const path = name
     ? joinPath(basePath, name)
     : normalizePath(entry?.path ?? basePath ?? ROOT);
@@ -71,17 +62,35 @@ function toFileInfo(entry, basePath) {
   };
 }
 
+function rootListing() {
+  return {
+    path: ROOT,
+    entries: ROOT_HIVES.map(name => toFileInfo({
+      name,
+      path: `${ROOT}${name}`,
+      kind: 'key',
+    }, ROOT)),
+  };
+}
+
+async function backendCall(ctx, method, params, timeoutMs = 4000) {
+  return await Promise.race([
+    ctx.backend.call(method, params),
+    new Promise((_, reject) => {
+      const timeout = setTimeout(() => {
+        clearTimeout(timeout);
+        reject(new Error(`Registry backend ${method} timed out after ${timeoutMs} ms.`));
+      }, timeoutMs);
+    }),
+  ]);
+}
+
 export async function activate(ctx) {
-  if (!ctx?.api?.registerPanelSource || !ctx?.api?.registerPanelPresentation) {
+  if (!ctx?.api?.registerPanelSource) {
     throw new Error('Universal host does not expose the scoped plugin registry API.');
   }
   if (!ctx?.backend?.call) {
     throw new Error('Universal host does not expose backend.call().');
-  }
-
-  const hello = await ctx.backend.call('hello');
-  if (hello?.protocol !== 1 || hello?.plugin !== 'reassembly.registry') {
-    throw new Error(`Unexpected Registry backend handshake: ${JSON.stringify(hello)}`);
   }
 
   const source = {
@@ -105,7 +114,9 @@ export async function activate(ctx) {
 
     async list(context) {
       const path = normalizePath(context?.path ?? ROOT);
-      const result = await ctx.backend.call('registry.list', { path });
+      const result = path === ROOT
+        ? rootListing()
+        : await backendCall(ctx, 'registry.list', { path });
       const locationPath = normalizePath(result?.path ?? path);
       return {
         location: {
@@ -136,24 +147,9 @@ export async function activate(ctx) {
     },
   };
 
-  // ScopedPluginRegistry owns cleanup and removes this contribution when the
-  // plugin is deactivated/uninstalled.
   ctx.api.registerPanelSource(source);
-  ctx.api.registerPanelPresentation({
-    id: 'reassembly.registry.presentation',
-    score(context) {
-      return context?.sourceKind === 'registry' &&
-        (context?.viewMode === 'list' || context?.viewMode === 'details')
-        ? 100
-        : 0;
-    },
-    async load() {
-      const module = await loadPresentationModule();
-      return module.RegistryPanelPresentationComponent;
-    },
-  });
 
   return () => {
-    // Intentionally empty. The host scope owns contribution cleanup.
+    // ScopedPluginRegistry owns cleanup and unregisters contributions.
   };
 }

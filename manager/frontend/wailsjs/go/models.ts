@@ -1910,6 +1910,7 @@ export namespace pluginpackage {
 	    kind: string;
 	    path: string;
 	    manifestPath: string;
+	    fingerprint?: string;
 	    valid: boolean;
 	    errors?: string[];
 	    warnings?: string[];
@@ -1924,6 +1925,7 @@ export namespace pluginpackage {
 	        this.kind = source["kind"];
 	        this.path = source["path"];
 	        this.manifestPath = source["manifestPath"];
+	        this.fingerprint = source["fingerprint"];
 	        this.valid = source["valid"];
 	        this.errors = source["errors"];
 	        this.warnings = source["warnings"];

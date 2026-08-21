@@ -2,12 +2,21 @@ import {
   Component,
   ElementRef,
   HostListener,
+  OnDestroy,
+  OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FILE_MANAGER_COMMANDS } from './file-manager-command-registry';
+import { WindowStateService } from '../services/window-state.service';
+import {
+  Quit,
+  WindowIsMaximised,
+  WindowMinimise,
+  WindowToggleMaximise,
+} from 'wailsjs/runtime';
 
 type MenuEntry =
   | {
@@ -203,6 +212,45 @@ const MENUS: readonly ApplicationMenu[] = [
 
       <div class="window-title" aria-hidden="true">Aether File Manager</div>
       <div class="drag-space" aria-hidden="true"></div>
+
+      <div class="window-controls" aria-label="Window controls">
+        <button
+          type="button"
+          class="window-control"
+          aria-label="Minimize"
+          title="Minimize"
+          (click)="minimizeWindow($event)">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2 8.5h8" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="window-control"
+          [attr.aria-label]="maximized ? 'Restore' : 'Maximize'"
+          [title]="maximized ? 'Restore' : 'Maximize'"
+          (click)="toggleMaximize($event)">
+          <svg *ngIf="!maximized" viewBox="0 0 12 12" aria-hidden="true">
+            <rect x="2.25" y="2.25" width="7.5" height="7.5" />
+          </svg>
+          <svg *ngIf="maximized" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M4 2.25h5.75V8H8.5V3.5H4z" />
+            <rect x="2.25" y="4" width="5.75" height="5.75" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="window-control window-control-close"
+          aria-label="Close"
+          title="Close"
+          (click)="closeWindow($event)">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
+          </svg>
+        </button>
+      </div>
     </header>
   `,
   styles: [`
@@ -350,6 +398,55 @@ const MENUS: readonly ApplicationMenu[] = [
       --wails-draggable: drag;
     }
 
+
+    .window-controls {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-self: stretch;
+      align-items: stretch;
+      margin: 0 -7px 0 8px;
+      --wails-draggable: no-drag;
+    }
+
+    .window-controls,
+    .window-controls * {
+      --wails-draggable: no-drag;
+    }
+
+    .window-control {
+      display: inline-grid;
+      place-items: center;
+      width: 46px;
+      min-width: 46px;
+      height: 35px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: inherit;
+      cursor: default;
+    }
+
+    .window-control:hover {
+      background: var(--vsc-list-hover-background, rgba(127, 127, 127, .16));
+    }
+
+    .window-control-close:hover {
+      background: #c42b1c;
+      color: #fff;
+    }
+
+    .window-control svg {
+      width: 12px;
+      height: 12px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+
     .window-title {
       position: absolute;
       left: 50%;
@@ -366,14 +463,29 @@ const MENUS: readonly ApplicationMenu[] = [
     }
   `],
 })
-export class ApplicationMenuBarComponent {
+export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
   readonly menus = MENUS;
   openMenuIndex: number | null = null;
+  maximized = false;
+
+  private readonly resizeHandler = () => {
+    void this.refreshMaximizedState();
+  };
 
   constructor(
     private readonly input: InputEngineService,
     private readonly element: ElementRef<HTMLElement>,
+    private readonly windowState: WindowStateService,
   ) {}
+
+  ngOnInit(): void {
+    window.addEventListener('resize', this.resizeHandler, { passive: true });
+    void this.refreshMaximizedState();
+  }
+
+  ngOnDestroy(): void {
+    window.removeEventListener('resize', this.resizeHandler);
+  }
 
   toggleMenu(index: number, event: Event): void {
     event.preventDefault();
@@ -410,6 +522,39 @@ export class ApplicationMenuBarComponent {
   shortcut(commandId: string): string {
     const binding = this.input.getPreferredKeyboardBinding(commandId);
     return binding ? this.formatBinding(binding) : '';
+  }
+
+  minimizeWindow(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openMenuIndex = null;
+    WindowMinimise();
+  }
+
+  async toggleMaximize(event: MouseEvent): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openMenuIndex = null;
+    WindowToggleMaximise();
+    await this.refreshMaximizedState();
+  }
+
+  async closeWindow(event: MouseEvent): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openMenuIndex = null;
+
+    // Preserve the same geometry persistence path used by normal app shutdown.
+    await this.windowState.captureNow().catch(() => undefined);
+    Quit();
+  }
+
+  private async refreshMaximizedState(): Promise<void> {
+    try {
+      this.maximized = await WindowIsMaximised();
+    } catch {
+      this.maximized = false;
+    }
   }
 
   @HostListener('document:mousedown', ['$event'])

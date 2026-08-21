@@ -19,7 +19,8 @@
     "@angular/common": "22.1.2",
     "@angular/core": "22.1.2",
     "@angular/forms": "22.1.2",
-    "@epikodelabs/streamix": "^2.0.52"
+    "@epikodelabs/streamix": "^2.0.52",
+    "@reassembly/core": "0.2.0"
   },
   "devDependencies": {
     "@angular/animations": "22.1.2",
@@ -31,9 +32,7 @@
     "@epikodelabs/streamix": "^2.0.52",
     "archiver": "^7.0.1",
     "ng-packagr": "^22.1.0",
-    "typescript": "~6.0.3"
-  },
-  "dependencies": {
-    "@reassembly/core": "0.2.0"
+    "typescript": "~6.0.3",
+    "@reassembly/core": "file:../../packages/core"
   }
 }

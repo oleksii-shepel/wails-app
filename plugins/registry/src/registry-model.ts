@@ -1,12 +1,19 @@
-import type { FileInfo } from '@reassembly/core/contracts/files';
-import type { SourceCapabilities } from '@reassembly/core/contracts/sources';
+import {
+  FileType,
+  type FileInfo,
+} from '@reassembly/core/contracts/files';
 
-export enum RegistryFileType {
-  FILE = 'FILE',
-  DIRECTORY = 'DIRECTORY',
-  ARCHIVE = 'ARCHIVE',
-  SYMLINK = 'SYMLINK',
-}
-
+/**
+ * Compatibility names retained for Registry source code and tests.
+ * Their identity is owned by @reassembly/core.
+ */
+export { FileType as RegistryFileType };
 export type RegistryFileInfo = FileInfo;
-export type RegistrySourceCapabilities = SourceCapabilities;
+
+export interface RegistrySourceCapabilities {
+  read: boolean;
+  create: boolean;
+  delete: boolean;
+  rename: boolean;
+  trash: boolean;
+}

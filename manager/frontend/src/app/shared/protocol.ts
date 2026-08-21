@@ -1,3 +1,11 @@
+import {
+  FileType,
+  type FileInfo,
+} from '@reassembly/core/contracts/files';
+
+export { FileType };
+export type { FileInfo };
+
 /**
  * Shared protocol definitions between client and server.
  * These types define the command structure and responses.
@@ -218,39 +226,7 @@ export type Response<T = unknown> = SuccessResponse<T> | ErrorResponse;
 // File-system Data Types
 // ============================================================================
 
-export enum FileType {
-  FILE = 'FILE',
-  DIRECTORY = 'DIRECTORY',
-  ARCHIVE = 'ARCHIVE',
-  SYMLINK = 'SYMLINK',
-}
-
-export interface FileInfo {
-  name: string;
-  /** Absolute path РІР‚вЂќ always includes drive letter on Windows */
-  path: string;
-  type: FileType;
-  mimeType?: string;
-  /** Size in bytes */
-  size: number;
-  /** Unix timestamp */
-  created: number;
-  /** Unix timestamp */
-  modified: number;
-  /** Unix timestamp */
-  accessed: number;
-  /** e.g. "rwxr-xr-x" on Unix, "rw-" / "r--" on Windows */
-  permissions: string;
-  isHidden: boolean;
-  /** True for both dir-symlinks (type=DIRECTORY) and file-symlinks (type=SYMLINK). */
-  isSymlink?: boolean;
-  registryKind?: string;
-  registryValueType?: string;
-  registryPreview?: string;
-  searchBasePath?: string;
-  searchPattern?: string;
-  searchParentPath?: string;
-}
+// FileType and FileInfo are canonical @reassembly/core contracts.
 
 export interface FileProbe {
   mimeType: string;

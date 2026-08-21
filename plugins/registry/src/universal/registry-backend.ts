@@ -1,4 +1,8 @@
-import type { RegistryFileInfo, RegistrySourceCapabilities } from '../registry-model';
+import {
+  RegistryFileType as FileType,
+  type RegistryFileInfo,
+  type RegistrySourceCapabilities,
+} from '../registry-model';
 import type { RegistryPanelSourceHost } from '../registry-panel-source';
 import type { RegistryPluginOperations } from '../registry.plugin';
 
@@ -83,7 +87,7 @@ function toRegistryFileInfo(entry: RegistryWireEntry): RegistryFileInfo {
   return {
     name: entry.name,
     path: normalizeRegistryPath(entry.path),
-    type: kind === 'key' ? 'DIRECTORY' : 'FILE',
+    type: kind === 'key' ? FileType.DIRECTORY : FileType.FILE,
     size: kind === 'value' ? new TextEncoder().encode(entry.preview ?? '').byteLength : 0,
     created: 0,
     modified: 0,

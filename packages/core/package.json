@@ -1,0 +1,67 @@
+{
+  "name": "@reassembly/core",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/frontend/index.js",
+  "types": "./dist/frontend/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/frontend/index.d.ts",
+      "default": "./dist/frontend/index.js"
+    },
+    "./contracts/files": {
+      "types": "./dist/frontend/contracts/files/index.d.ts",
+      "default": "./dist/frontend/contracts/files/index.js"
+    },
+    "./contracts/input": {
+      "types": "./dist/frontend/contracts/input/index.d.ts",
+      "default": "./dist/frontend/contracts/input/index.js"
+    },
+    "./contracts/sources": {
+      "types": "./dist/frontend/contracts/sources/index.d.ts",
+      "default": "./dist/frontend/contracts/sources/index.js"
+    },
+    "./contracts/panes": {
+      "types": "./dist/frontend/contracts/panes/index.d.ts",
+      "default": "./dist/frontend/contracts/panes/index.js"
+    },
+    "./runtime/panes": {
+      "types": "./dist/frontend/runtime/panes/index.d.ts",
+      "default": "./dist/frontend/runtime/panes/index.js"
+    },
+    "./files": {
+      "types": "./dist/frontend/contracts/files/index.d.ts",
+      "default": "./dist/frontend/contracts/files/index.js"
+    },
+    "./input": {
+      "types": "./dist/frontend/contracts/input/index.d.ts",
+      "default": "./dist/frontend/contracts/input/index.js"
+    },
+    "./sources": {
+      "types": "./dist/frontend/contracts/sources/index.d.ts",
+      "default": "./dist/frontend/contracts/sources/index.js"
+    },
+    "./panes": {
+      "types": "./dist/frontend/contracts/panes/index.d.ts",
+      "default": "./dist/frontend/contracts/panes/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/frontend/runtime/panes/index.d.ts",
+      "default": "./dist/frontend/runtime/panes/index.js"
+    }
+  },
+  "files": [
+    "dist/frontend"
+  ],
+  "scripts": {
+    "build": "npm run build:frontend",
+    "build:frontend": "tsc -p tsconfig.json",
+    "test": "npm run test:frontend",
+    "test:frontend": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}

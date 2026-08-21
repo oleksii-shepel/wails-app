@@ -24,7 +24,7 @@
     "@codemirror/language-data": "^6.5.2",
     "@epikodelabs/actionstack": "^3.0.24",
     "@epikodelabs/streamix": "^2.0.52",
-    "@reassembly/core": "0.2.0",
+    "@reassembly/core": "file:../../packages/core",
     "@reassembly/registry-plugin": "file:../../plugins/registry/dist",
     "codemirror": "^6.0.2",
     "jasmine-core": "^6.0.0",

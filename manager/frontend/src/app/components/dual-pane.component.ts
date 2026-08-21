@@ -106,11 +106,11 @@ const CONTEXT_ID = 'reassembly.manager';
 const OWNER_ID = 'reassembly.manager';
 
 const COMMAND = {
-  toggleShortcutHelp: 'reassembly.help.shortcuts',
+  toggleShortcutHelp: FILE_MANAGER_COMMANDS.openInputCenter,
   showShortcutReference: FILE_MANAGER_COMMANDS.showKeyboardHelp,
   openCommandPalette: FILE_MANAGER_COMMANDS.openCommandPalette,
   openSettings: FILE_MANAGER_COMMANDS.openSettings,
-  openPluginSettings: 'reassembly.settings.plugins',
+  openPluginSettings: FILE_MANAGER_COMMANDS.openPluginSettings,
   switchPane: FILE_MANAGER_COMMANDS.switchPane,
   togglePaneLink: 'reassembly.panes.toggleLink',
   togglePaneMirror: 'reassembly.panes.toggleMirror',
@@ -168,20 +168,20 @@ const COMMAND = {
   openTerminal: 'reassembly.navigation.openTerminal',
   undo: 'reassembly.edit.undo',
   redo: 'reassembly.edit.redo',
-  operationHistory: 'reassembly.edit.operationHistory',
+  operationHistory: FILE_MANAGER_COMMANDS.operationHistory,
   createArchive: 'reassembly.archive.createZip',
   checksum: 'reassembly.files.checksum',
   splitFile: 'reassembly.files.splitFile',
   joinFiles: 'reassembly.files.joinFiles',
   calculateSize: 'reassembly.files.calculateSize',
   attributes: 'reassembly.files.attributes',
-  openTrash: 'reassembly.navigation.trash',
+  openTrash: FILE_MANAGER_COMMANDS.openTrash,
   copyToOther: FILE_MANAGER_COMMANDS.copyToOtherPane,
   moveToOther: FILE_MANAGER_COMMANDS.moveToOtherPane,
   newTab: FILE_MANAGER_COMMANDS.newTab,
   closeTab: FILE_MANAGER_COMMANDS.closeTab,
   reopenClosedTab: 'reassembly.manager.reopenClosedTab',
-  showClosedTabs: 'reassembly.manager.showClosedTabs',
+  showClosedTabs: FILE_MANAGER_COMMANDS.showClosedTabs,
   nextTab: FILE_MANAGER_COMMANDS.nextTab,
   previousTab: FILE_MANAGER_COMMANDS.prevTab,
   toggleTabPin: FILE_MANAGER_COMMANDS.togglePinTab,
@@ -221,9 +221,9 @@ const COMMAND = {
   nextWorkspace: 'reassembly.workspace.next',
   newWorkspace: FILE_MANAGER_COMMANDS.newWorkspace,
   showPathHistory: FILE_MANAGER_COMMANDS.showPathHistory,
-  showQuickAccess: 'reassembly.navigation.quickAccess',
+  showQuickAccess: FILE_MANAGER_COMMANDS.openQuickAccess,
   toggleCurrentPin: 'reassembly.navigation.toggleCurrentPin',
-  showPinnedLocations: 'reassembly.navigation.pinnedLocations',
+  showPinnedLocations: FILE_MANAGER_COMMANDS.showPinnedLocations,
   treeLeft: FILE_MANAGER_COMMANDS.cursorLeft,
   treeRight: FILE_MANAGER_COMMANDS.cursorRight,
   comparePanes: FILE_MANAGER_COMMANDS.comparePanes,
@@ -271,7 +271,8 @@ const COMMAND = {
   openWithChooser: 'reassembly.files.openWithChooser',
   extractArchiveSelection: 'reassembly.archive.extractSelection',
   extractArchiveToOther: 'reassembly.archive.extractToOther',
-  remoteConnect: 'reassembly.navigation.remoteConnect',
+  openRemoteConnections: FILE_MANAGER_COMMANDS.openRemoteConnections,
+  remoteConnect: FILE_MANAGER_COMMANDS.remoteConnect,
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -4451,18 +4452,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
       return;
     }
-
-    if (/^network:\/\/adapters\/?$/i.test(pane?.contextState.path ?? '')) {
-      const adapterItems = this.pluginContextMenuItems(pane, entry.path);
-      this.contextMenu = {
-        x: event.clientX,
-        y: event.clientY,
-        title: entry.name || 'Network adapter',
-        items: normalizeContextMenuItems(adapterItems),
-      };
-      this.cdr.markForCheck();
-      return;
-    }
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
     const isArchive = entry.type === FileType.ARCHIVE;
@@ -5734,6 +5723,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
           !!pane.selection.cursorEntry &&
           pane.selection.cursorEntry.type !== FileType.DIRECTORY;
       },
+    );
+    descriptor(
+      COMMAND.openRemoteConnections,
+      'Remote Connections',
+      'Navigation',
+      () => this.openRemoteConnections(),
     );
     descriptor(COMMAND.remoteConnect, 'Connect Remote Location', 'Navigation', () => this.connectRemote());
     this.commandPaletteCommands = catalog;

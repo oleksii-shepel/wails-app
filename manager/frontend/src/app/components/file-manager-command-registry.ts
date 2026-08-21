@@ -21,6 +21,17 @@ export const FILE_MANAGER_COMMANDS = {
   openSelectionBasket:  'app.basket.open',
   addToSelectionBasket: 'app.basket.add',
   clearSelectionBasket: 'app.basket.clear',
+
+  // User-openable dialogs / centers exposed through the application menu.
+  operationHistory:     'reassembly.edit.operationHistory',
+  showClosedTabs:       'reassembly.manager.showClosedTabs',
+  openQuickAccess:      'reassembly.navigation.quickAccess',
+  showPinnedLocations:  'reassembly.navigation.pinnedLocations',
+  openRemoteConnections:'reassembly.navigation.remoteConnections',
+  remoteConnect:        'reassembly.navigation.remoteConnect',
+  openTrash:            'reassembly.navigation.trash',
+  openInputCenter:      'reassembly.help.shortcuts',
+  openPluginSettings:   'reassembly.settings.plugins',
   cursorUp:             'pane.cursor.up',
   cursorDown:           'pane.cursor.down',
   cursorLeft:           'pane.cursor.left',
@@ -239,4 +250,3 @@ export const FILE_MANAGER_BINDINGS: InputBindingDefinition[] = [
   kb('pane.files.batchRename.ctrlShiftR', FILE_MANAGER_COMMANDS.batchRename, 'r', 'Batch rename selected items', { modifiers: ['ctrl', 'shift'], category: FILES }),
   kb('pane.files.openWithExternal.ctrlShiftO', FILE_MANAGER_COMMANDS.openWithExternal, 'o', 'Open with external application', { modifiers: ['ctrl', 'shift'], category: FILES }),
 ];
-

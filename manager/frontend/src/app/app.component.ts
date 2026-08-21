@@ -10,6 +10,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { DualPaneComponent } from './components/dual-pane.component';
+import { ApplicationMenuBarComponent } from './components/application-menu-bar.component';
 import { OperationSurfaceComponent } from './components/operation-surface.component';
 import { ActionFeedbackComponent } from './components/action-feedback.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
@@ -25,7 +26,8 @@ import { InputCustomizationService } from './services/input-customization.servic
   standalone: true,
   imports: [
     CommonModule,
-    DualPaneComponent,
+    
+    ApplicationMenuBarComponent,DualPaneComponent,
     OperationSurfaceComponent,
     ActionFeedbackComponent,
     BatchRenameDialogComponent,
@@ -36,6 +38,7 @@ import { InputCustomizationService } from './services/input-customization.servic
   ],
   template: `
     <main class="app-shell">
+      <app-application-menu-bar></app-application-menu-bar>
       <app-dual-pane *ngIf="pluginsReady" #manager></app-dual-pane>
       <div *ngIf="!pluginsReady" class="startup-shell" aria-live="polite">
         Loading workspace…
@@ -60,6 +63,8 @@ import { InputCustomizationService } from './services/input-customization.servic
     }
 
     .app-shell {
+      flex-direction: column;
+      display: flex;
       width: 100%;
       height: 100%;
       min-width: 0;
@@ -69,11 +74,20 @@ import { InputCustomizationService } from './services/input-customization.servic
       color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
+    .app-shell > app-dual-pane {
+      display: flex;
+      flex: 1 1 0%;
+      width: 100%;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
     .startup-shell {
       display: grid;
       place-items: center;
       width: 100%;
-      height: 100%;
+      flex: 1 1 0%;
+      min-height: 0;
       font: 14px/1.4 var(--vsc-font-family, system-ui, sans-serif);
       color: var(--vsc-description-foreground, var(--vsc-foreground));
     }

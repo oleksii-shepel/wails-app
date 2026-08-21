@@ -55,10 +55,10 @@ export type ResponsiveToolbarCommand = PresentedCommand & {
             [title]="actionTitle(action)"
             (click)="invoke(action)">
             <span
-              *ngIf="showIcons && (action.iconText || action.icon)"
+              *ngIf="showIcons && actionIcon(action)"
               class="action-icon"
               aria-hidden="true">
-              {{ action.iconText || iconGlyph(action.icon) }}
+              {{ actionIcon(action) }}
             </span>
             <span class="action-label">{{ action.label }}</span>
           </button>
@@ -114,10 +114,10 @@ export type ResponsiveToolbarCommand = PresentedCommand & {
           type="button"
           class="toolbar-action measure-action">
           <span
-            *ngIf="showIcons && (action.iconText || action.icon)"
+            *ngIf="showIcons && actionIcon(action)"
             class="action-icon"
             aria-hidden="true">
-            {{ action.iconText || iconGlyph(action.icon) }}
+            {{ actionIcon(action) }}
           </span>
           <span class="action-label">{{ action.label }}</span>
         </button>
@@ -384,6 +384,10 @@ export class ResponsiveToolbarComponent
 
   isDanger(action: ResponsiveToolbarCommand): boolean {
     return action.icon === 'delete' || /\b(delete|remove)\b/i.test(action.label);
+  }
+
+  actionIcon(action: ResponsiveToolbarCommand): string {
+    return action.iconText || this.iconGlyph(action.icon);
   }
 
   iconGlyph(icon?: string): string {

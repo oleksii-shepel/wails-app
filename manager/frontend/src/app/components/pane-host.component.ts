@@ -14,6 +14,7 @@ import { DirectoryPaneComponent } from './directory-pane.component';
 import { RegistryPaneComponent } from './registry-pane.component';
 import { AutorunPaneComponent } from './autorun-pane.component';
 import { SystemTablePaneComponent } from './system-table-pane.component';
+import { NetworkPaneComponent } from './network-pane.component';
 import { TabBarComponent } from './tab-bar.component';
 import { PaneRendererRegistryService, type PaneRendererKind } from './pane-renderer-registry.service';
 import { PanelSourcePaneSession } from './panel-source-pane-session';
@@ -51,6 +52,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     RegistryPaneComponent,
     AutorunPaneComponent,
     SystemTablePaneComponent,
+    NetworkPaneComponent,
     TabBarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -254,6 +256,16 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
             (entryOpen)="onProviderOpen($event)"
             (entryContextMenu)="onProviderContextMenu($event)">
           </app-autorun-pane>
+
+          <app-network-pane
+            *ngSwitchCase="'network'"
+            [session]="provider"
+            (backgroundClick)="onProviderBackgroundClick($event)"
+            (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+            (entrySelect)="onProviderSelect($event)"
+            (entryOpen)="onProviderOpen($event)"
+            (entryContextMenu)="onProviderContextMenu($event)">
+          </app-network-pane>
 
           <app-system-table-pane
             *ngSwitchCase="'system-table'"
@@ -521,7 +533,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:3px 9px}
     .plugin-icon{display:inline-grid;place-items:center;width:16px;height:16px}
     .error{display:flex;flex:1 1 0%;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
-    app-registry-pane,app-autorun-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
+    app-registry-pane,app-autorun-pane,app-network-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {

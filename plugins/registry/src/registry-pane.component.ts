@@ -1,5 +1,15 @@
 import { CommonModule } from '@angular/common';
 import {
+  PaneTableBodyDirective,
+  PaneTableCellDirective,
+  PaneTableComponent,
+  PaneTableDividerDirective,
+  PaneTableEmptyDirective,
+  PaneTableHeaderDirective,
+  PaneTableHeaderRowDirective,
+  PaneTableRowDirective,
+} from '@reassembly/core/ui/panes';
+import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
@@ -57,7 +67,17 @@ export interface RegistryEntryDragEvent {
 @Component({
   selector: 'app-registry-pane',
   standalone: true,
-  imports: [CommonModule],
+  imports: [
+    CommonModule,
+    PaneTableComponent,
+    PaneTableHeaderDirective,
+    PaneTableHeaderRowDirective,
+    PaneTableBodyDirective,
+    PaneTableRowDirective,
+    PaneTableCellDirective,
+    PaneTableDividerDirective,
+    PaneTableEmptyDirective,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="registry-surface-header" *ngIf="isRootView; else keyHeader">
@@ -76,22 +96,25 @@ export interface RegistryEntryDragEvent {
       </div>
     </ng-template>
 
+    <reassembly-pane-table class="registry-table">
     <div
       class="registry-details-header"
+      reassemblyPaneTableHeader
+      reassemblyPaneTableHeaderRow
       *ngIf="viewMode === 'details' && !isRootView"
       [style.grid-template-columns]="detailsGridTemplate">
       <span></span>
       <span class="heading">
         Name
-        <i class="resizer" (mousedown)="beginResize($event, 'name')"></i>
+        <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'name')"></i>
       </span>
       <span class="heading">
         Kind
-        <i class="resizer" (mousedown)="beginResize($event, 'kind')"></i>
+        <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'kind')"></i>
       </span>
       <span class="heading">
         Type
-        <i class="resizer" (mousedown)="beginResize($event, 'type')"></i>
+        <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'type')"></i>
       </span>
       <span class="heading">Data</span>
     </div>
@@ -99,6 +122,7 @@ export interface RegistryEntryDragEvent {
     <div
       #viewport
       class="registry-list"
+      reassemblyPaneTableBody
       data-pane-content
       tabindex="-1"
       role="listbox"
@@ -125,6 +149,7 @@ export interface RegistryEntryDragEvent {
           <div
             *ngFor="let entry of rootEntries; let virtualIndex = index; trackBy: trackEntry"
             class="registry-entry registry-entry-root"
+            reassemblyPaneTableRow
             tabindex="-1"
             role="option"
             draggable="true"
@@ -151,8 +176,8 @@ export interface RegistryEntryDragEvent {
             (dragover)="entryDragOver.emit({ entry: entry, event: $event })"
             (dragleave)="entryDragLeave.emit(entry)"
             (drop)="entryDrop.emit({ entry: entry, event: $event })">
-            <span class="icon" aria-hidden="true">{{ icon(entry) }}</span>
-            <span class="name-cell">
+            <span class="icon" reassemblyPaneTableCell aria-hidden="true">{{ icon(entry) }}</span>
+            <span class="name-cell" reassemblyPaneTableCell>
               <span class="name-line">
                 <span class="name">{{ entry.name }}</span>
                 <span class="badge">{{ badgeLabel(entry) }}</span>
@@ -162,7 +187,7 @@ export interface RegistryEntryDragEvent {
                 *ngIf="metaLabel(entry) as value"
                 [title]="value">{{ value }}</span>
             </span>
-            <span class="data root-data" [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
+            <span class="data root-data" reassemblyPaneTableCell [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
           </div>
         </div>
       </ng-container>
@@ -210,6 +235,7 @@ export interface RegistryEntryDragEvent {
       <ng-template #entryRow let-entry let-virtualIndex="virtualIndex">
         <div
           class="registry-entry"
+          reassemblyPaneTableRow
           tabindex="-1"
           role="option"
           draggable="true"
@@ -239,9 +265,9 @@ export interface RegistryEntryDragEvent {
           (dragleave)="entryDragLeave.emit(entry)"
           (drop)="entryDrop.emit({ entry: entry, event: $event })">
 
-          <span class="icon" aria-hidden="true">{{ icon(entry) }}</span>
+          <span class="icon" reassemblyPaneTableCell aria-hidden="true">{{ icon(entry) }}</span>
 
-          <span class="name-cell">
+          <span class="name-cell" reassemblyPaneTableCell>
             <span class="name-line">
               <span class="name">{{ entry.name }}</span>
               <span class="badge">{{ badgeLabel(entry) }}</span>
@@ -252,9 +278,9 @@ export interface RegistryEntryDragEvent {
               [title]="value">{{ value }}</span>
           </span>
 
-          <span class="kind">{{ kindLabel(entry) }}</span>
-          <span class="type">{{ typeLabel(entry) }}</span>
-          <span class="data" [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
+          <span class="kind" reassemblyPaneTableCell>{{ kindLabel(entry) }}</span>
+          <span class="type" reassemblyPaneTableCell>{{ typeLabel(entry) }}</span>
+          <span class="data" reassemblyPaneTableCell [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
         </div>
       </ng-template>
 
@@ -264,11 +290,12 @@ export interface RegistryEntryDragEvent {
         [style.height.px]="afterPx"
         aria-hidden="true"></div>
 
-      <div class="empty" *ngIf="!loading && effectiveVisibleEntryCount === 0" role="status">
+      <div class="empty" reassemblyPaneTableEmpty *ngIf="!loading && effectiveVisibleEntryCount === 0" role="status">
         <strong>{{ filterText ? 'No matching registry entries.' : 'This registry key is empty.' }}</strong>
         <span *ngIf="filterText">Clear the filter to see all entries.</span>
       </div>
     </div>
+    </reassembly-pane-table>
   `,
   styles: [`
     :host {
@@ -302,15 +329,16 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-surface-subtitle {
-      font-size: 10px;
+      font-size: var(--vsc-font-size);
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .registry-details-header {
       display: grid;
       align-items: center;
-      min-height: 25px;
-      padding: 0 8px;
+      min-height: 28px;
+      height: 28px;
+      padding: 0 var(--vsc-padding-md);
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
@@ -363,8 +391,9 @@ export interface RegistryEntryDragEvent {
       display: grid;
       align-items: center;
 
-      min-height: 34px;
-      padding: 4px 8px;
+      min-height: 24px;
+      height: 24px;
+      padding: 0 var(--vsc-padding-md);
       background: transparent;
       cursor: default;
       user-select: none;
@@ -443,8 +472,8 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-section-root {
-      padding: 10px 10px 8px;
-      gap: 8px;
+      padding: 0;
+      gap: 0;
     }
 
     .registry-section-label {
@@ -462,19 +491,6 @@ export interface RegistryEntryDragEvent {
 
     .registry-list.view-list .type {
       display: none;
-    }
-
-    .registry-entry:hover {
-      background: var(--vsc-list-hover-background);
-    }
-
-    .registry-entry.selected {
-      background: var(--vsc-list-active-background);
-      color: var(--vsc-list-active-foreground, var(--vsc-foreground));
-    }
-
-    .registry-entry.cursor {
-      box-shadow: inset 0 0 0 1px var(--vsc-focus-border, var(--vsc-accent-blue));
     }
 
     .icon {
@@ -577,17 +593,18 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-entry-root {
-      min-height: 52px;
-      padding: 10px 12px;
-      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-foreground-dim)) 65%, transparent);
-      border-radius: 10px;
+      min-height: 24px;
+      height: 24px;
+      padding: 0 var(--vsc-padding-md);
+      border: 0;
+      border-radius: 0;
       background: transparent;
     }
 
     .registry-entry-root .icon {
-      width: 22px;
-      height: 22px;
-      font-size: 11px;
+      width: 18px;
+      height: 18px;
+      font-size: 10px;
     }
 
     .root-data {

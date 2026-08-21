@@ -10,9 +10,20 @@
     "sourceMap": true,
     "rootDir": "frontend/src",
     "outDir": "dist/frontend",
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "lib": [
+      "ES2022",
+      "DOM"
+    ]
   },
   "include": [
     "frontend/src/**/*.ts"
-  ]
+  ],
+  "angularCompilerOptions": {
+    "compilationMode": "partial",
+    "strictInjectionParameters": true,
+    "strictTemplates": true
+  }
 }

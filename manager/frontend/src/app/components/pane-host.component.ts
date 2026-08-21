@@ -4,6 +4,7 @@ import {
   ChangeDetectorRef,
   Component,
   DoCheck,
+  ElementRef,
   EventEmitter,
   Input,
   Output,
@@ -72,33 +73,167 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
           (newTab)="provider.newTab()">
         </app-tab-bar>
 
-        <header class="specialized-header">
-          <div class="navigation">
-            <button type="button" (click)="provider.goBack()" [disabled]="!provider.canGoBack()" title="Back">‹</button>
-            <button type="button" (click)="provider.goForward()" [disabled]="!provider.canGoForward()" title="Forward">›</button>
-            <button type="button" (click)="provider.navigateUp()" title="Parent">↑</button>
-            <div class="location" [title]="provider.path">{{ provider.path }}</div>
-            <button type="button" (click)="provider.refresh()" title="Refresh">↻</button>
+        <header class="navigation-bar">
+          <div class="nav-cluster">
+            <button
+              type="button"
+              class="nav-button"
+              [disabled]="provider.loading || !provider.canGoBack()"
+              (click)="provider.goBack()"
+              aria-label="Back"
+              title="Back (Alt+Left)">
+              &#x2190;
+            </button>
+
+            <button
+              type="button"
+              class="nav-button"
+              [disabled]="provider.loading || !provider.canGoForward()"
+              (click)="provider.goForward()"
+              aria-label="Forward"
+              title="Forward (Alt+Right)">
+              &#x2192;
+            </button>
+
+            <button
+              type="button"
+              class="nav-button"
+              [disabled]="provider.loading"
+              (click)="provider.navigateUp()"
+              aria-label="Parent directory"
+              title="Parent directory (Backspace)">
+              &#x2191;
+            </button>
           </div>
 
-          <div class="actions">
-            <button type="button" [class.active]="provider.viewMode === 'list'" (click)="provider.setViewMode('list')">List</button>
-            <button type="button" [class.active]="provider.viewMode === 'details'" (click)="provider.setViewMode('details')">Details</button>
+          <div class="address-shell">
+            <div
+              *ngIf="!specializedLocationEditing; else specializedLocationEditor"
+              class="display-path breadcrumb-path"
+              title="Click to edit location"
+              (click)="beginSpecializedLocationEdit()">
+              <button
+                type="button"
+                class="location-icon breadcrumb-home"
+                title="Edit location (Ctrl+L)"
+                (click)="beginSpecializedLocationEdit(); $event.stopPropagation()"
+                aria-label="Edit location">
+                &#x2302;
+              </button>
 
-            <span class="separator" *ngIf="pluginToolbarActions.length"></span>
+              <div class="breadcrumbs">
+                <button
+                  type="button"
+                  class="breadcrumb current"
+                  [title]="provider.path || ''"
+                  (click)="beginSpecializedLocationEdit(); $event.stopPropagation()">
+                  {{ provider.path || '' }}
+                </button>
+              </div>
 
+              <button
+                type="button"
+                class="edit-path"
+                title="Edit location (Ctrl+L)"
+                aria-label="Edit location"
+                (click)="beginSpecializedLocationEdit(); $event.stopPropagation()">
+                &#x270E;
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="nav-button pin"
+            [class.pinned]="currentPathPinned"
+            [disabled]="!provider.path"
+            (click)="togglePinRequested.emit()"
+            [attr.aria-label]="currentPathPinned ? 'Unpin current location' : 'Pin current location'"
+            [title]="currentPathPinned ? 'Unpin current location' : 'Pin current location'">
+            {{ currentPathPinned ? '\u2605' : '\u2606' }}
+          </button>
+
+          <button
+            type="button"
+            class="nav-button refresh"
+            [disabled]="provider.loading"
+            (click)="provider.refresh()"
+            aria-label="Refresh"
+            title="Refresh (Ctrl+R)">
+            &#x21BB;
+          </button>
+        </header>
+
+        <ng-template #specializedLocationEditor>
+          <div class="address-shell">
+            <div class="editor">
+              <span class="location-icon" aria-hidden="true">&#x2302;</span>
+              <input
+                #locationEditor
+                class="location-input"
+                [value]="specializedLocationDraft"
+                (input)="specializedLocationDraft = $any($event.target).value"
+                (keydown.enter)="commitSpecializedLocationEdit()"
+                (keydown.escape)="cancelSpecializedLocationEdit()"
+                (blur)="cancelSpecializedLocationEdit()"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="Location" />
+
+              <button
+                type="button"
+                class="cancel"
+                title="Cancel (Escape)"
+                (mousedown)="$event.preventDefault()"
+                (click)="cancelSpecializedLocationEdit()">
+                &#x00D7;
+              </button>
+            </div>
+          </div>
+        </ng-template>
+
+        <div
+          class="status-row"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true">
+          <span *ngIf="provider.loading">Loading {{ provider.path || 'location' }}&#x2026;</span>
+          <span *ngIf="!provider.loading && !provider.error">{{ provider.entries.length }} items</span>
+          <span *ngIf="provider.selectedPaths.size">{{ provider.selectedPaths.size }} selected</span>
+          <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
+          <span class="hint">Ctrl+L location</span>
+        </div>
+
+        <div class="action-bar">
+          <div class="view-switcher" role="group" aria-label="Directory view">
+            <button type="button" [class.active]="provider.viewMode === 'list'" [attr.aria-pressed]="provider.viewMode === 'list'" (click)="provider.setViewMode('list')">List</button>
+            <button type="button" [class.active]="provider.viewMode === 'details'" [attr.aria-pressed]="provider.viewMode === 'details'" (click)="provider.setViewMode('details')">Details</button>
+          </div>
+
+          <span class="action-separator"></span>
+          <button type="button" [disabled]="provider.loading || !provider.canCreate" (click)="provider.newFolder()" title="New folder (F7)">New folder</button>
+          <button type="button" [disabled]="provider.loading || !provider.canRename" (click)="provider.renameSelected()" title="Rename (F2)">Rename</button>
+          <span class="action-separator"></span>
+          <button type="button" [disabled]="provider.loading || !provider.hasSelection" (click)="provider.copySelected()" title="Copy (Ctrl+C)">Copy</button>
+          <button type="button" [disabled]="provider.loading || !provider.canCut" (click)="provider.cutSelected()" title="Cut (Ctrl+X)">Cut</button>
+          <button type="button" [disabled]="provider.loading || !provider.canPaste" (click)="provider.paste()" title="Paste (Ctrl+V)">Paste</button>
+          <span class="action-separator"></span>
+          <button type="button" class="danger" [disabled]="provider.loading || !provider.canDelete" (click)="provider.deleteSelected()" title="Delete (Delete / F8)">Delete</button>
+
+          <ng-container *ngIf="pluginToolbarActions.length">
+            <span class="action-separator"></span>
             <button
               *ngFor="let action of pluginToolbarActions"
               type="button"
               class="plugin-action"
-              [disabled]="!action.enabled"
+              [disabled]="provider.loading || !action.enabled"
               [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
               (click)="action.execute()">
-              <span class="plugin-icon" aria-hidden="true">{{ action.iconText || '⋯' }}</span>
+              <span class="plugin-icon" aria-hidden="true">{{ action.iconText || '\u25C6' }}</span>
               <span>{{ action.label }}</span>
             </button>
-          </div>
-        </header>
+          </ng-container>
+        </div>
 
         <div class="error" *ngIf="provider.error">
           <strong>Location could not be loaded.</strong>
@@ -185,22 +320,211 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
 }
     .specialized-pane{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:var(--vsc-editor-background,#fff);color:var(--vsc-foreground);border:1px solid transparent}
     .specialized-pane.active-pane{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-focus-border)) 62%,transparent)}
-    .specialized-header{display:grid;gap:4px;padding:5px 7px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background,#fff)}
-    .navigation,.actions{display:flex;align-items:center;gap:4px;min-width:0}
-    .location{flex:1 1 auto;min-width:0;height:26px;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--vsc-border);border-radius:3px;background:var(--vsc-input-background,var(--vsc-editor-background));font:11px/16px var(--vsc-font-family-mono,monospace)}
-    button{min-height:25px;border:1px solid var(--vsc-border,transparent);border-radius:3px;background:transparent;color:inherit;font:inherit;cursor:pointer}
-    button:hover:not(:disabled){background:var(--vsc-list-hover-background)}
-    button.active{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground,var(--vsc-foreground))}
-    button:disabled{opacity:.4;cursor:default}
-    .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:0 7px}
+    .navigation-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
+      background: var(--vsc-editor-background, #fff);
+    }
+    .nav-cluster {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .address-shell {
+      position: relative;
+      display: block;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .display-path,
+    .editor {
+      box-sizing: border-box;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) 24px;
+      align-items: center;
+      width: 100%;
+      height: 30px;
+      padding: 0 7px;
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
+      border-radius: 4px;
+      background: var(--vsc-input-background, var(--vsc-popover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
+    }
+    .display-path {
+      cursor: text;
+      text-align: left;
+      font: inherit;
+    }
+    .display-path:hover {
+      border-color: color-mix(
+        in srgb,
+        var(--vsc-border, var(--vsc-control-background)) 65%,
+        var(--vsc-foreground, var(--vsc-foreground))
+      );
+    }
+    .editor {
+      border-color: var(--vsc-focus-border, var(--vsc-accent-blue));
+    }
+    .location-icon {
+      opacity: .7;
+      text-align: center;
+      user-select: none;
+    }
+    button.location-icon,
+    .breadcrumb {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .breadcrumb-home {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 3px;
+    }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .breadcrumb {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0;
+      text-align: left;
+    }
+    .edit-path,
+    .cancel {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      cursor: pointer;
+      font: 12px/22px var(--vsc-font-family, system-ui, sans-serif);
+      text-align: center;
+      flex: 0 0 auto;
+    }
+    .edit-path:hover,
+    .cancel:hover,
+    .breadcrumb-home:hover {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+    }
+    .location-input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+    }
+    .nav-button {
+      min-width: 28px;
+      min-height: 28px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .nav-button:hover:not(:disabled) {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      border-color: var(--vsc-border, var(--vsc-control-background));
+    }
+    .nav-button:disabled {
+      opacity: .38;
+      cursor: default;
+    }
+    .nav-button.pin {
+      font-size: 18px;
+      line-height: 1;
+    }
+    .nav-button.pin.pinned {
+      color: var(--vsc-accent-blue, var(--vsc-focus-border));
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 28px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
+      background: var(--vsc-panel-background, var(--vsc-editor-background, #fff));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 11px;
+    }
+    .status-row .hint {
+      margin-left: auto;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    }
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 34px;
+      padding: 3px 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+    }
+    .action-bar button {
+      min-height: 26px;
+      padding: 3px 9px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-size: 11px;
+    }
+    .action-bar button:hover:not(:disabled) {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      border-color: var(--vsc-border, var(--vsc-control-background));
+    }
+    .action-bar button:disabled {
+      opacity: .32;
+      cursor: default;
+    }
+    .action-bar button.active {
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+    }
+    .action-bar .danger:not(:disabled) {
+      color: var(--vsc-error-foreground, var(--vsc-error));
+    }
+    .view-switcher {
+      display: flex;
+      gap: 2px;
+    }
+    .action-separator {
+      width: 1px;
+      height: 18px;
+      margin: 0 2px;
+      background: var(--vsc-border);
+    }
+    .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:3px 9px}
     .plugin-icon{display:inline-grid;place-items:center;width:16px;height:16px}
-    .separator{width:1px;height:18px;margin:0 2px;background:var(--vsc-border)}
     .error{display:flex;flex:1 1 0%;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
     app-registry-pane,app-autorun-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   @ViewChild('component') private inner?: DirectoryPaneComponent;
+  @ViewChild('locationEditor') private locationEditor?: ElementRef<HTMLInputElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
@@ -208,6 +532,9 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
   @Input() comparisonStatuses: ReadonlyMap<string, PaneComparisonStatus> = new Map<string, PaneComparisonStatus>();
+
+  specializedLocationEditing = false;
+  specializedLocationDraft = '';
 
   @Output() readonly activateRequested = new EventEmitter<void>();
   @Output() readonly navigationTrailRequested = new EventEmitter<{ direction: 'back' | 'forward'; event: MouseEvent; entries: readonly string[] }>();
@@ -248,6 +575,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
     if (this.rendererKind === 'directory') return;
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
     void this.provider.sync(this.paneId, path, this.showHidden);
+    if (!this.specializedLocationEditing) this.specializedLocationDraft = this.provider.path;
   }
 
   get rendererKind(): PaneRendererKind {
@@ -366,6 +694,24 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
 
   onProviderContextMenu(event: any): void {
     this.entryContextMenu.emit({ entry: event.entry as FileInfo, event: event.event as MouseEvent });
+  }
+
+  beginSpecializedLocationEdit(): void {
+    this.specializedLocationDraft = this.provider.path;
+    this.specializedLocationEditing = true;
+    queueMicrotask(() => this.locationEditor?.nativeElement.focus());
+  }
+
+  cancelSpecializedLocationEdit(): void {
+    this.specializedLocationDraft = this.provider.path;
+    this.specializedLocationEditing = false;
+  }
+
+  commitSpecializedLocationEdit(): void {
+    const next = this.specializedLocationDraft.trim();
+    this.specializedLocationEditing = false;
+    if (!next || next === this.provider.path) return;
+    void this.provider.navigateTo(next);
   }
 
   onProviderTabChange(tab: any): void { this.workspaceService.switchTab(this.paneId, tab.id); }

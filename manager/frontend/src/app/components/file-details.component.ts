@@ -15,6 +15,15 @@ import {
   ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import {
+  PaneTableBodyDirective,
+  PaneTableCellDirective,
+  PaneTableComponent,
+  PaneTableDividerDirective,
+  PaneTableHeaderDirective,
+  PaneTableHeaderRowDirective,
+  PaneTableRowDirective,
+} from '@reassembly/core/ui/panes';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
@@ -83,15 +92,26 @@ interface DetailsRowVm {
 @Component({
   selector: 'app-file-details',
   standalone: true,
-  imports: [CommonModule, FileEntryInlineComponent, VscodeScrollbarDirective],
+  imports: [
+    CommonModule,
+    FileEntryInlineComponent,
+    VscodeScrollbarDirective,
+    PaneTableComponent,
+    PaneTableHeaderDirective,
+    PaneTableHeaderRowDirective,
+    PaneTableBodyDirective,
+    PaneTableRowDirective,
+    PaneTableCellDirective,
+    PaneTableDividerDirective,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div #detailsRoot class="file-details" role="table">
-      <div class="details-header" role="rowgroup">
-        <div class="details-row header-row" role="row">
+    <reassembly-pane-table #detailsRoot class="file-details" role="table">
+      <div class="details-header" reassemblyPaneTableHeader role="rowgroup">
+        <div class="details-row header-row" reassemblyPaneTableHeaderRow role="row">
           <div 
             *ngFor="let col of activeColumnVms; let i = index; trackBy: trackByColumnKey"
-            class="details-cell header-cell"
+            class="details-cell header-cell" reassemblyPaneTableCell
             [attr.data-col]="col.key"
             [class.sortable]="col.column.sortable"
             [style.width]="col.widthVar"
@@ -110,7 +130,7 @@ interface DetailsRowVm {
             </span>
             <div
               *ngIf="i < activeColumnVms.length - 1"
-              class="view-divider"
+              class="view-divider" reassemblyPaneTableDivider
               title="Resize column"
               (mousedown)="onColumnResizeStart($event, col.column)">
             </div>
@@ -121,6 +141,7 @@ interface DetailsRowVm {
       <div
         #detailsBody
         class="details-body"
+        reassemblyPaneTableBody
         appVscodeScrollbar
         [class.drop-target-bg]="isBackgroundDropTarget"
         role="rowgroup"
@@ -137,6 +158,7 @@ interface DetailsRowVm {
           <div 
             *ngFor="let row of visibleRowVms; trackBy: trackByRowPath"
             class="details-row"
+            reassemblyPaneTableRow
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="row.selected"
@@ -162,6 +184,7 @@ interface DetailsRowVm {
             <div 
               *ngFor="let cell of row.cells; trackBy: trackByCellKey"
               class="details-cell"
+              reassemblyPaneTableCell
               [style.width]="cell.widthVar"
               [style.flex]="cell.flex"
               [attr.role]="'cell'">
@@ -213,7 +236,7 @@ interface DetailsRowVm {
           [style.height.px]="selectionRect.height">
         </div>
       </div>
-    </div>
+    </reassembly-pane-table>
   `,
   styles: [`
     :host {

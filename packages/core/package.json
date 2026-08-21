@@ -49,6 +49,50 @@
     "./renderer": {
       "types": "./dist/frontend/runtime/panes/index.d.ts",
       "default": "./dist/frontend/runtime/panes/index.js"
+    },
+    "./ui/panes": {
+      "types": "./dist/frontend/ui/panes/index.d.ts",
+      "default": "./dist/frontend/ui/panes/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "contracts/files": [
+        "dist/frontend/contracts/files/index.d.ts"
+      ],
+      "contracts/input": [
+        "dist/frontend/contracts/input/index.d.ts"
+      ],
+      "contracts/sources": [
+        "dist/frontend/contracts/sources/index.d.ts"
+      ],
+      "contracts/panes": [
+        "dist/frontend/contracts/panes/index.d.ts"
+      ],
+      "runtime/panes": [
+        "dist/frontend/runtime/panes/index.d.ts"
+      ],
+      "files": [
+        "dist/frontend/contracts/files/index.d.ts"
+      ],
+      "input": [
+        "dist/frontend/contracts/input/index.d.ts"
+      ],
+      "sources": [
+        "dist/frontend/contracts/sources/index.d.ts"
+      ],
+      "panes": [
+        "dist/frontend/contracts/panes/index.d.ts"
+      ],
+      "renderer": [
+        "dist/frontend/runtime/panes/index.d.ts"
+      ],
+      "ui/panes": [
+        "dist/frontend/ui/panes/index.d.ts"
+      ],
+      "*": [
+        "dist/frontend/index.d.ts"
+      ]
     }
   },
   "files": [
@@ -56,12 +100,18 @@
   ],
   "scripts": {
     "build": "npm run build:frontend",
-    "build:frontend": "tsc -p tsconfig.json",
+    "build:frontend": "ngc -p tsconfig.json",
     "test": "npm run test:frontend",
-    "test:frontend": "tsc -p tsconfig.json --noEmit",
+    "test:frontend": "ngc -p tsconfig.json --noEmit",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "devDependencies": {
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "@angular/core": "22.1.2",
+    "@angular/compiler": "22.1.2",
+    "@angular/compiler-cli": "22.1.2"
+  },
+  "peerDependencies": {
+    "@angular/core": "22.1.2"
   }
 }

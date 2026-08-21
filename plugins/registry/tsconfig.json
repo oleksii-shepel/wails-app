@@ -3,6 +3,44 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
+    "paths": {
+      "@reassembly/core": [
+        "../../packages/core/frontend/src/index.ts"
+      ],
+      "@reassembly/core/contracts/files": [
+        "../../packages/core/frontend/src/contracts/files/index.ts"
+      ],
+      "@reassembly/core/contracts/input": [
+        "../../packages/core/frontend/src/contracts/input/index.ts"
+      ],
+      "@reassembly/core/contracts/sources": [
+        "../../packages/core/frontend/src/contracts/sources/index.ts"
+      ],
+      "@reassembly/core/contracts/panes": [
+        "../../packages/core/frontend/src/contracts/panes/index.ts"
+      ],
+      "@reassembly/core/runtime/panes": [
+        "../../packages/core/frontend/src/runtime/panes/index.ts"
+      ],
+      "@reassembly/core/files": [
+        "../../packages/core/frontend/src/contracts/files/index.ts"
+      ],
+      "@reassembly/core/input": [
+        "../../packages/core/frontend/src/contracts/input/index.ts"
+      ],
+      "@reassembly/core/sources": [
+        "../../packages/core/frontend/src/contracts/sources/index.ts"
+      ],
+      "@reassembly/core/panes": [
+        "../../packages/core/frontend/src/contracts/panes/index.ts"
+      ],
+      "@reassembly/core/renderer": [
+        "../../packages/core/frontend/src/runtime/panes/index.ts"
+      ],
+      "@reassembly/core/ui/panes": [
+        "../../packages/core/frontend/src/ui/panes/index.ts"
+      ]
+    },
     "strict": true,
     "experimentalDecorators": true,
     "useDefineForClassFields": false,

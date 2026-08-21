@@ -61,6 +61,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
+import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
 import {
   collapseNestedDragEntries,
@@ -184,6 +185,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     FilterComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
+    ResponsiveToolbarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -341,17 +343,15 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           (click)="renameResultsCollection()">Rename</button>
       </div>
 
-      <div class="action-bar registry-action-bar" role="toolbar" aria-label="Registry actions">
-        <button
-          *ngFor="let action of pluginToolbarActions"
-          type="button"
-          class="plugin-action"
-          [class.danger]="action.label.toLowerCase().includes('delete')"
-          [disabled]="loading || !action.enabled"
-          [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
-          (click)="runPluginToolbarAction(action)">
-          {{ action.label }}
-        </button>
+      <div class="action-bar registry-action-bar">
+        <app-responsive-toolbar
+          [actions]="pluginToolbarActions"
+          [minVisible]="0"
+          [showIcons]="false"
+          align="left"
+          ariaLabel="Registry actions"
+          overflowLabel="More registry actions">
+        </app-responsive-toolbar>
       </div>
 
       <app-filter
@@ -944,6 +944,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       align-items: center;
       gap: 4px;
       min-height: 34px;
+      min-width: 0;
+      overflow: hidden;
       padding: 3px 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
@@ -3659,7 +3661,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     if (!value) return;
 
     const scheme = this.schemeOfLocation(value);
-    if (scheme === 'filesystem' || scheme === 'registry') return;
+    if (scheme === 'filesystem') return;
 
     const results = await this.pluginLifecycle.activateByEvent(
       `onScheme:${scheme}`,
@@ -7923,8 +7925,6 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      await this.activatePluginsForLocation(requestedPath);
-
       const streamMode = this.panelSources.streamMode(
         requestedPath,
         this.entries,

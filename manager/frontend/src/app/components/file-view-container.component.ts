@@ -15,7 +15,7 @@ import {
   type DetailsColumnConfiguration,
   type ColumnDef,
 } from './file-details.component';
-import { ViewMode } from './action-bar.component';
+import type { DirectoryView as ViewMode } from './pane-component.contract';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
 import { DirectorySourceService } from '../services/directory-source.service';

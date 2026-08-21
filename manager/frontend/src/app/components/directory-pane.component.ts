@@ -61,6 +61,8 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
+import { ResponsiveToolbarComponent, type ResponsiveToolbarCommand } from './responsive-toolbar.component';
+import { PaneArrangeControlsComponent, type PaneSortChange } from './pane-arrange-controls.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
 import {
   collapseNestedDragEntries,
@@ -184,6 +186,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     FilterComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
+    ResponsiveToolbarComponent,
+    PaneArrangeControlsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -349,57 +353,24 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
         </div>
 
-        <div class="sort-controls" role="group" aria-label="Sort directory">
-          <select
-            [value]="sortField"
-            (change)="setSortField($any($event.target).value)"
-            aria-label="Sort field"
-            title="Sort field">
-            <option value="name">Name</option>
-            <option value="size">Size</option>
-            <option value="modified">Modified</option>
-            <option value="type">Type</option>
-          </select>
+        <span class="action-separator"></span>
 
-          <button
-            type="button"
-            (click)="toggleSortDirection()"
-            [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
-            {{ sortDirection === 'asc' ? '\u2191' : '\u2193' }}
-          </button>
-
-          <button
-            type="button"
-            [class.active]="directoriesFirst"
-            [attr.aria-pressed]="directoriesFirst"
-            (click)="toggleDirectoriesFirst()"
-            title="Folders first">
-            Folders
-          </button>
-        </div>
+        <app-pane-arrange-controls
+          [currentSort]="sortField"
+          [sortDirection]="sortDirection"
+          [directoriesFirst]="directoriesFirst"
+          (sortChange)="applyPaneSort($event)"
+          (directoriesFirstChange)="applyDirectoriesFirst($event)">
+        </app-pane-arrange-controls>
 
         <span class="action-separator"></span>
-        <button type="button" [disabled]="loading || !canCreate" (click)="newFolder()" title="New folder (F7)">New folder</button>
-        <button type="button" [disabled]="loading || !canRename" (click)="renameSelected()" title="Rename (F2)">Rename</button>
-        <span class="action-separator"></span>
-        <button type="button" [disabled]="loading || !hasSelection" (click)="copySelected()" title="Copy (Ctrl+C)">Copy</button>
-        <button type="button" [disabled]="loading || !canCut" (click)="cutSelected()" title="Cut (Ctrl+X)">Cut</button>
-        <button type="button" [disabled]="loading || !canPaste" (click)="paste()" title="Paste (Ctrl+V)">Paste</button>
-        <span class="action-separator"></span>
-        <button type="button" class="danger" [disabled]="loading || !canDelete" (click)="deleteSelected()" title="Delete (Delete / F8)">Delete</button>
-        <ng-container *ngIf="pluginToolbarActions.length">
-          <span class="action-separator"></span>
-          <button
-            *ngFor="let action of pluginToolbarActions"
-            type="button"
-            class="plugin-action"
-            [disabled]="loading || !action.enabled"
-            [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
-            (click)="runPluginToolbarAction(action)">
-            <span aria-hidden="true">&#x25C6;</span>
-            {{ action.label }}
-          </button>
-        </ng-container>
+
+        <app-responsive-toolbar
+          [actions]="responsiveFileActions"
+          [minVisible]="0"
+          ariaLabel="Directory actions"
+          overflowLabel="More directory actions">
+        </app-responsive-toolbar>
       </div>
 
       <app-filter
@@ -994,6 +965,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       align-items: center;
       gap: 4px;
       min-height: 34px;
+      min-width: 0;
+      overflow: hidden;
       padding: 3px 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
@@ -1021,13 +994,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       cursor: default;
     }
 
-    .action-bar .danger:not(:disabled) {
-      color: var(--vsc-error-foreground, var(--vsc-error));
-    }
-
     .view-switcher {
       display: flex;
       gap: 2px;
+      flex: 0 0 auto;
     }
 
     .view-switcher button.active {
@@ -1035,27 +1005,14 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
-    .sort-controls {
-      display: flex;
-      align-items: center;
-      gap: 2px;
+    .action-bar .danger:not(:disabled) {
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
 
-    .sort-controls select {
-      height: 26px;
-      max-width: 110px;
-      padding: 0 5px;
-      border: 1px solid var(--vsc-border, var(--vsc-border));
-      border-radius: 3px;
-      background: var(--vsc-input-background, var(--vsc-popover-background));
-      color: var(--vsc-foreground, var(--vsc-foreground));
-      font: inherit;
-    }
 
-    .sort-controls button.active {
-      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
-      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
-    }
+
+
+
 
     .tree-view {
       flex: 1 1 auto;
@@ -3401,6 +3358,21 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  applyPaneSort(change: PaneSortChange): void {
+    if (change.field !== this.sortField) {
+      this.setSortField(change.field);
+    }
+    if (change.direction !== this.sortDirection) {
+      this.toggleSortDirection();
+    }
+  }
+
+  applyDirectoriesFirst(value: boolean): void {
+    if (value !== this.directoriesFirst) {
+      this.toggleDirectoriesFirst();
+    }
+  }
+
   setViewMode(mode: DirectoryView): void {
     this.resetVirtualViewport();
     this.cancelInlineRename(false);
@@ -4760,6 +4732,79 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.lastAction = 'clear selection';
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
+  }
+
+
+  get responsiveFileActions(): readonly ResponsiveToolbarCommand[] {
+    const builtins: ResponsiveToolbarCommand[] = [
+      {
+        id: 'directory.new-folder',
+        label: 'New folder',
+        shortcut: 'F7',
+        enabled: !this.loading && this.canCreate,
+        source: 'builtin',
+        commandId: 'pane.files.newFolder',
+        execute: () => this.newFolder(),
+      },
+      {
+        id: 'directory.rename',
+        label: 'Rename',
+        shortcut: 'F2',
+        enabled: !this.loading && this.canRename,
+        source: 'builtin',
+        commandId: 'pane.files.rename',
+        execute: () => this.renameSelected(),
+      },
+      {
+        id: 'directory.copy',
+        label: 'Copy',
+        shortcut: 'Ctrl+C',
+        enabled: !this.loading && this.hasSelection,
+        separatorBefore: true,
+        source: 'builtin',
+        commandId: 'pane.files.copy',
+        execute: () => this.copySelected(),
+      },
+      {
+        id: 'directory.cut',
+        label: 'Cut',
+        shortcut: 'Ctrl+X',
+        enabled: !this.loading && this.canCut,
+        source: 'builtin',
+        commandId: 'pane.files.cut',
+        execute: () => this.cutSelected(),
+      },
+      {
+        id: 'directory.paste',
+        label: 'Paste',
+        shortcut: 'Ctrl+V',
+        enabled: !this.loading && this.canPaste,
+        source: 'builtin',
+        commandId: 'pane.files.paste',
+        execute: () => this.paste(),
+      },
+      {
+        id: 'directory.delete',
+        label: 'Delete',
+        icon: 'delete',
+        shortcut: 'Delete / F8',
+        enabled: !this.loading && this.canDelete,
+        separatorBefore: true,
+        source: 'builtin',
+        commandId: 'pane.files.delete',
+        execute: () => this.deleteSelected(),
+      },
+    ];
+
+    if (!this.pluginToolbarActions.length) return builtins;
+
+    return [
+      ...builtins,
+      ...this.pluginToolbarActions.map((action, index) => ({
+        ...action,
+        separatorBefore: index === 0 ? true : action.separatorBefore,
+      })),
+    ];
   }
 
   runPluginToolbarAction(action: PresentedCommand): void {

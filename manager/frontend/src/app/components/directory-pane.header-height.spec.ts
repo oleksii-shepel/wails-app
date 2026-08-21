@@ -2,16 +2,16 @@ import { readFileSync } from 'node:fs';
 
 describe('DirectoryPaneComponent header sizing', () => {
   const source = readFileSync(new URL('./directory-pane.component.ts', import.meta.url), 'utf8');
+  const responsive = readFileSync(new URL('./responsive-toolbar.component.ts', import.meta.url), 'utf8');
 
   it('keeps the action row at one deterministic height', () => {
-    expect(source).toContain('height: 34px;');
-    expect(source).toContain('max-height: 34px;');
-    expect(source).toContain('flex-wrap: nowrap;');
-    expect(source).toContain('white-space: nowrap;');
+    expect(source).toContain('min-height: 34px;');
   });
 
-  it('preserves access to overflowing actions without growing the pane header', () => {
-    expect(source).toContain('overflow-x: auto;');
-    expect(source).toContain('overflow-y: hidden;');
+  it('collapses actions into a dropdown instead of widening or scrolling the pane', () => {
+    expect(source).toContain('<app-responsive-toolbar');
+    expect(responsive).toContain('overflowActions');
+    expect(responsive).toContain('overflow-trigger');
+    expect(source).not.toContain('overflow-x: auto;');
   });
 });

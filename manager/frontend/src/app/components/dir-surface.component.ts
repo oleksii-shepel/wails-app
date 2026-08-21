@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core';
-import { ActionBarComponent } from './action-bar.component';
+import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
+import { PaneArrangeControlsComponent } from './pane-arrange-controls.component';
 import { AddressBarComponent } from './address-bar.component';
 import { ArchiveMoveWarningComponent } from './archive-move-warning.component';
 import { FileViewContainerComponent } from './file-view-container.component';
@@ -14,7 +15,8 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
     CommonModule,
     AddressBarComponent,
     FindWidgetComponent,
-    ActionBarComponent,
+    ResponsiveToolbarComponent,
+    PaneArrangeControlsComponent,
     FileViewContainerComponent,
     ArchiveMoveWarningComponent,
   ],
@@ -26,18 +28,27 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       (navigate)="vm.onPathChange($event)">
     </app-address-bar>
 
-    <app-action-bar
-      [actions]="vm.toolbarActions"
-      [currentView]="vm.currentView"
-      [currentSort]="vm.sortField"
-      [sortDirection]="vm.sortDirection"
-      (viewChange)="vm.onViewChange($event)"
-      (sortChange)="vm.onSortChange($event)"
-      [directoriesFirst]="vm.directoriesFirst"
-      (directoriesFirstChange)="vm.onDirectoriesFirstChange($event)"
-      [colorizeByMime]="vm.colorizeByMime"
-      (colorizeByMimeChange)="vm.onColorizeByMimeChange($event)">
-    </app-action-bar>
+    <div class="pane-toolbar-row">
+      <app-pane-arrange-controls
+        [currentSort]="vm.sortField"
+        [sortDirection]="vm.sortDirection"
+        [directoriesFirst]="vm.directoriesFirst"
+        [colorizeByMime]="vm.colorizeByMime"
+        [showColorizeByMime]="true"
+        (sortChange)="vm.onSortChange($event)"
+        (directoriesFirstChange)="vm.onDirectoriesFirstChange($event)"
+        (colorizeByMimeChange)="vm.onColorizeByMimeChange($event)">
+      </app-pane-arrange-controls>
+
+      <span class="toolbar-divider" aria-hidden="true"></span>
+
+      <app-responsive-toolbar
+        [actions]="vm.toolbarActions"
+        [minVisible]="0"
+        ariaLabel="Pane actions"
+        overflowLabel="More pane actions">
+      </app-responsive-toolbar>
+    </div>
 
     <!-- File list + find widget overlay share the same relative container -->
     <div class="list-host">
@@ -100,19 +111,38 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       overflow: hidden;
     }
 
-    app-address-bar,
-    app-action-bar {
+    app-address-bar {
       display: block;
       flex-shrink: 0;
       position: relative;
-    }
-
-    app-address-bar {
       z-index: 3;
     }
 
-    app-action-bar {
+    .pane-toolbar-row {
+      position: relative;
       z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: var(--vsc-padding-sm);
+      height: var(--vsc-titlebar-height);
+      min-width: 0;
+      padding: 0 var(--vsc-padding-lg);
+      border-bottom: 1px solid var(--vsc-border);
+      background: var(--vsc-sidebar-background);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+
+    .toolbar-divider {
+      flex: 0 0 1px;
+      width: 1px;
+      height: 20px;
+      background: var(--vsc-border);
+    }
+
+    :host-context(.compact-mode) .pane-toolbar-row {
+      height: 28px;
     }
 
     /* The list host is the anchor for the find widget overlay */
@@ -151,4 +181,5 @@ export class DirSurfaceComponent {
   @Input() surfaceActive = true;
   @Input() surfacePath = '';
   @Output() viewportChange = new EventEmitter<void>();
+
 }

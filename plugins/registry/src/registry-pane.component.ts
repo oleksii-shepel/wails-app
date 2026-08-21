@@ -80,171 +80,75 @@ export interface RegistryEntryDragEvent {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="registry-surface-header" *ngIf="isRootView; else keyHeader">
-      <div class="registry-surface-title">Registry Hives</div>
-      <div class="registry-surface-subtitle">
-        System root hives available in this session
-      </div>
-    </div>
-
-    <ng-template #keyHeader>
-      <div class="registry-surface-header">
-        <div class="registry-surface-title">Registry Key</div>
-        <div class="registry-surface-subtitle">
-          {{ keyEntries.length }} subkeys and {{ valueEntries.length }} values
+    <reassembly-pane-table class="registry-table" role="table">
+      <div
+        *ngIf="viewMode === 'details'"
+        class="registry-details-header"
+        reassemblyPaneTableHeader
+        role="rowgroup">
+        <div
+          class="registry-entry registry-header-row"
+          reassemblyPaneTableHeaderRow
+          role="row"
+          [style.grid-template-columns]="detailsGridTemplate">
+          <span class="registry-cell icon-cell" reassemblyPaneTableCell></span>
+          <span class="registry-cell heading" reassemblyPaneTableCell role="columnheader">
+            Name
+            <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'name')"></i>
+          </span>
+          <span class="registry-cell heading" reassemblyPaneTableCell role="columnheader">
+            Kind
+            <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'kind')"></i>
+          </span>
+          <span class="registry-cell heading" reassemblyPaneTableCell role="columnheader">
+            Type
+            <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'type')"></i>
+          </span>
+          <span class="registry-cell heading" reassemblyPaneTableCell role="columnheader">
+            Data
+          </span>
         </div>
       </div>
-    </ng-template>
-
-    <reassembly-pane-table class="registry-table">
-    <div
-      class="registry-details-header"
-      reassemblyPaneTableHeader
-      reassemblyPaneTableHeaderRow
-      *ngIf="viewMode === 'details' && !isRootView"
-      [style.grid-template-columns]="detailsGridTemplate">
-      <span></span>
-      <span class="heading">
-        Name
-        <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'name')"></i>
-      </span>
-      <span class="heading">
-        Kind
-        <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'kind')"></i>
-      </span>
-      <span class="heading">
-        Type
-        <i class="resizer" reassemblyPaneTableDivider (mousedown)="beginResize($event, 'type')"></i>
-      </span>
-      <span class="heading">Data</span>
-    </div>
-
-    <div
-      #viewport
-      class="registry-list"
-      reassemblyPaneTableBody
-      data-pane-content
-      tabindex="-1"
-      role="listbox"
-      [attr.aria-label]="'Registry entries in ' + (path || 'location')"
-      [class.view-list]="viewMode === 'list'"
-      [class.view-details]="viewMode === 'details'"
-      [class.background-drop-target]="backgroundDropActive"
-      [attr.aria-busy]="loading"
-      (scroll)="scrolled.emit($event)"
-      (click)="backgroundClick.emit($event)"
-      (contextmenu)="backgroundContextMenu.emit($event)"
-      (dragover)="backgroundDragOver.emit($event)"
-      (dragleave)="backgroundDragLeave.emit($event)"
-      (drop)="backgroundDrop.emit($event)">
 
       <div
-        *ngIf="virtualEnabled && beforePx > 0"
-        class="virtual-spacer"
-        [style.height.px]="beforePx"
-        aria-hidden="true"></div>
+        #viewport
+        class="registry-list"
+        reassemblyPaneTableBody
+        data-pane-content
+        tabindex="-1"
+        role="rowgroup"
+        [attr.aria-label]="'Registry entries in ' + (path || 'location')"
+        [class.view-list]="viewMode === 'list'"
+        [class.view-details]="viewMode === 'details'"
+        [class.background-drop-target]="backgroundDropActive"
+        [attr.aria-busy]="loading"
+        (scroll)="scrolled.emit($event)"
+        (click)="backgroundClick.emit($event)"
+        (contextmenu)="backgroundContextMenu.emit($event)"
+        (dragover)="backgroundDragOver.emit($event)"
+        (dragleave)="backgroundDragLeave.emit($event)"
+        (drop)="backgroundDrop.emit($event)">
 
-      <ng-container *ngIf="isRootView; else groupedKeyView">
-        <div class="registry-section registry-section-root">
-          <div
-            *ngFor="let entry of rootEntries; let virtualIndex = index; trackBy: trackEntry"
-            class="registry-entry registry-entry-root"
-            reassemblyPaneTableRow
-            tabindex="-1"
-            role="option"
-            draggable="true"
-            [attr.data-file-entry]="entry.path"
-            [attr.aria-posinset]="renderedStart + virtualIndex + 1"
-            [attr.aria-setsize]="isRootView ? effectiveVisibleEntryCount : visibleEntryCount"
-            [attr.aria-selected]="selectedPaths.has(entry.path)"
-            [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
-            [attr.aria-label]="ariaLabel(entry)"
-            [class.cursor]="entry.path === cursorPath"
-            [class.selected]="selectedPaths.has(entry.path)"
-            [class.drop-target]="dragOverPath === entry.path"
-            [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
-            [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
-            [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
-            [class.kind-parent]="entryKind(entry) === 'parent'"
-            [class.kind-hive]="entryKind(entry) === 'hive'"
-            [style.grid-template-columns]="rootGridTemplate"
-            (click)="entrySelect.emit({ entry: entry, event: $event })"
-            (dblclick)="entryOpen.emit(entry)"
-            (contextmenu)="entryContextMenu.emit({ entry: entry, event: $event })"
-            (dragstart)="entryDragStart.emit({ entry: entry, event: $event })"
-            (dragend)="entryDragEnd.emit()"
-            (dragover)="entryDragOver.emit({ entry: entry, event: $event })"
-            (dragleave)="entryDragLeave.emit(entry)"
-            (drop)="entryDrop.emit({ entry: entry, event: $event })">
-            <span class="icon" reassemblyPaneTableCell aria-hidden="true">{{ icon(entry) }}</span>
-            <span class="name-cell" reassemblyPaneTableCell>
-              <span class="name-line">
-                <span class="name">{{ entry.name }}</span>
-                <span class="badge">{{ badgeLabel(entry) }}</span>
-              </span>
-              <span
-                class="meta"
-                *ngIf="metaLabel(entry) as value"
-                [title]="value">{{ value }}</span>
-            </span>
-            <span class="data root-data" reassemblyPaneTableCell [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
-          </div>
-        </div>
-      </ng-container>
-
-      <ng-template #groupedKeyView>
-        <div class="registry-value-inspector" *ngIf="focusedValueEntry as entry">
-          <div class="registry-value-inspector-header">
-            <span class="registry-value-inspector-title">Focused Value</span>
-            <span class="registry-value-inspector-type">{{ entry.registryValueType?.trim() || 'REG_SZ' }}</span>
-          </div>
-          <div class="registry-value-inspector-name">{{ entry.name }}</div>
-          <div class="registry-value-inspector-meta">{{ metaLabel(entry) }}</div>
-          <div class="registry-value-inspector-data" [title]="dataLabel(entry)">{{ dataLabel(entry) }}</div>
-        </div>
-
-        <div class="registry-section" *ngIf="parentEntry as entry">
-          <div class="registry-section-label">Navigation</div>
-          <ng-container
-            [ngTemplateOutlet]="entryRow"
-            [ngTemplateOutletContext]="{ $implicit: entry, virtualIndex: entryIndex(entry) }">
-          </ng-container>
-        </div>
-
-        <div class="registry-section" *ngIf="keyEntries.length">
-          <div class="registry-section-label">Subkeys</div>
-          <ng-container *ngFor="let entry of keyEntries; trackBy: trackEntry">
-            <ng-container
-              [ngTemplateOutlet]="entryRow"
-              [ngTemplateOutletContext]="{ $implicit: entry, virtualIndex: entryIndex(entry) }">
-            </ng-container>
-          </ng-container>
-        </div>
-
-        <div class="registry-section" *ngIf="valueEntries.length">
-          <div class="registry-section-label">Values</div>
-          <ng-container *ngFor="let entry of valueEntries; trackBy: trackEntry">
-            <ng-container
-              [ngTemplateOutlet]="entryRow"
-              [ngTemplateOutletContext]="{ $implicit: entry, virtualIndex: entryIndex(entry) }">
-            </ng-container>
-          </ng-container>
-        </div>
-      </ng-template>
-
-      <ng-template #entryRow let-entry let-virtualIndex="virtualIndex">
         <div
+          *ngIf="virtualEnabled && beforePx > 0"
+          class="virtual-spacer"
+          [style.height.px]="beforePx"
+          aria-hidden="true"></div>
+
+        <div
+          *ngFor="let entry of (isRootView ? rootEntries : entries); let virtualIndex = index; trackBy: trackEntry"
           class="registry-entry"
           reassemblyPaneTableRow
           tabindex="-1"
-          role="option"
+          role="row"
           draggable="true"
           [attr.data-file-entry]="entry.path"
           [attr.aria-posinset]="renderedStart + virtualIndex + 1"
-          [attr.aria-setsize]="isRootView ? effectiveVisibleEntryCount : visibleEntryCount"
+          [attr.aria-setsize]="effectiveVisibleEntryCount"
           [attr.aria-selected]="selectedPaths.has(entry.path)"
           [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
           [attr.aria-label]="ariaLabel(entry)"
+          [class.registry-entry-root]="isRootView"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
           [class.drop-target]="dragOverPath === entry.path"
@@ -255,7 +159,7 @@ export interface RegistryEntryDragEvent {
           [class.kind-hive]="entryKind(entry) === 'hive'"
           [class.kind-key]="entryKind(entry) === 'key'"
           [class.kind-value]="entryKind(entry) === 'value'"
-          [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null"
+          [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : rootGridTemplate"
           (click)="entrySelect.emit({ entry: entry, event: $event })"
           (dblclick)="entryOpen.emit(entry)"
           (contextmenu)="entryContextMenu.emit({ entry: entry, event: $event })"
@@ -265,232 +169,108 @@ export interface RegistryEntryDragEvent {
           (dragleave)="entryDragLeave.emit(entry)"
           (drop)="entryDrop.emit({ entry: entry, event: $event })">
 
-          <span class="icon" reassemblyPaneTableCell aria-hidden="true">{{ icon(entry) }}</span>
-
-          <span class="name-cell" reassemblyPaneTableCell>
-            <span class="name-line">
-              <span class="name">{{ entry.name }}</span>
-              <span class="badge">{{ badgeLabel(entry) }}</span>
-            </span>
-            <span
-              class="meta"
-              *ngIf="metaLabel(entry) as value"
-              [title]="value">{{ value }}</span>
-          </span>
-
-          <span class="kind" reassemblyPaneTableCell>{{ kindLabel(entry) }}</span>
-          <span class="type" reassemblyPaneTableCell>{{ typeLabel(entry) }}</span>
-          <span class="data" reassemblyPaneTableCell [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
+          <span class="registry-cell icon" reassemblyPaneTableCell aria-hidden="true">{{ icon(entry) }}</span>
+          <span class="registry-cell name" reassemblyPaneTableCell [title]="entry.name">{{ entry.name }}</span>
+          <span class="registry-cell kind" reassemblyPaneTableCell>{{ kindLabel(entry) }}</span>
+          <span class="registry-cell type" reassemblyPaneTableCell>{{ typeLabel(entry) }}</span>
+          <span class="registry-cell data" reassemblyPaneTableCell [title]="dataLabel(entry)">{{ dataLabel(entry) }}</span>
         </div>
-      </ng-template>
 
-      <div
-        *ngIf="virtualEnabled && afterPx > 0"
-        class="virtual-spacer"
-        [style.height.px]="afterPx"
-        aria-hidden="true"></div>
+        <div
+          *ngIf="virtualEnabled && afterPx > 0"
+          class="virtual-spacer"
+          [style.height.px]="afterPx"
+          aria-hidden="true"></div>
 
-      <div class="empty" reassemblyPaneTableEmpty *ngIf="!loading && effectiveVisibleEntryCount === 0" role="status">
-        <strong>{{ filterText ? 'No matching registry entries.' : 'This registry key is empty.' }}</strong>
-        <span *ngIf="filterText">Clear the filter to see all entries.</span>
+        <div
+          class="empty"
+          reassemblyPaneTableEmpty
+          *ngIf="!loading && effectiveVisibleEntryCount === 0"
+          role="status">
+          {{ filterText ? 'No matching registry entries.' : 'This registry key is empty.' }}
+        </div>
       </div>
-    </div>
     </reassembly-pane-table>
   `,
   styles: [`
     :host {
       display: flex;
+      flex-direction: column;
       flex: 1 1 0%;
-      height: 100%;
       min-width: 0;
       min-height: 0;
-      flex-direction: column;
+      height: 100%;
       overflow: hidden;
+      contain: layout style paint;
     }
 
-    .registry-surface-header {
-      display: grid;
-      gap: 2px;
-      padding: 8px 10px 7px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
-      background:
-        linear-gradient(
-          180deg,
-          color-mix(in srgb, var(--vsc-tabbar-background, var(--vsc-panel-background)) 90%, white 10%),
-          var(--vsc-tabbar-background, var(--vsc-panel-background))
-        );
-    }
-
-    .registry-surface-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--vsc-foreground);
-      letter-spacing: .02em;
-    }
-
-    .registry-surface-subtitle {
-      font-size: var(--vsc-font-size);
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    .registry-table {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--vsc-editor-background);
     }
 
     .registry-details-header {
-      display: grid;
-      align-items: center;
-      min-height: 28px;
-      height: 28px;
-      padding: 0 var(--vsc-padding-md);
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
-      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 10px;
-      user-select: none;      column-gap: var(--pane-column-gap, 6px);
-    }
-
-    .heading {
-      position: relative;
-      min-width: 0;
-      padding-inline: 3px;
-    }
-
-    .resizer {
-      position: absolute;
-      z-index: 3;
-      top: 2px;
-      right: -5px;
-      bottom: 2px;
-      width: 9px;
-      cursor: col-resize;
-    }
-
-    .resizer::after {
-      content: '';
-      position: absolute;
-      top: 3px;
-      bottom: 3px;
-      left: 4px;
-      width: 1px;
-      background: transparent;
-    }
-
-    .resizer:hover::after {
-      background: var(--vsc-focus-border, var(--vsc-accent-blue));
-    }
-
-    .registry-list {
-      flex: 1 1 0%;
-      height: 100%;
-      min-width: 0;
-      min-height: 0;
-      overflow: auto;
-      outline: none;
-      scrollbar-width: thin;
+      flex: 0 0 auto;
+      background: var(--vsc-tabbar-background);
+      border-bottom: 1px solid var(--vsc-border);
     }
 
     .registry-entry {
       box-sizing: border-box;
       display: grid;
       align-items: center;
-
       min-height: 24px;
       height: 24px;
       padding: 0 var(--vsc-padding-md);
+      column-gap: var(--pane-column-gutter, 12px);
       background: transparent;
+      contain: layout style;
+      position: relative;
+    }
+
+    .registry-header-row {
+      min-height: 28px;
+      height: 28px;
+      font-weight: 600;
+      color: var(--vsc-foreground-dim);
       cursor: default;
-      user-select: none;
-      color: var(--vsc-foreground);
-    
-      column-gap: var(--pane-column-gap, 6px);
-}
-
-    .registry-section {
-      display: grid;
-      gap: 2px;
-      padding: 6px 0 2px;
     }
 
-    .registry-value-inspector {
-      display: grid;
-      gap: 4px;
-      margin: 10px 10px 4px;
-      padding: 10px 12px;
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-border)) 45%, transparent);
-      border-radius: 10px;
-      background:
-        linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--vsc-editor-background, #fff) 94%, var(--vsc-accent-blue, #06c) 6%),
-          color-mix(in srgb, var(--vsc-editor-background, #fff) 98%, var(--vsc-panel-background, #fff) 2%)
-        );
-    }
-
-    .registry-value-inspector-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .registry-list {
+      flex: 1 1 0%;
       min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      outline: none;
+      background: var(--vsc-editor-background);
+      scrollbar-width: thin;
     }
 
-    .registry-value-inspector-title {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-    }
-
-    .registry-value-inspector-type {
-      padding: 1px 6px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-border)) 14%, transparent);
-      color: var(--vsc-accent-blue, var(--vsc-focus-border));
-      font-size: 9px;
-      font-weight: 600;
-    }
-
-    .registry-value-inspector-name {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--vsc-foreground);
+    .registry-cell {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-size: var(--vsc-font-size);
     }
 
-    .registry-value-inspector-meta {
-      font-size: 10px;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    .heading {
+      position: relative;
     }
 
-    .registry-value-inspector-data {
-      padding: 8px 10px;
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--vsc-editor-background, #fff) 82%, black 18%);
-      color: var(--vsc-foreground);
-      font: 12px/1.4 var(--vsc-font-family-mono, ui-monospace, monospace);
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .registry-section-root {
-      padding: 0;
-      gap: 0;
-    }
-
-    .registry-section-label {
-      padding: 0 10px 2px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-    }
-
-    .registry-list.view-list .registry-entry {
-      grid-template-columns: 22px minmax(0, 1fr) 110px minmax(120px, 1fr);
-    }
-
-    .registry-list.view-list .type {
-      display: none;
+    .resizer {
+      position: absolute;
+      top: 0;
+      right: calc(var(--pane-column-gutter, 12px) / -2 - 3px);
+      bottom: 0;
+      width: 6px;
+      cursor: col-resize;
+      z-index: 3;
     }
 
     .icon {
@@ -499,125 +279,45 @@ export interface RegistryEntryDragEvent {
       justify-content: center;
       width: 18px;
       height: 18px;
-      text-align: center;
-      opacity: .9;
-      font: 600 10px/1 var(--vsc-font-family-mono, ui-monospace, monospace);
-      letter-spacing: .04em;
-      border-radius: 999px;
-      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-description-foreground)) 85%, transparent);
-      background: color-mix(in srgb, var(--vsc-editor-background, #fff) 84%, var(--vsc-panel-background, #fff));
-    }
-
-    .name-cell {
-      display: grid;
-      min-width: 0;
-      grid-template-rows: auto auto;
-      align-content: center;
-      gap: 2px;
-      overflow: hidden;
-    }
-
-    .name-line {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-    }
-
-    .name,
-    .meta,
-    .badge,
-    .kind,
-    .type,
-    .data {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      padding: 0;
+      color: var(--vsc-foreground-dim);
+      font: 600 11px/1 var(--vsc-font-family-mono, ui-monospace, monospace);
     }
 
     .name {
-      font-size: 11px;
-      line-height: 13px;
-    }
-
-    .badge {
-      flex: 0 0 auto;
-      max-width: 88px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-border)) 12%, transparent);
-      color: var(--vsc-accent-blue, var(--vsc-focus-border));
-      font-size: 9px;
-      line-height: 12px;
-      font-weight: 600;
-      letter-spacing: .03em;
-      text-transform: uppercase;
-    }
-
-    .meta {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 9px;
-      line-height: 11px;
+      color: var(--vsc-foreground);
     }
 
     .kind,
     .type,
     .data {
-      font-size: 10px;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
-    .kind {
-      font-weight: 500;
+    .registry-entry.selected .kind,
+    .registry-entry.selected .type,
+    .registry-entry.selected .data,
+    .registry-entry.selected .icon {
+      color: inherit;
     }
 
-    .registry-entry.kind-parent .badge,
-    .registry-entry.kind-parent .icon {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    .registry-entry.kind-parent {
+      opacity: .7;
     }
 
-    .registry-entry.kind-hive .badge,
-    .registry-entry.kind-hive .icon {
-      color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-border)) 90%, white 10%);
-    }
-
-    .registry-entry.kind-key .badge,
+    .registry-entry.kind-hive .icon,
     .registry-entry.kind-key .icon {
-      color: color-mix(in srgb, var(--vsc-entry-directory, var(--vsc-accent-blue)) 85%, white 15%);
+      color: var(--vsc-entry-directory, var(--vsc-accent-blue));
     }
 
-    .registry-entry.kind-value .badge,
-    .registry-entry.kind-value .icon {
-      color: color-mix(in srgb, var(--vsc-foreground, #000) 75%, var(--vsc-accent-blue, #06c) 25%);
+    .registry-list.view-list .kind,
+    .registry-list.view-list .type,
+    .registry-list.view-list .data {
+      display: none;
     }
 
     .registry-entry-root {
-      min-height: 24px;
-      height: 24px;
-      padding: 0 var(--vsc-padding-md);
-      border: 0;
-      border-radius: 0;
       background: transparent;
-    }
-
-    .registry-entry-root .icon {
-      width: 18px;
-      height: 18px;
-      font-size: 10px;
-    }
-
-    .root-data {
-      font-size: 10px;
-    }
-
-    .registry-entry.selected .badge,
-    .registry-entry.selected .meta,
-    .registry-entry.selected .kind,
-    .registry-entry.selected .type,
-    .registry-entry.selected .data {
-      color: inherit;
-      opacity: .88;
     }
 
     .virtual-spacer {
@@ -627,13 +327,6 @@ export interface RegistryEntryDragEvent {
 
     .empty {
       min-height: 120px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 11px;
     }
 
     .background-drop-target,
@@ -644,23 +337,6 @@ export interface RegistryEntryDragEvent {
 
     .drop-invalid {
       opacity: .55;
-    }
-
-    /* visible pane column gutters */
-    .registry-details-header,
-    .registry-entry {
-      column-gap: var(--pane-column-gutter, 12px);
-    }
-
-    .registry-details-header > span:not(:first-child),
-    .registry-entry > span:not(:first-child) {
-      min-width: 0;
-      padding-inline: 2px;
-    }
-
-    /* Resizer sits in the middle of the gutter rather than on top of text. */
-    .registry-details-header .resizer {
-      right: calc(var(--pane-column-gutter, 12px) / -2 - 1px);
     }
   `],
 })
@@ -723,7 +399,7 @@ export class RegistryPaneComponent implements OnDestroy {
   }
 
   get rootGridTemplate(): string {
-    return '28px minmax(160px, 1fr) minmax(140px, 240px)';
+    return '28px minmax(160px, 1fr)';
   }
 
   /**
@@ -826,7 +502,7 @@ export class RegistryPaneComponent implements OnDestroy {
       case 'parent':
         return 'Open parent key';
       case 'hive':
-        return 'Top-level registry hive';
+        return '';
       case 'key':
         return 'Registry key';
       case 'value':
@@ -839,7 +515,7 @@ export class RegistryPaneComponent implements OnDestroy {
       case 'parent':
         return '';
       case 'hive':
-        return 'Top-level registry hive';
+        return '';
       case 'key':
         return '';
       case 'value':
@@ -865,11 +541,11 @@ export class RegistryPaneComponent implements OnDestroy {
       case 'parent':
         return '..';
       case 'hive':
-        return 'H';
+        return '▣';
       case 'key':
-        return 'K';
+        return '▸';
       case 'value':
-        return '=';
+        return '•';
     }
   }
 

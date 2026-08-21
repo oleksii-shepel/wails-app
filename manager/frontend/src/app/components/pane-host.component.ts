@@ -10,9 +10,8 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import { RegistryPaneComponent } from '@reassembly/registry-plugin';
-
 import { DirectoryPaneComponent } from './directory-pane.component';
+import { RegistryPaneComponent } from './registry-pane.component';
 import { AutorunPaneComponent } from './autorun-pane.component';
 import { SystemTablePaneComponent } from './system-table-pane.component';
 import { TabBarComponent } from './tab-bar.component';
@@ -52,7 +51,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container *ngIf="rendererKind !== 'directory'; else directoryPane">
+    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'registry'; else standardPane">
       <section
         class="specialized-pane"
         tabindex="-1"
@@ -242,32 +241,6 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         </div>
 
         <ng-container [ngSwitch]="rendererKind" *ngIf="!provider.error">
-          <app-registry-pane
-            *ngSwitchCase="'registry'"
-            [paneId]="paneId"
-            [path]="provider.path"
-            [viewMode]="provider.viewMode"
-            [entries]="provider.entries"
-            [selectedPaths]="provider.selectedPaths"
-            [cursorPath]="provider.cursorPath"
-            [visibleEntryCount]="provider.entries.length"
-            [renderedStart]="0"
-            [virtualEnabled]="false"
-            [beforePx]="0"
-            [afterPx]="0"
-            [loading]="provider.loading"
-            [filterText]="''"
-            [dragOverPath]="null"
-            [dropIntent]="null"
-            [backgroundDropActive]="false"
-            (scrolled)="provider.onScroll($event)"
-            (backgroundClick)="onProviderBackgroundClick($event)"
-            (backgroundContextMenu)="backgroundContextMenu.emit($event)"
-            (entrySelect)="onProviderSelect($event)"
-            (entryOpen)="onProviderOpen($event)"
-            (entryContextMenu)="onProviderContextMenu($event)">
-          </app-registry-pane>
-
           <app-autorun-pane
             *ngSwitchCase="'autorun'"
             [session]="provider"
@@ -291,8 +264,10 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
       </section>
     </ng-container>
 
-    <ng-template #directoryPane>
+    <ng-template #standardPane>
+      <ng-container [ngSwitch]="rendererKind">
       <app-directory-pane
+        *ngSwitchCase="'directory'"
         #component
         [paneId]="paneId"
         [active]="active"
@@ -312,6 +287,29 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         (backgroundContextMenu)="backgroundContextMenu.emit($event)"
         (internalDrop)="internalDrop.emit($event)">
       </app-directory-pane>
+
+      <app-registry-pane
+        *ngSwitchCase="'registry'"
+        #component
+        [paneId]="paneId"
+        [active]="active"
+        [showHidden]="showHidden"
+        [currentPathPinned]="currentPathPinned"
+        [pluginToolbarActions]="pluginToolbarActions"
+        [comparisonStatuses]="comparisonStatuses"
+        (activateRequested)="activateRequested.emit()"
+        (navigationTrailRequested)="navigationTrailRequested.emit($event)"
+        (remoteRecoveryRequested)="remoteRecoveryRequested.emit()"
+        (togglePinRequested)="togglePinRequested.emit()"
+        (locationChange)="locationChange.emit($event)"
+        (cursorChange)="cursorChange.emit($event)"
+        (presentationChange)="presentationChange.emit($event)"
+        (viewportChange)="viewportChange.emit($event)"
+        (entryContextMenu)="entryContextMenu.emit($event)"
+        (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+        (internalDrop)="internalDrop.emit($event)">
+      </app-registry-pane>
+      </ng-container>
     </ng-template>
   `,
   styles: [`
@@ -523,7 +521,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
-  @ViewChild('component') private inner?: DirectoryPaneComponent;
+  @ViewChild('component') private inner?: DirectoryPaneComponent | RegistryPaneComponent;
   @ViewChild('locationEditor') private locationEditor?: ElementRef<HTMLInputElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -572,7 +570,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   ngDoCheck(): void {
-    if (this.rendererKind === 'directory') return;
+    if (this.rendererKind === 'directory' || this.rendererKind === 'registry') return;
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
     void this.provider.sync(this.paneId, path, this.showHidden);
     if (!this.specializedLocationEditing) this.specializedLocationDraft = this.provider.path;
@@ -584,7 +582,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   private get activeComponent(): PaneComponent | undefined {
-    return this.rendererKind === 'directory'
+    return this.rendererKind === 'directory' || this.rendererKind === 'registry'
       ? (this.inner as unknown as PaneComponent | undefined)
       : this.provider;
   }

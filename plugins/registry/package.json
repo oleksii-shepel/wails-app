@@ -32,5 +32,8 @@
     "archiver": "^7.0.1",
     "ng-packagr": "^22.1.0",
     "typescript": "~6.0.3"
+  },
+  "dependencies": {
+    "@reassembly/core": "0.2.0"
   }
 }

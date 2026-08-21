@@ -1,61 +1,38 @@
 package contracts
 
-type OSType string
+import core "github.com/epikodelabs/reassembly/core/contracts"
+
+type OSType = core.OSType
 
 const (
-	OSWindows OSType = "windows"
-	OSLinux   OSType = "linux"
-	OSDarwin  OSType = "macos"
-	OSUnknown OSType = "unknown"
+	OSWindows = core.OSWindows
+	OSLinux   = core.OSLinux
+	OSDarwin  = core.OSDarwin
+	OSUnknown = core.OSUnknown
 )
 
-type OSInfoResponse struct {
-	OS          OSType  `json:"os"`
-	Version     string  `json:"version"`
-	Arch        string  `json:"arch"`
-	Hostname    string  `json:"hostname"`
-	SystemDrive *string `json:"systemDrive"`
-}
-
-type SchemeType string
+type OSInfoResponse = core.OSInfoResponse
+type SchemeType = core.SchemeType
 
 const (
-	SchemeFixed         SchemeType = "fixed"
-	SchemeRemovable     SchemeType = "removable"
-	SchemeNetwork       SchemeType = "network"
-	SchemeCDROM         SchemeType = "cdrom"
-	SchemeRAMDisk       SchemeType = "ramdisk"
-	SchemeRegistry      SchemeType = "registry"
-	SchemeSearch        SchemeType = "search"
-	SchemeHTTP          SchemeType = "http"
-	SchemeHTTPS         SchemeType = "https"
-	SchemeSMB           SchemeType = "smb"
-	SchemeS3            SchemeType = "s3"
-	SchemeCloudOneDrive SchemeType = "cloud-onedrive"
-	SchemeCloudGoogle   SchemeType = "cloud-google"
-	SchemeCloudDropbox  SchemeType = "cloud-dropbox"
-	SchemeUnknown       SchemeType = "unknown"
+	SchemeFixed         = core.SchemeFixed
+	SchemeRemovable     = core.SchemeRemovable
+	SchemeNetwork       = core.SchemeNetwork
+	SchemeCDROM         = core.SchemeCDROM
+	SchemeRAMDisk       = core.SchemeRAMDisk
+	SchemeRegistry      = core.SchemeRegistry
+	SchemeSearch        = core.SchemeSearch
+	SchemeHTTP          = core.SchemeHTTP
+	SchemeHTTPS         = core.SchemeHTTPS
+	SchemeSMB           = core.SchemeSMB
+	SchemeS3            = core.SchemeS3
+	SchemeCloudOneDrive = core.SchemeCloudOneDrive
+	SchemeCloudGoogle   = core.SchemeCloudGoogle
+	SchemeCloudDropbox  = core.SchemeCloudDropbox
+	SchemeUnknown       = core.SchemeUnknown
 )
 
-type DriveInfo struct {
-	Name       string     `json:"name"`
-	Path       string     `json:"path"`
-	SchemeType SchemeType `json:"schemeType"`
-	TotalSpace int64      `json:"totalSpace"`
-	FreeSpace  int64      `json:"freeSpace"`
-	FileSystem *string    `json:"fileSystem"`
-}
-
-type DrivesList struct {
-	Schemes []DriveInfo `json:"schemes"`
-}
-
-type SpecialFolder struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Icon string `json:"icon"`
-}
-
-type SpecialFoldersResponse struct {
-	Folders []SpecialFolder `json:"folders"`
-}
+type DriveInfo = core.DriveInfo
+type DrivesList = core.DrivesList
+type SpecialFolder = core.SpecialFolder
+type SpecialFoldersResponse = core.SpecialFoldersResponse

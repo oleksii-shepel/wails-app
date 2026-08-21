@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.1
 	github.com/aws/smithy-go v1.27.7
 	github.com/bodgit/sevenzip v1.6.5
+	github.com/epikodelabs/reassembly/core v0.0.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hirochachacha/go-smb2 v1.1.0
@@ -79,3 +80,5 @@ require (
 replace github.com/wailsapp/go-webview2 => ./third_party/go-webview2
 
 // replace github.com/wailsapp/wails/v2 v2.11.0 => C:\Users\oleks\go\pkg\mod
+
+replace github.com/epikodelabs/reassembly/core => ../packages/core/go

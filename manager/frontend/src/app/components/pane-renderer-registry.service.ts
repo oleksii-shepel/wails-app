@@ -1,4 +1,10 @@
 import { Injectable } from '@angular/core';
+import {
+  PaneRendererRegistry,
+  schemeOf,
+  type PaneRendererContribution as CorePaneRendererContribution,
+  type PaneRendererMatch,
+} from '@reassembly/core/runtime/panes';
 
 export type PaneRendererKind =
   | 'directory'
@@ -6,26 +12,25 @@ export type PaneRendererKind =
   | 'autorun'
   | 'system-table';
 
-export interface PaneRendererMatch {
-  readonly kind: PaneRendererKind;
-  readonly scheme: string;
-}
+export type PaneRendererContribution = CorePaneRendererContribution<
+  Exclude<PaneRendererKind, 'directory'>
+>;
 
-export interface PaneRendererContribution {
-  readonly id: string;
-  score(scheme: string, path: string): number;
-  readonly kind: Exclude<PaneRendererKind, 'directory'>;
-}
+export type { PaneRendererMatch };
 
-/**
- * Chooses the concrete sibling pane implementation.
- *
- * Data providers remain PanelSource contributions. This registry answers only
- * the presentation-level question: which pane component owns this location?
- */
+export const SYSTEM_TABLE_SCHEMES = new Set([
+  'tasks',
+  'services',
+  'processes',
+  'devices',
+  'network',
+  'environment',
+  'shell-extensions',
+]);
+
 @Injectable({ providedIn: 'root' })
 export class PaneRendererRegistryService {
-  private readonly contributions = new Map<string, PaneRendererContribution>();
+  private readonly registry = new PaneRendererRegistry<PaneRendererKind>('directory');
 
   constructor() {
     this.register({
@@ -46,41 +51,12 @@ export class PaneRendererRegistryService {
   }
 
   register(contribution: PaneRendererContribution): () => void {
-    this.contributions.set(contribution.id, contribution);
-    return () => this.contributions.delete(contribution.id);
+    return this.registry.register(contribution);
   }
 
-  resolve(path: string): PaneRendererMatch {
-    const scheme = schemeOf(path);
-    let winner: PaneRendererContribution | null = null;
-    let score = 0;
-
-    for (const candidate of this.contributions.values()) {
-      const next = candidate.score(scheme, path);
-      if (next > score) {
-        score = next;
-        winner = candidate;
-      }
-    }
-
-    return {
-      kind: winner?.kind ?? 'directory',
-      scheme,
-    };
+  resolve(path: string): PaneRendererMatch<PaneRendererKind> {
+    return this.registry.resolve(path);
   }
 }
 
-export const SYSTEM_TABLE_SCHEMES = new Set([
-  'tasks',
-  'services',
-  'processes',
-  'devices',
-  'network',
-  'environment',
-  'shell-extensions',
-]);
-
-export function schemeOf(path: string): string {
-  return /^([a-z][a-z0-9+.-]*):/i
-    .exec(String(path ?? '').trim())?.[1]?.toLowerCase() ?? '';
-}
+export { schemeOf };

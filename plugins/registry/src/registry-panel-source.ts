@@ -1,23 +1,11 @@
+import type { PanelSource, PanelSourceContext, PanelSourceListing } from '@reassembly/core/contracts/sources';
 import type {
   RegistryFileInfo,
   RegistrySourceCapabilities,
 } from './registry-model';
 
-export interface RegistryPanelSourceContext {
-  readonly path: string;
-  readonly entries?: readonly RegistryFileInfo[];
-  readonly inArchive?: boolean;
-  readonly archiveTopLevel?: boolean;
-}
-
-export interface RegistryPanelSourceListing {
-  readonly location: {
-    readonly path: string;
-    readonly sourceId: string;
-    readonly sourceKind: 'registry';
-  };
-  readonly entries: readonly RegistryFileInfo[];
-}
+export type RegistryPanelSourceContext = PanelSourceContext<RegistryFileInfo>;
+export type RegistryPanelSourceListing = PanelSourceListing<RegistryFileInfo, 'registry'>;
 
 export interface RegistryPanelSourceHost {
   getPathKind(path: string, entries: readonly RegistryFileInfo[]): string;
@@ -36,7 +24,7 @@ export interface RegistryPanelSourceHost {
  * Registry-owned PanelSource. Manager supplies only generic directory/VFS
  * capabilities through RegistryPanelSourceHost.
  */
-export class RegistryPanelSource {
+export class RegistryPanelSource implements PanelSource<RegistryFileInfo, 'registry'> {
   readonly id = 'registry';
   readonly kind = 'registry' as const;
   readonly title = 'Registry';

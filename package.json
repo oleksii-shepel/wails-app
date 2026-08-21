@@ -3,20 +3,27 @@
   "private": true,
   "scripts": {
     "dev:app": "node scripts/run-wails-dev.mjs",
-    "build:plugins": "npm run build --workspace @reassembly/registry-plugin",
+    "build:core": "npm run build:core:frontend && npm run build:core:go",
+    "build:plugins": "npm run build:core && npm run build --workspace @reassembly/registry-plugin",
     "build:frontend": "npm run build:plugins && npm --prefix manager/frontend run build",
-    "build:go": "go build ./manager/...",
+    "build:go": "npm run build:core:go && go build ./manager/...",
     "build:app": "npm run build:plugins && cd manager && wails build",
     "build": "npm run build:app",
     "check": "npm run build:plugins && npm --prefix manager/frontend run build && npm run build:go",
-    "test:plugins": "npm run test --workspace @reassembly/registry-plugin",
+    "test:core": "npm run test:core:frontend && npm run test:core:go",
+    "test:plugins": "npm run test:core && npm run test --workspace @reassembly/registry-plugin",
     "test:frontend": "npm --prefix manager/frontend test",
-    "test:go": "go test ./manager/...",
+    "test:go": "npm run test:core:go && go test ./manager/...",
     "test": "npm run test:plugins && npm run test:frontend && npm run test:go",
-    "verify:workspace": "node scripts/verify-workspace.mjs"
+    "verify:workspace": "node scripts/verify-workspace.mjs",
+    "build:core:frontend": "npm run build --workspace @reassembly/core",
+    "build:core:go": "go build ./packages/core/go/...",
+    "test:core:frontend": "npm run test --workspace @reassembly/core",
+    "test:core:go": "go test ./packages/core/go/..."
   },
   "workspaces": [
     "manager/frontend",
+    "packages/*",
     "plugins/*"
   ]
 }

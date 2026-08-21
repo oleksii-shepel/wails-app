@@ -9,3 +9,11 @@ import contracts "wails-app/internal/contracts"
 func ListNetworkSurface() ([]contracts.SystemSurfaceRecord, error) {
 	return []contracts.SystemSurfaceRecord{}, nil
 }
+
+func ListNetworkComputers() ([]contracts.SystemSurfaceRecord, error) {
+	return []contracts.SystemSurfaceRecord{}, nil
+}
+
+func ListNetworkShares(_ string) ([]contracts.SystemSurfaceRecord, error) {
+	return []contracts.SystemSurfaceRecord{}, nil
+}

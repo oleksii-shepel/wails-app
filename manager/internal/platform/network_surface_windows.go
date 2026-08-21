@@ -24,12 +24,22 @@ const (
 	udpTableOwnerPID    = 1
 
 	errorInsufficientBuffer = syscall.Errno(122)
+
+	maxPreferredLength = 0xffffffff
+	nerrSuccess        = 0
+	errorMoreData      = 234
+	svTypeAll          = 0xffffffff
 )
 
 var (
 	iphlpapiDLL             = windows.NewLazySystemDLL("iphlpapi.dll")
 	procGetExtendedTcpTable = iphlpapiDLL.NewProc("GetExtendedTcpTable")
 	procGetExtendedUdpTable = iphlpapiDLL.NewProc("GetExtendedUdpTable")
+
+	netapi32DLL          = windows.NewLazySystemDLL("netapi32.dll")
+	procNetServerEnum    = netapi32DLL.NewProc("NetServerEnum")
+	procNetShareEnum     = netapi32DLL.NewProc("NetShareEnum")
+	procNetApiBufferFree = netapi32DLL.NewProc("NetApiBufferFree")
 )
 
 type mibTCPRowOwnerPID struct {
@@ -63,6 +73,163 @@ type mibUDP6RowOwnerPID struct {
 	LocalScopeID uint32
 	LocalPort    uint32
 	OwningPID    uint32
+}
+
+type serverInfo100 struct {
+	PlatformID uint32
+	Name       *uint16
+}
+
+type shareInfo1 struct {
+	NetName *uint16
+	Type    uint32
+	Remark  *uint16
+}
+
+// ListNetworkComputers discovers visible Windows network servers/workstations
+// through NetServerEnum. It does not spawn a shell or PowerShell.
+func ListNetworkComputers() ([]contracts.SystemSurfaceRecord, error) {
+	var buffer *byte
+	var entriesRead uint32
+	var totalEntries uint32
+	var resumeHandle uint32
+	records := make([]contracts.SystemSurfaceRecord, 0, 32)
+
+	for {
+		result, _, callErr := procNetServerEnum.Call(
+			0,
+			100,
+			uintptr(unsafe.Pointer(&buffer)),
+			maxPreferredLength,
+			uintptr(unsafe.Pointer(&entriesRead)),
+			uintptr(unsafe.Pointer(&totalEntries)),
+			svTypeAll,
+			0,
+			uintptr(unsafe.Pointer(&resumeHandle)),
+		)
+
+		if buffer != nil {
+			base := uintptr(unsafe.Pointer(buffer))
+			rowSize := unsafe.Sizeof(serverInfo100{})
+			for i := uint32(0); i < entriesRead; i++ {
+				row := (*serverInfo100)(unsafe.Pointer(base + uintptr(i)*rowSize))
+				name := strings.TrimSpace(windows.UTF16PtrToString(row.Name))
+				if name == "" {
+					continue
+				}
+				records = append(records, contracts.SystemSurfaceRecord{
+					ID:   strings.ToLower(name),
+					Name: name,
+					Fields: map[string]any{
+						"kind":   "Computer",
+						"status": "Discovered",
+						"remote": `\\` + name,
+					},
+				})
+			}
+			procNetApiBufferFree.Call(uintptr(unsafe.Pointer(buffer)))
+			buffer = nil
+		}
+
+		if result == nerrSuccess {
+			break
+		}
+		if result != errorMoreData {
+			return records, windowsError(result, callErr)
+		}
+	}
+
+	sort.SliceStable(records, func(i, j int) bool {
+		return strings.ToLower(records[i].Name) < strings.ToLower(records[j].Name)
+	})
+	return records, nil
+}
+
+// ListNetworkShares lists non-administrative shares exposed by one computer.
+// Returned remote paths are ordinary UNC paths, allowing DirectoryPane to hand
+// browsing back to the filesystem source when the user opens a share.
+func ListNetworkShares(computer string) ([]contracts.SystemSurfaceRecord, error) {
+	computer = strings.TrimSpace(strings.TrimPrefix(computer, `\\`))
+	if computer == "" {
+		return []contracts.SystemSurfaceRecord{}, nil
+	}
+
+	serverName, err := windows.UTF16PtrFromString(`\\` + computer)
+	if err != nil {
+		return nil, err
+	}
+
+	var buffer *byte
+	var entriesRead uint32
+	var totalEntries uint32
+	var resumeHandle uint32
+	records := make([]contracts.SystemSurfaceRecord, 0, 16)
+
+	for {
+		result, _, callErr := procNetShareEnum.Call(
+			uintptr(unsafe.Pointer(serverName)),
+			1,
+			uintptr(unsafe.Pointer(&buffer)),
+			maxPreferredLength,
+			uintptr(unsafe.Pointer(&entriesRead)),
+			uintptr(unsafe.Pointer(&totalEntries)),
+			uintptr(unsafe.Pointer(&resumeHandle)),
+		)
+
+		if buffer != nil {
+			base := uintptr(unsafe.Pointer(buffer))
+			rowSize := unsafe.Sizeof(shareInfo1{})
+			for i := uint32(0); i < entriesRead; i++ {
+				row := (*shareInfo1)(unsafe.Pointer(base + uintptr(i)*rowSize))
+				name := strings.TrimSpace(windows.UTF16PtrToString(row.NetName))
+				if name == "" || strings.HasSuffix(name, "$") {
+					continue
+				}
+				remark := strings.TrimSpace(windows.UTF16PtrToString(row.Remark))
+				unc := `\\` + computer + `\` + name
+				records = append(records, contracts.SystemSurfaceRecord{
+					ID:   strings.ToLower(computer + "/" + name),
+					Name: name,
+					Fields: map[string]any{
+						"kind":      "Share",
+						"status":    shareTypeName(row.Type),
+						"remote":    unc,
+						"remark":    remark,
+						"shareType": row.Type,
+					},
+				})
+			}
+			procNetApiBufferFree.Call(uintptr(unsafe.Pointer(buffer)))
+			buffer = nil
+		}
+
+		if result == nerrSuccess {
+			break
+		}
+		if result != errorMoreData {
+			return records, windowsError(result, callErr)
+		}
+	}
+
+	sort.SliceStable(records, func(i, j int) bool {
+		return strings.ToLower(records[i].Name) < strings.ToLower(records[j].Name)
+	})
+	return records, nil
+}
+
+func shareTypeName(value uint32) string {
+	switch value & 0xff {
+	case 0:
+		return "Disk"
+	case 1:
+		return "Printer"
+	case 2:
+		return "Device"
+	case 3:
+		return "IPC"
+	default:
+		return "Share"
+	}
 }
 
 // ListNetworkSurface returns the Manager-owned network:// rows without launching

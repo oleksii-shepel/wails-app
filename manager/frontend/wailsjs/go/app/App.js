@@ -438,6 +438,14 @@ export function NavNavigateShowHidden(arg1, arg2, arg3) {
   return window['go']['app']['App']['NavNavigateShowHidden'](arg1, arg2, arg3);
 }
 
+export function NetworkListComputers() {
+  return window['go']['app']['App']['NetworkListComputers']();
+}
+
+export function NetworkListShares(arg1) {
+  return window['go']['app']['App']['NetworkListShares'](arg1);
+}
+
 export function NormalizeWindowStateForSave(arg1) {
   return window['go']['app']['App']['NormalizeWindowStateForSave'](arg1);
 }

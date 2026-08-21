@@ -52,6 +52,100 @@ function stableLeafPath(kind: SystemSurfaceKind, id: string): string {
   return `${kind}://entry/${encodeURIComponent(id)}`;
 }
 
+const NETWORK_ROOT = 'network://';
+
+function normalizeNetworkPath(path: string): string {
+  const raw = String(path || NETWORK_ROOT).trim().replace(/\\/g, '/');
+  if (!/^network:\/\//i.test(raw)) return NETWORK_ROOT;
+  const body = raw.slice(raw.indexOf('://') + 3)
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  return body ? `${NETWORK_ROOT}${body}` : NETWORK_ROOT;
+}
+
+function fieldText(
+  fields: Readonly<Record<string, unknown>> | undefined,
+  field: string,
+): string {
+  const value = fields?.[field];
+  return value == null ? '' : String(value);
+}
+
+function normalizeSystemRecords(raw: unknown): SystemSurfaceRecord[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(record => record && typeof record === 'object')
+    .map((record: any, index: number) => ({
+      id: String(record.id ?? record.ID ?? index),
+      name: String(record.name ?? record.Name ?? record.id ?? record.ID ?? index),
+      fields: (record.fields ?? record.Fields ?? {}) as Record<string, unknown>,
+    }));
+}
+
+async function networkBackendRecords(
+  method: 'NetworkListComputers' | 'NetworkListShares',
+  argument?: string,
+): Promise<SystemSurfaceRecord[]> {
+  const app = (window as any)?.go?.app?.App;
+  const fn = app?.[method];
+  if (typeof fn !== 'function') return [];
+
+  const raw = argument === undefined
+    ? await fn.call(app)
+    : await fn.call(app, argument);
+  return normalizeSystemRecords(raw);
+}
+
+function networkRootEntries(): SystemSurfaceFileInfo[] {
+  const categories = [
+    {
+      id: 'computers',
+      name: 'Computers',
+      kind: 'Computer group',
+      status: 'Browse network computers',
+    },
+    {
+      id: 'remote',
+      name: 'Remote locations',
+      kind: 'Location group',
+      status: 'Connected remote filesystems',
+    },
+    {
+      id: 'adapters',
+      name: 'Network adapters',
+      kind: 'Adapter group',
+      status: 'Local interfaces',
+    },
+    {
+      id: 'connections',
+      name: 'Active connections',
+      kind: 'Connection group',
+      status: 'TCP and UDP endpoints',
+    },
+  ] as const;
+
+  return categories.map(category => ({
+    name: category.name,
+    path: `${NETWORK_ROOT}${category.id}`,
+    type: FileType.DIRECTORY,
+    size: 0,
+    created: 0,
+    modified: 0,
+    accessed: 0,
+    permissions: 'r-x',
+    isHidden: false,
+    systemSurfaceKind: 'network',
+    systemRecordId: category.id,
+    systemFields: {
+      kind: category.kind,
+      status: category.status,
+      local: '',
+      remote: '',
+      networkNodeKind: 'category',
+    },
+  }));
+}
+
 export class SystemSurfacePanelSource implements PanelSource {
   readonly id: string;
   readonly kind = 'virtual' as const;
@@ -70,19 +164,41 @@ export class SystemSurfacePanelSource implements PanelSource {
   supportsStreaming(): boolean { return false; }
   getRootPath(): string { return rootFor(this.descriptor.kind); }
 
-  getParentPath(): string { return rootFor(this.descriptor.kind); }
+  getParentPath(context: PanelSourceContext): string {
+    if (this.descriptor.kind !== 'network') {
+      return rootFor(this.descriptor.kind);
+    }
 
-  joinChildPath(_context: PanelSourceContext, childName: string): string {
-    return stableLeafPath(this.descriptor.kind, childName);
+    const normalized = normalizeNetworkPath(context.path);
+    if (normalized === NETWORK_ROOT) return NETWORK_ROOT;
+
+    const body = normalized.slice(NETWORK_ROOT.length).replace(/\/+$/, '');
+    const slash = body.lastIndexOf('/');
+    return slash < 0 ? NETWORK_ROOT : `${NETWORK_ROOT}${body.slice(0, slash)}`;
+  }
+
+  joinChildPath(context: PanelSourceContext, childName: string): string {
+    if (this.descriptor.kind !== 'network') {
+      return stableLeafPath(this.descriptor.kind, childName);
+    }
+
+    const base = normalizeNetworkPath(context.path).replace(/\/+$/, '');
+    return `${base}/${encodeURIComponent(childName)}`;
   }
 
   canPreviewEntry(): boolean { return false; }
 
-  // Synthetic resources are selected and acted on through commands/context menu.
-  // They are not paths that should enter the generic file viewer.
-  activateEntry(): boolean { return true; }
+  activateEntry(_context: PanelSourceContext, entry: FileInfo): boolean {
+    // Directories are navigated by DirectoryPaneComponent. Synthetic leaves
+    // remain command/context-menu targets and must not enter the file viewer.
+    return entry.type !== FileType.DIRECTORY;
+  }
 
   async list(context: PanelSourceContext): Promise<PanelSourceListing> {
+    if (this.descriptor.kind === 'network') {
+      return this.listNetwork(context);
+    }
+
     const records = await this.records();
     return {
       location: {
@@ -98,33 +214,155 @@ export class SystemSurfacePanelSource implements PanelSource {
     const app = (window as any)?.go?.app?.App;
     if (!app?.SystemSurfaceList) return [];
     const raw = await app.SystemSurfaceList(this.descriptor.kind);
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .filter(record => record && typeof record === 'object')
-      .map((record: any, index: number) => ({
-        id: String(record.id ?? record.ID ?? index),
-        name: String(record.name ?? record.Name ?? record.id ?? record.ID ?? index),
-        fields: (record.fields ?? record.Fields ?? {}) as Record<string, unknown>,
-      }));
+    return normalizeSystemRecords(raw);
   }
 
-  private toFileInfo(record: SystemSurfaceRecord): SystemSurfaceFileInfo {
+  private async listNetwork(
+    context: PanelSourceContext,
+  ): Promise<PanelSourceListing> {
+    const path = normalizeNetworkPath(context.path);
+    let entries: SystemSurfaceFileInfo[];
+
+    if (path === NETWORK_ROOT) {
+      entries = networkRootEntries();
+    } else if (path === `${NETWORK_ROOT}adapters`) {
+      const records = (await this.records()).filter(
+        record => fieldText(record.fields, 'kind').toLowerCase() === 'adapter',
+      );
+      entries = records.map(record => this.toNetworkLeaf(record));
+    } else if (path === `${NETWORK_ROOT}connections`) {
+      const records = (await this.records()).filter(record => {
+        const kind = fieldText(record.fields, 'kind').toLowerCase();
+        return kind === 'tcp' || kind === 'udp';
+      });
+      entries = records.map(record => this.toNetworkLeaf(record));
+    } else if (path === `${NETWORK_ROOT}computers`) {
+      entries = (await networkBackendRecords('NetworkListComputers'))
+        .map(record => this.toNetworkComputer(record));
+    } else if (path.startsWith(`${NETWORK_ROOT}computers/`)) {
+      const encoded = path.slice(`${NETWORK_ROOT}computers/`.length)
+        .split('/')[0] ?? '';
+      const computer = decodeURIComponent(encoded);
+      entries = (await networkBackendRecords('NetworkListShares', computer))
+        .map(record => this.toNetworkShare(record, computer));
+    } else if (path === `${NETWORK_ROOT}remote`) {
+      entries = await this.networkRemoteEntries();
+    } else {
+      entries = [];
+    }
+
+    return {
+      location: {
+        path,
+        sourceId: this.id,
+        sourceKind: this.kind,
+      },
+      entries,
+    };
+  }
+
+  private toNetworkLeaf(record: SystemSurfaceRecord): SystemSurfaceFileInfo {
+    return this.toFileInfo(record, stableLeafPath('network', record.id));
+  }
+
+  private toNetworkComputer(record: SystemSurfaceRecord): SystemSurfaceFileInfo {
+    const fields = record.fields ?? {};
+    return this.toFileInfo(
+      {
+        ...record,
+        fields: {
+          ...fields,
+          kind: 'Computer',
+          status: fieldText(fields, 'status') || 'Discovered',
+        },
+      },
+      `${NETWORK_ROOT}computers/${encodeURIComponent(record.name)}`,
+      FileType.DIRECTORY,
+    );
+  }
+
+  private toNetworkShare(
+    record: SystemSurfaceRecord,
+    computer: string,
+  ): SystemSurfaceFileInfo {
+    const fields = record.fields ?? {};
+    const unc = fieldText(fields, 'remote') ||
+      `//${computer}/${record.name}`;
+    return this.toFileInfo(
+      {
+        ...record,
+        fields: {
+          ...fields,
+          kind: 'Share',
+          status: fieldText(fields, 'status') || 'Available',
+          remote: unc,
+        },
+      },
+      unc.replace(/\\/g, '/'),
+      FileType.DIRECTORY,
+    );
+  }
+
+  private async networkRemoteEntries(): Promise<SystemSurfaceFileInfo[]> {
+    const app = (window as any)?.go?.app?.App;
+    if (!app?.RemoteListConnections) return [];
+
+    const raw = await app.RemoteListConnections();
+    if (!Array.isArray(raw)) return [];
+
+    return raw.map((mount: any, index: number) => {
+      const name = String(
+        mount?.name ?? mount?.Name ??
+        mount?.publicPath ?? mount?.PublicPath ??
+        `Remote ${index + 1}`,
+      );
+      const publicPath = String(
+        mount?.publicPath ?? mount?.PublicPath ?? '',
+      ).trim();
+      const host = String(mount?.host ?? mount?.Host ?? '').trim();
+      const protocol = String(
+        mount?.protocol ?? mount?.Protocol ?? '',
+      ).trim().toUpperCase();
+
+      return this.toFileInfo(
+        {
+          id: publicPath || name,
+          name,
+          fields: {
+            kind: 'Remote',
+            status: 'Connected',
+            local: protocol,
+            remote: publicPath || host,
+          },
+        },
+        publicPath || `${NETWORK_ROOT}remote/${encodeURIComponent(name)}`,
+        FileType.DIRECTORY,
+      );
+    });
+  }
+
+  private toFileInfo(
+    record: SystemSurfaceRecord,
+    path = stableLeafPath(this.descriptor.kind, record.id),
+    type: FileType = FileType.FILE,
+  ): SystemSurfaceFileInfo {
     const fields = record.fields ?? {};
     return {
       name: record.name,
-      path: stableLeafPath(this.descriptor.kind, record.id),
-      type: FileType.FILE,
+      path,
+      type,
       size: Number(fields['size'] ?? fields['workingSet'] ?? 0) || 0,
       created: 0,
       modified: 0,
       accessed: 0,
-      permissions: 'r--',
+      permissions: type === FileType.DIRECTORY ? 'r-x' : 'r--',
       isHidden: false,
       systemSurfaceKind: this.descriptor.kind,
       systemRecordId: record.id,
       systemFields: fields,
     };
   }
+
 }
 
 export function systemField(entry: FileInfo, field: string): string {

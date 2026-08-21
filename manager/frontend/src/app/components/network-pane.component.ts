@@ -311,18 +311,52 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div
         class="status-row"
+        [class.status-running]="loading"
+        [class.status-error]="!!error"
         [id]="paneStatusId"
         role="status"
         aria-live="polite"
         aria-atomic="true">
-        <span *ngIf="loading">Loading {{ path || 'location' }}&#x2026;</span>
-        <span *ngIf="!loading && !error">{{ totalEntryCount }} items</span>
-        <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
-        <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
-        <span *ngIf="clipboard" class="clipboard-state">
-          {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}: {{ clipboard.paths.length }}
-        </span>
-        <span class="hint">Ctrl+L location</span>
+        <ng-container *ngIf="error; else healthyStatus">
+          <span class="status-indicator error-indicator" aria-hidden="true">!</span>
+          <span class="status-message" [title]="error">{{ error }}</span>
+          <button
+            type="button"
+            class="status-action"
+            [disabled]="loading"
+            (click)="refresh()">
+            {{ networkRetryLabel }}
+          </button>
+          <button
+            *ngIf="!atRoot"
+            type="button"
+            class="status-action"
+            (click)="navigateUp()">
+            Parent
+          </button>
+        </ng-container>
+
+        <ng-template #healthyStatus>
+          <span
+            *ngIf="loading"
+            class="network-discovery-state">
+            <span
+              class="network-discovery-spinner"
+              aria-hidden="true"></span>
+            {{ networkLoadingText }}
+          </span>
+
+          <span *ngIf="!loading">{{ networkLoadedText }}</span>
+          <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
+          <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
+          <span *ngIf="clipboard" class="clipboard-state">
+            {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}:
+            {{ clipboard.paths.length }}
+          </span>
+        </ng-template>
+
+        <span class="status-spacer"></span>
+        <span class="hint">Ctrl+L Location</span>
       </div>
 
       <div class="results-collection-bar" *ngIf="activeResultsPanel as panel">
@@ -347,7 +381,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
 
         <app-responsive-toolbar
-          [actions]="pluginToolbarActions"
+          [actions]="networkToolbarActions"
           [showIcons]="false"
           align="left"
           [minVisible]="0"
@@ -369,23 +403,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         (previous)="previousFilterMatch()">
       </app-filter>
 
-      <div class="error" *ngIf="error" role="alert" aria-live="assertive">
-        <strong>Directory could not be loaded.</strong>
-        <span>{{ error }}</span>
-        <div class="error-actions">
-          <button type="button" (click)="refresh()">Retry</button>
-          <button type="button" (click)="navigateUp()" [disabled]="atRoot">Parent folder</button>
-          <button *ngIf="isRemoteLocation" type="button" (click)="remoteRecoveryRequested.emit()">
-            Remote connections
-          </button>
-        </div>
-      </div>
+      
 
       <div
         #treeViewport
         class="tree-view"
         data-pane-content
-        *ngIf="!error && viewMode === 'tree'"
+        *ngIf="viewMode === 'tree'"
         tabindex="-1"
         role="tree"
         [attr.aria-label]="'Network details of ' + (path || 'location')"
@@ -892,6 +916,69 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
+    }
+
+    .status-row.status-running {
+      color: var(--vsc-foreground);
+    }
+
+    .status-row.status-error {
+      background: color-mix(
+        in srgb,
+        var(--vsc-error, #c42b1c) 7%,
+        var(--vsc-editor-background, #fff)
+      );
+      color: var(--vsc-error-foreground, var(--vsc-error, #c42b1c));
+    }
+
+    .status-indicator {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .error-indicator {
+      border: 1px solid currentColor;
+    }
+
+    .status-message {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-spacer {
+      flex: 1 1 auto;
+      min-width: 8px;
+    }
+
+    .status-action {
+      flex: 0 0 auto;
+      min-height: 20px;
+      padding: 1px 7px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-size: 10px;
+    }
+
+    .status-action:hover:not(:disabled) {
+      border-color: currentColor;
+      background: color-mix(in srgb, currentColor 7%, transparent);
+    }
+
+    .status-action:disabled {
+      opacity: .45;
+      cursor: default;
     }
 
     .hint {
@@ -1578,6 +1665,28 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-width: 0;
       padding-inline: 2px;
     }
+
+    .network-discovery-state {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .network-discovery-spinner {
+      box-sizing: border-box;
+      width: 10px;
+      height: 10px;
+      border: 1px solid
+        color-mix(in srgb, currentColor 28%, transparent);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: network-discovery-spin .8s linear infinite;
+      flex: 0 0 auto;
+    }
+
+    @keyframes network-discovery-spin {
+      to { transform: rotate(360deg); }
+    }
   `],
 })
 export class NetworkPaneComponent implements OnInit, OnDestroy {
@@ -1937,16 +2046,22 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   entryDisplayIcon(entry: FileInfo): string {
-    switch (this.networkField(entry, 'kind').toLowerCase()) {
-      case 'adapter':
-        return '↔';
-      case 'tcp':
-        return 'T';
-      case 'udp':
-        return 'U';
-      default:
-        return '•';
+    const kind = this.networkField(entry, 'kind').toLowerCase();
+    const nodeKind = this.networkField(entry, 'networkNodeKind').toLowerCase();
+
+    if (nodeKind === 'category') {
+      if (kind.includes('computer')) return '🖥️';
+      if (kind.includes('location')) return '📁';
+      if (kind.includes('adapter')) return '🖧';
+      if (kind.includes('connection')) return '🔗';
     }
+
+    if (kind === 'computer') return '🖥️';
+    if (kind === 'share' || kind === 'remote') return '📁';
+    if (kind === 'adapter') return '🖧';
+    if (kind === 'tcp') return '🔗';
+    if (kind === 'udp') return '◉';
+    return entry.type === FileType.DIRECTORY ? '📁' : '•';
   }
 
   entryDisplayKind(entry: FileInfo): string {
@@ -2230,8 +2345,9 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   get pluginPanelColumns(): PanelColumnContribution[] {
-    if (this.viewMode !== 'details') return [];
-    return this.pluginManager.resolvePanelColumns(this.panelColumnContext);
+    // Network owns its Details columns (Name / Kind / Status / Endpoints).
+    // Generic system-surface columns would duplicate those fields.
+    return [];
   }
 
   get detailsGridTemplate(): string {
@@ -3743,6 +3859,19 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   openEntry(entry: FileInfo): void {
+    this.setSingleSelection(entry);
+
+    if (entry.path === '__parent__') {
+      void this.navigateUp();
+      return;
+    }
+
+    if (entry.type === FileType.DIRECTORY) {
+      this.lastAction = `open network location: ${entry.name}`;
+      void this.load(entry.path, { history: 'record' });
+      return;
+    }
+
     void this.activePanelSource.source.activateEntry?.(
       {
         path: this.path,
@@ -4670,6 +4799,169 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
 
+
+  get normalizedNetworkPath(): string {
+    const raw = String(this.path || 'network://')
+      .trim()
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '');
+    return raw.toLowerCase() === 'network:' ? 'network://' : raw;
+  }
+
+  get isComputerDiscoveryRoot(): boolean {
+    return this.normalizedNetworkPath.toLowerCase() === 'network://computers';
+  }
+
+  get isComputerShareDiscovery(): boolean {
+    const path = this.normalizedNetworkPath.toLowerCase();
+    return path.startsWith('network://computers/') &&
+      path.length > 'network://computers/'.length;
+  }
+
+  get isActiveNetworkDiscovery(): boolean {
+    return this.isComputerDiscoveryRoot || this.isComputerShareDiscovery;
+  }
+
+  get networkRefreshLabel(): string {
+    return this.isActiveNetworkDiscovery ? 'Rescan' : 'Refresh';
+  }
+
+  get networkRetryLabel(): string {
+    return this.isActiveNetworkDiscovery ? 'Rescan' : 'Retry';
+  }
+
+  get networkLoadingText(): string {
+    const path = this.normalizedNetworkPath.toLowerCase();
+
+    if (this.isComputerDiscoveryRoot) {
+      return 'Discovering network computers…';
+    }
+    if (this.isComputerShareDiscovery) {
+      return `Discovering shares on ${this.currentNetworkComputerName || 'computer'}…`;
+    }
+    if (path === 'network://remote') {
+      return 'Refreshing connected remote locations…';
+    }
+    if (path === 'network://adapters') {
+      return 'Reading local network adapters…';
+    }
+    if (path === 'network://connections') {
+      return 'Reading active TCP and UDP connections…';
+    }
+    return 'Loading Network…';
+  }
+
+  get networkLoadedText(): string {
+    const count = this.totalEntryCount;
+    const path = this.normalizedNetworkPath.toLowerCase();
+
+    if (this.isComputerDiscoveryRoot) {
+      return `${count} computer${count === 1 ? '' : 's'} found`;
+    }
+    if (this.isComputerShareDiscovery) {
+      return `${count} share${count === 1 ? '' : 's'} found`;
+    }
+    if (path === 'network://remote') {
+      return `${count} connected location${count === 1 ? '' : 's'}`;
+    }
+    if (path === 'network://adapters') {
+      return `${count} adapter${count === 1 ? '' : 's'}`;
+    }
+    if (path === 'network://connections') {
+      return `${count} endpoint${count === 1 ? '' : 's'}`;
+    }
+    return `${count} item${count === 1 ? '' : 's'}`;
+  }
+
+
+  get currentNetworkComputerName(): string {
+    if (!this.isComputerShareDiscovery) return '';
+
+    const path = this.normalizedNetworkPath;
+    const prefix = 'network://computers/';
+    const encoded = path.slice(prefix.length).split('/')[0] ?? '';
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+
+  get networkToolbarActions(): readonly PresentedCommand[] {
+    const target = this.selectedEntries[0] ?? this.cursorEntry;
+    const endpoint = target ? this.networkEndpoints(target) : '';
+    const hasTarget = !!target;
+
+    const builtins: PresentedCommand[] = [
+      {
+        id: 'network.open',
+        label: 'Open',
+        enabled: hasTarget,
+        source: 'builtin',
+        commandId: 'pane.network.open',
+        execute: () => {
+          const entry = this.selectedEntries[0] ?? this.cursorEntry;
+          if (entry) this.openEntry(entry);
+        },
+      },
+      {
+        id: 'network.refresh',
+        label: this.networkRefreshLabel,
+        shortcut: 'Ctrl+R',
+        enabled: !this.loading,
+        source: 'builtin',
+        commandId: 'pane.network.refresh',
+        execute: () => this.refresh(),
+      },
+      {
+        id: 'network.copy-location',
+        label: 'Copy location',
+        enabled: hasTarget,
+        separatorBefore: true,
+        source: 'builtin',
+        commandId: 'pane.network.copyLocation',
+        execute: () => this.copySelectedPaths(),
+      },
+      {
+        id: 'network.copy-endpoint',
+        label: 'Copy endpoint',
+        enabled: !!endpoint,
+        source: 'builtin',
+        commandId: 'pane.network.copyEndpoint',
+        execute: async () => {
+          const entry = this.selectedEntries[0] ?? this.cursorEntry;
+          if (!entry) return;
+          const value = this.networkEndpoints(entry);
+          if (!value) return;
+          const copied = await this.writeTextClipboard(value);
+          this.lastAction = copied ? 'copy endpoint' : 'copy endpoint failed';
+          this.cdr.markForCheck();
+        },
+      },
+    ];
+
+    if (this.path.toLowerCase() === 'network://remote') {
+      builtins.push({
+        id: 'network.remote-connections',
+        label: 'Connections…',
+        enabled: true,
+        separatorBefore: true,
+        source: 'builtin',
+        commandId: 'pane.network.remoteConnections',
+        execute: () => this.remoteRecoveryRequested.emit(),
+      });
+    }
+
+    if (!this.pluginToolbarActions.length) return builtins;
+
+    return [
+      ...builtins,
+      ...this.pluginToolbarActions.map((action, index) => ({
+        ...action,
+        separatorBefore: index === 0 ? true : action.separatorBefore,
+      })),
+    ];
+  }
 
   runPluginToolbarAction(action: PresentedCommand): void {
     if (!action.enabled) return;

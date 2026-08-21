@@ -229,6 +229,10 @@ export function NavNavigate(arg1:string,arg2:string):Promise<contracts.Directory
 
 export function NavNavigateShowHidden(arg1:string,arg2:string,arg3:boolean):Promise<contracts.DirectoryListing>;
 
+export function NetworkListComputers():Promise<Array<contracts.SystemSurfaceRecord>>;
+
+export function NetworkListShares(arg1:string):Promise<Array<contracts.SystemSurfaceRecord>>;
+
 export function NormalizeWindowStateForSave(arg1:contracts.WindowState):Promise<contracts.WindowState>;
 
 export function OpenFile(arg1:string):Promise<void>;

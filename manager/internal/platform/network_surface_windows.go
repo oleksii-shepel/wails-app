@@ -1,0 +1,412 @@
+//go:build windows
+
+package platform
+
+import (
+	"encoding/binary"
+	"fmt"
+	"net"
+	"sort"
+	"strings"
+	"syscall"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+
+	contracts "wails-app/internal/contracts"
+)
+
+const (
+	addressFamilyIPv4 = 2
+	addressFamilyIPv6 = 23
+
+	tcpTableOwnerPIDAll = 5
+	udpTableOwnerPID    = 1
+
+	errorInsufficientBuffer = syscall.Errno(122)
+)
+
+var (
+	iphlpapiDLL             = windows.NewLazySystemDLL("iphlpapi.dll")
+	procGetExtendedTcpTable = iphlpapiDLL.NewProc("GetExtendedTcpTable")
+	procGetExtendedUdpTable = iphlpapiDLL.NewProc("GetExtendedUdpTable")
+)
+
+type mibTCPRowOwnerPID struct {
+	State      uint32
+	LocalAddr  uint32
+	LocalPort  uint32
+	RemoteAddr uint32
+	RemotePort uint32
+	OwningPID  uint32
+}
+
+type mibTCP6RowOwnerPID struct {
+	LocalAddr     [16]byte
+	LocalScopeID  uint32
+	LocalPort     uint32
+	RemoteAddr    [16]byte
+	RemoteScopeID uint32
+	RemotePort    uint32
+	State         uint32
+	OwningPID     uint32
+}
+
+type mibUDPRowOwnerPID struct {
+	LocalAddr uint32
+	LocalPort uint32
+	OwningPID uint32
+}
+
+type mibUDP6RowOwnerPID struct {
+	LocalAddr    [16]byte
+	LocalScopeID uint32
+	LocalPort    uint32
+	OwningPID    uint32
+}
+
+// ListNetworkSurface returns the Manager-owned network:// rows without launching
+// PowerShell, cmd.exe, netstat, or any other child process.
+func ListNetworkSurface() ([]contracts.SystemSurfaceRecord, error) {
+	records := make([]contracts.SystemSurfaceRecord, 0, 128)
+
+	adapters, adapterErr := networkAdapterRecords()
+	records = append(records, adapters...)
+
+	tcp4, tcp4Err := tcpRecords(addressFamilyIPv4)
+	records = append(records, tcp4...)
+
+	tcp6, tcp6Err := tcpRecords(addressFamilyIPv6)
+	records = append(records, tcp6...)
+
+	udp4, udp4Err := udpRecords(addressFamilyIPv4)
+	records = append(records, udp4...)
+
+	udp6, udp6Err := udpRecords(addressFamilyIPv6)
+	records = append(records, udp6...)
+
+	// A partially available Network pane is more useful than failing the whole
+	// surface because one Windows table is unavailable. Return an error only if
+	// every native source failed.
+	errors := compactErrors(adapterErr, tcp4Err, tcp6Err, udp4Err, udp6Err)
+	if len(records) == 0 && len(errors) > 0 {
+		return nil, fmt.Errorf("list network: %s", strings.Join(errors, "; "))
+	}
+
+	sort.SliceStable(records, func(i, j int) bool {
+		ki := fmt.Sprint(records[i].Fields["kind"])
+		kj := fmt.Sprint(records[j].Fields["kind"])
+		if ki != kj {
+			return networkKindOrder(ki) < networkKindOrder(kj)
+		}
+		return strings.ToLower(records[i].Name) < strings.ToLower(records[j].Name)
+	})
+
+	return records, nil
+}
+
+func networkAdapterRecords() ([]contracts.SystemSurfaceRecord, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("interfaces: %w", err)
+	}
+
+	records := make([]contracts.SystemSurfaceRecord, 0, len(interfaces))
+	for _, iface := range interfaces {
+		addresses, _ := iface.Addrs()
+		local := make([]string, 0, len(addresses)+1)
+		for _, address := range addresses {
+			if value := strings.TrimSpace(address.String()); value != "" {
+				local = append(local, value)
+			}
+		}
+		if mac := strings.TrimSpace(iface.HardwareAddr.String()); mac != "" {
+			local = append(local, mac)
+		}
+
+		status := "Down"
+		if iface.Flags&net.FlagUp != 0 {
+			status = "Up"
+		}
+
+		records = append(records, contracts.SystemSurfaceRecord{
+			ID:   fmt.Sprintf("adapter:%d", iface.Index),
+			Name: iface.Name,
+			Fields: map[string]any{
+				"kind":   "Adapter",
+				"status": status,
+				"local":  strings.Join(local, " · "),
+				"remote": "",
+				"index":  iface.Index,
+				"mtu":    iface.MTU,
+				"flags":  iface.Flags.String(),
+			},
+		})
+	}
+	return records, nil
+}
+
+func tcpRecords(family uint32) ([]contracts.SystemSurfaceRecord, error) {
+	buffer, err := extendedTableBuffer(procGetExtendedTcpTable, family, tcpTableOwnerPIDAll)
+	if err != nil {
+		return nil, fmt.Errorf("tcp table af=%d: %w", family, err)
+	}
+	if len(buffer) < 4 {
+		return []contracts.SystemSurfaceRecord{}, nil
+	}
+
+	count := binary.LittleEndian.Uint32(buffer[:4])
+	offset := uintptr(4)
+
+	switch family {
+	case addressFamilyIPv4:
+		rowSize := unsafe.Sizeof(mibTCPRowOwnerPID{})
+		records := make([]contracts.SystemSurfaceRecord, 0, count)
+		for i := uint32(0); i < count; i++ {
+			if offset+rowSize > uintptr(len(buffer)) {
+				break
+			}
+			row := *(*mibTCPRowOwnerPID)(unsafe.Pointer(&buffer[offset]))
+			offset += rowSize
+
+			local := endpoint(ipv4FromDWORD(row.LocalAddr), portFromDWORD(row.LocalPort))
+			remote := endpoint(ipv4FromDWORD(row.RemoteAddr), portFromDWORD(row.RemotePort))
+			records = append(records, networkSocketRecord(
+				"TCP",
+				tcpState(row.State),
+				local,
+				remote,
+				row.OwningPID,
+				"4",
+			))
+		}
+		return records, nil
+
+	case addressFamilyIPv6:
+		rowSize := unsafe.Sizeof(mibTCP6RowOwnerPID{})
+		records := make([]contracts.SystemSurfaceRecord, 0, count)
+		for i := uint32(0); i < count; i++ {
+			if offset+rowSize > uintptr(len(buffer)) {
+				break
+			}
+			row := *(*mibTCP6RowOwnerPID)(unsafe.Pointer(&buffer[offset]))
+			offset += rowSize
+
+			local := endpoint(ipv6WithScope(row.LocalAddr, row.LocalScopeID), portFromDWORD(row.LocalPort))
+			remote := endpoint(ipv6WithScope(row.RemoteAddr, row.RemoteScopeID), portFromDWORD(row.RemotePort))
+			records = append(records, networkSocketRecord(
+				"TCP",
+				tcpState(row.State),
+				local,
+				remote,
+				row.OwningPID,
+				"6",
+			))
+		}
+		return records, nil
+	default:
+		return nil, fmt.Errorf("unsupported address family %d", family)
+	}
+}
+
+func udpRecords(family uint32) ([]contracts.SystemSurfaceRecord, error) {
+	buffer, err := extendedTableBuffer(procGetExtendedUdpTable, family, udpTableOwnerPID)
+	if err != nil {
+		return nil, fmt.Errorf("udp table af=%d: %w", family, err)
+	}
+	if len(buffer) < 4 {
+		return []contracts.SystemSurfaceRecord{}, nil
+	}
+
+	count := binary.LittleEndian.Uint32(buffer[:4])
+	offset := uintptr(4)
+
+	switch family {
+	case addressFamilyIPv4:
+		rowSize := unsafe.Sizeof(mibUDPRowOwnerPID{})
+		records := make([]contracts.SystemSurfaceRecord, 0, count)
+		for i := uint32(0); i < count; i++ {
+			if offset+rowSize > uintptr(len(buffer)) {
+				break
+			}
+			row := *(*mibUDPRowOwnerPID)(unsafe.Pointer(&buffer[offset]))
+			offset += rowSize
+
+			local := endpoint(ipv4FromDWORD(row.LocalAddr), portFromDWORD(row.LocalPort))
+			records = append(records, networkSocketRecord("UDP", "Listening", local, "", row.OwningPID, "4"))
+		}
+		return records, nil
+
+	case addressFamilyIPv6:
+		rowSize := unsafe.Sizeof(mibUDP6RowOwnerPID{})
+		records := make([]contracts.SystemSurfaceRecord, 0, count)
+		for i := uint32(0); i < count; i++ {
+			if offset+rowSize > uintptr(len(buffer)) {
+				break
+			}
+			row := *(*mibUDP6RowOwnerPID)(unsafe.Pointer(&buffer[offset]))
+			offset += rowSize
+
+			local := endpoint(ipv6WithScope(row.LocalAddr, row.LocalScopeID), portFromDWORD(row.LocalPort))
+			records = append(records, networkSocketRecord("UDP", "Listening", local, "", row.OwningPID, "6"))
+		}
+		return records, nil
+	default:
+		return nil, fmt.Errorf("unsupported address family %d", family)
+	}
+}
+
+func extendedTableBuffer(proc *windows.LazyProc, family, tableClass uint32) ([]byte, error) {
+	var size uint32
+
+	result, _, callErr := proc.Call(
+		0,
+		uintptr(unsafe.Pointer(&size)),
+		0,
+		uintptr(family),
+		uintptr(tableClass),
+		0,
+	)
+	if result != 0 && syscall.Errno(result) != errorInsufficientBuffer {
+		return nil, windowsError(result, callErr)
+	}
+	if size == 0 {
+		return []byte{}, nil
+	}
+
+	buffer := make([]byte, size)
+	result, _, callErr = proc.Call(
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(unsafe.Pointer(&size)),
+		0,
+		uintptr(family),
+		uintptr(tableClass),
+		0,
+	)
+	if result != 0 {
+		return nil, windowsError(result, callErr)
+	}
+	return buffer[:size], nil
+}
+
+func windowsError(result uintptr, callErr error) error {
+	if result != 0 {
+		return syscall.Errno(result)
+	}
+	if callErr != nil && callErr != windows.ERROR_SUCCESS {
+		return callErr
+	}
+	return syscall.EINVAL
+}
+
+func networkSocketRecord(
+	kind, status, local, remote string,
+	pid uint32,
+	ipVersion string,
+) contracts.SystemSurfaceRecord {
+	name := kind + " " + local
+	id := fmt.Sprintf(
+		"%s%s:%d:%s:%s",
+		strings.ToLower(kind),
+		ipVersion,
+		pid,
+		local,
+		remote,
+	)
+	return contracts.SystemSurfaceRecord{
+		ID:   id,
+		Name: name,
+		Fields: map[string]any{
+			"kind":      kind,
+			"status":    status,
+			"local":     local,
+			"remote":    remote,
+			"pid":       pid,
+			"ipVersion": ipVersion,
+		},
+	}
+}
+
+func ipv4FromDWORD(value uint32) string {
+	ip := net.IPv4(
+		byte(value),
+		byte(value>>8),
+		byte(value>>16),
+		byte(value>>24),
+	)
+	return ip.String()
+}
+
+func ipv6WithScope(address [16]byte, scopeID uint32) string {
+	ip := net.IP(address[:]).String()
+	if scopeID == 0 {
+		return ip
+	}
+	return fmt.Sprintf("%s%%%d", ip, scopeID)
+}
+
+func portFromDWORD(value uint32) uint16 {
+	raw := uint16(value)
+	return raw<<8 | raw>>8
+}
+
+func endpoint(address string, port uint16) string {
+	if strings.Contains(address, ":") {
+		return fmt.Sprintf("[%s]:%d", address, port)
+	}
+	return fmt.Sprintf("%s:%d", address, port)
+}
+
+func tcpState(state uint32) string {
+	switch state {
+	case 1:
+		return "Closed"
+	case 2:
+		return "Listen"
+	case 3:
+		return "SynSent"
+	case 4:
+		return "SynReceived"
+	case 5:
+		return "Established"
+	case 6:
+		return "FinWait1"
+	case 7:
+		return "FinWait2"
+	case 8:
+		return "CloseWait"
+	case 9:
+		return "Closing"
+	case 10:
+		return "LastAck"
+	case 11:
+		return "TimeWait"
+	case 12:
+		return "DeleteTCB"
+	default:
+		return fmt.Sprintf("State %d", state)
+	}
+}
+
+func compactErrors(errors ...error) []string {
+	result := make([]string, 0, len(errors))
+	for _, err := range errors {
+		if err != nil {
+			result = append(result, err.Error())
+		}
+	}
+	return result
+}
+
+func networkKindOrder(kind string) int {
+	switch kind {
+	case "Adapter":
+		return 0
+	case "TCP":
+		return 1
+	case "UDP":
+		return 2
+	default:
+		return 3
+	}
+}

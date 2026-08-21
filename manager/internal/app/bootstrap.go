@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 
 	internalarchive "wails-app/internal/archive"
 	contracts "wails-app/internal/contracts"
@@ -35,7 +36,7 @@ func getElevatedVFS() (*vfslib.Unified, error) {
 	return internalruntime.InitVFS()
 }
 
-var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesystem.RawOperations{
+var elevatedFilesystemHandler = internalfilesystem.NewElevatedHandler(internalfilesystem.RawOperations{
 	ListDirectory: func(path string, showHidden bool) (*contracts.DirectoryListing, error) {
 		if pathref.IsRegistry(path) {
 			vfs, err := getElevatedVFS()
@@ -116,6 +117,53 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 		)
 	},
 })
+
+var elevatedRawHandler internalelevation.Handler = func(
+	req internalelevation.Request,
+) internalelevation.Response {
+	switch req.Op {
+	case "network-adapter-enable":
+		index, err := parseElevatedNetworkAdapterIndex(req.Path)
+		if err != nil {
+			return internalelevation.Response{Success: false, Error: err.Error()}
+		}
+		if err := internalplatform.SetNetworkAdapterEnabled(index, true); err != nil {
+			return internalelevation.Response{Success: false, Error: err.Error()}
+		}
+		return internalelevation.Response{Success: true}
+
+	case "network-adapter-disable":
+		index, err := parseElevatedNetworkAdapterIndex(req.Path)
+		if err != nil {
+			return internalelevation.Response{Success: false, Error: err.Error()}
+		}
+		if err := internalplatform.SetNetworkAdapterEnabled(index, false); err != nil {
+			return internalelevation.Response{Success: false, Error: err.Error()}
+		}
+		return internalelevation.Response{Success: true}
+
+	case "network-adapter-renew-dhcp":
+		index, err := parseElevatedNetworkAdapterIndex(req.Path)
+		if err != nil {
+			return internalelevation.Response{Success: false, Error: err.Error()}
+		}
+		if err := internalplatform.RenewNetworkAdapterDHCP(index); err != nil {
+			return internalelevation.Response{Success: false, Error: err.Error()}
+		}
+		return internalelevation.Response{Success: true}
+
+	default:
+		return elevatedFilesystemHandler(req)
+	}
+}
+
+func parseElevatedNetworkAdapterIndex(value string) (uint32, error) {
+	raw, err := strconv.ParseUint(value, 10, 32)
+	if err != nil || raw == 0 {
+		return 0, fmt.Errorf("invalid network adapter index %q", value)
+	}
+	return uint32(raw), nil
+}
 
 func MaybeRunElevatedService(args []string) (bool, error) {
 	return internalelevation.MaybeRunService(args, elevatedRawHandler)

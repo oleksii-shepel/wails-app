@@ -52,6 +52,7 @@ export interface RegistryBackendHello {
 
 interface RegistryReadResult {
   content?: string;
+  data?: string;
 }
 
 export class RegistryBackendError extends Error {
@@ -137,10 +138,14 @@ export class RegistryBackendClient {
     };
   }
 
-  read(path: string): Promise<RegistryReadResult> {
-    return this.call<RegistryReadResult>('registry.read', {
+  async read(path: string): Promise<RegistryReadResult> {
+    const result = await this.call<RegistryReadResult>('registry.read', {
       path: normalizeRegistryPath(path),
     });
+    return {
+      ...result,
+      content: result.content ?? result.data ?? '',
+    };
   }
 
   async stat(path: string): Promise<RegistryFileInfo> {

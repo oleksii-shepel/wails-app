@@ -15,6 +15,7 @@ import (
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
+	vfsregistry "wails-app/vfs/registry"
 
 	_ "wails-app/vfs/archive/7z"
 	_ "wails-app/vfs/archive/rar"
@@ -363,6 +364,8 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		IsNested:    fileType == contracts.FileTypeArchive,
 		NestedChain: nestedChain,
 	}
+
+	vfsregistry.ApplyFileInfoMetadata(&file, entry)
 
 	return file
 }

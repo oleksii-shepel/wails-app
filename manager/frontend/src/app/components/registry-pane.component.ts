@@ -341,65 +341,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           (click)="renameResultsCollection()">Rename</button>
       </div>
 
-      <div class="action-bar">
-        <div class="view-switcher" role="group" aria-label="Directory view">
-          <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
-          <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
-          <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
-          <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
-        </div>
-
-        <div class="sort-controls" role="group" aria-label="Sort directory">
-          <select
-            [value]="sortField"
-            (change)="setSortField($any($event.target).value)"
-            aria-label="Sort field"
-            title="Sort field">
-            <option value="name">Name</option>
-            <option value="size">Size</option>
-            <option value="modified">Modified</option>
-            <option value="type">Type</option>
-          </select>
-
-          <button
-            type="button"
-            (click)="toggleSortDirection()"
-            [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
-            {{ sortDirection === 'asc' ? '\u2191' : '\u2193' }}
-          </button>
-
-          <button
-            type="button"
-            [class.active]="directoriesFirst"
-            [attr.aria-pressed]="directoriesFirst"
-            (click)="toggleDirectoriesFirst()"
-            title="Folders first">
-            Folders
-          </button>
-        </div>
-
-        <span class="action-separator"></span>
-        <button type="button" [disabled]="loading || !canCreate" (click)="newFolder()" title="New folder (F7)">New folder</button>
-        <button type="button" [disabled]="loading || !canRename" (click)="renameSelected()" title="Rename (F2)">Rename</button>
-        <span class="action-separator"></span>
-        <button type="button" [disabled]="loading || !hasSelection" (click)="copySelected()" title="Copy (Ctrl+C)">Copy</button>
-        <button type="button" [disabled]="loading || !canCut" (click)="cutSelected()" title="Cut (Ctrl+X)">Cut</button>
-        <button type="button" [disabled]="loading || !canPaste" (click)="paste()" title="Paste (Ctrl+V)">Paste</button>
-        <span class="action-separator"></span>
-        <button type="button" class="danger" [disabled]="loading || !canDelete" (click)="deleteSelected()" title="Delete (Delete / F8)">Delete</button>
-        <ng-container *ngIf="pluginToolbarActions.length">
-          <span class="action-separator"></span>
-          <button
-            *ngFor="let action of pluginToolbarActions"
-            type="button"
-            class="plugin-action"
-            [disabled]="loading || !action.enabled"
-            [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
-            (click)="runPluginToolbarAction(action)">
-            <span aria-hidden="true">&#x25C6;</span>
-            {{ action.label }}
-          </button>
-        </ng-container>
+      <div class="action-bar registry-action-bar" role="toolbar" aria-label="Registry actions">
+        <button
+          *ngFor="let action of pluginToolbarActions"
+          type="button"
+          class="plugin-action"
+          [class.danger]="action.label.toLowerCase().includes('delete')"
+          [disabled]="loading || !action.enabled"
+          [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
+          (click)="runPluginToolbarAction(action)">
+          {{ action.label }}
+        </button>
       </div>
 
       <app-filter
@@ -434,7 +386,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         *ngIf="!error && viewMode === 'tree'"
         tabindex="-1"
         role="tree"
-        [attr.aria-label]="'Tree view of ' + (path || 'location')"
+        [attr.aria-label]="'Registry details of ' + (path || 'location')"
         [attr.aria-busy]="loading"
         (click)="onBackgroundClick($event)"
         (contextmenu)="onBackgroundContextMenu($event)"        (scroll)="onContentScroll($event)">
@@ -525,7 +477,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </app-panel-presentation-outlet>
 
       <div class="details-header" *ngIf="!activePanelPresentation && !error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+        <span></span><span>Name</span><span>Kind</span><span>Type</span><span>Value</span>
         <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
 
@@ -536,7 +488,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
-        [attr.aria-label]="'Files in ' + (path || 'location')"
+        [attr.aria-label]="'Registry entries in ' + (path || 'location')"
         [class.view-list]="viewMode === 'list'"
         [class.view-grid]="viewMode === 'grid'"
         [class.view-details]="viewMode === 'details'"
@@ -571,7 +523,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
           [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
           [class.compare-different]="isComparisonDifferent(entry.path)"
-          (click)="selectFromPointer(entry, $event)"
+          (click)="onRegistryEntryClick(entry, $event)"
           (dblclick)="openEntry(entry)"
           (contextmenu)="onEntryContextMenu(entry, $event)"
           (dragstart)="onEntryDragStart(entry, $event)"
@@ -617,10 +569,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ entryDisplayKind(entry) }}
           </span>
 
-          <span class="size">
-            {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
-          </span>
-          <span class="modified">{{ formatModified(entry.modified) }}</span>
+          <span class="size">{{ entryDisplayType(entry) }}</span>
+          <span class="modified" [title]="entryDisplayType(entry) + (entryDisplayValue(entry) ? ' · ' + entryDisplayValue(entry) : '')">{{ entryDisplayValue(entry) }}</span>
           <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
         </div>
 
@@ -1695,7 +1645,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   driveTotalBytes = 0;
   driveFileSystem = '';
 
-  viewMode: DirectoryView = 'list';
+  readonly viewMode: DirectoryView = 'details';
   sortField: SortField = 'name';
   sortDirection: SortDirection = 'asc';
   directoriesFirst = true;
@@ -1844,7 +1794,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
   panePresentation(): PanePresentation {
     return {
-      viewMode: this.viewMode,
+      viewMode: 'details',
       sortField: this.sortField,
       sortDirection: this.sortDirection,
       directoriesFirst: this.directoriesFirst,
@@ -1941,9 +1891,6 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
     this.applyingMirroredPresentation = true;
     try {
-      if (!(this.isInArchive && value.viewMode === 'tree')) {
-        this.viewMode = value.viewMode;
-      }
       this.sortField = value.sortField;
       this.sortDirection = value.sortDirection;
       this.directoriesFirst = value.directoriesFirst;
@@ -2005,16 +1952,66 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
       case 'Key':
         return '\u{1F4C1}';
       case 'Value':
-        return '\u{1F4C4}';
+        return '\u{1F511}';
     }
   }
 
   entryDisplayKind(entry: FileInfo): string {
+    return this.registryEntryKind(entry);
+  }
+
+  entryDisplayType(entry: FileInfo): string {
     const kind = this.registryEntryKind(entry);
     if (kind === 'Value') {
-      return entry.registryValueType?.trim() || 'Value';
+      return entry.registryValueType?.trim() || 'REG_SZ';
     }
-    return kind;
+    return '';
+  }
+
+  entryDisplayValue(entry: FileInfo): string {
+    if (this.registryEntryKind(entry) !== 'Value') return '';
+
+    const type = (entry.registryValueType?.trim() || '').toUpperCase();
+    const preview = entry.registryPreview?.trim() || '';
+
+    if (type === 'REG_DWORD' || type === 'REG_DWORD_BIG_ENDIAN') {
+      return this.formatRegistryInteger(preview, 32);
+    }
+    if (type === 'REG_QWORD') {
+      return this.formatRegistryInteger(preview, 64);
+    }
+
+    if (preview) return preview;
+    if (entry.size > 0) return '(binary data)';
+    return '(empty)';
+  }
+
+  private formatRegistryInteger(value: string, bits: 32 | 64): string {
+    const text = value.trim();
+    if (!text) return '(empty)';
+
+    const decimalMatch = /^([0-9]+)(?:\s*\(0x[0-9a-f]+\))?$/i.exec(text);
+    const hexMatch = /^0x([0-9a-f]+)$/i.exec(text);
+
+    try {
+      const numeric = decimalMatch
+        ? BigInt(decimalMatch[1])
+        : hexMatch
+          ? BigInt(`0x${hexMatch[1]}`)
+          : null;
+
+      if (numeric === null) return text;
+
+      const mask = (1n << BigInt(bits)) - 1n;
+      const normalized = numeric & mask;
+      const width = bits / 4;
+      return `${normalized.toString(10)} (0x${normalized
+        .toString(16)
+        .toUpperCase()
+        .padStart(width, '0')})`;
+    } catch {
+      return text;
+    }
   }
 
   private registryEntryKind(entry: FileInfo): 'Parent' | 'Hive' | 'Key' | 'Value' {
@@ -2260,7 +2257,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     if (this.viewMode !== 'list' && this.viewMode !== 'details') return null;
     return this.pluginManager.resolvePanelPresentation({
       ...this.panelColumnContext,
-      viewMode: this.viewMode,
+      viewMode: 'details',
     });
   }
 
@@ -2269,7 +2266,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     return {
       paneId: this.paneId,
       path: this.path,
-      viewMode: this.viewMode,
+      viewMode: 'details',
       entries: this.renderedEntries,
       selectedPaths: this.selectedPaths,
       cursorPath: this.cursorPath,
@@ -3423,29 +3420,14 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  setViewMode(mode: DirectoryView): void {
+  setViewMode(_mode: DirectoryView): void {
+    // Registry intentionally supports one presentation only: Directory Details.
+    // Keep this method for copied command/template compatibility, but never
+    // allow Registry state to diverge into list/grid/tree.
     this.resetVirtualViewport();
     this.cancelInlineRename(false);
     this.markUserInteraction();
-
-    if (this.isInArchive && mode === 'tree') {
-      this.lastAction = 'tree view unavailable inside archive';
-      this.cdr.markForCheck();
-      return;
-    }
-
-    if (this.viewMode === mode) return;
-
-    if (mode === 'tree') {
-      this.treeExpandedPaths.clear();
-      this.treeChildren.clear();
-      this.treeLoadingPaths.clear();
-      this.invalidateTreeRows();
-    }
-    this.viewMode = mode;
-    this.syncActiveDirSessionState();
-    this.lastAction = `view: ${mode}`;
-    this.emitPresentationChange();
+    this.lastAction = 'view: details';
     queueMicrotask(() => this.ensureCursorVisible());
     this.cdr.markForCheck();
   }
@@ -3677,7 +3659,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     if (!value) return;
 
     const scheme = this.schemeOfLocation(value);
-    if (scheme === 'filesystem') return;
+    if (scheme === 'filesystem' || scheme === 'registry') return;
 
     const results = await this.pluginLifecycle.activateByEvent(
       `onScheme:${scheme}`,
@@ -3835,6 +3817,11 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
     if (entry.path === '__parent__') {
       void this.navigateUp();
+      return;
+    }
+
+    if (this.registryEntryKind(entry) === 'Value') {
+      void this.activateRegistryValue(entry);
       return;
     }
 
@@ -4172,6 +4159,52 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     // Background menus must not destroy a useful working selection.
     this.focusContent();
     this.backgroundContextMenu.emit(event);
+  }
+
+  onRegistryEntryClick(entry: FileInfo, event: MouseEvent): void {
+    this.selectFromPointer(entry, event);
+
+    // Modifier clicks are selection gestures, not activation gestures.
+    if (event.shiftKey || event.ctrlKey || event.metaKey) return;
+    if (this.registryEntryKind(entry) !== 'Value') return;
+
+    void this.activateRegistryValue(entry);
+  }
+
+  private async activateRegistryValue(entry: FileInfo): Promise<void> {
+    const source = this.activePanelSource.source as typeof this.activePanelSource.source & {
+      activateEntry?: (
+        context: {
+          path: string;
+          entries?: readonly FileInfo[];
+        },
+        entry: FileInfo,
+      ) => boolean | Promise<boolean>;
+    };
+
+    try {
+      const handled = await Promise.resolve(
+        source.activateEntry?.(
+          {
+            path: this.path,
+            entries: this.entries,
+            inArchive: false,
+          },
+          entry,
+        ) ?? false,
+      );
+
+      this.lastAction = handled
+        ? `edit registry value: ${entry.name}`
+        : `registry value activation unavailable: ${entry.name}`;
+    } catch (error) {
+      this.lastAction = `registry edit failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      throw error;
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   selectFromPointer(entry: FileInfo, event: MouseEvent): void {
@@ -6738,7 +6771,6 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
       options.preserveCursor ? this.cursorPath : null;
 
     if (this.viewMode === 'tree') {
-      this.viewMode = 'list';
     }
 
     const archivePath = buildArchiveDisplayPath(
@@ -7229,13 +7261,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
       return {
         schemaVersion: REASSEMBLY_DIR_TAB_SESSION_VERSION,
-        viewMode:
-          parsed.viewMode === 'list' ||
-          parsed.viewMode === 'grid' ||
-          parsed.viewMode === 'details' ||
-          parsed.viewMode === 'tree'
-            ? parsed.viewMode
-            : fallback.viewMode,
+        viewMode: 'details',
         sortField:
           parsed.sortField === 'name' ||
           parsed.sortField === 'size' ||
@@ -7308,7 +7334,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     try {
       const session: DirTabSession = {
         schemaVersion: REASSEMBLY_DIR_TAB_SESSION_VERSION,
-        viewMode: tab.viewMode,
+        viewMode: 'details',
         sortField: tab.sortField,
         sortDirection: tab.sortDirection,
         directoriesFirst: tab.directoriesFirst,
@@ -7417,7 +7443,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
       ...active,
       path: this.path || active.path,
       title: this.tabTitle(this.path || active.path),
-      viewMode: this.viewMode,
+      viewMode: 'details',
       sortField: this.sortField,
       sortDirection: this.sortDirection,
       directoriesFirst: this.directoriesFirst,
@@ -7513,7 +7539,6 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   private applyDirSessionBeforeLoad(
     tab: Extract<Tab, { kind: 'dir' }>,
   ): void {
-    this.viewMode = tab.viewMode;
     this.sortField = tab.sortField;
     this.sortDirection = tab.sortDirection;
     this.directoriesFirst = tab.directoriesFirst;
@@ -7898,6 +7923,8 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
+      await this.activatePluginsForLocation(requestedPath);
+
       const streamMode = this.panelSources.streamMode(
         requestedPath,
         this.entries,
@@ -8504,7 +8531,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
       kind: 'dir',
       path: normalized,
       title: this.tabTitle(normalized),
-      viewMode: this.viewMode,
+      viewMode: 'details',
       sortField: this.sortField,
       sortDirection: this.sortDirection,
       directoriesFirst: this.directoriesFirst,

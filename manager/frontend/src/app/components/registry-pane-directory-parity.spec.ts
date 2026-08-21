@@ -18,29 +18,46 @@ function block(source: string, start: string, end: string): string {
 }
 
 describe('Registry pane Directory visual parity', () => {
-  it('keeps the Directory template byte-for-byte identical', () => {
-    const directoryTemplate = block(directory, '  template: `', '  `,');
-    const registryTemplate = block(registry, '  template: `', '  `,');
-
-    expect(registryTemplate).toBe(directoryTemplate);
-  });
-
-  it('keeps the Directory styles byte-for-byte identical', () => {
+  it('keeps Directory styles byte-for-byte identical', () => {
     const directoryStyles = block(directory, '  styles: [`', '  `]');
     const registryStyles = block(registry, '  styles: [`', '  `]');
 
     expect(registryStyles).toBe(directoryStyles);
   });
 
-  it('customizes only Registry entry semantics', () => {
-    expect(registry).toContain("private registryEntryKind(entry: FileInfo)");
-    expect(registry).toContain("entry.registryValueType?.trim() || 'Value'");
-    expect(registry).toContain("entry.registryPreview?.trim() || ''");
-    expect(registry).toContain("if (this.isRegistryHive(entry)) return 'Hive'");
+  it('keeps the same Directory row/cell structure and classes', () => {
+    for (const token of [
+      'class="content"',
+      'class="entry"',
+      'class="icon"',
+      'class="name"',
+      'class="kind"',
+      'class="size"',
+      'class="modified"',
+      '[style.grid-template-columns]="viewMode === \'details\' ? detailsGridTemplate : null"',
+    ]) {
+      expect(registry).toContain(token);
+      expect(directory).toContain(token);
+    }
   });
 
-  it('does not add Registry-specific CSS or markup', () => {
+  it('uses Registry-specific Details labels without adding new chrome', () => {
+    expect(registry).toContain(
+      '<span></span><span>Name</span><span>Kind</span><span>Type</span><span>Value</span>',
+    );
     expect(registry).not.toContain('.registry-');
     expect(registry).not.toContain('class="registry-');
+  });
+
+  it('uses a key emoji for Registry values', () => {
+    expect(registry).toContain("case 'Value':");
+    expect(registry).toContain("return '\\\\u{1F511}';");
+  });
+
+  it('shows Registry value type and preview in the existing Directory columns', () => {
+    expect(registry).toContain('{{ entryDisplayType(entry) }}');
+    expect(registry).toContain('{{ entryDisplayValue(entry) }}');
+    expect(registry).toContain("entry.registryValueType?.trim() || 'REG_SZ'");
+    expect(registry).toContain("entry.registryPreview?.trim() || ''");
   });
 });

@@ -29,6 +29,10 @@ import type {
   PaneViewportPort,
 } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
+import { adaptPluginToolbarActions } from './pane-toolbar-action';
+import type { ToolbarContext } from '../plugin/plugin-registry-api';
+import { PluginManagerService } from '../services/plugin-manager.service';
+import { InputEngineService } from '../services/input-engine.service';
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 import type { FileInfo } from '../shared/protocol';
 import { getSourceCapabilities } from '../services/source-capabilities';
@@ -219,10 +223,10 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
           <span class="action-separator"></span>
           <button type="button" class="danger" [disabled]="provider.loading || !provider.canDelete" (click)="provider.deleteSelected()" title="Delete (Delete / F8)">Delete</button>
 
-          <ng-container *ngIf="pluginToolbarActions.length">
+          <ng-container *ngIf="effectivePluginToolbarActions.length">
             <span class="action-separator"></span>
             <button
-              *ngFor="let action of pluginToolbarActions"
+              *ngFor="let action of effectivePluginToolbarActions"
               type="button"
               class="plugin-action"
               [disabled]="provider.loading || !action.enabled"
@@ -273,7 +277,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         [active]="active"
         [showHidden]="showHidden"
         [currentPathPinned]="currentPathPinned"
-        [pluginToolbarActions]="pluginToolbarActions"
+        [pluginToolbarActions]="effectivePluginToolbarActions"
         [comparisonStatuses]="comparisonStatuses"
         (activateRequested)="activateRequested.emit()"
         (navigationTrailRequested)="navigationTrailRequested.emit($event)"
@@ -295,7 +299,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         [active]="active"
         [showHidden]="showHidden"
         [currentPathPinned]="currentPathPinned"
-        [pluginToolbarActions]="pluginToolbarActions"
+        [pluginToolbarActions]="effectivePluginToolbarActions"
         [comparisonStatuses]="comparisonStatuses"
         (activateRequested)="activateRequested.emit()"
         (navigationTrailRequested)="navigationTrailRequested.emit($event)"
@@ -553,6 +557,8 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
     panelSources: PanelSourceRegistryService,
     pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly renderers: PaneRendererRegistryService,
+    private readonly pluginManager: PluginManagerService,
+    private readonly inputEngine: InputEngineService,
     changeDetector: ChangeDetectorRef,
   ) {
     this.provider = new PanelSourcePaneSession(
@@ -566,6 +572,34 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
         presentationChanged: presentation => this.presentationChange.emit(presentation),
         viewportChanged: viewport => this.viewportChange.emit(viewport),
       },
+    );
+  }
+
+  get effectivePluginToolbarActions(): readonly PresentedCommand[] {
+    if (this.pluginToolbarActions.length) {
+      return this.pluginToolbarActions;
+    }
+
+    const component = this.activeComponent;
+    const currentDirectory =
+      component?.path ??
+      this.workspaceService.getActiveTab(this.paneId)?.path ??
+      '';
+
+    if (!currentDirectory) return [];
+
+    const selectedPaths = Array.from(component?.selectedPaths ?? [])
+      .filter(path => !!path && path !== '__parent__');
+
+    const context: ToolbarContext = {
+      selectedPaths,
+      currentDirectory,
+    };
+
+    return adaptPluginToolbarActions(
+      this.pluginManager.resolveToolbarActions(context),
+      context,
+      this.inputEngine,
     );
   }
 

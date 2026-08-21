@@ -4422,6 +4422,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.activate(paneId, false);
 
     const pane = this.activePane;
+
+    if (/^registry:\/\//i.test(pane?.contextState.path ?? '')) {
+      const pluginItems = this.pluginContextMenuItems(pane, entry.path);
+      this.contextMenu = {
+        x: event.clientX,
+        y: event.clientY,
+        title: entry.name || 'Registry entry',
+        items: normalizeContextMenuItems(pluginItems),
+      };
+      this.cdr.markForCheck();
+      return;
+    }
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
     const isArchive = entry.type === FileType.ARCHIVE;
@@ -4571,6 +4583,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.activate(paneId, false);
 
     const pane = this.activePane;
+
+    if (/^registry:\/\//i.test(pane?.contextState.path ?? '')) {
+      const pluginItems = this.pluginContextMenuItems(
+        pane,
+        pane?.contextState.path ?? '',
+      );
+      this.contextMenu = {
+        x: event.clientX,
+        y: event.clientY,
+        title: pane?.contextState.path || 'Registry',
+        items: normalizeContextMenuItems(pluginItems),
+      };
+      this.cdr.markForCheck();
+      return;
+    }
     const items: ContextMenuItem[] = [];
 
     this.pushMenuSection(items, [

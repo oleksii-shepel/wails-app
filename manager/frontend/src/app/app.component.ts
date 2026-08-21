@@ -20,6 +20,7 @@ import { TrashDialogComponent } from './components/trash-dialog.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 import { ModalStackService } from './services/modal-stack.service';
 import { InputCustomizationService } from './services/input-customization.service';
+import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
 
 @Component({
   selector: 'app-root',
@@ -35,6 +36,7 @@ import { InputCustomizationService } from './services/input-customization.servic
     SettingsDialogComponent,
     TrashDialogComponent,
     ConfirmDialogComponent,
+    RegistryPluginHostComponent,
   ],
   template: `
     <main class="app-shell">
@@ -52,6 +54,7 @@ import { InputCustomizationService } from './services/input-customization.servic
       <app-settings-dialog></app-settings-dialog>
       <app-trash-dialog></app-trash-dialog>
       <app-confirm-dialog></app-confirm-dialog>
+      <reassembly-registry-plugin-host></reassembly-registry-plugin-host>
     </main>
   `,
   styles: [`

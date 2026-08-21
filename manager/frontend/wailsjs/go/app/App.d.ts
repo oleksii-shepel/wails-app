@@ -229,9 +229,17 @@ export function NavNavigate(arg1:string,arg2:string):Promise<contracts.Directory
 
 export function NavNavigateShowHidden(arg1:string,arg2:string,arg3:boolean):Promise<contracts.DirectoryListing>;
 
+export function NetworkAdapterDiagnose(arg1:number):Promise<contracts.SystemSurfaceRecord>;
+
+export function NetworkAdapterRenewDHCP(arg1:number):Promise<void>;
+
+export function NetworkAdapterSetEnabled(arg1:number,arg2:boolean):Promise<void>;
+
 export function NetworkListComputers():Promise<Array<contracts.SystemSurfaceRecord>>;
 
 export function NetworkListShares(arg1:string):Promise<Array<contracts.SystemSurfaceRecord>>;
+
+export function NetworkOpenSettings():Promise<void>;
 
 export function NormalizeWindowStateForSave(arg1:contracts.WindowState):Promise<contracts.WindowState>;
 

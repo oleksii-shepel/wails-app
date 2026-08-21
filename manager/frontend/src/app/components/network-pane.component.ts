@@ -27,6 +27,7 @@ import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
 import { calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
+import { NetworkAdapterService } from '../services/network-adapter.service';
 import type {
   PanelColumnContribution,
   PanelColumnContext,
@@ -311,7 +312,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div
         class="status-row"
-        [class.status-running]="loading"
+        [class.status-running]="loading || !!networkOperationStatus"
         [class.status-error]="!!error"
         [id]="paneStatusId"
         role="status"
@@ -338,15 +339,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
         <ng-template #healthyStatus>
           <span
-            *ngIf="loading"
+            *ngIf="loading || networkOperationStatus"
             class="network-discovery-state">
             <span
               class="network-discovery-spinner"
               aria-hidden="true"></span>
-            {{ networkLoadingText }}
+            {{ networkOperationStatus || networkLoadingText }}
           </span>
 
-          <span *ngIf="!loading">{{ networkLoadedText }}</span>
+          <span *ngIf="!loading && !networkOperationStatus">
+            {{ networkLoadedText }}
+          </span>
           <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
           <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
           <span *ngIf="clipboard" class="clipboard-state">
@@ -2077,6 +2080,17 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   networkEndpoints(entry: FileInfo): string {
+    if (this.networkAdapters.isAdapter(entry)) {
+      const address = this.networkAdapters.primaryAddress(entry) ||
+        this.networkField(entry, 'local');
+      const speed = this.networkAdapters.formatSpeed(
+        (entry as FileInfo & {
+          systemFields?: Record<string, unknown>;
+        }).systemFields?.['linkSpeed'],
+      );
+      return [address, speed].filter(Boolean).join(' · ');
+    }
+
     const local = this.networkField(entry, 'local');
     const remote = this.networkField(entry, 'remote');
     if (local && remote) return `${local} → ${remote}`;
@@ -2440,6 +2454,13 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
 
   private readonly clipboardCommands: PaneClipboardController;
 
+  networkOperationStatus: string | null = null;
+
+  private readonly networkAdapterChangedHandler = (): void => {
+    if (this.path.toLowerCase() !== 'network://adapters') return;
+    void this.refresh();
+  };
+
   constructor(
     private readonly api: ApiService,
     private readonly directorySource: DirectorySourceService,
@@ -2456,6 +2477,7 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
     private readonly resultsPanels: ResultsPanelService,
     private readonly smartResults: SmartResultsService,
     private readonly pluginManager: PluginManagerService,
+    private readonly networkAdapters: NetworkAdapterService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
@@ -2742,6 +2764,12 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.networkAdapters.ensureContextMenuRegistered();
+    window.addEventListener(
+      'network-adapter-changed',
+      this.networkAdapterChangedHandler,
+    );
+
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
@@ -2752,6 +2780,10 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener(
+      'network-adapter-changed',
+      this.networkAdapterChangedHandler,
+    );
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
       clearTimeout(this.presentationReloadTimer);
@@ -3872,6 +3904,14 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.networkAdapters.isAdapter(entry)) {
+      void this.runAdapterOperation(
+        'Opening adapter properties…',
+        () => this.networkAdapters.showProperties(entry),
+      );
+      return;
+    }
+
     void this.activePanelSource.source.activateEntry?.(
       {
         path: this.path,
@@ -4891,6 +4931,9 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
     const target = this.selectedEntries[0] ?? this.cursorEntry;
     const endpoint = target ? this.networkEndpoints(target) : '';
     const hasTarget = !!target;
+    const adapter = target && this.networkAdapters.isAdapter(target)
+      ? target
+      : null;
 
     const builtins: PresentedCommand[] = [
       {
@@ -4940,6 +4983,112 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
       },
     ];
 
+    if (adapter) {
+      const enabled = this.networkAdapters.enabled(adapter);
+      const dhcp = this.networkAdapters.dhcpEnabled(adapter);
+
+      builtins.push(
+        {
+          id: 'network.adapter.properties',
+          label: 'Properties',
+          enabled: true,
+          separatorBefore: true,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.properties',
+          execute: () => this.runAdapterOperation(
+            'Opening adapter properties…',
+            () => this.networkAdapters.showProperties(adapter),
+          ),
+        },
+        {
+          id: 'network.adapter.toggle',
+          label: enabled ? 'Disable' : 'Enable',
+          enabled: true,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.toggle',
+          execute: () => this.runAdapterOperation(
+            `${enabled ? 'Disabling' : 'Enabling'} ${adapter.name}…`,
+            () => this.networkAdapters.setEnabled(adapter, !enabled),
+          ),
+        },
+        {
+          id: 'network.adapter.renew-dhcp',
+          label: 'Renew DHCP',
+          enabled: dhcp && enabled,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.renewDhcp',
+          execute: () => this.runAdapterOperation(
+            `Renewing DHCP lease for ${adapter.name}…`,
+            () => this.networkAdapters.renewDHCP(adapter),
+          ),
+        },
+        {
+          id: 'network.adapter.diagnose',
+          label: 'Diagnose',
+          enabled,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.diagnose',
+          execute: () => this.runAdapterOperation(
+            `Diagnosing ${adapter.name}…`,
+            () => this.networkAdapters.diagnose(adapter),
+          ),
+        },
+        {
+          id: 'network.adapter.connections',
+          label: 'Connections',
+          enabled,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.connections',
+          execute: () => this.showAdapterConnections(adapter),
+        },
+        {
+          id: 'network.adapter.copy-ip',
+          label: 'Copy IP',
+          enabled: !!this.networkAdapters.value(adapter, 'address'),
+          separatorBefore: true,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.copyIp',
+          execute: () => this.copyAdapterField(adapter, 'address', 'IP address'),
+        },
+        {
+          id: 'network.adapter.copy-mac',
+          label: 'Copy MAC',
+          enabled: !!this.networkAdapters.value(adapter, 'mac'),
+          source: 'builtin',
+          commandId: 'pane.network.adapter.copyMac',
+          execute: () => this.copyAdapterField(adapter, 'mac', 'MAC address'),
+        },
+        {
+          id: 'network.adapter.copy-gateway',
+          label: 'Copy gateway',
+          enabled: !!this.networkAdapters.value(adapter, 'gateway'),
+          source: 'builtin',
+          commandId: 'pane.network.adapter.copyGateway',
+          execute: () => this.copyAdapterField(adapter, 'gateway', 'gateway'),
+        },
+        {
+          id: 'network.adapter.copy-dns',
+          label: 'Copy DNS',
+          enabled: !!this.networkAdapters.value(adapter, 'dns'),
+          source: 'builtin',
+          commandId: 'pane.network.adapter.copyDns',
+          execute: () => this.copyAdapterField(adapter, 'dns', 'DNS servers'),
+        },
+        {
+          id: 'network.adapter.settings',
+          label: 'Network Settings',
+          enabled: true,
+          separatorBefore: true,
+          source: 'builtin',
+          commandId: 'pane.network.adapter.settings',
+          execute: () => this.runAdapterOperation(
+            'Opening Network Settings…',
+            () => this.networkAdapters.openSettings(),
+          ),
+        },
+      );
+    }
+
     if (this.path.toLowerCase() === 'network://remote') {
       builtins.push({
         id: 'network.remote-connections',
@@ -4962,6 +5111,47 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
       })),
     ];
   }
+
+  private async runAdapterOperation(
+    status: string,
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    this.networkOperationStatus = status;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      await operation();
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.networkOperationStatus = null;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async copyAdapterField(
+    entry: FileInfo,
+    field: string,
+    label: string,
+  ): Promise<void> {
+    const value = this.networkAdapters.value(entry, field);
+    if (!value) return;
+    const copied = await this.networkAdapters.copyValue(value);
+    this.lastAction = copied ? `copy ${label}` : `copy ${label} failed`;
+    this.cdr.markForCheck();
+  }
+
+  private async showAdapterConnections(entry: FileInfo): Promise<void> {
+    const address = this.networkAdapters.primaryAddress(entry);
+    const loaded = await this.load(
+      'network://connections',
+      { history: 'record' },
+    );
+    if (!loaded || !address) return;
+    this.setFilter(address);
+  }
+
 
   runPluginToolbarAction(action: PresentedCommand): void {
     if (!action.enabled) return;

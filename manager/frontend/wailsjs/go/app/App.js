@@ -438,12 +438,28 @@ export function NavNavigateShowHidden(arg1, arg2, arg3) {
   return window['go']['app']['App']['NavNavigateShowHidden'](arg1, arg2, arg3);
 }
 
+export function NetworkAdapterDiagnose(arg1) {
+  return window['go']['app']['App']['NetworkAdapterDiagnose'](arg1);
+}
+
+export function NetworkAdapterRenewDHCP(arg1) {
+  return window['go']['app']['App']['NetworkAdapterRenewDHCP'](arg1);
+}
+
+export function NetworkAdapterSetEnabled(arg1, arg2) {
+  return window['go']['app']['App']['NetworkAdapterSetEnabled'](arg1, arg2);
+}
+
 export function NetworkListComputers() {
   return window['go']['app']['App']['NetworkListComputers']();
 }
 
 export function NetworkListShares(arg1) {
   return window['go']['app']['App']['NetworkListShares'](arg1);
+}
+
+export function NetworkOpenSettings() {
+  return window['go']['app']['App']['NetworkOpenSettings']();
 }
 
 export function NormalizeWindowStateForSave(arg1) {

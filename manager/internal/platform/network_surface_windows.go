@@ -278,17 +278,15 @@ func networkAdapterRecords() ([]contracts.SystemSurfaceRecord, error) {
 		return nil, fmt.Errorf("interfaces: %w", err)
 	}
 
+	metadata, metadataErr := NetworkAdapterMetadata()
 	records := make([]contracts.SystemSurfaceRecord, 0, len(interfaces))
 	for _, iface := range interfaces {
 		addresses, _ := iface.Addrs()
-		local := make([]string, 0, len(addresses)+1)
+		ipAddresses := make([]string, 0, len(addresses))
 		for _, address := range addresses {
 			if value := strings.TrimSpace(address.String()); value != "" {
-				local = append(local, value)
+				ipAddresses = append(ipAddresses, value)
 			}
-		}
-		if mac := strings.TrimSpace(iface.HardwareAddr.String()); mac != "" {
-			local = append(local, mac)
 		}
 
 		status := "Down"
@@ -296,19 +294,49 @@ func networkAdapterRecords() ([]contracts.SystemSurfaceRecord, error) {
 			status = "Up"
 		}
 
+		fields := map[string]any{
+			"kind":      "Adapter",
+			"status":    status,
+			"local":     strings.Join(ipAddresses, " · "),
+			"remote":    "",
+			"index":     iface.Index,
+			"mtu":       iface.MTU,
+			"flags":     iface.Flags.String(),
+			"addresses": ipAddresses,
+			"address":   firstString(ipAddresses),
+			"mac":       iface.HardwareAddr.String(),
+		}
+
+		if rich, ok := metadata[uint32(iface.Index)]; ok {
+			for key, value := range rich {
+				fields[key] = value
+			}
+			if value := strings.TrimSpace(fmt.Sprint(rich["friendlyName"])); value != "" {
+				// Preserve the Go interface name as interfaceName while showing
+				// the friendly Windows adapter name in the row.
+				fields["interfaceName"] = iface.Name
+			}
+			if richAddresses, ok := rich["addresses"].([]string); ok && len(richAddresses) > 0 {
+				fields["local"] = strings.Join(richAddresses, " · ")
+			}
+		}
+
+		name := iface.Name
+		if rich, ok := metadata[uint32(iface.Index)]; ok {
+			if friendly := strings.TrimSpace(fmt.Sprint(rich["friendlyName"])); friendly != "" {
+				name = friendly
+			}
+		}
+
 		records = append(records, contracts.SystemSurfaceRecord{
-			ID:   fmt.Sprintf("adapter:%d", iface.Index),
-			Name: iface.Name,
-			Fields: map[string]any{
-				"kind":   "Adapter",
-				"status": status,
-				"local":  strings.Join(local, " · "),
-				"remote": "",
-				"index":  iface.Index,
-				"mtu":    iface.MTU,
-				"flags":  iface.Flags.String(),
-			},
+			ID:     fmt.Sprintf("adapter:%d", iface.Index),
+			Name:   name,
+			Fields: fields,
 		})
+	}
+
+	if len(records) == 0 && metadataErr != nil {
+		return nil, metadataErr
 	}
 	return records, nil
 }

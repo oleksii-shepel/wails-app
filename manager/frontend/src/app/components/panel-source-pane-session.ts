@@ -119,11 +119,39 @@ export class PanelSourcePaneSession implements PaneComponent {
     const tabId = tab?.id ?? '';
 
     if (!path) return;
-    if (tabId === this.syncedTabId && path === this.syncedPath && path === this.path) return;
 
-    this.syncedTabId = tabId;
-    this.syncedPath = path;
-    await this.load(path, { history: 'none', preserveSelection: true });
+    const canonicalPath = this.canonicalize(path);
+    if (!canonicalPath) return;
+
+    if (
+      tabId === this.syncedTabId &&
+      canonicalPath === this.syncedPath &&
+      canonicalPath === this.path &&
+      !this.error
+    ) {
+      return;
+    }
+
+    // Publish the location before asynchronous plugin activation/listing.
+    // Dedicated sibling panes must never render with path="" while their
+    // provider is being activated.
+    if (this.path !== canonicalPath) {
+      this.path = canonicalPath;
+      this.events.locationChanged?.(canonicalPath);
+      this.events.changed?.();
+    }
+
+    const loaded = await this.load(
+      canonicalPath,
+      { history: 'none', preserveSelection: true },
+    );
+
+    // Only mark a tab/path pair synchronized after a successful load.
+    // A startup activation race must be retryable on the next check.
+    if (loaded) {
+      this.syncedTabId = tabId;
+      this.syncedPath = this.path;
+    }
   }
 
   async refresh(): Promise<void> {
@@ -164,8 +192,8 @@ export class PanelSourcePaneSession implements PaneComponent {
     }
   }
 
-  navigateTo(path: string): Promise<void> {
-    return this.load(path, { history: 'record', preserveSelection: false });
+  async navigateTo(path: string): Promise<void> {
+    await this.load(path, { history: 'record', preserveSelection: false });
   }
 
   navigateLinkedLocation(path: string): Promise<boolean> {
@@ -238,12 +266,24 @@ export class PanelSourcePaneSession implements PaneComponent {
 
     if (activation !== undefined) {
       if (typeof activation === 'boolean') {
-        if (activation) this.selectPaths([entry.path]);
-        return Promise.resolve();
+        if (activation) {
+          this.selectPaths([entry.path]);
+          return Promise.resolve();
+        }
+        // false means "not handled"; continue to normal navigation below.
+      } else {
+        return activation.then(async (handled: boolean) => {
+          if (handled) {
+            this.selectPaths([entry.path]);
+            return;
+          }
+          if (entry.type === FileType.DIRECTORY) {
+            await this.navigateTo(entry.path);
+          } else {
+            this.selectPaths([entry.path]);
+          }
+        });
       }
-      return activation.then((handled: boolean) => {
-        if (handled) this.selectPaths([entry.path]);
-      });
     }
 
     if (entry.type === FileType.DIRECTORY) {
@@ -467,9 +507,9 @@ export class PanelSourcePaneSession implements PaneComponent {
   private async load(
     requestedPath: string,
     options: { history: 'record' | 'none'; preserveSelection: boolean },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const path = this.canonicalize(requestedPath);
-    if (!path) return;
+    if (!path) return false;
 
     const token = ++this.loadToken;
     const previousPath = this.path;
@@ -490,7 +530,7 @@ export class PanelSourcePaneSession implements PaneComponent {
       }
 
       const listing = await resolved.source.list(context, this.showHidden);
-      if (token !== this.loadToken) return;
+      if (token !== this.loadToken) return false;
 
       const nextPath = listing.location.path || path;
       this.path = nextPath;
@@ -512,13 +552,15 @@ export class PanelSourcePaneSession implements PaneComponent {
       this.events.locationChanged?.(nextPath);
       this.emitCursor();
       this.events.presentationChanged?.(this.panePresentation());
+      return true;
     } catch (error) {
-      if (token !== this.loadToken) return;
+      if (token !== this.loadToken) return false;
       this.error = error instanceof Error ? error.message : String(error);
       this.entries = [];
       this.selectedPaths = new Set<string>();
       this.cursorPath = null;
       this.events.cursorChanged?.(null);
+      return false;
     } finally {
       if (token === this.loadToken) {
         this.loading = false;

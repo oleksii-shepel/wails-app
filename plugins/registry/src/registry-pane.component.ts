@@ -16,6 +16,26 @@ import {
 
 export type RegistryPaneViewMode = 'list' | 'details';
 type RegistryEntryKind = 'parent' | 'hive' | 'key' | 'value';
+const ROOT_HIVE_NAMES = [
+  'HKEY_CLASSES_ROOT',
+  'HKEY_CURRENT_CONFIG',
+  'HKEY_CURRENT_USER',
+  'HKEY_LOCAL_MACHINE',
+  'HKEY_USERS',
+] as const;
+
+const ROOT_HIVE_ENTRIES: readonly FileInfo[] = ROOT_HIVE_NAMES.map(name => ({
+  name,
+  path: 'registry://' + name,
+  type: FileType.DIRECTORY,
+  size: 0,
+  created: 0,
+  modified: 0,
+  accessed: 0,
+  permissions: '',
+  isHidden: false,
+  registryKind: 'Key',
+}));
 
 export interface RegistryEntryPointerEvent {
   entry: FileInfo;
@@ -103,14 +123,14 @@ export interface RegistryEntryDragEvent {
       <ng-container *ngIf="isRootView; else groupedKeyView">
         <div class="registry-section registry-section-root">
           <div
-            *ngFor="let entry of entries; let virtualIndex = index; trackBy: trackEntry"
+            *ngFor="let entry of rootEntries; let virtualIndex = index; trackBy: trackEntry"
             class="registry-entry registry-entry-root"
             tabindex="-1"
             role="option"
             draggable="true"
             [attr.data-file-entry]="entry.path"
             [attr.aria-posinset]="renderedStart + virtualIndex + 1"
-            [attr.aria-setsize]="visibleEntryCount"
+            [attr.aria-setsize]="isRootView ? effectiveVisibleEntryCount : visibleEntryCount"
             [attr.aria-selected]="selectedPaths.has(entry.path)"
             [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
             [attr.aria-label]="ariaLabel(entry)"
@@ -195,7 +215,7 @@ export interface RegistryEntryDragEvent {
           draggable="true"
           [attr.data-file-entry]="entry.path"
           [attr.aria-posinset]="renderedStart + virtualIndex + 1"
-          [attr.aria-setsize]="visibleEntryCount"
+          [attr.aria-setsize]="isRootView ? effectiveVisibleEntryCount : visibleEntryCount"
           [attr.aria-selected]="selectedPaths.has(entry.path)"
           [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
           [attr.aria-label]="ariaLabel(entry)"
@@ -244,7 +264,7 @@ export interface RegistryEntryDragEvent {
         [style.height.px]="afterPx"
         aria-hidden="true"></div>
 
-      <div class="empty" *ngIf="!loading && visibleEntryCount === 0" role="status">
+      <div class="empty" *ngIf="!loading && effectiveVisibleEntryCount === 0" role="status">
         <strong>{{ filterText ? 'No matching registry entries.' : 'This registry key is empty.' }}</strong>
         <span *ngIf="filterText">Clear the filter to see all entries.</span>
       </div>
@@ -687,6 +707,21 @@ export class RegistryPaneComponent implements OnDestroy {
 
   get rootGridTemplate(): string {
     return '28px minmax(160px, 1fr) minmax(140px, 240px)';
+  }
+
+  /**
+   * The Registry root is structurally fixed. Keep it visible even during the
+   * short interval between mounting the dedicated sibling and provider
+   * activation/list completion.
+   */
+  get rootEntries(): readonly FileInfo[] {
+    return this.isRootView && this.entries.length === 0
+      ? ROOT_HIVE_ENTRIES
+      : this.entries;
+  }
+
+  get effectiveVisibleEntryCount(): number {
+    return this.isRootView ? this.rootEntries.length : this.visibleEntryCount;
   }
 
   get isRootView(): boolean {

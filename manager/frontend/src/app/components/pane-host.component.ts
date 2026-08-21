@@ -180,7 +180,9 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     </ng-template>
   `,
   styles: [`
-    :host{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden}
+    :host {--pane-column-gutter:12px;height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden
+      --pane-column-gap: 6px;
+}
     .specialized-pane{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:var(--vsc-editor-background,#fff);color:var(--vsc-foreground);border:1px solid transparent}
     .specialized-pane.active-pane{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-focus-border)) 62%,transparent)}
     .specialized-header{display:grid;gap:4px;padding:5px 7px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background,#fff)}

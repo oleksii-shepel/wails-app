@@ -61,7 +61,7 @@ import { schemeOf } from './pane-renderer-registry.service';
     .surface{flex-direction:column;background:var(--vsc-editor-background,#fff)}
     .title-row{display:flex;align-items:center;justify-content:space-between;min-height:30px;padding:0 9px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:11px}
     .title-row span{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
-    .table-header,.row{display:grid;column-gap:6px;align-items:center}
+    .table-header,.row {display:grid;      column-gap: var(--pane-column-gap, 6px);align-items:center}
     .table-header{min-height:26px;padding:0 8px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .rows{flex:1 1 0%;min-height:0;overflow:auto;background:var(--vsc-editor-background,#fff);outline:none}
     .row{min-height:30px;padding:2px 8px;font-size:11px;cursor:default}
@@ -72,6 +72,18 @@ import { schemeOf } from './pane-renderer-registry.service';
     .field{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .row.selected .field{color:inherit}
     .empty{padding:28px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+
+    /* visible pane column gutters */
+    .table-header,
+    .row {
+      column-gap: var(--pane-column-gutter, 12px);
+    }
+
+    .table-header > span,
+    .row > span {
+      min-width: 0;
+      padding-inline: 2px;
+    }
   `],
 })
 export class SystemTablePaneComponent {

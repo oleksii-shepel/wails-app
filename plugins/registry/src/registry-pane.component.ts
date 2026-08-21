@@ -295,8 +295,7 @@ export interface RegistryEntryDragEvent {
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
-      user-select: none;
-      column-gap: 6px;
+      user-select: none;      column-gap: var(--pane-column-gap, 6px);
     }
 
     .heading {
@@ -343,14 +342,16 @@ export interface RegistryEntryDragEvent {
       box-sizing: border-box;
       display: grid;
       align-items: center;
-      gap: 6px;
+
       min-height: 34px;
       padding: 4px 8px;
       background: transparent;
       cursor: default;
       user-select: none;
       color: var(--vsc-foreground);
-    }
+    
+      column-gap: var(--pane-column-gap, 6px);
+}
 
     .registry-section {
       display: grid;
@@ -606,6 +607,23 @@ export interface RegistryEntryDragEvent {
 
     .drop-invalid {
       opacity: .55;
+    }
+
+    /* visible pane column gutters */
+    .registry-details-header,
+    .registry-entry {
+      column-gap: var(--pane-column-gutter, 12px);
+    }
+
+    .registry-details-header > span:not(:first-child),
+    .registry-entry > span:not(:first-child) {
+      min-width: 0;
+      padding-inline: 2px;
+    }
+
+    /* Resizer sits in the middle of the gutter rather than on top of text. */
+    .registry-details-header .resizer {
+      right: calc(var(--pane-column-gutter, 12px) / -2 - 1px);
     }
   `],
 })

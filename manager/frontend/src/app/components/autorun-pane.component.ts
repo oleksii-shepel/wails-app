@@ -81,7 +81,7 @@ type AutorunEntry = FileInfo & {
   styles: [`
     :host,.surface{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden}
     .surface{flex-direction:column;background:var(--vsc-editor-background,#fff)}
-    .heading,.row{display:grid;grid-template-columns:28px minmax(150px,.7fr) 74px 92px 130px minmax(240px,1.6fr);column-gap:6px;align-items:center}
+    .heading,.row {display:grid;grid-template-columns:28px minmax(150px,.7fr) 74px 92px 130px minmax(240px,1.6fr);      column-gap: var(--pane-column-gap, 6px);align-items:center}
     .heading{min-height:26px;padding:0 8px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .rows{flex:1 1 0%;min-height:0;overflow:auto;outline:none;background:var(--vsc-editor-background,#fff)}
     .row{min-height:34px;padding:3px 8px;font-size:11px;cursor:default}
@@ -93,6 +93,18 @@ type AutorunEntry = FileInfo & {
     .toggle{min-width:48px;border:1px solid var(--vsc-border);border-radius:999px;background:transparent;color:inherit;font:inherit}
     .toggle.on{background:color-mix(in srgb,var(--vsc-accent-blue) 15%,transparent);border-color:var(--vsc-accent-blue)}
     .empty{padding:28px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+
+    /* visible pane column gutters */
+    .heading,
+    .row {
+      column-gap: var(--pane-column-gutter, 12px);
+    }
+
+    .heading > span:not(:first-child),
+    .row > span:not(:first-child) {
+      min-width: 0;
+      padding-inline: 2px;
+    }
   `],
 })
 export class AutorunPaneComponent {

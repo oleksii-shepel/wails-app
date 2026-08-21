@@ -1094,7 +1094,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .tree-row {
       display: grid;
       grid-template-columns: 18px 24px minmax(0, 1fr) auto;
-      gap: 4px;
+
       align-items: center;
       width: 100%;
       min-height: 27px;
@@ -1107,7 +1107,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       text-align: left;
       cursor: default;
       font: inherit;
-    }
+    
+      column-gap: var(--pane-column-gap, 6px);
+}
 
     .tree-row:hover {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
@@ -1149,7 +1151,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .details-header {
       display: grid;
       grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
-      gap: 8px;
+
       align-items: center;
       min-height: 25px;
       padding: 0 8px;
@@ -1157,7 +1159,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
-    }
+    
+      column-gap: var(--pane-column-gap, 6px);
+}
 
     .list.view-list .modified {
       display: none;
@@ -1179,7 +1183,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-height: 104px;
       padding: 8px 6px;
       text-align: center;
-    }
+    
+      column-gap: var(--pane-column-gap, 6px);
+}
 
     .list.view-grid .entry .icon { font-size: 30px; }
     .list.view-grid .entry .name {
@@ -1613,6 +1619,21 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
     .empty strong{font-weight:500;color:var(--vsc-foreground,var(--vsc-foreground))}
     .error-actions{display:flex;gap:6px;margin-top:7px}
+
+    /* visible pane column gutters */
+    .details-header,
+    .list.view-list .entry,
+    .list.view-details .entry,
+    .tree-row {
+      column-gap: var(--pane-column-gutter, 12px);
+    }
+
+    .details-header > span:not(:first-child),
+    .list.view-list .entry > span:not(:first-child),
+    .list.view-details .entry > span:not(:first-child) {
+      min-width: 0;
+      padding-inline: 2px;
+    }
   `],
 })
 export class DirectoryPaneComponent implements OnInit, OnDestroy {

@@ -1,10 +1,8 @@
-import { CommonModule } from '@angular/common';
 import { FileType } from '@reassembly/core/contracts/files';
 import {
   RegistryFileType,
   type RegistryFileInfo,
 } from './registry-model';
-import { RegistryPaneComponent } from './registry-pane.component';
 
 describe('Registry/core file contract', () => {
   it('uses the core FileType identity', () => {
@@ -25,10 +23,5 @@ describe('Registry/core file contract', () => {
       registryKind: 'Key',
     };
     expect(entry.type).toBe(FileType.DIRECTORY);
-  });
-
-  it('keeps the Registry pane Angular CommonModule dependency intact', () => {
-    expect(CommonModule).toBeDefined();
-    expect(RegistryPaneComponent).toBeDefined();
   });
 });

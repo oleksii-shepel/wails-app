@@ -597,6 +597,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (cursorChange)="onLinkedPaneCursorChange('left', $event)"
           (presentationChange)="onPanePresentationChange('left', $event)"
           (viewportChange)="onPaneViewportChange('left', $event)"
+          (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
+          (backgroundContextMenu)="openBackgroundMenu('left', $event)"
           (copyToOther)="activate('left'); copyToOther()"
           (moveToOther)="activate('left'); moveToOther()">
         </app-pane-host>
@@ -633,6 +635,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (cursorChange)="onLinkedPaneCursorChange('right', $event)"
           (presentationChange)="onPanePresentationChange('right', $event)"
           (viewportChange)="onPaneViewportChange('right', $event)"
+          (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
+          (backgroundContextMenu)="openBackgroundMenu('right', $event)"
           (copyToOther)="activate('right'); copyToOther()"
           (moveToOther)="activate('right'); moveToOther()">
         </app-pane-host>
@@ -1063,6 +1067,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   contextMenu: ContextMenuState | null = null;
   private contextMenuReturnFocus: HTMLElement | null = null;
   private navigationTrailCommands = new Map<string, { paneId: PaneId; path: string }>();
+  private contextMenuActions = new Map<string, () => void | Promise<void>>();
+  private contextMenuActionSequence = 0;
 
   constructor(
     private readonly input: InputEngineService,
@@ -1180,18 +1186,29 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       currentDirectory: pane.contextState.path,
     };
 
-    return this.pluginManager
-      .resolveContextMenuItems(context)
-      .map(contribution => {
-        const command = presentPluginCommand(contribution, context, this.input);
-        return {
-          commandId: command.commandId,
-          label: command.label,
-          shortcut: command.shortcut,
-          enabled: command.enabled && !!command.commandId,
-        };
-      })
-      .filter(item => !!item.commandId);
+    const items: ContextMenuItem[] = [];
+
+    for (const contribution of this.pluginManager.resolveContextMenuItems(context)) {
+      const command = presentPluginCommand(contribution, context, this.input, {
+        source: 'context-menu',
+      });
+      if (!command.enabled) continue;
+
+      // The menu token is intentionally not the application command ID.
+      // It binds the exact PresentedCommand closure created for this right-click,
+      // preserving targetPath/currentDirectory/selection from the scored context.
+      const menuCommandId = `reassembly.context.plugin.${++this.contextMenuActionSequence}`;
+      this.contextMenuActions.set(menuCommandId, () => command.execute());
+
+      items.push({
+        commandId: menuCommandId,
+        label: command.label,
+        shortcut: command.shortcut,
+        enabled: true,
+      });
+    }
+
+    return items;
   }
 
   private async refreshCommandPaletteCommands(): Promise<void> {
@@ -4680,6 +4697,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const contextualAction = this.contextMenuActions.get(commandId);
+    if (contextualAction) {
+      this.contextMenuActions.delete(commandId);
+      this.navigationTrailCommands.clear();
+      this.closeContextMenu(false);
+      void Promise.resolve(contextualAction()).catch(error => {
+        console.error('Context-menu action failed.', error);
+      });
+      return;
+    }
+
+    this.contextMenuActions.clear();
     this.navigationTrailCommands.clear();
 
     // Do not restore the old focus here: commands such as Rename deliberately
@@ -4698,6 +4727,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   closeContextMenu(restoreFocus = true): void {
     if (!this.contextMenu) return;
     this.contextMenu = null;
+    this.contextMenuActions.clear();
     const target = this.contextMenuReturnFocus;
     this.contextMenuReturnFocus = null;
     this.cdr.markForCheck();
@@ -4743,6 +4773,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   private captureContextMenuFocus(): void {
+    this.contextMenuActions.clear();
     if (typeof document === 'undefined') {
       this.contextMenuReturnFocus = null;
       return;

@@ -1,23 +1,35 @@
 # Reassembly Registry Plugin
 
-Universal Windows Registry plugin for Reassembly.
+Windows Registry domain package for Reassembly.
 
-This package owns the complete `registry://` feature: frontend presentation and
-commands plus the native Windows backend. Manager must not mount a Registry VFS,
-register a Registry panel source, or provide Registry-specific operations.
+## Ownership
 
-## Layout
+The package owns Registry semantics, not the pane chrome:
 
-- `src/` — Angular Registry UI, editors, panel source and command contributions.
-- `src/universal/` — adapter from the universal plugin runtime to the existing UI.
-- `frontend/index.js` — archive activation entry.
-- `backend/` — Windows-native newline-delimited JSON RPC backend.
-- `plugin.json` — one-target universal package manifest (`windows-x64`).
+- `RegistryPanelSource` and Registry entry contracts
+- Registry create/edit/delete command behavior
+- Registry toolbar contributions
+- Registry entry/background context-menu contributions
+- key and value editor services/components
+- the universal Registry backend adapter
+
+The Manager owns the visual pane shell. `manager/frontend/src/app/components/registry-pane.component.ts`
+is intentionally a Directory-pane sibling so Directory and Registry keep the same visual and interaction language.
+The shared Manager context-menu and toolbar renderers display plugin contributions; the plugin does not ship a second pane UI.
+
+## Context menu contract
+
+Registry uses the common Manager context-menu renderer with Registry-owned actions:
+
+- background: **New Key**, **New Value**, **Refresh**
+- entry: **Edit**, **Delete**
+
+The host must execute the `PresentedCommand` created for the right-click context so `targetPath`,
+`currentDirectory`, and `selectedPaths` are preserved exactly.
 
 ## Backend protocol
 
-The executable reads one JSON request per line from stdin and writes one JSON
-response per line to stdout. Supported methods are:
+The backend understands:
 
 - `hello`
 - `registry.list`
@@ -27,17 +39,12 @@ response per line to stdout. Supported methods are:
 - `registry.delete`
 - `registry.rename`
 
-The backend is started and owned by the universal plugin host. Frontend code
-accesses it only through `ctx.backend.call(...)`.
-
-## Build backend
+## Build
 
 ```bash
-cd backend
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -H=windowsgui" -o plugin.exe .
+npm run build:frontend
+npm run test
+npm run build:backend
 ```
 
-## Host invariant
-
-With this plugin absent or inactive, `registry://` must not resolve. The Manager
-must contain no built-in Registry mount/provider/autocomplete implementation.
+`registry-pane.component.ts` is intentionally **not** part of this package's public API.

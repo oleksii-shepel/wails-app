@@ -8,7 +8,6 @@ import {
   RegistryPanelSource,
   type RegistryPanelSourceHost,
 } from './registry-panel-source';
-import type { Type } from '@angular/core';
 import type { RegistryFileInfo } from './registry-model';
 
 export interface RegistryCommandInvocation {
@@ -50,17 +49,10 @@ export interface RegistryContextMenuContribution {
   score(context: RegistryMenuContext): number;
 }
 
-export interface RegistryPanelPresentationContribution {
-  readonly id: string;
-  score(context: { readonly sourceKind: string; readonly viewMode: string }): number;
-  load(): Promise<Type<unknown>> | Type<unknown>;
-}
 
 export interface RegistryPluginApi {
   registerPanelSource(source: RegistryPanelSource): void;
   unregisterPanelSource(id: string): void;
-  registerPanelPresentation(presentation: RegistryPanelPresentationContribution): void;
-  unregisterPanelPresentation(id: string): void;
   registerCommand(command: RegistryCommandDescriptor): void;
   unregisterCommand(id: string): void;
   registerToolbarAction(action: RegistryToolbarContribution): void;
@@ -139,6 +131,7 @@ const MENU = {
   newValue: 'reassembly.registry.newValue.menu',
   edit: 'reassembly.registry.edit.menu',
   delete: 'reassembly.registry.delete.menu',
+  refresh: 'reassembly.registry.refresh.menu',
 } as const;
 
 function isRegistry(path: string): boolean {
@@ -419,6 +412,17 @@ export function createRegistryPlugin(
       });
 
       api.registerContextMenuItem({
+        id: MENU.refresh,
+        commandId: 'pane.nav.refresh',
+        label: 'Refresh',
+        score: context =>
+          isRegistry(context.currentDirectory) &&
+          context.targetPath === context.currentDirectory
+            ? 80
+            : 0,
+      });
+
+      api.registerContextMenuItem({
         id: MENU.edit,
         commandId: COMMAND.edit,
         label: 'Edit',
@@ -441,6 +445,7 @@ export function createRegistryPlugin(
       });
     },
     onUnregister: api => {
+      api.unregisterContextMenuItem(MENU.refresh);
       api.unregisterContextMenuItem(MENU.delete);
       api.unregisterContextMenuItem(MENU.edit);
       api.unregisterContextMenuItem(MENU.newValue);
@@ -466,8 +471,8 @@ export function createRegistryPlugin(
     descriptor: {
       id: 'reassembly.registry',
       name: 'Windows Registry',
-      version: '1.2.0',
-      description: 'Registry panel source, presentation and Registry actions.',
+      version: '1.3.2',
+      description: 'Registry panel source, editors, commands, toolbar and context-menu actions.',
       schemes: ['registry'],
     },
   };

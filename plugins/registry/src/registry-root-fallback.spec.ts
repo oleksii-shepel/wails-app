@@ -1,37 +1,26 @@
-import { RegistryPaneComponent } from './registry-pane.component';
+import { readFileSync } from 'node:fs';
 
-describe('RegistryPane root availability', () => {
-  it('shows the five Windows root hives while the provider root listing settles', () => {
-    const pane = new RegistryPaneComponent();
-    pane.path = 'registry://';
-    pane.entries = [];
+const frontend = readFileSync(
+  new URL('../frontend/index.js', import.meta.url),
+  'utf8',
+);
 
-    expect(pane.rootEntries.map(entry => entry.name)).toEqual([
+describe('Registry universal root fallback', () => {
+  it('keeps the five Windows root hives in the source adapter', () => {
+    for (const hive of [
       'HKEY_CLASSES_ROOT',
-      'HKEY_CURRENT_CONFIG',
       'HKEY_CURRENT_USER',
       'HKEY_LOCAL_MACHINE',
       'HKEY_USERS',
-    ]);
-    expect(pane.effectiveVisibleEntryCount).toBe(5);
+      'HKEY_CURRENT_CONFIG',
+    ]) {
+      expect(frontend).toContain(`'${hive}'`);
+    }
   });
 
-  it('uses provider entries once they arrive', () => {
-    const pane = new RegistryPaneComponent();
-    pane.path = 'registry://';
-    pane.entries = [{
-      name: 'HKEY_USERS',
-      path: 'registry://HKEY_USERS',
-      type: 'DIRECTORY',
-      size: 0,
-      created: 0,
-      modified: 0,
-      accessed: 0,
-      permissions: '',
-      isHidden: false,
-      registryKind: 'Key',
-    }];
-
-    expect(pane.rootEntries).toBe(pane.entries);
+  it('keeps presentation out of the universal archive entry', () => {
+    expect(frontend).toContain("id: 'registry'");
+    expect(frontend).not.toContain('RegistryPaneComponent');
+    expect(frontend).not.toContain('@angular/core');
   });
 });

@@ -57,7 +57,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'registry'; else standardPane">
+    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'registry' && rendererKind !== 'network'; else standardPane">
       <section
         class="specialized-pane"
         tabindex="-1"
@@ -257,16 +257,6 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
             (entryContextMenu)="onProviderContextMenu($event)">
           </app-autorun-pane>
 
-          <app-network-pane
-            *ngSwitchCase="'network'"
-            [session]="provider"
-            (backgroundClick)="onProviderBackgroundClick($event)"
-            (backgroundContextMenu)="backgroundContextMenu.emit($event)"
-            (entrySelect)="onProviderSelect($event)"
-            (entryOpen)="onProviderOpen($event)"
-            (entryContextMenu)="onProviderContextMenu($event)">
-          </app-network-pane>
-
           <app-system-table-pane
             *ngSwitchCase="'system-table'"
             [session]="provider"
@@ -325,6 +315,28 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         (backgroundContextMenu)="backgroundContextMenu.emit($event)"
         (internalDrop)="internalDrop.emit($event)">
       </app-registry-pane>
+
+      <app-network-pane
+        *ngSwitchCase="'network'"
+        #component
+        [paneId]="paneId"
+        [active]="active"
+        [showHidden]="showHidden"
+        [currentPathPinned]="currentPathPinned"
+        [pluginToolbarActions]="effectivePluginToolbarActions"
+        [comparisonStatuses]="comparisonStatuses"
+        (activateRequested)="activateRequested.emit()"
+        (navigationTrailRequested)="navigationTrailRequested.emit($event)"
+        (remoteRecoveryRequested)="remoteRecoveryRequested.emit()"
+        (togglePinRequested)="togglePinRequested.emit()"
+        (locationChange)="locationChange.emit($event)"
+        (cursorChange)="cursorChange.emit($event)"
+        (presentationChange)="presentationChange.emit($event)"
+        (viewportChange)="viewportChange.emit($event)"
+        (entryContextMenu)="entryContextMenu.emit($event)"
+        (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+        (internalDrop)="internalDrop.emit($event)">
+      </app-network-pane>
       </ng-container>
     </ng-template>
   `,
@@ -616,7 +628,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   ngDoCheck(): void {
-    if (this.rendererKind === 'directory' || this.rendererKind === 'registry') return;
+    if (this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'network') return;
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
     void this.provider.sync(this.paneId, path, this.showHidden);
     if (!this.specializedLocationEditing) this.specializedLocationDraft = this.provider.path;
@@ -628,7 +640,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   private get activeComponent(): PaneComponent | undefined {
-    return this.rendererKind === 'directory' || this.rendererKind === 'registry'
+    return this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'network'
       ? (this.inner as unknown as PaneComponent | undefined)
       : this.provider;
   }

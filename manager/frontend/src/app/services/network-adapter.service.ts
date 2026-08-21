@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 
 import { FileType, type FileInfo } from '../shared/protocol';
-import { ConfirmDialogService } from './confirm-dialog.service';
+import { ConfirmDialogService, type ConfirmDialogDetailSection } from './confirm-dialog.service';
 import { PluginManagerService } from './plugin-manager.service';
 
 type AdapterFields = Readonly<Record<string, unknown>>;
@@ -25,6 +25,10 @@ interface AdapterDiagnostic {
 @Injectable({ providedIn: 'root' })
 export class NetworkAdapterService {
   private contextMenuRegistered = false;
+  private readonly adapterContext = new Map<string, {
+    name: string;
+    fields: AdapterFields;
+  }>();
 
   constructor(
     private readonly pluginManager: PluginManagerService,
@@ -35,11 +39,32 @@ export class NetworkAdapterService {
     if (this.contextMenuRegistered) return;
     this.contextMenuRegistered = true;
 
-    const score = (currentDirectory: string, targetPath: string, value: number) =>
-      currentDirectory.toLowerCase() === 'network://adapters' &&
-      /^network:\/\/entry\//i.test(targetPath)
-        ? value
-        : 0;
+    const adapterFor = (currentDirectory: string, targetPath: string) => {
+      if (currentDirectory.toLowerCase() !== 'network://adapters') return null;
+      return this.adapterContext.get(targetPath) ?? null;
+    };
+
+    const score = (
+      currentDirectory: string,
+      targetPath: string,
+      value: number,
+      predicate: (fields: AdapterFields) => boolean = () => true,
+    ): number => {
+      const adapter = adapterFor(currentDirectory, targetPath);
+      return adapter && predicate(adapter.fields) ? value : 0;
+    };
+
+    const has = (field: string) => (fields: AdapterFields) =>
+      this.fieldValue(fields, field) !== '';
+    const hasIndex = (fields: AdapterFields) => this.indexFromFields(fields) != null;
+    const isEnabled = (fields: AdapterFields) => this.enabledFromFields(fields);
+    const isDisabled = (fields: AdapterFields) => !this.enabledFromFields(fields);
+    const isOperational = (fields: AdapterFields) =>
+      this.text(fields, 'status').toLowerCase() === 'up';
+    const canRenewDHCP = (fields: AdapterFields) =>
+      hasIndex(fields) && isOperational(fields) && this.dhcpFromFields(fields);
+    const canShowConnections = (fields: AdapterFields) =>
+      isOperational(fields) && has('address')(fields);
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.properties',
@@ -49,52 +74,101 @@ export class NetworkAdapterService {
     });
 
     this.pluginManager.registerContextMenuItem({
-      id: 'builtin.network.adapter.toggle',
-      label: 'Enable / Disable adapter',
-      score: context => score(context.currentDirectory, context.targetPath, 96),
-      execute: context => this.toggleByPath(context.targetPath),
+      id: 'builtin.network.adapter.enable',
+      label: 'Enable adapter',
+      score: context => score(
+        context.currentDirectory,
+        context.targetPath,
+        96,
+        fields => hasIndex(fields) && isDisabled(fields),
+      ),
+      execute: context => this.setEnabledByPath(context.targetPath, true),
+    });
+
+    this.pluginManager.registerContextMenuItem({
+      id: 'builtin.network.adapter.disable',
+      label: 'Disable adapter',
+      score: context => score(
+        context.currentDirectory,
+        context.targetPath,
+        96,
+        fields => hasIndex(fields) && isEnabled(fields),
+      ),
+      execute: context => this.setEnabledByPath(context.targetPath, false),
     });
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.renew',
       label: 'Renew DHCP',
-      score: context => score(context.currentDirectory, context.targetPath, 92),
+      score: context => score(
+        context.currentDirectory,
+        context.targetPath,
+        92,
+        canRenewDHCP,
+      ),
       execute: context => this.renewByPath(context.targetPath),
     });
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.diagnose',
       label: 'Diagnose',
-      score: context => score(context.currentDirectory, context.targetPath, 88),
+      score: context => score(
+        context.currentDirectory,
+        context.targetPath,
+        88,
+        hasIndex,
+      ),
       execute: context => this.diagnoseByPath(context.targetPath),
+    });
+
+    this.pluginManager.registerContextMenuItem({
+      id: 'builtin.network.adapter.connections',
+      label: 'Show connections',
+      score: context => score(
+        context.currentDirectory,
+        context.targetPath,
+        84,
+        canShowConnections,
+      ),
+      execute: context => {
+        const adapter = this.adapterContext.get(context.targetPath);
+        const address = adapter ? this.fieldValue(adapter.fields, 'address') : '';
+        if (address) {
+          window.dispatchEvent(new CustomEvent('network-adapter-connections', {
+            detail: { address },
+          }));
+        }
+      },
     });
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.copy-ip',
       label: 'Copy IP address',
-      score: context => score(context.currentDirectory, context.targetPath, 80),
+      score: context => score(context.currentDirectory, context.targetPath, 80, has('address')),
       execute: context => this.copyFieldByPath(context.targetPath, 'address'),
     });
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.copy-mac',
       label: 'Copy MAC address',
-      score: context => score(context.currentDirectory, context.targetPath, 79),
+      score: context => score(context.currentDirectory, context.targetPath, 79, has('mac')),
       execute: context => this.copyFieldByPath(context.targetPath, 'mac'),
     });
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.copy-gateway',
       label: 'Copy gateway',
-      score: context => score(context.currentDirectory, context.targetPath, 78),
+      score: context => score(context.currentDirectory, context.targetPath, 78, has('gateway')),
       execute: context => this.copyFieldByPath(context.targetPath, 'gateway'),
     });
 
     this.pluginManager.registerContextMenuItem({
       id: 'builtin.network.adapter.copy-dns',
       label: 'Copy DNS servers',
-      score: context => score(context.currentDirectory, context.targetPath, 77),
-      execute: context => this.copyFieldByPath(context.targetPath, 'dns'),
+      score: context => score(context.currentDirectory, context.targetPath, 77, fields =>
+        has('dns')(fields) || has('dnsServers')(fields),
+      ),
+      execute: context => this.copyFieldByPath(context.targetPath, 'dnsServers', 'dns'),
     });
 
     this.pluginManager.registerContextMenuItem({
@@ -105,25 +179,26 @@ export class NetworkAdapterService {
     });
   }
 
+  rememberAdapter(entry: FileInfo): void {
+    if (!this.isAdapter(entry)) return;
+    const fields = this.fields(entry) ?? {};
+    this.adapterContext.set(entry.path, { name: entry.name, fields });
+  }
+
   isAdapter(entry: FileInfo | null | undefined): boolean {
     return this.text(this.fields(entry), 'kind').toLowerCase() === 'adapter';
   }
 
   index(entry: FileInfo | null | undefined): number | null {
-    const value = Number(this.fields(entry)?.['index']);
-    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    return this.indexFromFields(this.fields(entry));
   }
 
   enabled(entry: FileInfo): boolean {
-    const fields = this.fields(entry);
-    const admin = this.text(fields, 'adminStatus').toLowerCase();
-    if (admin) return admin === 'enabled';
-    return this.text(fields, 'status').toLowerCase() === 'up';
+    return this.enabledFromFields(this.fields(entry) ?? {});
   }
 
   dhcpEnabled(entry: FileInfo): boolean {
-    const value = this.fields(entry)?.['dhcpEnabled'];
-    return value === true || String(value).toLowerCase() === 'true';
+    return this.dhcpFromFields(this.fields(entry) ?? {});
   }
 
   value(entry: FileInfo, field: string): string {
@@ -137,9 +212,13 @@ export class NetworkAdapterService {
   }
 
   async showProperties(entry: FileInfo): Promise<void> {
+    const fields = this.fields(entry) ?? {};
     await this.confirmDialog.alert({
       title: `${entry.name} — Network Adapter`,
-      message: this.formatProperties(entry.name, this.fields(entry) ?? {}),
+      message: this.adapterSubtitle(fields),
+      tone: 'info',
+      footerHint: false,
+      details: this.adapterPropertySections(entry.name, fields),
     });
   }
 
@@ -195,7 +274,18 @@ export class NetworkAdapterService {
 
     await this.confirmDialog.alert({
       title: `${entry.name} — ${healthy ? 'Connectivity OK' : 'Connectivity Issues'}`,
-      message: summary,
+      message: '',
+      tone: healthy ? 'success' : 'warning',
+      footerHint: false,
+      details: [{
+        title: 'Diagnostics',
+        rows: summary
+          .split('\n')
+          .map((line, index) => ({
+            label: index === 0 ? 'Result' : '',
+            value: line,
+          })),
+      }],
     });
   }
 
@@ -242,17 +332,20 @@ export class NetworkAdapterService {
   private async showPropertiesByPath(path: string): Promise<void> {
     const record = await this.recordForPath(path);
     if (!record) return;
+    const fields = record.fields ?? {};
     await this.confirmDialog.alert({
       title: `${record.name} — Network Adapter`,
-      message: this.formatProperties(record.name, record.fields ?? {}),
+      message: this.adapterSubtitle(fields),
+      tone: 'info',
+      footerHint: false,
+      details: this.adapterPropertySections(record.name, fields),
     });
   }
 
-  private async toggleByPath(path: string): Promise<void> {
+  private async setEnabledByPath(path: string, enabled: boolean): Promise<void> {
     const record = await this.recordForPath(path);
     if (!record) return;
-    const entry = this.recordEntry(record);
-    await this.setEnabled(entry, !this.enabled(entry));
+    await this.setEnabled(this.recordEntry(record), enabled);
   }
 
   private async renewByPath(path: string): Promise<void> {
@@ -267,10 +360,18 @@ export class NetworkAdapterService {
     await this.diagnose(this.recordEntry(record));
   }
 
-  private async copyFieldByPath(path: string, field: string): Promise<void> {
+  private async copyFieldByPath(
+    path: string,
+    field: string,
+    fallbackField?: string,
+  ): Promise<void> {
     const record = await this.recordForPath(path);
     if (!record) return;
-    const value = record.fields?.[field];
+    const fields = record.fields ?? {};
+    let value = fields[field];
+    if (this.fieldValue(fields, field) === '' && fallbackField) {
+      value = fields[fallbackField];
+    }
     const text = Array.isArray(value) ? value.map(String).join(', ') : String(value ?? '');
     await this.copyValue(text);
   }
@@ -288,11 +389,16 @@ export class NetworkAdapterService {
       const record = candidate as any;
       const recordId = String(record?.id ?? record?.ID ?? '');
       if (recordId !== id) continue;
-      return {
+      const normalized = {
         id: recordId,
         name: String(record?.name ?? record?.Name ?? recordId),
         fields: (record?.fields ?? record?.Fields ?? {}) as AdapterFields,
       };
+      this.adapterContext.set(path, {
+        name: normalized.name,
+        fields: normalized.fields ?? {},
+      });
+      return normalized;
     }
     return null;
   }
@@ -341,32 +447,120 @@ export class NetworkAdapterService {
     return value == null ? '' : String(value);
   }
 
-  private formatProperties(name: string, fields: AdapterFields): string {
-    const lines = [
+  private adapterSubtitle(fields: AdapterFields): string {
+    const description = this.text(fields, 'description');
+    const status = this.text(fields, 'status');
+    return [description, status].filter(Boolean).join(' · ');
+  }
+
+  private adapterPropertySections(
+    name: string,
+    fields: AdapterFields,
+  ): readonly ConfirmDialogDetailSection[] {
+    const sections: ConfirmDialogDetailSection[] = [];
+
+    const identity = this.rows([
       ['Name', name],
       ['Description', this.text(fields, 'description')],
+      ['Interface name', this.text(fields, 'interfaceName')],
       ['Status', this.text(fields, 'status')],
       ['Administrative state', this.text(fields, 'adminStatus')],
-      ['IP addresses', this.listText(fields['addresses'])],
-      ['Gateway', this.text(fields, 'gateway')],
-      ['DNS servers', this.listText(fields['dnsServers']) || this.text(fields, 'dns')],
-      ['DNS suffix', this.text(fields, 'dnsSuffix')],
-      ['MAC address', this.text(fields, 'mac')],
-      ['Link speed', this.formatSpeed(fields['linkSpeed'])],
-      ['MTU', this.text(fields, 'mtu')],
+      ['Interface type', this.adapterType(fields)],
+      ['Interface index', this.text(fields, 'index')],
+    ]);
+    if (identity.length) sections.push({ title: 'Adapter', rows: identity });
+
+    const addressing = this.rows([
+      ['IP addresses', this.stringList(fields['addresses']), true],
+      ['Gateway', this.stringList(fields['gateways']) || this.text(fields, 'gateway'), true],
+      ['DNS servers', this.stringList(fields['dnsServers']) || this.text(fields, 'dns'), true],
+      ['DNS suffix', this.text(fields, 'dnsSuffix'), true],
       ['DHCP', this.booleanText(fields['dhcpEnabled'])],
+    ]);
+    if (addressing.length) sections.push({ title: 'Addressing', rows: addressing });
+
+    const hardware = this.rows([
+      ['MAC address', this.text(fields, 'mac'), true],
+      ['Link speed', this.formatSpeed(fields['linkSpeed'])],
+      ['Transmit speed', this.formatSpeed(fields['transmitSpeed'])],
+      ['Receive speed', this.formatSpeed(fields['receiveSpeed'])],
+      ['MTU', this.text(fields, 'mtu')],
+      ['Flags', this.text(fields, 'flags')],
+    ]);
+    if (hardware.length) sections.push({ title: 'Hardware & link', rows: hardware });
+
+    const traffic = this.rows([
       ['Received', this.formatBytes(fields['bytesReceived'])],
       ['Sent', this.formatBytes(fields['bytesSent'])],
       ['Receive errors', this.text(fields, 'receiveErrors')],
       ['Send errors', this.text(fields, 'sendErrors')],
       ['Receive discards', this.text(fields, 'receiveDiscards')],
       ['Send discards', this.text(fields, 'sendDiscards')],
-    ] as const;
+    ]);
+    if (traffic.length) sections.push({ title: 'Traffic', rows: traffic });
 
-    return lines
-      .filter(([, value]) => String(value ?? '').trim() !== '')
-      .map(([label, value]) => `${label}: ${value}`)
-      .join('\n');
+    return sections;
+  }
+
+  private rows(
+    definitions: readonly (readonly [string, string | readonly string[], boolean?])[],
+  ): ConfirmDialogDetailSection['rows'] {
+    return definitions
+      .filter(([, value]) => Array.isArray(value) ? value.length > 0 : String(value ?? '').trim() !== '')
+      .map(([label, value, monospace]) => ({ label, value, monospace }));
+  }
+
+  private stringList(value: unknown): string | readonly string[] {
+    if (Array.isArray(value)) {
+      return value.map(String).map(item => item.trim()).filter(Boolean);
+    }
+    return String(value ?? '').trim();
+  }
+
+  private adapterType(fields: AdapterFields): string {
+    const description = this.text(fields, 'description').toLowerCase();
+    if (description.includes('bluetooth')) return 'Bluetooth PAN';
+    if (description.includes('hyper-v')) return 'Hyper-V virtual adapter';
+    if (description.includes('vmware')) return 'VMware virtual adapter';
+    if (description.includes('virtualbox')) return 'VirtualBox virtual adapter';
+    if (description.includes('wireguard')) return 'WireGuard adapter';
+    if (description.includes('vpn') || description.includes('tap') || description.includes('tun')) {
+      return 'VPN / virtual adapter';
+    }
+
+    const raw = Number(fields['ifType']);
+    const friendly = new Map<number, string>([
+      [6, 'Ethernet'],
+      [24, 'Loopback'],
+      [53, 'PPP / VPN'],
+      [71, 'Wi-Fi'],
+      [131, 'Tunnel'],
+      [144, 'IEEE 1394'],
+    ]).get(raw);
+    if (friendly) return friendly;
+    return Number.isFinite(raw) && raw > 0 ? `Type ${raw}` : '';
+  }
+
+  private fieldValue(fields: AdapterFields, field: string): string {
+    const value = fields[field];
+    if (Array.isArray(value)) return value.map(String).filter(Boolean).join(', ');
+    return value == null ? '' : String(value).trim();
+  }
+
+  private indexFromFields(fields: AdapterFields | undefined): number | null {
+    const value = Number(fields?.['index']);
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+  }
+
+  private enabledFromFields(fields: AdapterFields): boolean {
+    const admin = this.text(fields, 'adminStatus').toLowerCase();
+    if (admin) return admin === 'enabled';
+    return this.text(fields, 'status').toLowerCase() === 'up';
+  }
+
+  private dhcpFromFields(fields: AdapterFields): boolean {
+    const value = fields['dhcpEnabled'];
+    return value === true || String(value).toLowerCase() === 'true';
   }
 
   private listText(value: unknown): string {

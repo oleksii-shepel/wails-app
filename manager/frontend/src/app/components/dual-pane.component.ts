@@ -4451,6 +4451,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
       return;
     }
+
+    if (/^network:\/\/adapters\/?$/i.test(pane?.contextState.path ?? '')) {
+      const adapterItems = this.pluginContextMenuItems(pane, entry.path);
+      this.contextMenu = {
+        x: event.clientX,
+        y: event.clientY,
+        title: entry.name || 'Network adapter',
+        items: normalizeContextMenuItems(adapterItems),
+      };
+      this.cdr.markForCheck();
+      return;
+    }
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
     const isArchive = entry.type === FileType.ARCHIVE;

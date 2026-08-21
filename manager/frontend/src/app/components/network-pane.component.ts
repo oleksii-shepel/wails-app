@@ -2461,6 +2461,14 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
     void this.refresh();
   };
 
+  private readonly networkAdapterConnectionsHandler = (event: Event): void => {
+    const address = String(
+      (event as CustomEvent<{ address?: string }>).detail?.address ?? '',
+    ).trim();
+    if (!address) return;
+    void this.showAdapterConnectionsByAddress(address);
+  };
+
   constructor(
     private readonly api: ApiService,
     private readonly directorySource: DirectorySourceService,
@@ -2769,6 +2777,10 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
       'network-adapter-changed',
       this.networkAdapterChangedHandler,
     );
+    window.addEventListener(
+      'network-adapter-connections',
+      this.networkAdapterConnectionsHandler,
+    );
 
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
@@ -2783,6 +2795,10 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
     window.removeEventListener(
       'network-adapter-changed',
       this.networkAdapterChangedHandler,
+    );
+    window.removeEventListener(
+      'network-adapter-connections',
+      this.networkAdapterConnectionsHandler,
     );
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
@@ -4193,6 +4209,7 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
     }
 
+    this.networkAdapters.rememberAdapter(entry);
     this.focusContent();
     this.entryContextMenu.emit({ event, entry });
   }
@@ -4934,6 +4951,7 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
     const adapter = target && this.networkAdapters.isAdapter(target)
       ? target
       : null;
+    if (adapter) this.networkAdapters.rememberAdapter(adapter);
 
     const builtins: PresentedCommand[] = [
       {
@@ -5144,11 +5162,16 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
 
   private async showAdapterConnections(entry: FileInfo): Promise<void> {
     const address = this.networkAdapters.primaryAddress(entry);
+    if (!address) return;
+    await this.showAdapterConnectionsByAddress(address);
+  }
+
+  private async showAdapterConnectionsByAddress(address: string): Promise<void> {
     const loaded = await this.load(
       'network://connections',
       { history: 'record' },
     );
-    if (!loaded || !address) return;
+    if (!loaded) return;
     this.setFilter(address);
   }
 

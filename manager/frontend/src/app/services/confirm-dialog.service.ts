@@ -2,6 +2,19 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { formatPathsInText } from '../components/address-bar.utils';
 
+export type ConfirmDialogTone = 'warning' | 'info' | 'success' | 'error';
+
+export interface ConfirmDialogDetailRow {
+  label: string;
+  value: string | readonly string[];
+  monospace?: boolean;
+}
+
+export interface ConfirmDialogDetailSection {
+  title?: string;
+  rows: readonly ConfirmDialogDetailRow[];
+}
+
 export interface ConfirmDialogOptions {
   title?: string;
   message: string;
@@ -14,6 +27,12 @@ export interface ConfirmDialogOptions {
   placeholder?: string;
   /** When set, typed values are persisted and offered as autocomplete suggestions. */
   historyKey?: string;
+  /** Optional structured content for information/alert dialogs. */
+  details?: readonly ConfirmDialogDetailSection[];
+  /** Visual treatment for alert dialogs. Existing alerts default to warning. */
+  tone?: ConfirmDialogTone;
+  /** Set false to suppress the keyboard hint in alert footers. */
+  footerHint?: string | false;
 }
 
 interface ConfirmDialogRequest {
@@ -43,6 +62,7 @@ export class ConfirmDialogService {
     const normalized = this.normalizeOptions(options);
     normalized.isAlert = true;
     normalized.confirmText = 'OK';
+    normalized.tone ??= 'warning';
 
     return new Promise<void>((resolve) => {
       this.queue.push({

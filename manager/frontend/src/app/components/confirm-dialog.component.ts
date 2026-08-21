@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { ConfirmDialogService, type ConfirmDialogDetailRow } from '../services/confirm-dialog.service';
 import { InputHistoryService } from '../services/input-history.service';
 import { InputHistoryDirective } from '../directives/input-history.directive';
 import type { Stream } from '@epikodelabs/streamix';
@@ -21,12 +21,15 @@ interface ConfirmDialogRequest {
       <div 
         class="confirm-overlay"
         [class.confirm-overlay--alert]="request.options.isAlert"
+        [class.confirm-overlay--detailed]="request.options.isAlert && request.options.details?.length"
         (click)="onCancel()"
       >
         <div
           #dialogPanel
           class="confirm-panel"
           [class.confirm-panel--alert]="request.options.isAlert"
+          [class.confirm-panel--detailed]="request.options.isAlert && request.options.details?.length"
+          [attr.data-tone]="request.options.tone || 'warning'"
           [class.confirm-panel--prompt]="request.options.isPrompt && !request.options.isAlert"
           [attr.role]="request.options.isAlert ? 'alertdialog' : 'dialog'"
           aria-modal="true"
@@ -36,27 +39,53 @@ interface ConfirmDialogRequest {
           (mousedown)="$event.stopPropagation()"
           (click)="$event.stopPropagation()"
         >
-          <!-- Alert toast-style layout -->
+          <!-- Alert / structured information layout -->
           <ng-container *ngIf="request.options.isAlert">
             <div class="conflict-body">
               <div class="conflict-heading">
-                <svg class="warn-icon" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M7.56 1h.88l6.54 12.26-.44.74H1.44L1 13.26Zm.44 2L2.28 13h11.44ZM8 11a.75.75 0 1 1 0 1.5A.75.75 0 0 1 8 11zm.75-5v4.5h-1.5V6h1.5z"/>
-                </svg>
-                <div>
+                <span class="alert-symbol" aria-hidden="true">
+                  {{ alertSymbol(request.options.tone) }}
+                </span>
+                <div class="alert-heading-copy">
                   <div class="conflict-title">{{ getAlertTitle(request.options) }}</div>
-                  <div class="conflict-sub" *ngIf="getAlertSubtitle(request.options)">{{ getAlertSubtitle(request.options) }}</div>
+                  <div class="conflict-sub" *ngIf="getAlertSubtitle(request.options)">
+                    {{ getAlertSubtitle(request.options) }}
+                  </div>
                 </div>
               </div>
+
+              <div class="detail-scroll" *ngIf="request.options.details?.length">
+                <section
+                  class="detail-section"
+                  *ngFor="let section of request.options.details">
+                  <h3 *ngIf="section.title">{{ section.title }}</h3>
+                  <dl class="property-grid">
+                    <ng-container *ngFor="let row of section.rows">
+                      <dt>{{ row.label }}</dt>
+                      <dd [class.property-value--mono]="row.monospace">
+                        <span
+                          class="property-value-line"
+                          *ngFor="let value of detailValues(row)">
+                          {{ value }}
+                        </span>
+                      </dd>
+                    </ng-container>
+                  </dl>
+                </section>
+              </div>
+
               <footer class="alert-actions conflict-footer">
-                <span class="conflict-footer-label">Press Enter to continue</span>
+                <span
+                  class="conflict-footer-label"
+                  *ngIf="alertFooterHint(request.options) as footerHint">
+                  {{ footerHint }}
+                </span>
                 <button
                   type="button"
                   class="alert-btn"
                   data-dialog-initial-focus
                   data-dialog-action="confirm"
-                  (click)="onConfirm()"
-                >
+                  (click)="onConfirm()">
                   {{ request.options.confirmText || 'OK' }}
                 </button>
               </footer>
@@ -145,6 +174,10 @@ interface ConfirmDialogRequest {
       padding: 20px;
     }
 
+    .confirm-overlay--detailed {
+      align-items: center;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -189,6 +222,66 @@ interface ConfirmDialogRequest {
       padding: 0;
     }
 
+    .confirm-panel--detailed {
+      width: min(620px, calc(100vw - 40px));
+      max-height: min(720px, calc(100vh - 40px));
+    }
+
+    .detail-scroll {
+      overflow: auto;
+      padding: 4px 14px 12px;
+      max-height: min(560px, calc(100vh - 170px));
+      background: var(--vsc-editor-background);
+    }
+
+    .detail-section {
+      padding: 10px 0 2px;
+      border-top: 1px solid var(--vsc-border-subtle);
+    }
+
+    .detail-section:first-child {
+      border-top: 0;
+    }
+
+    .detail-section h3 {
+      margin: 0 0 7px;
+      color: var(--vsc-foreground-bright, var(--vsc-foreground));
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .property-grid {
+      display: grid;
+      grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+      gap: 4px 14px;
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .property-grid dt {
+      min-width: 0;
+      color: var(--vsc-description-foreground);
+      text-align: right;
+    }
+
+    .property-grid dd {
+      min-width: 0;
+      margin: 0;
+      color: var(--vsc-foreground);
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+
+    .property-value-line {
+      display: block;
+    }
+
+    .property-value--mono {
+      font-family: var(--vsc-editor-font-family, Consolas, monospace);
+      font-size: 10.5px;
+    }
+
     /* ── Alert body (toast-style) ── */
     .conflict-body {
       width: 100%;
@@ -205,12 +298,51 @@ interface ConfirmDialogRequest {
       border-bottom: 1px solid var(--vsc-warning-surface);
     }
 
-    .warn-icon {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-      color: var(--vsc-warning);
+    .alert-symbol {
+      display: inline-grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
       margin-top: 1px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      color: var(--vsc-warning);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .alert-heading-copy {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .confirm-panel--alert[data-tone='info'] {
+      border-color: var(--vsc-accent-blue, var(--vsc-focus-border));
+    }
+
+    .confirm-panel--alert[data-tone='info'] .alert-symbol,
+    .confirm-panel--alert[data-tone='info'] .conflict-title {
+      color: var(--vsc-accent-blue, var(--vsc-focus-border));
+    }
+
+    .confirm-panel--alert[data-tone='success'] {
+      border-color: var(--vsc-success, #16825d);
+    }
+
+    .confirm-panel--alert[data-tone='success'] .alert-symbol,
+    .confirm-panel--alert[data-tone='success'] .conflict-title {
+      color: var(--vsc-success, #16825d);
+    }
+
+    .confirm-panel--alert[data-tone='error'] {
+      border-color: var(--vsc-error);
+    }
+
+    .confirm-panel--alert[data-tone='error'] .alert-symbol,
+    .confirm-panel--alert[data-tone='error'] .conflict-title {
+      color: var(--vsc-error);
     }
 
     .conflict-title {
@@ -476,6 +608,27 @@ export class ConfirmDialogComponent {
     }
     const lines = options.message.split('\n');
     return lines.slice(1).join('\n');
+  }
+
+  detailValues(row: ConfirmDialogDetailRow): readonly string[] {
+    return typeof row.value === 'string'
+      ? [row.value]
+      : Array.from(row.value, String);
+  }
+
+  alertSymbol(tone: string | undefined): string {
+    switch (tone) {
+      case 'info': return 'i';
+      case 'success': return '✓';
+      case 'error': return '×';
+      default: return '!';
+    }
+  }
+
+  alertFooterHint(options: any): string | null {
+    if (options.footerHint === false) return null;
+    if (typeof options.footerHint === 'string') return options.footerHint;
+    return options.details?.length ? null : 'Press Enter to continue';
   }
 
 }

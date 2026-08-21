@@ -15,6 +15,7 @@ import { RegistryPaneComponent } from './registry-pane.component';
 import { AutorunPaneComponent } from './autorun-pane.component';
 import { SystemTablePaneComponent } from './system-table-pane.component';
 import { NetworkPaneComponent } from './network-pane.component';
+import { EnvironmentPaneComponent } from './environment-pane.component';
 import { TabBarComponent } from './tab-bar.component';
 import { PaneRendererRegistryService, type PaneRendererKind } from './pane-renderer-registry.service';
 import { PanelSourcePaneSession } from './panel-source-pane-session';
@@ -53,11 +54,12 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     AutorunPaneComponent,
     SystemTablePaneComponent,
     NetworkPaneComponent,
+    EnvironmentPaneComponent,
     TabBarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'registry' && rendererKind !== 'network'; else standardPane">
+    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'registry' && rendererKind !== 'network' && rendererKind !== 'environment'; else standardPane">
       <section
         class="specialized-pane"
         tabindex="-1"
@@ -337,6 +339,28 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         (backgroundContextMenu)="backgroundContextMenu.emit($event)"
         (internalDrop)="internalDrop.emit($event)">
       </app-network-pane>
+
+      <app-environment-pane
+        *ngSwitchCase="'environment'"
+        #component
+        [paneId]="paneId"
+        [active]="active"
+        [showHidden]="showHidden"
+        [currentPathPinned]="currentPathPinned"
+        [pluginToolbarActions]="effectivePluginToolbarActions"
+        [comparisonStatuses]="comparisonStatuses"
+        (activateRequested)="activateRequested.emit()"
+        (navigationTrailRequested)="navigationTrailRequested.emit($event)"
+        (remoteRecoveryRequested)="remoteRecoveryRequested.emit()"
+        (togglePinRequested)="togglePinRequested.emit()"
+        (locationChange)="locationChange.emit($event)"
+        (cursorChange)="cursorChange.emit($event)"
+        (presentationChange)="presentationChange.emit($event)"
+        (viewportChange)="viewportChange.emit($event)"
+        (entryContextMenu)="entryContextMenu.emit($event)"
+        (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+        (internalDrop)="internalDrop.emit($event)">
+      </app-environment-pane>
       </ng-container>
     </ng-template>
   `,
@@ -545,11 +569,11 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:3px 9px}
     .plugin-icon{display:inline-grid;place-items:center;width:16px;height:16px}
     .error{display:flex;flex:1 1 0%;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
-    app-registry-pane,app-autorun-pane,app-network-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
+    app-registry-pane,app-autorun-pane,app-network-pane,app-environment-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
-  @ViewChild('component') private inner?: DirectoryPaneComponent | RegistryPaneComponent;
+  @ViewChild('component') private inner?: DirectoryPaneComponent | RegistryPaneComponent | NetworkPaneComponent | EnvironmentPaneComponent;
   @ViewChild('locationEditor') private locationEditor?: ElementRef<HTMLInputElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -628,7 +652,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   ngDoCheck(): void {
-    if (this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'network') return;
+    if (this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'network' || this.rendererKind === 'environment') return;
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
     void this.provider.sync(this.paneId, path, this.showHidden);
     if (!this.specializedLocationEditing) this.specializedLocationDraft = this.provider.path;
@@ -640,7 +664,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   private get activeComponent(): PaneComponent | undefined {
-    return this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'network'
+    return this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'network' || this.rendererKind === 'environment'
       ? (this.inner as unknown as PaneComponent | undefined)
       : this.provider;
   }

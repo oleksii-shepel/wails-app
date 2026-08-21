@@ -63,6 +63,60 @@ function normalizeNetworkPath(path: string): string {
   return body ? `${NETWORK_ROOT}${body}` : NETWORK_ROOT;
 }
 
+const ENVIRONMENT_ROOT = 'environment://';
+
+function normalizeEnvironmentPath(path: string): string {
+  const raw = String(path || ENVIRONMENT_ROOT).trim().replace(/\\/g, '/');
+  if (!/^environment:\/\//i.test(raw)) return ENVIRONMENT_ROOT;
+  const body = raw.slice(raw.indexOf('://') + 3)
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  return body ? `${ENVIRONMENT_ROOT}${body}` : ENVIRONMENT_ROOT;
+}
+
+function environmentRootEntries(): SystemSurfaceFileInfo[] {
+  const scopes = [
+    {
+      id: 'process',
+      name: 'Process variables',
+      scope: 'Process',
+      description: 'Environment inherited by this Manager process',
+    },
+    {
+      id: 'user',
+      name: 'User variables',
+      scope: 'User',
+      description: 'Variables persisted for the current Windows user',
+    },
+    {
+      id: 'system',
+      name: 'System variables',
+      scope: 'System',
+      description: 'Machine-wide Windows environment variables',
+    },
+  ] as const;
+
+  return scopes.map(item => ({
+    name: item.name,
+    path: `${ENVIRONMENT_ROOT}${item.id}`,
+    type: FileType.DIRECTORY,
+    size: 0,
+    created: 0,
+    modified: 0,
+    accessed: 0,
+    permissions: 'r-x',
+    isHidden: false,
+    systemSurfaceKind: 'environment',
+    systemRecordId: item.id,
+    systemFields: {
+      scope: item.scope,
+      value: item.description,
+      valueType: 'Scope',
+      environmentNodeKind: 'scope',
+    },
+  }));
+}
+
 function fieldText(
   fields: Readonly<Record<string, unknown>> | undefined,
   field: string,
@@ -165,25 +219,37 @@ export class SystemSurfacePanelSource implements PanelSource {
   getRootPath(): string { return rootFor(this.descriptor.kind); }
 
   getParentPath(context: PanelSourceContext): string {
-    if (this.descriptor.kind !== 'network') {
-      return rootFor(this.descriptor.kind);
+    if (this.descriptor.kind === 'network') {
+      const normalized = normalizeNetworkPath(context.path);
+      if (normalized === NETWORK_ROOT) return NETWORK_ROOT;
+
+      const body = normalized.slice(NETWORK_ROOT.length).replace(/\/+$/, '');
+      const slash = body.lastIndexOf('/');
+      return slash < 0 ? NETWORK_ROOT : `${NETWORK_ROOT}${body.slice(0, slash)}`;
     }
 
-    const normalized = normalizeNetworkPath(context.path);
-    if (normalized === NETWORK_ROOT) return NETWORK_ROOT;
+    if (this.descriptor.kind === 'environment') {
+      const normalized = normalizeEnvironmentPath(context.path);
+      return normalized === ENVIRONMENT_ROOT
+        ? ENVIRONMENT_ROOT
+        : ENVIRONMENT_ROOT;
+    }
 
-    const body = normalized.slice(NETWORK_ROOT.length).replace(/\/+$/, '');
-    const slash = body.lastIndexOf('/');
-    return slash < 0 ? NETWORK_ROOT : `${NETWORK_ROOT}${body.slice(0, slash)}`;
+    return rootFor(this.descriptor.kind);
   }
 
   joinChildPath(context: PanelSourceContext, childName: string): string {
-    if (this.descriptor.kind !== 'network') {
-      return stableLeafPath(this.descriptor.kind, childName);
+    if (this.descriptor.kind === 'network') {
+      const base = normalizeNetworkPath(context.path).replace(/\/+$/, '');
+      return `${base}/${encodeURIComponent(childName)}`;
     }
 
-    const base = normalizeNetworkPath(context.path).replace(/\/+$/, '');
-    return `${base}/${encodeURIComponent(childName)}`;
+    if (this.descriptor.kind === 'environment') {
+      const base = normalizeEnvironmentPath(context.path).replace(/\/+$/, '');
+      return `${base}/${encodeURIComponent(childName)}`;
+    }
+
+    return stableLeafPath(this.descriptor.kind, childName);
   }
 
   canPreviewEntry(): boolean { return false; }
@@ -197,6 +263,9 @@ export class SystemSurfacePanelSource implements PanelSource {
   async list(context: PanelSourceContext): Promise<PanelSourceListing> {
     if (this.descriptor.kind === 'network') {
       return this.listNetwork(context);
+    }
+    if (this.descriptor.kind === 'environment') {
+      return this.listEnvironment(context);
     }
 
     const records = await this.records();
@@ -215,6 +284,47 @@ export class SystemSurfacePanelSource implements PanelSource {
     if (!app?.SystemSurfaceList) return [];
     const raw = await app.SystemSurfaceList(this.descriptor.kind);
     return normalizeSystemRecords(raw);
+  }
+
+  private async listEnvironment(
+    context: PanelSourceContext,
+  ): Promise<PanelSourceListing> {
+    const path = normalizeEnvironmentPath(context.path);
+    let entries: SystemSurfaceFileInfo[];
+
+    if (path === ENVIRONMENT_ROOT) {
+      entries = environmentRootEntries();
+    } else {
+      const scope = path.slice(ENVIRONMENT_ROOT.length).toLowerCase();
+      const expectedScope =
+        scope === 'process' ? 'process' :
+        scope === 'user' ? 'user' :
+        scope === 'system' ? 'system' :
+        '';
+
+      if (!expectedScope) {
+        entries = [];
+      } else {
+        const records = (await this.records()).filter(record =>
+          fieldText(record.fields, 'scope').toLowerCase() === expectedScope,
+        );
+        entries = records.map(record =>
+          this.toFileInfo(
+            record,
+            `${ENVIRONMENT_ROOT}${scope}/entry/${encodeURIComponent(record.id)}`,
+          ),
+        );
+      }
+    }
+
+    return {
+      location: {
+        path,
+        sourceId: this.id,
+        sourceKind: this.kind,
+      },
+      entries,
+    };
   }
 
   private async listNetwork(

@@ -11,6 +11,7 @@ export type PaneRendererKind =
   | 'registry'
   | 'autorun'
   | 'network'
+  | 'environment'
   | 'system-table';
 
 export type PaneRendererContribution = CorePaneRendererContribution<
@@ -24,7 +25,6 @@ export const SYSTEM_TABLE_SCHEMES = new Set([
   'services',
   'processes',
   'devices',
-  'environment',
   'shell-extensions',
 ]);
 
@@ -47,6 +47,11 @@ export class PaneRendererRegistryService {
       id: 'builtin.network-pane',
       kind: 'network',
       score: scheme => scheme === 'network' ? 100 : 0,
+    });
+    this.register({
+      id: 'builtin.environment-pane',
+      kind: 'environment',
+      score: scheme => scheme === 'environment' ? 100 : 0,
     });
     this.register({
       id: 'builtin.system-table-pane',

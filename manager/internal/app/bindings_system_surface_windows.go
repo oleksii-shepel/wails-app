@@ -18,6 +18,9 @@ func (a *App) SystemSurfaceList(kind string) ([]contracts.SystemSurfaceRecord, e
 	if normalizedKind == "network" {
 		return platform.ListNetworkSurface()
 	}
+	if normalizedKind == "environment" {
+		return platform.ListEnvironmentSurface()
+	}
 
 	script, ok := systemSurfaceScript(normalizedKind)
 	if !ok {
@@ -76,7 +79,6 @@ func systemSurfaceScript(kind string) (string, bool) {
 		"services":         `@(Get-CimInstance Win32_Service | ForEach-Object { [pscustomobject]@{id=$_.Name;name=$_.Name;fields=@{status=$_.State;startType=$_.StartMode;displayName=$_.DisplayName;path=$_.PathName}} }) | ConvertTo-Json -Depth 5 -Compress`,
 		"processes":        `@(Get-Process | ForEach-Object { $p=$_; $path=''; try {$path=$p.Path} catch {}; [pscustomobject]@{id=[string]$p.Id;name=$p.ProcessName;fields=@{pid=$p.Id;cpu=if($p.CPU){[math]::Round($p.CPU,2)}else{0};workingSet=$p.WorkingSet64;size=$p.WorkingSet64;path=$path}} }) | ConvertTo-Json -Depth 5 -Compress`,
 		"devices":          `@(Get-PnpDevice | ForEach-Object { [pscustomobject]@{id=$_.InstanceId;name=if($_.FriendlyName){$_.FriendlyName}else{$_.InstanceId};fields=@{status=[string]$_.Status;class=$_.Class;instanceId=$_.InstanceId}} }) | ConvertTo-Json -Depth 5 -Compress`,
-		"environment":      `@((Get-ChildItem Env: | ForEach-Object { [pscustomobject]@{id=('process:'+$_.Name);name=$_.Name;fields=@{scope='Process';value=$_.Value}} }), (Get-ItemProperty 'HKCU:\Environment' -ErrorAction SilentlyContinue | ForEach-Object {$o=$_; $o.PSObject.Properties | Where-Object {$_.Name -notmatch '^PS'} | ForEach-Object {[pscustomobject]@{id=('user:'+$_.Name);name=$_.Name;fields=@{scope='User';value=[string]$_.Value}}}}), (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -ErrorAction SilentlyContinue | ForEach-Object {$o=$_; $o.PSObject.Properties | Where-Object {$_.Name -notmatch '^PS'} | ForEach-Object {[pscustomobject]@{id=('machine:'+$_.Name);name=$_.Name;fields=@{scope='Machine';value=[string]$_.Value}}}})) | ForEach-Object {$_} | ConvertTo-Json -Depth 5 -Compress`,
 		"shell-extensions": `$roots=@(@{scope='Machine';root='HKLM:\Software\Classes'},@{scope='User';root='HKCU:\Software\Classes'}); $targets=@('*\shellex\ContextMenuHandlers','Directory\shellex\ContextMenuHandlers','Directory\Background\shellex\ContextMenuHandlers','AllFileSystemObjects\shellex\ContextMenuHandlers'); @($roots | ForEach-Object {$r=$_; $targets | ForEach-Object {$t=$_; Get-ChildItem ($r.root+'\'+$t) -ErrorAction SilentlyContinue | ForEach-Object {$v=(Get-Item $_.PSPath).GetValue(''); [pscustomobject]@{id=($r.scope+':'+$t+':'+$_.PSChildName);name=$_.PSChildName;fields=@{scope=$r.scope;target=$t;clsid=[string]$v}}}}}) | ConvertTo-Json -Depth 5 -Compress`,
 	}
 	script, ok := scripts[kind]

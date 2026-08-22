@@ -4101,17 +4101,16 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Empty pane space changes pane ownership only. Selection/cursor state belongs
+    // to the pane and must survive activation so keyboard navigation can continue
+    // from the same item after switching between panes.
     this.markUserInteraction();
-    this.selectedPaths = new Set();
-    this.cursorPath = null;
-    this.anchorPath = null;
-    this.lastAction = 'selection cleared';
-    this.cursorChange.emit(null);
+    this.lastAction = 'pane focused';
+    this.activateRequested.emit();
 
     const current = event.currentTarget as HTMLElement | null;
     current?.focus({ preventScroll: true });
 
-    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 

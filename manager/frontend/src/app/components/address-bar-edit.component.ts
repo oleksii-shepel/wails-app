@@ -614,12 +614,26 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.cdr.markForCheck();
   }
 
+  private async forceShowSuggestions(): Promise<void> {
+    clearTimeout(this.suggestionsTimer);
+    this.tabSession = null;
+
+    const requestId = ++this.suggestionsRequestId;
+    const query = this.value || '';
+    const suggestions = await this.fetchChildren(query);
+    if (requestId !== this.suggestionsRequestId) return;
+
+    this.setSuggestions(suggestions);
+    this.acIdx = suggestions.length > 0 ? 0 : -1;
+    this.resetVirtualScroll();
+    this.updateVirtualWindow();
+    this.cdr.detectChanges();
+    setTimeout(() => this.attachDropScroll(), 0);
+  }
+
   private async moveSuggestionSelectionWithFallback(delta: 1 | -1): Promise<void> {
     if (this.suggestions.length === 0) {
-      const suggestions = await this.fetchChildren(this.value);
-      this.setSuggestions(suggestions);
-      this.resetVirtualScroll();
-      setTimeout(() => this.attachDropScroll(), 0);
+      await this.forceShowSuggestions();
     }
 
     if (this.suggestions.length === 0) return;
@@ -939,11 +953,11 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       // Cancel any prior fetch stream
       this.cancelFetchStream();
 
-      // Check if this scheme supports streaming via the DirectoryView's API
-      const supportsDirectoryStreaming = this.directorySource.supportsStreaming(dirPath);
+      const scheme = this.schemeAutocomplete.getScheme(dirPath);
 
-      if (!supportsDirectoryStreaming) {
-        // Fall back to batch fetch for schemes that don't support streaming
+      // Search is syntax-driven rather than an ordinary hierarchical source.
+      // Keep its dedicated autocomplete provider.
+      if (scheme === 'search') {
         try {
           const suggestions = (await this.schemeAutocomplete.fetchSuggestions(dirPath, prefix))
             .slice(0, this.MAX_AUTOCOMPLETE_SUGGESTIONS);
@@ -955,8 +969,54 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         return;
       }
 
-      // For schemes that support streaming (filesystem, search, etc.)
-      // Use the backend streaming API
+      const sourceContext = {
+        path: dirPath,
+        entries: [] as FileInfo[],
+        inArchive: false,
+      };
+      const resolvedSource = this.panelSources.resolve(sourceContext);
+      const supportsDirectoryStreaming =
+        resolvedSource.source.id === 'filesystem' &&
+        resolvedSource.source.supportsStreaming(sourceContext);
+
+      if (!supportsDirectoryStreaming) {
+        // Hierarchical autocomplete uses exactly the same source ownership as
+        // pane navigation. This is critical for contributed sources such as
+        // Registry and for built-ins such as Autorun, Environment and Network.
+        try {
+          const listing = await resolvedSource.source.list(sourceContext, false);
+          const prefixLower = prefix.toLowerCase();
+          const seenNames = new Set<string>();
+          const suggestions: PathSuggestion[] = [];
+
+          for (const entry of listing.entries) {
+            if (entry.type !== FileType.DIRECTORY) continue;
+            if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
+            if (seenNames.has(entry.name)) continue;
+            seenNames.add(entry.name);
+
+            suggestions.push({
+              path: normalizePath(entry.path),
+              displayName: entry.name,
+              matchType: 'directory',
+              score: 100,
+              exists: true,
+            });
+
+            if (suggestions.length >= this.MAX_AUTOCOMPLETE_SUGGESTIONS) break;
+          }
+
+          suggestions.sort((left, right) => left.path.localeCompare(right.path));
+          onBatch?.(suggestions);
+          resolve(suggestions);
+        } catch {
+          resolve([]);
+        }
+        return;
+      }
+
+      // The local filesystem keeps the existing progressive Wails stream so
+      // huge directories never have to materialize in the address bar.
       const prefixLower = prefix.toLowerCase();
       const accumulated: PathSuggestion[] = [];
       const seenNames = new Set<string>();
@@ -1235,10 +1295,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       this.cancelEdit();
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('widget.addressBar.edit.showSuggestions', () => {
-      this.tabSession = null;
-      this.scheduleSuggestions(this.value, true);
-      this.cdr.detectChanges();
+    this.inputEngine.registerCommand('widget.addressBar.edit.showSuggestions', async () => {
+      await this.forceShowSuggestions();
     }, this.commandOwner);
 
     this.inputEngine.registerCommand('widget.addressBar.edit.prevItem', async () => {

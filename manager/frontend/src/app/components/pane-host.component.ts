@@ -656,11 +656,39 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
       currentDirectory,
     };
 
-    return adaptPluginToolbarActions(
+    const contributed = adaptPluginToolbarActions(
       this.pluginManager.resolveToolbarActions(context),
       context,
       this.inputEngine,
     );
+
+    if (!/^bin:\/\//i.test(currentDirectory)) {
+      return contributed;
+    }
+
+    const commandId = 'reassembly.trash.emptyBin';
+    const invocation = {
+      source: 'toolbar' as const,
+      context: {
+        selectedPaths,
+        currentDirectory,
+        paneId: this.paneId,
+      },
+    };
+    const state = this.inputEngine.getCommandState(commandId, invocation);
+    const emptyBin: PresentedCommand = {
+      id: 'bin.empty',
+      label: 'Empty Bin',
+      iconText: '🗑',
+      enabled: !!state?.registered && state.enabled,
+      source: 'builtin',
+      commandId,
+      execute: () => {
+        this.inputEngine.dispatchCommandById(commandId, invocation);
+      },
+    };
+
+    return [emptyBin, ...contributed];
   }
 
   ngDoCheck(): void {

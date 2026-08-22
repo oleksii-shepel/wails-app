@@ -26,7 +26,7 @@ import {
 import { ToolWorkspaceHostComponent } from './tool-workspace-host.component';
 import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
-import type { InputBindingDefinition } from '../services/input-system.types';
+import type { CommandInvocation, InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import {
@@ -177,6 +177,7 @@ const COMMAND = {
   calculateSize: 'reassembly.files.calculateSize',
   attributes: 'reassembly.files.attributes',
   openTrash: FILE_MANAGER_COMMANDS.openTrash,
+  emptyBin: 'reassembly.trash.emptyBin',
   copyToOther: FILE_MANAGER_COMMANDS.copyToOtherPane,
   moveToOther: FILE_MANAGER_COMMANDS.moveToOtherPane,
   newTab: FILE_MANAGER_COMMANDS.newTab,
@@ -4484,6 +4485,20 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
       return;
     }
+
+    if (this.isRecycleBinPane(pane)) {
+      this.contextMenu = {
+        x: event.clientX,
+        y: event.clientY,
+        title: entry.name || 'Recycle Bin item',
+        items: normalizeContextMenuItems([
+          this.menuCommand(COMMAND.emptyBin, 'Empty Bin'),
+          this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+        ]),
+      };
+      this.cdr.markForCheck();
+      return;
+    }
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
     const isArchive = entry.type === FileType.ARCHIVE;
@@ -4628,6 +4643,55 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     return leaf === path ? leaf : `${leaf}  вЂ”  ${path}`;
   }
 
+  private isRecycleBinPane(
+    pane: PaneHostComponent | undefined = this.activePane,
+  ): boolean {
+    return !!pane?.contextState.isDirectoryTab &&
+      /^bin:\/\//i.test(pane.contextState.path ?? '');
+  }
+
+  private recycleBinHasEntries(
+    pane: PaneHostComponent | undefined = this.activePane,
+  ): boolean {
+    return this.isRecycleBinPane(pane) &&
+      (pane?.contextState.entries ?? []).some(entry => entry.path !== '__parent__');
+  }
+
+  private paneForInvocation(invocation?: CommandInvocation): PaneHostComponent | undefined {
+    const paneId = invocation?.context?.['paneId'];
+    if (paneId === 'left') return this.leftPane;
+    if (paneId === 'right') return this.rightPane;
+    return this.activePane;
+  }
+
+  async emptyRecycleBin(invocation?: CommandInvocation): Promise<void> {
+    const sourcePane = this.paneForInvocation(invocation);
+    if (!this.recycleBinHasEntries(sourcePane)) return;
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Empty Recycle Bin',
+      message: 'Permanently delete every item in the Recycle Bin?',
+      confirmText: 'Empty Bin',
+    });
+    if (!confirmed) return;
+
+    try {
+      await this.api.emptyTrash();
+
+      // Recycle Bin is global. Refresh every pane currently showing bin:// so
+      // both views become consistent immediately after the destructive action.
+      const binPanes = [this.leftPane, this.rightPane]
+        .filter((pane): pane is PaneHostComponent => this.isRecycleBinPane(pane));
+      await Promise.all(binPanes.map(pane => pane.navigation?.refresh()));
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Empty Recycle Bin Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   openBackgroundMenu(paneId: PaneId, event: MouseEvent): void {
     this.captureContextMenuFocus();
     this.activate(paneId, false);
@@ -4644,6 +4708,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         y: event.clientY,
         title: pane?.contextState.path || 'Registry',
         items: normalizeContextMenuItems(pluginItems),
+      };
+      this.cdr.markForCheck();
+      return;
+    }
+
+
+    if (this.isRecycleBinPane(pane)) {
+      this.contextMenu = {
+        x: event.clientX,
+        y: event.clientY,
+        title: 'Recycle Bin',
+        items: normalizeContextMenuItems([
+          this.menuCommand(COMMAND.emptyBin, 'Empty Bin'),
+          this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+        ]),
       };
       this.cdr.markForCheck();
       return;
@@ -5184,8 +5263,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       id: string,
       title: string,
       category: string,
-      execute: () => void | Promise<void>,
-      enabled?: () => boolean,
+      execute: (invocation?: CommandInvocation) => void | Promise<void>,
+      enabled?: (invocation?: CommandInvocation) => boolean,
     ): void => {
       this.input.registerCommandDescriptor({
         id,
@@ -5486,6 +5565,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         !this.activePane?.contextState.isInArchive &&
         !!(this.activePane?.selection.cursorEntry || this.activePane?.selection.selectedEntries.length),
     );
+    descriptor(
+      COMMAND.emptyBin,
+      'Empty Bin',
+      'File Operations',
+      invocation => this.emptyRecycleBin(invocation),
+      invocation => this.recycleBinHasEntries(this.paneForInvocation(invocation)),
+    );
+
     descriptor(
       COMMAND.openTrash,
       'Trash / Recycle Bin',

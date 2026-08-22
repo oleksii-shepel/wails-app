@@ -1295,6 +1295,60 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
     }
 
+    /*
+     * The active pane is the command/transfer source. Make its cursor visually
+     * dominant while keeping the destination pane's cursor and selections
+     * present but neutral.
+     */
+    .pane:not(.active-pane) .entry.selected,
+    .pane:not(.active-pane) .tree-row.selected {
+      background: var(
+        --vsc-list-inactive-selection,
+        color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
+      );
+      color: var(--vsc-foreground);
+    }
+
+    .pane:not(.active-pane) .entry.cursor {
+      box-shadow: inset 2px 0 0 color-mix(
+        in srgb,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
+        transparent
+      );
+    }
+
+    .pane:not(.active-pane) .tree-row.cursor {
+      outline-color: color-mix(
+        in srgb,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 48%,
+        transparent
+      );
+    }
+
+    .pane.active-pane .entry.cursor {
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    .pane.active-pane .entry.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
+    }
+
+    .pane.active-pane .tree-row.cursor {
+      outline: 1px solid var(--vsc-accent-blue, var(--vsc-focus-border));
+      outline-offset: -1px;
+      box-shadow: inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+    }
+
     .icon {
       text-align: center;
     }

@@ -143,8 +143,6 @@ export class OperationService implements OnDestroy {
 
   // Cleanup
   private destroySubject = createSubject<void>();
-  private autoCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly AUTO_CLOSE_DELAY = 5000;
 
   // Flag to track if events are set up
   private eventsSetup = false;
@@ -278,11 +276,16 @@ export class OperationService implements OnDestroy {
 
     this.operationsMap.set(event.id, updated);
     this.recordHistory(updated);
-    this.emitOperations();
 
+    // Successful/cancelled work belongs in history, not in the live operation stack.
+    // Remove it synchronously so the UI never paints a stale "finished" operation.
+    // Errors intentionally remain visible until the user dismisses them.
     if (event.status === 'completed' || event.status === 'cancelled') {
-      this.scheduleAutoClose(event.id);
+      this.dismiss(event.id);
+      return;
     }
+
+    this.emitOperations();
   }
 
   private handleConflict(event: ConflictEvent): void {
@@ -326,18 +329,6 @@ export class OperationService implements OnDestroy {
 
   private emitOperations(): void {
     this.operations$.next(new Map(this.operationsMap));
-  }
-
-  private scheduleAutoClose(id: string): void {
-    if (this.autoCloseTimers.has(id)) {
-      clearTimeout(this.autoCloseTimers.get(id));
-    }
-
-    const timer = setTimeout(() => {
-      this.dismiss(id);
-    }, this.AUTO_CLOSE_DELAY);
-
-    this.autoCloseTimers.set(id, timer);
   }
 
   // ============================================================================
@@ -522,11 +513,6 @@ export class OperationService implements OnDestroy {
   }
 
   dismiss(id: string): void {
-    if (this.autoCloseTimers.has(id)) {
-      clearTimeout(this.autoCloseTimers.get(id));
-      this.autoCloseTimers.delete(id);
-    }
-
     this.operationsMap.delete(id);
     void DismissOperation(id).catch(error => console.warn('Failed to dismiss backend operation:', error));
     this.emitOperations();
@@ -692,7 +678,5 @@ export class OperationService implements OnDestroy {
     EventsOff('operation:progress');
     EventsOff('operation:complete');
     EventsOff('operation:conflict');
-    
-    this.autoCloseTimers.forEach(clearTimeout);
   }
 }

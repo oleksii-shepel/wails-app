@@ -43,6 +43,8 @@ export function BatchMove(arg1:contracts.BatchRequest):Promise<contracts.BatchRe
 
 export function BatchSelectiveExtract(arg1:contracts.BatchSelectiveExtractRequest):Promise<contracts.BatchSelectiveExtractResult>;
 
+export function BatchTransferTrash(arg1:contracts.TrashTransferRequest):Promise<contracts.TrashTransferResult>;
+
 export function Breadcrumbs(arg1:string):Promise<Array<Record<string, string>>>;
 
 export function BrowserPaneCaptureScreenshot(arg1:string):Promise<string>;

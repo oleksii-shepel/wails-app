@@ -80,6 +80,53 @@ import {
       outline: none;
     }
 
+    /*
+     * Pane ownership must be visible on the row itself, not only on the outer
+     * pane border. The active pane is the transfer source; the inactive pane is
+     * the destination. Keep inactive selections legible but deliberately quiet.
+     */
+    .pane:not(.active-pane) .reassembly-pane-table-row.selected {
+      background: var(
+        --vsc-list-inactive-selection,
+        color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
+      );
+      color: var(--vsc-foreground);
+    }
+
+    .pane:not(.active-pane) .reassembly-pane-table-row.cursor {
+      box-shadow: inset 2px 0 0 color-mix(
+        in srgb,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
+        transparent
+      );
+    }
+
+    .pane:not(.active-pane) .reassembly-pane-table-row.cursor:not(.selected) {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-inactive-selection, var(--vsc-list-active-background)) 38%,
+        transparent
+      );
+    }
+
+    .pane.active-pane .reassembly-pane-table-row.cursor {
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    .pane.active-pane .reassembly-pane-table-row.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
+    }
+
     .reassembly-pane-table-row.drop-target,
     .reassembly-pane-table-row.drag-over {
       outline: 1px dashed var(--vsc-focus-border);

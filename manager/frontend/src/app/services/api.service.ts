@@ -67,6 +67,22 @@ export interface TrashEntry {
   canRestore: boolean;
 }
 
+export type TrashTransferOperation = 'copy' | 'restore';
+
+export interface TrashTransferItemError {
+  id: string;
+  error: string;
+}
+
+export interface TrashTransferResult {
+  operationId: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  destinations?: string[];
+  errors?: TrashTransferItemError[];
+}
+
 export interface PathAttributes {
   permissions: string;
   unixMode: number;
@@ -402,6 +418,25 @@ export class ApiService {
       RestoreTrashEntry(id: string): Promise<string>;
     };
     return await app.RestoreTrashEntry(id);
+  }
+
+  async batchTransferTrash(
+    ids: readonly string[],
+    destinationDir: string,
+    operation: TrashTransferOperation,
+  ): Promise<TrashTransferResult> {
+    const app = window.go.app.App as unknown as {
+      BatchTransferTrash(request: {
+        ids: string[];
+        destinationDir: string;
+        operation: TrashTransferOperation;
+      }): Promise<TrashTransferResult>;
+    };
+    return await app.BatchTransferTrash({
+      ids: [...ids],
+      destinationDir: this.normalizeCanonicalPath(destinationDir),
+      operation,
+    });
   }
 
   async copyTrashEntryTo(id: string, destinationDir: string): Promise<string> {

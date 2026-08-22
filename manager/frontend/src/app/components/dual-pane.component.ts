@@ -6278,32 +6278,41 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     destinationDir: string,
     operation: 'copy' | 'move',
   ): Promise<{ total: number; succeeded: number; failed: number; errors: string[] }> {
-    const ids = paths
+    const entries = paths
       .map(path => ({ path, id: this.recycleBinEntryId(path) }))
       .filter((item): item is { path: string; id: string } => !!item.id);
 
+    const pathById = new Map(entries.map(item => [item.id, item.path] as const));
     const errors: string[] = [];
-    let succeeded = 0;
-    for (const item of ids) {
-      try {
-        if (operation === 'copy') {
-          await this.api.copyTrashEntryTo(item.id, destinationDir);
-        } else {
-          await this.api.restoreTrashEntryTo(item.id, destinationDir);
-        }
-        succeeded += 1;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errors.push(`${this.leafName(item.path)}: ${message}`);
-      }
+    const invalid = paths.length - entries.length;
+    if (invalid > 0) {
+      errors.push(`${invalid} invalid Recycle Bin item${invalid === 1 ? '' : 's'}.`);
     }
 
-    const invalid = paths.length - ids.length;
-    if (invalid > 0) errors.push(`${invalid} invalid Recycle Bin item${invalid === 1 ? '' : 's'}.`);
+    if (entries.length === 0) {
+      return {
+        total: paths.length,
+        succeeded: 0,
+        failed: invalid,
+        errors,
+      };
+    }
+
+    const result = await this.api.batchTransferTrash(
+      entries.map(item => item.id),
+      destinationDir,
+      operation === 'copy' ? 'copy' : 'restore',
+    );
+
+    for (const itemError of result.errors ?? []) {
+      const sourcePath = pathById.get(itemError.id);
+      errors.push(`${sourcePath ? this.leafName(sourcePath) : itemError.id}: ${itemError.error}`);
+    }
+
     return {
       total: paths.length,
-      succeeded,
-      failed: paths.length - succeeded,
+      succeeded: result.succeeded,
+      failed: result.failed + invalid,
       errors,
     };
   }

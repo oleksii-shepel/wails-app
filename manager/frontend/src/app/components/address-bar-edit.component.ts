@@ -10,6 +10,7 @@ import { PathHistoryService } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { SchemeAutocompleteService } from '../services/scheme-autocomplete.service';
+import { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
@@ -378,6 +379,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     private apiService: ApiService,
     private directorySource: DirectorySourceService,
     private schemeAutocomplete: SchemeAutocompleteService,
+    private panelSources: PanelSourceRegistryService,
     private cdr: ChangeDetectorRef,
     private hostEl: ElementRef,
     private inputContexts: InputContextService,
@@ -1036,22 +1038,29 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     const normalizedQuery = normalizePath((query || '').trim().replace(/\\/g, '/')).toLowerCase();
 
     const suggestions: PathSuggestion[] = [];
+    const roots = [
+      ...this.syntheticRootSuggestions,
+      ...this.registeredPanelRootSuggestions(),
+    ];
 
-    for (const entry of this.syntheticRootSuggestions) {
+    for (const entry of roots) {
       const rootPath = this.normalizeSuggestionIdentityPath(entry.path);
       const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(rootPath);
       const schemeName = (schemeMatch?.[1] || rootPath).toLowerCase();
       const schemePrefix = schemeMatch ? `${schemeName}://` : rootPath;
+      const displayName = (entry.displayName || '').trim().toLowerCase();
 
       let score = 0;
       if (!normalizedQuery) {
         score = 120;
-      } else if (normalizedQuery === rootPath || normalizedQuery === schemePrefix || normalizedQuery === schemeName) {
+      } else if (normalizedQuery === rootPath || normalizedQuery === schemePrefix || normalizedQuery === schemeName || normalizedQuery === displayName) {
         score = 180;
       } else if (rootPath.startsWith(normalizedQuery)) {
         score = 160;
-      } else if (schemePrefix.startsWith(normalizedQuery) || schemeName.startsWith(normalizedQuery)) {
+      } else if (schemePrefix.startsWith(normalizedQuery) || schemeName.startsWith(normalizedQuery) || displayName.startsWith(normalizedQuery)) {
         score = 150;
+      } else if (displayName.includes(normalizedQuery)) {
+        score = 130;
       }
 
       // When the user is typing a friendly direct path (e.g. "C:/" or "/"),
@@ -1078,6 +1087,29 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return suggestions;
   }
 
+
+  private registeredPanelRootSuggestions(): ReadonlyArray<{ path: string; displayName: string }> {
+    const candidates = [
+      { path: 'autorun://', displayName: 'Autorun' },
+      { path: 'environment://', displayName: 'Environment' },
+      { path: 'network://', displayName: 'Network' },
+      { path: 'registry://', displayName: 'Registry' },
+    ] as const;
+
+    return candidates.filter(candidate => {
+      const context = {
+        path: candidate.path,
+        entries: [] as FileInfo[],
+        inArchive: false,
+      };
+
+      // Unknown schemes are accepted by the filesystem fallback. A virtual root is
+      // visible only when a real contributed PanelSource currently owns it. This
+      // makes Registry disappear immediately when its plugin is not active.
+      return this.panelSources.resolve(context).source.id !== 'filesystem';
+    });
+  }
+
   private async loadSyntheticRootSuggestions(): Promise<void> {
     try {
       const drives = await this.apiService.listDrives();
@@ -1091,9 +1123,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
           displayName: drive.name || drive.path,
         }));
 
-      if (this.value?.trim()) {
-        this.scheduleSuggestions(this.value, true);
-      }
+      this.scheduleSuggestions(this.value, true);
     } catch {
       this.syntheticRootSuggestions = [];
     }

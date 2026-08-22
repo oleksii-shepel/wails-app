@@ -32,26 +32,26 @@ function extLower(path: string): string {
       <header class="viewer-chrome" *ngIf="targetPath; else noTarget">
         <div class="viewer-identity">
           <span class="viewer-file-icon" aria-hidden="true">{{ fileIcon }}</span>
-          <span class="viewer-context" *ngIf="autoFollow">Preview</span>
           <span class="viewer-title" [title]="displayName">{{ displayName }}</span>
-          <span class="viewer-kind">{{ displayKind }}</span>
-          <span class="viewer-state" *ngIf="resolving">Loading…</span>
           <span class="viewer-metadata" [title]="displayPath">
             <span *ngIf="probe?.mimeType">{{ probe.mimeType }}</span>
             <span *ngIf="fileInfo?.size">{{ formatSize(fileInfo.size || 0) }}</span>
             <span *ngIf="archiveContext">Archive</span>
             <span class="viewer-path">{{ displayPath }}</span>
           </span>
+          <span class="viewer-state" *ngIf="resolving">Loading…</span>
+          <span class="viewer-mode" *ngIf="autoFollow" title="Preview follows source-pane selection">AUTO</span>
         </div>
 
         <div class="viewer-actions">
           <button
             type="button"
             *ngIf="sourceAvailable"
-            class="viewer-action viewer-action--text"
+            class="viewer-action"
             (click)="returnSource.emit()"
-            title="Return to source folder">
-            Folder
+            title="Return to source folder"
+            aria-label="Return to source folder">
+            ⌂
           </button>
 
           <span class="viewer-divider" *ngIf="sourceAvailable"></span>
@@ -357,6 +357,94 @@ function extLower(path: string): string {
       .viewer-metadata { display: none; }
       .viewer-actions .viewer-action--text { display: none; }
       .viewer-title { max-width: 40vw; }
+    }
+
+    /* Production host chrome: one compact identity bar. */
+    .viewer-chrome {
+      box-sizing: border-box;
+      min-height: 32px;
+      height: 32px;
+      gap: 6px;
+      padding: 0 6px 0 8px;
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      box-shadow: none;
+    }
+
+    .viewer-identity { gap: 6px; }
+
+    .viewer-file-icon {
+      width: 18px;
+      height: 18px;
+      flex-basis: 18px;
+      font-size: 12px;
+      opacity: .78;
+    }
+
+    .viewer-title {
+      min-width: 40px;
+      max-width: min(260px, 26vw);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .viewer-metadata {
+      font-size: 10px;
+      line-height: 20px;
+    }
+
+    .viewer-path { opacity: .62; }
+
+    .viewer-state,
+    .viewer-mode {
+      box-sizing: border-box;
+      flex: 0 0 auto;
+      min-height: 18px;
+      padding: 0 5px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 500;
+      line-height: 16px;
+      letter-spacing: .2px;
+    }
+
+    .viewer-mode {
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 28%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 8%, transparent);
+    }
+
+    .viewer-state {
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      background: transparent;
+    }
+
+    .viewer-actions { gap: 1px; }
+
+    .viewer-actions button {
+      box-sizing: border-box;
+      min-width: 24px;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 0;
+      border-radius: 3px;
+      font-size: 12px;
+      line-height: 24px;
+    }
+
+    .viewer-actions button:hover:not(:disabled) {
+      border-color: transparent;
+    }
+
+    .viewer-divider {
+      height: 16px;
+      margin: 0 2px;
+    }
+
+    @media (max-width: 720px) {
+      .viewer-metadata > span:not(.viewer-path) { display: none; }
+      .viewer-path { max-width: 34vw; }
     }
   `],
 })

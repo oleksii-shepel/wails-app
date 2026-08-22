@@ -38,6 +38,7 @@ import { EditorSettings, SettingsService } from '../../services/settings.service
 import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 
 type TextViewerKind = 'empty' | 'loading' | 'editor' | 'directory' | 'unsupported' | 'error';
 
@@ -493,7 +494,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class TextViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';

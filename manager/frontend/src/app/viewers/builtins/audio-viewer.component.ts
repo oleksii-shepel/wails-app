@@ -16,6 +16,7 @@ import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import {
+  VIEWER_PRODUCTION_CHROME_STYLES,
   VIEWER_BASE_STYLES,
   buildDisplayName,
   extractExt,
@@ -1303,7 +1304,7 @@ interface AudioTagRow {
         min-width: 80px;
       }
     }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class AudioViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';

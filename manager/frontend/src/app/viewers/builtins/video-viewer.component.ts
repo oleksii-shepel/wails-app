@@ -21,6 +21,7 @@ import { WorkspaceService } from '../../services/workspace.service';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 import { SegmentVideoLoader } from './segment-video-loader';
 import type { FileProbe } from '../../shared/protocol';
 
@@ -955,7 +956,7 @@ interface VideoNavItem {
         font-size: 12px;
       }
     }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
   private static readonly WINDOWED_VIDEO_STREAM_SECONDS = 90;

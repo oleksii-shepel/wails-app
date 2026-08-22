@@ -13,6 +13,7 @@ import { ApiService } from '../../services/api.service';
 import { ArchiveEntry, FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
 
@@ -540,7 +541,7 @@ padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
       opacity: 0.9;
       width: 100%;
     }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class ImageViewerComponent implements OnChanges, OnDestroy {
   private carouselListElement: HTMLDivElement | null = null;

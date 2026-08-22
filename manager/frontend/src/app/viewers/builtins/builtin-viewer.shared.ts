@@ -231,6 +231,219 @@ export const VIEWER_BASE_STYLES = `
   }
 `;
 
+
+/**
+ * Canonical final chrome layer for every built-in viewer.
+ * Viewer-specific styles own the content area; this owns shared header/toolbar
+ * geometry so derivatives cannot visually drift.
+ */
+export const VIEWER_PRODUCTION_CHROME_STYLES = `
+  .viewer-header {
+    box-sizing: border-box;
+    min-height: 32px;
+    height: 32px;
+    padding: 0 8px;
+    gap: 8px;
+    border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
+    background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+    box-shadow: none;
+  }
+
+  .header-main {
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .file-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    font-size: 13px;
+    opacity: .82;
+  }
+
+  .header-text {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .title {
+    flex: 0 1 auto;
+    min-width: 40px;
+    max-width: min(280px, 34vw);
+    margin: 0;
+    color: var(--vsc-foreground);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 20px;
+    letter-spacing: 0;
+    text-transform: none;
+    opacity: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .path {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+    font-size: 10px;
+    line-height: 20px;
+    opacity: .68;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .badge,
+  .type-badge,
+  .archive-badge,
+  .size-badge,
+  .dim-badge,
+  .line-badge,
+  .meta-badge {
+    box-sizing: border-box;
+    min-height: 18px;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 16px;
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: nowrap;
+  }
+
+  .size-badge,
+  .dim-badge,
+  .line-badge,
+  .meta-badge {
+    border-color: transparent;
+    background: transparent;
+    color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+  }
+
+  .type-badge {
+    border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 28%, transparent);
+    background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 8%, transparent);
+  }
+
+  .archive-badge {
+    border-color: color-mix(in srgb, var(--vsc-warning) 28%, transparent);
+    background: color-mix(in srgb, var(--vsc-warning) 8%, transparent);
+  }
+
+  .viewer-toolbar {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 28px;
+    height: 28px;
+    padding: 2px 6px;
+    border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
+    background: var(--vsc-editor-background);
+    flex: 0 0 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .viewer-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tool-btn {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    min-width: 24px;
+    height: 23px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vsc-foreground);
+    font: inherit;
+    font-size: 11px;
+    line-height: 21px;
+    cursor: pointer;
+  }
+
+  .tool-btn:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--vsc-list-hover-background);
+  }
+
+  .tool-btn:focus-visible {
+    outline: 1px solid var(--vsc-focus-ring, var(--vsc-focus-border));
+    outline-offset: -1px;
+  }
+
+  .tool-btn.active {
+    border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 34%, transparent);
+    background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 12%, transparent);
+    color: var(--vsc-foreground);
+  }
+
+  .tool-btn:disabled {
+    opacity: .35;
+    cursor: default;
+  }
+
+  .zoom-label {
+    min-width: 40px;
+    font-size: 10px;
+    color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+  }
+
+  .toolbar-divider {
+    flex: 0 0 1px;
+    width: 1px;
+    height: 16px;
+    margin: 0 4px;
+    background: var(--vsc-border-subtle, var(--vsc-border));
+  }
+
+  /* ViewerHost owns identity; nested viewers expose only contextual tools. */
+  :host-context(app-viewer-host-surface) .viewer-header {
+    display: none !important;
+  }
+
+  @media (max-width: 720px) {
+    .viewer-header {
+      padding-inline: 6px;
+    }
+
+    .header-meta .size-badge,
+    .header-meta .dim-badge,
+    .header-meta .line-badge {
+      display: none;
+    }
+
+    .path {
+      max-width: 34vw;
+    }
+  }
+`;
+
 export function buildDisplayName(info: FileInfo | null, targetPath: string, archiveContext: ViewerArchiveContext | null): string {
   if (info?.name) {
     return info.name;

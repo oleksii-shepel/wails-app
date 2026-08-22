@@ -97,6 +97,23 @@ interface TreeRow {
   expandable: boolean;
 }
 
+
+interface BinRevisionInfo {
+  groupKey: string;
+  versionIndex: number;
+  versionCount: number;
+  label: string;
+  latest: boolean;
+}
+
+
+type BinFileInfo = FileInfo & {
+  binTrashId?: string;
+  binOriginalPath?: string;
+  binDeletedAt?: string;
+  binCanRestore?: boolean;
+};
+
 type Tab =
   | {
       id: string;
@@ -495,9 +512,19 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         [model]="panelPresentationModel">
       </app-panel-presentation-outlet>
 
-      <div class="details-header" *ngIf="!activePanelPresentation && !error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
+        <div
+          class="details-header"
+          [style.grid-template-columns]="detailsGridTemplate"
+          [style.transform]="'translateX(' + (-detailsScrollLeft) + 'px)'">
+          <ng-container *ngIf="isBinLocation; else normalDetailsHeader">
+            <span></span><span>Name</span><span>Original location</span><span>Deleted</span><span>Size</span><span>Revision</span>
+          </ng-container>
+          <ng-template #normalDetailsHeader>
+            <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+          </ng-template>
+        </div>
       </div>
 
       <div
@@ -554,11 +581,33 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
           [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
+          [class.bin-revision-row]="isBinLocation"
+          [class.bin-revision-child]="isBinLocation && !binRevisionInfo(entry).latest"
           [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null">
 
-          <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
-            {{ entryDisplayIcon(entry) }}
-          </span>
+          <ng-container *ngIf="isBinLocation; else normalEntryIcon">
+            <span class="bin-leading">
+              <button
+                *ngIf="binRevisionInfo(entry).latest && binRevisionInfo(entry).versionCount > 1; else binDisclosureSpacer"
+                type="button"
+                class="bin-disclosure"
+                tabindex="-1"
+                [attr.aria-label]="(isBinGroupExpanded(entry) ? 'Collapse ' : 'Expand ') + entry.name + ' revisions'"
+                [attr.aria-expanded]="isBinGroupExpanded(entry)"
+                (click)="toggleBinGroup(entry, $event)">
+                {{ isBinGroupExpanded(entry) ? '▾' : '▸' }}
+              </button>
+              <ng-template #binDisclosureSpacer><span class="bin-disclosure-spacer"></span></ng-template>
+              <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
+                {{ entryDisplayIcon(entry) }}
+              </span>
+            </span>
+          </ng-container>
+          <ng-template #normalEntryIcon>
+            <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
+              {{ entryDisplayIcon(entry) }}
+            </span>
+          </ng-template>
 
           <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
           <span
@@ -584,15 +633,29 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
               role="alert">{{ renameError }}</span>
           </span>
 
-          <span class="kind" [style.color]="entryCategory(entry)?.color || null">
-            {{ entryDisplayKind(entry) }}
-          </span>
-
-          <span class="size">
-            {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
-          </span>
-          <span class="modified">{{ formatModified(entry.modified) }}</span>
-          <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
+          <ng-container *ngIf="isBinLocation; else normalEntryDetails">
+            <span
+              class="bin-origin"
+              [title]="binRevisionInfo(entry).latest ? binOriginalPath(entry) : null">
+              {{ binRevisionInfo(entry).latest ? binOriginalDirectory(entry) : '' }}
+            </span>
+            <span class="modified" [title]="binDeletedAt(entry)">{{ formatBinDeleted(entry) }}</span>
+            <span class="size">{{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}</span>
+            <span class="bin-revision">
+              {{ binRevisionInfo(entry).label }}
+              <small *ngIf="binRevisionInfo(entry).latest && binRevisionInfo(entry).versionCount > 1">{{ binRevisionInfo(entry).versionCount }} revisions</small>
+            </span>
+          </ng-container>
+          <ng-template #normalEntryDetails>
+            <span class="kind" [style.color]="entryCategory(entry)?.color || null">
+              {{ entryDisplayKind(entry) }}
+            </span>
+            <span class="size">
+              {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
+            </span>
+            <span class="modified">{{ formatModified(entry.modified) }}</span>
+            <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
+          </ng-template>
         </div>
 
         <div
@@ -1105,6 +1168,88 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       font-size: 9px;
     }
 
+    .bin-leading {
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: 28px;
+      min-width: 28px;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .bin-disclosure {
+      flex: 0 0 12px;
+      width: 12px;
+      height: 18px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--vsc-foreground-dim, currentColor);
+      cursor: pointer;
+      font: inherit;
+      line-height: 18px;
+      text-align: center;
+    }
+
+    .bin-disclosure:hover {
+      color: var(--vsc-foreground);
+    }
+
+    .bin-disclosure-spacer {
+      flex: 0 0 12px;
+      width: 12px;
+    }
+
+    .bin-leading .icon {
+      flex: 0 0 16px;
+      width: 16px;
+      margin: 0;
+      text-align: center;
+    }
+
+    .bin-revision-child {
+      color: color-mix(in srgb, var(--vsc-foreground) 82%, transparent);
+    }
+
+    .bin-revision-child .bin-leading {
+      padding-left: 4px;
+    }
+
+    .bin-revision-child .name {
+      padding-left: 6px;
+    }
+
+    .bin-origin {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: .82;
+    }
+
+    .bin-revision {
+      display: flex;
+      gap: 6px;
+      align-items: baseline;
+      white-space: nowrap;
+    }
+
+    .bin-revision small {
+      opacity: .62;
+      font-size: 10px;
+    }
+
+    .details-header-viewport {
+      flex: 0 0 auto;
+      min-width: 0;
+      overflow: hidden;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+    }
+
     .details-header {
       display: grid;
       grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
@@ -1112,8 +1257,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       align-items: center;
       min-height: 25px;
       padding: 0 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      width: max-content;
+      min-width: 100%;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      will-change: transform;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     
@@ -1709,6 +1856,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   viewMode: DirectoryView = 'list';
   sortField: SortField = 'name';
   sortDirection: SortDirection = 'asc';
+  private readonly expandedBinRevisionGroups = new Set<string>();
+  detailsScrollLeft = 0;
   directoriesFirst = true;
 
   readonly treeExpandedPaths = new Set<string>();
@@ -2297,8 +2446,116 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get detailsGridTemplate(): string {
+    if (this.isBinLocation) {
+      return ['28px', 'minmax(120px, 1.1fr)', 'minmax(140px, 1.45fr)', '132px', '78px', '104px'].join(' ');
+    }
     const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
     return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
+  }
+
+  get isBinLocation(): boolean {
+    return this.activePanelSource.source.kind === 'bin' || /^bin:\/\//i.test(this.path || '');
+  }
+
+  binRevisionInfo(entry: FileInfo): BinRevisionInfo {
+    const groups = this.binRevisionGroups(this.entries);
+    const metadata = entry as BinFileInfo;
+    const key = this.binGroupKey(metadata.binOriginalPath || entry.name);
+    const group = groups.get(key) ?? [entry];
+    const index = Math.max(0, group.findIndex(candidate => candidate.path === entry.path));
+    return {
+      groupKey: key,
+      versionIndex: index,
+      versionCount: group.length,
+      label: index === 0 ? 'Latest' : `r${group.length - index}`,
+      latest: index === 0,
+    };
+  }
+
+  isBinGroupExpanded(entry: FileInfo): boolean {
+    return this.expandedBinRevisionGroups.has(this.binRevisionInfo(entry).groupKey);
+  }
+
+  toggleBinGroup(entry: FileInfo, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const info = this.binRevisionInfo(entry);
+    if (info.versionCount <= 1) return;
+    if (this.expandedBinRevisionGroups.has(info.groupKey)) this.expandedBinRevisionGroups.delete(info.groupKey);
+    else this.expandedBinRevisionGroups.add(info.groupKey);
+    this.reconcileSelectionWithVisibleEntries();
+    this.cdr.markForCheck();
+  }
+
+  binOriginalPath(entry: FileInfo): string {
+    return (entry as BinFileInfo).binOriginalPath || '';
+  }
+
+  binOriginalDirectory(entry: FileInfo): string {
+    const original = this.binOriginalPath(entry);
+    if (!original) return 'Original location unavailable';
+    const normalized = original.split('\\').join('/');
+    const slash = normalized.lastIndexOf('/');
+    if (slash < 0) return '';
+    const parent = normalized.slice(0, slash);
+    return parent || normalized.slice(0, slash + 1);
+  }
+
+  binDeletedAt(entry: FileInfo): string {
+    return (entry as BinFileInfo).binDeletedAt || '';
+  }
+
+  formatBinDeleted(entry: FileInfo): string {
+    const parsed = Date.parse(this.binDeletedAt(entry));
+    const timestamp = Number.isFinite(parsed) ? parsed : Number(entry.modified || 0);
+    return timestamp > 0 ? this.formatModified(timestamp) : '';
+  }
+
+  private binGroupKey(path: string): string {
+    return (path || '').split('\\').join('/').replace(/\/+$/, '').toLocaleLowerCase();
+  }
+
+  private binRevisionGroups(entries: FileInfo[]): Map<string, FileInfo[]> {
+    const groups = new Map<string, FileInfo[]>();
+    for (const entry of entries) {
+      const original = (entry as BinFileInfo).binOriginalPath || entry.name;
+      const key = this.binGroupKey(original);
+      const group = groups.get(key);
+      if (group) group.push(entry); else groups.set(key, [entry]);
+    }
+    for (const group of groups.values()) {
+      group.sort((a, b) => {
+        const ad = Date.parse((a as BinFileInfo).binDeletedAt || '') || 0;
+        const bd = Date.parse((b as BinFileInfo).binDeletedAt || '') || 0;
+        return bd - ad;
+      });
+    }
+    return groups;
+  }
+
+  private projectBinEntries(entries: FileInfo[]): FileInfo[] {
+    const groups = [...this.binRevisionGroups(entries).entries()]
+      .map(([key, versions]) => ({ key, versions }))
+      .filter(group => {
+        const query = this.filterText.trim().toLocaleLowerCase();
+        if (!query) return true;
+        return group.versions.some(entry =>
+          entry.name.toLocaleLowerCase().includes(query) ||
+          this.binOriginalPath(entry).toLocaleLowerCase().includes(query)
+        );
+      })
+      .sort((a, b) => {
+        const ad = Date.parse((a.versions[0] as BinFileInfo).binDeletedAt || '') || 0;
+        const bd = Date.parse((b.versions[0] as BinFileInfo).binDeletedAt || '') || 0;
+        return bd - ad;
+      });
+
+    const visible: FileInfo[] = [];
+    for (const group of groups) {
+      visible.push(group.versions[0]);
+      if (this.expandedBinRevisionGroups.has(group.key)) visible.push(...group.versions.slice(1));
+    }
+    return visible;
   }
 
   panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {
@@ -2511,6 +2768,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntries(): FileInfo[] {
+    if (this.isBinLocation) {
+      return this.projectBinEntries(this.entries);
+    }
+
     if (this.backendPresentationActive) {
       return this.withPresentationParent(this.entries);
     }
@@ -3539,6 +3800,21 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async treeLeft(): Promise<void> {
+    if (this.isBinLocation) {
+      const entry = this.cursorEntry;
+      if (!entry) return;
+      const info = this.binRevisionInfo(entry);
+      if (!info.latest) {
+        const latest = this.binRevisionGroups(this.entries).get(info.groupKey)?.[0];
+        if (latest) this.setSingleSelection(latest);
+      } else if (this.expandedBinRevisionGroups.has(info.groupKey)) {
+        this.expandedBinRevisionGroups.delete(info.groupKey);
+        this.reconcileSelectionWithVisibleEntries();
+      }
+      this.ensureCursorVisible();
+      this.cdr.markForCheck();
+      return;
+    }
     if (this.viewMode !== 'tree') return;
     this.markUserInteraction();
     const rows = this.treeRows;
@@ -3567,6 +3843,23 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async treeRight(): Promise<void> {
+    if (this.isBinLocation) {
+      const entry = this.cursorEntry;
+      if (!entry) return;
+      const info = this.binRevisionInfo(entry);
+      if (info.latest && info.versionCount > 1 && !this.expandedBinRevisionGroups.has(info.groupKey)) {
+        this.expandedBinRevisionGroups.add(info.groupKey);
+        this.cdr.markForCheck();
+        return;
+      }
+      if (info.latest && this.expandedBinRevisionGroups.has(info.groupKey)) {
+        const child = this.binRevisionGroups(this.entries).get(info.groupKey)?.[1];
+        if (child) this.setSingleSelection(child);
+        this.ensureCursorVisible();
+        this.cdr.markForCheck();
+      }
+      return;
+    }
     if (this.viewMode !== 'tree') return;
     this.markUserInteraction();
     const rows = this.treeRows;
@@ -3836,6 +4129,18 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   openEntry(entry: FileInfo): void {
     this.setSingleSelection(entry);
+
+    if (this.isBinLocation) {
+      const info = this.binRevisionInfo(entry);
+      if (info.latest && info.versionCount > 1) {
+        this.toggleBinGroup(entry);
+        this.lastAction = this.isBinGroupExpanded(entry) ? 'expand bin versions' : 'collapse bin versions';
+      }
+      // A trash row is an exact OS trash object. Never navigate/open its
+      // trashedPath as if it were an ordinary filesystem item. F5/F6/Delete
+      // continue to act on the selected version through its unique trash id.
+      return;
+    }
 
     if (entry.path === '__parent__') {
       void this.navigateUp();
@@ -7744,7 +8049,16 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   onContentScroll(event: Event): void {
     const target = event.currentTarget as HTMLElement | null;
-    if (!target || !this.isDirectoryTab) return;
+    if (!target) return;
+
+    if (this.viewMode === 'details') {
+      this.detailsScrollLeft = Math.max(0, target.scrollLeft);
+    }
+
+    if (!this.isDirectoryTab) {
+      this.cdr.markForCheck();
+      return;
+    }
 
     this.updateVirtualViewport(target);
     this.queueBackendWindowForViewport();

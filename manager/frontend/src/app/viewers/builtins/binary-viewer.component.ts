@@ -14,6 +14,7 @@ import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.dire
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 
 type BinaryViewerKind = 'empty' | 'loading' | 'grid' | 'directory' | 'error';
 type OffsetFormat = 'hex' | 'dec';
@@ -447,7 +448,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       animation: spin 0.65s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class BinaryViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';

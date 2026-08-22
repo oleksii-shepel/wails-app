@@ -38,6 +38,13 @@ export interface FileInfo {
   searchPattern?: string;
   searchParentPath?: string;
 
+  // Recycle Bin provider metadata. Each row is one exact OS trash object.
+  // Grouping/version labels are presentation-only and derived in the pane.
+  binTrashId?: string;
+  binOriginalPath?: string;
+  binDeletedAt?: string;
+  binCanRestore?: boolean;
+
   // Archive/provider extensions. Optional so plain wire FileInfo remains valid.
   isNested?: boolean;
   nestedChain?: string[];

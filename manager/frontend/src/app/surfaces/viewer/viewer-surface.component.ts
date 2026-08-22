@@ -12,6 +12,7 @@ import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../.
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
 import { SegmentVideoLoader } from '../../viewers/builtins/segment-video-loader';
+import { VIEWER_PRODUCTION_CHROME_STYLES } from '../../viewers/builtins/builtin-viewer.shared';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -1240,7 +1241,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       hr { border: none; border-top: 1px solid var(--vsc-border, var(--vsc-border)); margin: 1.2em 0; }
       img { max-width: 100%; border-radius: 3px; }
     }
-  `]
+  `, VIEWER_PRODUCTION_CHROME_STYLES]
 })
 export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   private static readonly WINDOWED_VIDEO_STREAM_SECONDS = 90;

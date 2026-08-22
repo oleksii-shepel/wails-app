@@ -12,6 +12,7 @@ import { ApiService } from '../../services/api.service';
 import type { FileProbe } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 import { PdfViewerComponent } from './pdf-viewer.component';
 
 type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 'unsupported';
@@ -221,7 +222,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       100% { box-shadow: 0 0 0 0 transparent; }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class OfficeViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';

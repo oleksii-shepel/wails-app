@@ -266,6 +266,13 @@ class BinDirectoryProvider implements DirectoryListingProvider {
           accessed: 0,
           permissions: 'r--',
           isHidden: false,
+          // Explicit provider metadata is part of the canonical FileInfo contract.
+          // Keeping trash identity separate from display grouping means Latest/vN
+          // rows remain independently actionable.
+          binTrashId: entry.id,
+          binOriginalPath: entry.originalPath || '',
+          binDeletedAt: entry.deletedAt || '',
+          binCanRestore: entry.canRestore,
         } as FileInfo;
       }),
     };

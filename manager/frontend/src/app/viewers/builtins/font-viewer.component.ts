@@ -5,6 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import {
+  VIEWER_PRODUCTION_CHROME_STYLES,
   VIEWER_BASE_STYLES,
   baseName,
   buildDisplayName,
@@ -282,7 +283,7 @@ const GLYPH_ROWS = [
         grid-column: auto;
       }
     }
-  `],
+  `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
 export class FontViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';

@@ -20,9 +20,12 @@ import {
   formatPathForDisplay,
   formatSearchAliasForEdit,
   normalizeAddressBarPathInput,
+  normalizePath,
 } from './address-bar.utils';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { PanelSourceRegistryService } from '../services/panel-source-registry.service';
+import { FileType, type FileInfo } from '../shared/protocol';
 import {
   PathHistoryService,
   type PathSuggestion,
@@ -40,6 +43,7 @@ const COMMAND = {
   cancel: 'cancel',
   next: 'nextSuggestion',
   previous: 'previousSuggestion',
+  complete: 'completeSuggestions',
 } as const;
 
 function editorBindings(paneId: string, contextId: string): readonly InputBindingDefinition[] {
@@ -84,6 +88,19 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       category: 'Navigation',
       when: 'typing',
       trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowup' }] } },
+    },
+    {
+      id: `${id}.complete.ctrlSpace`,
+      commandId: `${id}.${COMMAND.complete}`,
+      contextId,
+      source: 'default',
+      description: 'Show location suggestions',
+      category: 'Navigation',
+      when: 'typing',
+      trigger: {
+        device: 'keyboard',
+        chord: { steps: [{ key: 'space', modifiers: ['ctrl'] }] },
+      },
     },
   ];
 }
@@ -451,6 +468,7 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
   constructor(
     private readonly input: InputEngineService,
     private readonly history: PathHistoryService,
+    private readonly panelSources: PanelSourceRegistryService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -620,6 +638,13 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
       execute: () => this.moveSuggestion(-1),
     }, this.ownerId);
 
+    this.input.registerCommandDescriptor({
+      id: this.commandId(COMMAND.complete),
+      title: 'Show Location Suggestions',
+      category: 'Navigation',
+      execute: () => this.forceSourceSuggestions(),
+    }, this.ownerId);
+
     this.bindings = editorBindings(this.paneId, this.contextId);
     for (const binding of this.bindings) {
       this.input.registerBinding(binding);
@@ -719,7 +744,10 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
     this.navigate.emit(normalized);
   }
 
-  private moveSuggestion(delta: -1 | 1): void {
+  private async moveSuggestion(delta: -1 | 1): Promise<void> {
+    if (this.suggestions.length === 0) {
+      await this.forceSourceSuggestions();
+    }
     if (this.suggestions.length === 0) return;
 
     if (this.suggestionIndex < 0) {
@@ -736,6 +764,105 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
     }
 
     this.cdr.markForCheck();
+  }
+
+  private splitSourceAutocompleteContext(value: string): { dirPath: string; prefix: string } | null {
+    const raw = (value || '').trim().replace(/\\/g, '/');
+    if (!raw) return null;
+
+    const normalized = normalizeAddressBarPathInput(raw, this.path);
+    if (!normalized) return null;
+
+    // The editor displays Windows roots as C:/ while the source boundary uses
+    // filesystem://c/. Treat the root itself as the directory context.
+    if (/^[a-z]:\/$/i.test(raw)) {
+      const root = normalizePath(normalized);
+      return {
+        dirPath: root.endsWith('/') ? root : `${root}/`,
+        prefix: '',
+      };
+    }
+
+    // Scheme roots are complete directory contexts too.
+    if (/^[a-z][a-z0-9+.-]*:\/\/$/i.test(raw)) {
+      return { dirPath: raw, prefix: '' };
+    }
+
+    // A trailing slash means "list this directory".
+    if (raw.endsWith('/')) {
+      return { dirPath: normalized, prefix: '' };
+    }
+
+    const normalizedSlashes = normalized.replace(/\\/g, '/');
+    const slash = normalizedSlashes.lastIndexOf('/');
+    if (slash < 0) {
+      return { dirPath: this.path || '/', prefix: raw };
+    }
+
+    return {
+      dirPath: normalizedSlashes.slice(0, slash + 1),
+      prefix: normalizedSlashes.slice(slash + 1),
+    };
+  }
+
+  private async forceSourceSuggestions(): Promise<void> {
+    if (!this.editing) return;
+
+    const generation = ++this.suggestionGeneration;
+    const split = this.splitSourceAutocompleteContext(this.value);
+    if (!split) {
+      await this.refreshSuggestions();
+      return;
+    }
+
+    try {
+      const context = {
+        path: split.dirPath,
+        entries: [] as FileInfo[],
+        inArchive: false,
+      };
+      const resolved = this.panelSources.resolve(context);
+      const listing = await resolved.source.list(context, false);
+
+      if (generation !== this.suggestionGeneration || !this.editing) return;
+
+      const prefix = split.prefix.toLowerCase();
+      const seen = new Set<string>();
+      const suggestions: PathSuggestion[] = [];
+
+      for (const entry of listing.entries) {
+        if (entry.type !== FileType.DIRECTORY) continue;
+        if (prefix && !entry.name.toLowerCase().startsWith(prefix)) continue;
+        if (seen.has(entry.path)) continue;
+        seen.add(entry.path);
+
+        suggestions.push({
+          path: entry.path,
+          displayName: entry.name,
+          matchType: 'directory',
+          score: 100,
+          exists: true,
+        });
+
+        // Keep the live dropdown bounded even when a source contains thousands
+        // of records. Source-specific optimized completion can replace list()
+        // later without changing the address-bar command contract.
+        if (suggestions.length >= 100) break;
+      }
+
+      suggestions.sort((left, right) =>
+        left.displayName.localeCompare(right.displayName),
+      );
+
+      this.suggestions = suggestions;
+      this.suggestionIndex = suggestions.length > 0 ? 0 : -1;
+      this.cdr.markForCheck();
+    } catch {
+      if (generation !== this.suggestionGeneration || !this.editing) return;
+      this.suggestions = [];
+      this.suggestionIndex = -1;
+      this.cdr.markForCheck();
+    }
   }
 
   private async refreshSuggestions(): Promise<void> {

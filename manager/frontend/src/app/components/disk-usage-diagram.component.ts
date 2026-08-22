@@ -87,7 +87,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
                     cx="0" cy="0" [attr.r]="outerR" [attr.fill]="s.color"/>
             <circle class="pie-path pie-path--inner-mask"
                     cx="0" cy="0" [attr.r]="innerR"
-                    fill="var(--vsc-panel-background, var(--vsc-panel-background))"/>
+                    fill="var(--vsc-panel-background, #252526)"/>
           </ng-container>
           <ng-template #arcSlice>
             <path class="pie-path" [class.pie-path--other]="s.index === -1"
@@ -239,7 +239,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       gap: 10px;
       font-size: var(--vsc-font-size, 13px);
       font-family: var(--vsc-font-family, system-ui, sans-serif);
-      color: var(--vsc-foreground, var(--vsc-foreground));
+      color: var(--vsc-foreground, #cccccc);
       min-width: 0;
     }
 
@@ -261,8 +261,8 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       gap: 8px;
       padding: 12px;
       border-radius: var(--vsc-border-radius-lg, 4px);
-      border: 1px solid var(--vsc-border-subtle, var(--vsc-list-active-background));
-      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      border: 1px solid var(--vsc-border-subtle, #3a3a3a);
+      background: var(--vsc-editor-background, #1e1e1e);
       min-width: 0;
       overflow: hidden;
     }
@@ -279,7 +279,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: .12em;
-      color: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+      color: var(--vsc-foreground-dim, #888);
     }
 
     .pie-legend-action {
@@ -313,14 +313,14 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
 
     .sm-btn {
       appearance: none;
-      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border: 1px solid var(--vsc-border, #454545);
       border-radius: var(--vsc-border-radius-lg, 4px);
       padding: 4px 10px;
       font-size: 12px;
       font-weight: 500;
       font-family: inherit;
       cursor: pointer;
-      color: var(--vsc-foreground, var(--vsc-foreground));
+      color: var(--vsc-foreground, #cccccc);
       background: transparent;
       transition: background .1s, border-color .1s;
       white-space: nowrap;
@@ -328,7 +328,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
     }
 
     .sm-btn:hover:not(:disabled) {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      background: var(--vsc-list-hover-background, #2a2d2e);
     }
 
     .sm-btn:disabled {
@@ -337,14 +337,14 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
     }
 
     .sm-btn:focus-visible {
-      outline: 1px solid var(--vsc-input-focus-border, var(--vsc-focusBorder, var(--vsc-accent-blue)));
+      outline: 1px solid var(--vsc-input-focus-border, var(--vsc-focusBorder, #007acc));
       outline-offset: 1px;
     }
 
     .pie-spot-icon {
       font-size: 11px;
       flex-shrink: 0;
-      color: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+      color: var(--vsc-foreground-dim, #888);
     }
 
     .pie-spot-name {
@@ -364,11 +364,11 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       letter-spacing: .08em;
       padding: 2px 6px;
       border-radius: 999px;
-      background: var(--vsc-chart-fill-1);
-      color: var(--vsc-chart-7);
+      background: rgba(157,220,252,.15);
+      color: #9ddcfc;
       flex-shrink: 0;
     }
-    .pie-pill--dir { background: var(--vsc-chart-fill-2); color: var(--vsc-chart-8); }
+    .pie-pill--dir { background: rgba(184,209,143,.15); color: #b8d18f; }
 
     .pie-spot-size {
       font-size: 26px;
@@ -380,14 +380,14 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
 
     .pie-spot-share {
       font-size: 11px;
-      color: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+      color: var(--vsc-foreground-dim, #888);
     }
 
     .pie-bar-track {
       height: 4px;
       border-radius: 999px;
-      background: var(--vsc-input-background, var(--vsc-control-background));
-      border: 1px solid var(--vsc-border-subtle, var(--vsc-list-active-background));
+      background: var(--vsc-input-background, #3c3c3c);
+      border: 1px solid var(--vsc-border-subtle, #3a3a3a);
       overflow: hidden;
     }
     .pie-bar-fill { height: 100%; border-radius: inherit; width: 0%; }
@@ -410,13 +410,13 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
     }
     .pie-stat-lbl {
       font-size: 10px;
-      color: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+      color: var(--vsc-foreground-dim, #888);
     }
 
     .pie-spot-path {
       margin-top: auto;
       font-size: 10px;
-      color: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+      color: var(--vsc-foreground-dim, #666);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -455,31 +455,31 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
     .pie-slice-g--other { cursor: zoom-in; }
 
     .pie-path {
-      stroke: var(--vsc-panel-background, var(--vsc-panel-background));
+      stroke: var(--vsc-panel-background, #252526);
       stroke-width: 2;
       stroke-linejoin: round;
       transition: stroke-width 0.15s ease, stroke 0.15s ease;
     }
     .pie-path--inner-mask { stroke: none !important; pointer-events: none; }
     .pie-slice-g--selected .pie-path:not(.pie-path--inner-mask) {
-      stroke: var(--vsc-focus-border, var(--vsc-accent-blue));
+      stroke: var(--vsc-focus-border, #007acc);
       stroke-width: 2.5;
     }
 
     /* ── Donut hole + center ──────────────────────────────── */
 
-    .pie-hole { fill: var(--vsc-panel-background, var(--vsc-panel-background)); }
+    .pie-hole { fill: var(--vsc-panel-background, #252526); }
     .pie-center { pointer-events: none; }
-    .pie-center-name  { font-size: 10px; fill: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
-    .pie-center-pct   { font-size: 15px; font-weight: 700; fill: var(--vsc-foreground, var(--vsc-foreground)); }
-    .pie-center-other1 { font-size: 11px; fill: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
-    .pie-center-other2 { font-size: 9px;  fill: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
+    .pie-center-name  { font-size: 10px; fill: var(--vsc-foreground-dim, #888); }
+    .pie-center-pct   { font-size: 15px; font-weight: 700; fill: var(--vsc-foreground, #ccc); }
+    .pie-center-other1 { font-size: 11px; fill: var(--vsc-foreground-dim, #888); }
+    .pie-center-other2 { font-size: 9px;  fill: var(--vsc-foreground-dim, #666); }
 
     /* ── SVG tooltip ──────────────────────────────────────── */
 
-    .pie-tip-bg   { fill: var(--vsc-editor-background, var(--vsc-editor-background)); stroke: var(--vsc-border, var(--vsc-border)); stroke-width: 0.75; }
-    .pie-tip-name { font-size: 11px; font-weight: 600; fill: var(--vsc-foreground, var(--vsc-foreground)); }
-    .pie-tip-meta { font-size: 10px; fill: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
+    .pie-tip-bg   { fill: var(--vsc-editor-background, #1e1e1e); stroke: var(--vsc-border, #454545); stroke-width: 0.75; }
+    .pie-tip-name { font-size: 11px; font-weight: 600; fill: var(--vsc-foreground, #ccc); }
+    .pie-tip-meta { font-size: 10px; fill: var(--vsc-foreground-dim, #888); }
 
     /* ── Legend ───────────────────────────────────────────── */
 
@@ -509,20 +509,20 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       width: 100%;
     }
     .pie-legend-item:hover,
-    .pie-legend-item--hovered { background: var(--vsc-list-hover-background, var(--vsc-list-hover-background)); }
+    .pie-legend-item--hovered { background: var(--vsc-list-hover-background, #2a2d2e); }
     .pie-legend-item--active {
       background: color-mix(in srgb,
-        var(--vsc-focus-border, var(--vsc-accent-blue)) 10%,
-        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 90%) !important;
-      border-color: color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 40%, transparent);
+        var(--vsc-focus-border, #007acc) 10%,
+        var(--vsc-list-hover-background, #2a2d2e) 90%) !important;
+      border-color: color-mix(in srgb, var(--vsc-focus-border, #007acc) 40%, transparent);
     }
     .pie-legend-item--other {
       border-style: solid;
-      border-color: color-mix(in srgb, var(--vsc-foreground-dim, var(--vsc-foreground-dim)) 30%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-foreground-dim, #888) 30%, transparent);
     }
     .pie-legend-item--other:hover,
     .pie-legend-item--other.pie-legend-item--hovered {
-      border-color: color-mix(in srgb, var(--vsc-foreground-dim, var(--vsc-foreground-dim)) 60%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-foreground-dim, #888) 60%, transparent);
     }
 
     .pie-swatch {
@@ -541,37 +541,37 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       text-overflow: ellipsis;
       font-weight: 500;
     }
-    .pie-other-count { font-weight: 400; color: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); margin-left: 2px; }
-    .pie-legend-size { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11px; color: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
-    .pie-legend-pct  { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11px; color: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); min-width: 42px; text-align: right; }
-    .pie-drill-arrow { font-size: 14px; color: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); flex-shrink: 0; transition: transform 0.12s, color 0.12s; }
+    .pie-other-count { font-weight: 400; color: var(--vsc-foreground-dim, #888); margin-left: 2px; }
+    .pie-legend-size { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11px; color: var(--vsc-foreground-dim, #888); }
+    .pie-legend-pct  { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 11px; color: var(--vsc-foreground-dim, #888); min-width: 42px; text-align: right; }
+    .pie-drill-arrow { font-size: 14px; color: var(--vsc-foreground-dim, #888); flex-shrink: 0; transition: transform 0.12s, color 0.12s; }
     .pie-legend-item--other:hover .pie-drill-arrow,
-    .pie-legend-item--other.pie-legend-item--hovered .pie-drill-arrow { transform: translateX(2px); color: var(--vsc-foreground, var(--vsc-foreground)); }
+    .pie-legend-item--other.pie-legend-item--hovered .pie-drill-arrow { transform: translateX(2px); color: var(--vsc-foreground, #ccc); }
 
     /* Light theme */
-    :host-context(.vscode-light) .pie-hole  { fill: var(--vsc-panel-background, var(--vsc-panel-background)); }
-    :host-context(.vscode-light) .pie-path  { stroke: var(--vsc-panel-background, var(--vsc-panel-background)); }
-    :host-context(.vscode-light) .pie-pill  { background: var(--vsc-chart-fill-1); color: var(--vsc-chart-1); }
-    :host-context(.vscode-light) .pie-pill--dir { background: var(--vsc-chart-fill-3); color: var(--vsc-warning); }
-    :host-context(.vscode-light) .pie-spotlight { background: var(--vsc-input-background, var(--vsc-on-accent)); }
-    :host-context(.vscode-light) .pie-tip-bg { fill: var(--vsc-input-background, var(--vsc-on-accent)); stroke: var(--vsc-border, var(--vsc-border)); }
-    :host-context(.vscode-light) .pie-tip-name { fill: var(--vsc-foreground, var(--vsc-foreground)); }
-    :host-context(.vscode-light) .pie-tip-meta { fill: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
+    :host-context(.vscode-light) .pie-hole  { fill: var(--vsc-panel-background, #f3f3f3); }
+    :host-context(.vscode-light) .pie-path  { stroke: var(--vsc-panel-background, #f3f3f3); }
+    :host-context(.vscode-light) .pie-pill  { background: rgba(10,93,143,.12); color: #0a5d8f; }
+    :host-context(.vscode-light) .pie-pill--dir { background: rgba(90,110,0,.12); color: #5a6e00; }
+    :host-context(.vscode-light) .pie-spotlight { background: var(--vsc-input-background, #ffffff); }
+    :host-context(.vscode-light) .pie-tip-bg { fill: var(--vsc-input-background, #ffffff); stroke: var(--vsc-border, #c4c4c4); }
+    :host-context(.vscode-light) .pie-tip-name { fill: var(--vsc-foreground, #3b3b3b); }
+    :host-context(.vscode-light) .pie-tip-meta { fill: var(--vsc-foreground-dim, #737373); }
     :host-context(.vscode-light) .pie-legend-item:hover,
-    :host-context(.vscode-light) .pie-legend-item--hovered { background: var(--vsc-list-hover-background, var(--vsc-foreground)); color: var(--vsc-foreground, var(--vsc-foreground)); }
+    :host-context(.vscode-light) .pie-legend-item--hovered { background: var(--vsc-list-hover-background, #e4e6f1); color: var(--vsc-foreground, #3b3b3b); }
     :host-context(.vscode-light) .pie-legend-item--active {
-      background: color-mix(in srgb, var(--vsc-list-active-background, var(--vsc-list-active-background)) 82%, white 18%) !important;
-      border-color: color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 28%, var(--vsc-border, var(--vsc-border)));
-      color: var(--vsc-foreground, var(--vsc-foreground));
+      background: color-mix(in srgb, var(--vsc-list-active-background, #cce0f5) 82%, white 18%) !important;
+      border-color: color-mix(in srgb, var(--vsc-focus-border, #007acc) 28%, var(--vsc-border, #c4c4c4));
+      color: var(--vsc-foreground, #3b3b3b);
     }
-    :host-context(.vscode-light) .pie-legend-item--other { border-color: color-mix(in srgb, var(--vsc-foreground-dim, var(--vsc-foreground-dim)) 34%, transparent); }
+    :host-context(.vscode-light) .pie-legend-item--other { border-color: color-mix(in srgb, var(--vsc-foreground-dim, #737373) 34%, transparent); }
     :host-context(.vscode-light) .pie-legend-size,
     :host-context(.vscode-light) .pie-legend-pct,
     :host-context(.vscode-light) .pie-other-count,
     :host-context(.vscode-light) .pie-drill-arrow,
     :host-context(.vscode-light) .pie-spot-share,
     :host-context(.vscode-light) .pie-stat-lbl,
-    :host-context(.vscode-light) .pie-spot-path { color: var(--vsc-foreground-dim, var(--vsc-foreground-dim)); }
+    :host-context(.vscode-light) .pie-spot-path { color: var(--vsc-foreground-dim, #737373); }
   `],
 })
 export class DiskPieChartComponent implements OnChanges, OnDestroy {
@@ -601,8 +601,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   otherEntries:   DiskUsageEntry[] = [];
   otherSize = 0;
   otherPct  = '';
-  readonly otherColor = 'var(--vsc-border-bright)';
-  readonly folderBarColor = 'var(--vsc-chart-5)';
+  readonly otherColor = '#555566';
+  readonly folderBarColor = '#7fba7a';
 
   slices: PieSlice[]   = [];
   selectedIndex: number | null = null;
@@ -616,8 +616,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   barTransition  = 'none';
 
   readonly palette = [
-    'var(--vsc-info)', 'var(--vsc-code-type)', 'var(--vsc-chart-6)', 'var(--vsc-chart-4)',
-    'var(--vsc-accent-yellow)', 'var(--vsc-chart-1)', 'var(--vsc-chart-8)', 'var(--vsc-accent-yellow)',
+    '#3794ff', '#4ec9b0', '#ce9178', '#c586c0',
+    '#dcdcaa', '#569cd6', '#b5cea8', '#d7ba7d',
   ];
 
   private destroyed = false;

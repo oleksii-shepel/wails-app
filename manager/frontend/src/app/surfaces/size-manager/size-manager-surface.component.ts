@@ -74,11 +74,22 @@ const PIE_PREFETCH_LIMIT = 5;
     <div class="sm-header">
       <div class="sm-header-left">
         <span class="sm-kicker">Disk Usage</span>
-        <span class="sm-sep">·</span>
-        <span class="sm-current-label">{{ headerLabel }}</span>
-        <span class="sm-path" *ngIf="showHeaderPath" [title]="headerPath">{{ headerPath }}</span>
+        <nav class="sm-path-nav" aria-label="Disk usage location">
+          <ng-container *ngFor="let segment of navigationBreadcrumbs; let first = first; let last = last">
+            <span class="sm-path-sep" *ngIf="!first" aria-hidden="true">›</span>
+            <button
+              type="button"
+              class="sm-path-crumb"
+              [class.sm-path-crumb--active]="last"
+              [disabled]="last"
+              [title]="segment.path"
+              (click)="navigateBreadcrumb(segment.path)">{{ segment.label }}</button>
+          </ng-container>
+        </nav>
       </div>
       <div class="sm-header-actions">
+        <button class="sm-btn sm-btn--icon" [disabled]="!canGoBack" (click)="goBack()" title="Back" aria-label="Back">←</button>
+        <button class="sm-btn sm-btn--icon" [disabled]="!canGoForward" (click)="goForward()" title="Forward" aria-label="Forward">→</button>
         <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
         <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
         <button class="sm-btn sm-btn--close" (click)="close()" title="Close">✕</button>
@@ -215,7 +226,7 @@ const PIE_PREFETCH_LIMIT = 5;
       <div class="sm-panel sm-breakdown">
         <div class="sm-panel-head">
           <span class="sm-panel-title">Breakdown</span>
-          <span class="sm-panel-hint">Click a folder to drill in · click a file to inspect</span>
+          <span class="sm-panel-hint">Single-click to inspect · double-click or Enter a folder to drill in</span>
         </div>
 
         <div class="sm-table-head" *ngIf="entries.length > 0">
@@ -231,7 +242,9 @@ const PIE_PREFETCH_LIMIT = 5;
             *ngFor="let e of entries; trackBy: trackEntry"
             [class.sm-row--dir]="e.isDir"
             [class.sm-row--active]="selectedEntry?.path === e.path"
-            (click)="onEntryClick(e)">
+            (click)="onEntryClick(e)"
+            (dblclick)="onEntryDblClick(e)"
+            (keydown.enter)="onEntryKeydown($event, e)">
             <div class="sm-row-name">
               <span class="sm-row-icon" [class.sm-row-icon--dir]="e.isDir">{{ e.isDir ? '▣' : '•' }}</span>
               <span class="sm-row-label" [title]="e.path">{{ e.name }}</span>
@@ -255,25 +268,25 @@ const PIE_PREFETCH_LIMIT = 5;
   `,
   styles: [`
     :host {
-      --_bg:         var(--vsc-editor-background,    var(--vsc-editor-background));
-      --_surface:    var(--vsc-panel-background,     var(--vsc-panel-background));
-      --_surface2:   var(--vsc-list-hover-background,var(--vsc-list-hover-background));
-      --_input-bg:   var(--vsc-input-background,     var(--vsc-control-background));
-      --_text:       var(--vsc-foreground,           var(--vsc-foreground));
-      --_text-dim:   var(--vsc-foreground-dim,       var(--vsc-foreground-dim));
-      --_border:     var(--vsc-border,               var(--vsc-border));
-      --_border-sub: var(--vsc-border-subtle,        var(--vsc-list-active-background));
-      --_focus:      var(--vsc-input-focus-border,   var(--vsc-accent-blue));
-      --_btn-bg:     var(--vsc-button-background,    var(--vsc-button-background));
-      --_btn-hover:  var(--vsc-button-hover,         var(--vsc-button-hover));
-      --_hover-bg:   var(--vsc-list-hover-background,var(--vsc-list-hover-background));
-      --_active-bg:  var(--vsc-list-active-background,var(--vsc-list-selected-emphasis));
-      --_accent-a:   var(--vsc-chart-2);
-      --_accent-b:   var(--vsc-chart-1);
-      --_error:      var(--vsc-error,                var(--vsc-error));
-      --_blue:       var(--vsc-accent-blue,          var(--vsc-accent-blue));
-      --_icon-file:  var(--vsc-chart-7);
-      --_icon-dir:   var(--vsc-chart-3);
+      --_bg:         var(--vsc-editor-background,    #1e1e1e);
+      --_surface:    var(--vsc-panel-background,     #252526);
+      --_surface2:   var(--vsc-list-hover-background,#2a2d2e);
+      --_input-bg:   var(--vsc-input-background,     #3c3c3c);
+      --_text:       var(--vsc-foreground,           #cccccc);
+      --_text-dim:   var(--vsc-foreground-dim,       #888888);
+      --_border:     var(--vsc-border,               #454545);
+      --_border-sub: var(--vsc-border-subtle,        #3a3a3a);
+      --_focus:      var(--vsc-input-focus-border,   #007acc);
+      --_btn-bg:     var(--vsc-button-background,    #0e639c);
+      --_btn-hover:  var(--vsc-button-hover,         #1177bb);
+      --_hover-bg:   var(--vsc-list-hover-background,#2a2d2e);
+      --_active-bg:  var(--vsc-list-active-background,#094771);
+      --_accent-a:   #2ec4b6;
+      --_accent-b:   #3a86ff;
+      --_error:      var(--vsc-error,                #f48771);
+      --_blue:       var(--vsc-accent-blue,          #007acc);
+      --_icon-file:  #8fd3ff;
+      --_icon-dir:   #dcb67a;
 
       display: flex;
       flex-direction: column;
@@ -287,36 +300,40 @@ const PIE_PREFETCH_LIMIT = 5;
     }
 
     :host-context(.vscode-light) {
-      --_bg: var(--vsc-on-accent); --_surface: var(--vsc-panel-background); --_surface2: var(--vsc-foreground);
-      --_input-bg: var(--vsc-on-accent); --_text: var(--vsc-foreground); --_text-dim: var(--vsc-foreground-dim);
-      --_border: var(--vsc-border); --_border-sub: var(--vsc-border-subtle); --_focus: var(--vsc-accent-blue);
-      --_btn-bg: var(--vsc-accent-blue); --_btn-hover: var(--vsc-button-hover);
-      --_hover-bg: var(--vsc-foreground); --_active-bg: var(--vsc-list-active-background);
-      --_error: var(--vsc-error); --_blue: var(--vsc-accent-blue);
-      --_accent-a: var(--vsc-chart-2); --_accent-b: var(--vsc-accent-blue);
-      --_icon-file: var(--vsc-accent-blue); --_icon-dir: var(--vsc-warning);
+      --_bg: #ffffff; --_surface: #f3f3f3; --_surface2: #e4e6f1;
+      --_input-bg: #ffffff; --_text: #3b3b3b; --_text-dim: #737373;
+      --_border: #c4c4c4; --_border-sub: #e5e5e5; --_focus: #007acc;
+      --_btn-bg: #007acc; --_btn-hover: #005ba1;
+      --_hover-bg: #e4e6f1; --_active-bg: #cce0f5;
+      --_error: #c7372f; --_blue: #007acc;
+      --_accent-a: #0fa89e; --_accent-b: #1a6fd4;
+      --_icon-file: #1a6fd4; --_icon-dir: #a0700a;
     }
 
     .sm-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; flex-shrink: 0; border-bottom: 1px solid var(--_border-sub); background: var(--_surface); }
-    .sm-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+    .sm-header-left { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
     .sm-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--_text-dim); flex-shrink: 0; }
-    .sm-sep { color: var(--_text-dim); flex-shrink: 0; }
-    .sm-current-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 200px; }
-    .sm-path { font-size: 11px; color: var(--_text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .sm-path-nav { display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; }
+    .sm-path-sep { color: var(--_text-dim); flex-shrink: 0; }
+    .sm-path-crumb { appearance: none; border: 0; border-radius: var(--vsc-border-radius-sm, 2px); padding: 2px 4px; min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; font-size: 12px; color: var(--vsc-text-link, var(--_text)); background: transparent; cursor: pointer; }
+    .sm-path-crumb:hover:not(:disabled) { background: var(--_hover-bg); }
+    .sm-path-crumb:focus-visible { outline: 1px solid var(--_focus); outline-offset: 1px; }
+    .sm-path-crumb--active, .sm-path-crumb:disabled { color: var(--_text); font-weight: 600; opacity: 1; cursor: default; }
     .sm-header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
     .sm-btn { appearance: none; border: 1px solid var(--_border); border-radius: var(--vsc-border-radius-lg, 4px); padding: 4px 10px; font-size: 12px; font-weight: 500; font-family: inherit; cursor: pointer; color: var(--_text); background: transparent; transition: background .1s, border-color .1s; white-space: nowrap; }
     .sm-btn:hover:not(:disabled) { background: var(--_hover-bg); }
     .sm-btn:disabled { opacity: .35; cursor: default; }
-    .sm-btn--primary { background: var(--_btn-bg); color: var(--vsc-button-foreground, var(--vsc-on-accent)); border-color: transparent; }
+    .sm-btn--primary { background: var(--_btn-bg); color: #fff; border-color: transparent; }
     .sm-btn--primary:hover:not(:disabled) { background: var(--_btn-hover); }
+    .sm-btn--icon { width: 28px; padding-left: 0; padding-right: 0; text-align: center; }
     .sm-btn--close { padding: 4px 8px; }
 
     .sm-loading { display: flex; align-items: center; gap: 10px; padding: 16px 14px; flex-shrink: 0; color: var(--_text-dim); }
     @keyframes sm-pulse-green {
-      0% { box-shadow: 0 0 0 0 var(--vsc-success-border); }
-      70% { box-shadow: 0 0 0 8px transparent; }
-      100% { box-shadow: 0 0 0 0 transparent; }
+      0% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); }
+      70% { box-shadow: 0 0 0 8px rgba(43, 178, 76, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0); }
     }
 
     .sm-error { display: flex; align-items: center; gap: 10px; padding: 12px 14px; flex-shrink: 0; color: var(--_error); border-bottom: 1px solid color-mix(in srgb, var(--_error) 25%, transparent); background: color-mix(in srgb, var(--_error) 8%, var(--_surface)); }
@@ -324,12 +341,12 @@ const PIE_PREFETCH_LIMIT = 5;
 
     .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; }
     .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 2px 0; color: var(--_text-dim); }
-    .sm-inline-elapsed { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--vsc-success); font-weight: 600; }
+    .sm-inline-elapsed { font-variant-numeric: tabular-nums; white-space: nowrap; color: #2bb24c; font-weight: 600; }
     .sm-inline-throughput { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--_text-dim); }
     .sm-inline-traversal { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--_text-dim); }
     .sm-inline-sep { color: var(--_text-dim); }
-    .sm-inline-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, var(--vsc-success) 14%, transparent); border: 1px solid color-mix(in srgb, var(--vsc-success) 35%, var(--_border)); }
-    .sm-inline-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--vsc-success); border: 1px solid var(--vsc-neutral-overlay-strong); box-shadow: 0 0 0 0 var(--vsc-success-border); animation: sm-pulse-green 1.3s ease-out infinite; }
+    .sm-inline-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, #2bb24c 14%, transparent); border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--_border)); }
+    .sm-inline-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
 
     .sm-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; flex-shrink: 0; }
     .sm-metric { padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: var(--_surface); min-width: 0; }
@@ -433,6 +450,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   private activeTabId = '';
   private activeScanRunId = 0;
   private syncedAnalysisPath = '';
+  private analysisRootPath = '';
+  private navigationHistory: string[] = [];
+  private navigationIndex = -1;
   private readonly pieFrameCache = new Map<string, PieFrame>();
   private readonly pendingPieFrames = new Map<string, Promise<PieFrame | null>>();
   private activePieRequestId = 0;
@@ -452,9 +472,17 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       if (tabChanged) {
         this.activeTabId = tabId;
         this.syncedAnalysisPath = '';
+        this.analysisRootPath = path ? this.normalizePathDisplay(path) : '';
+        this.navigationHistory = path ? [path] : [];
+        this.navigationIndex = path ? 0 : -1;
         this.resetAnalysisState();
       }
       if (path && (tabChanged || path !== this.syncedAnalysisPath)) {
+        if (!this.analysisRootPath) this.analysisRootPath = this.normalizePathDisplay(path);
+        if (this.navigationIndex < 0) {
+          this.navigationHistory = [path];
+          this.navigationIndex = 0;
+        }
         this.syncedAnalysisPath = path;
         this.analyse(path);
       }
@@ -465,12 +493,33 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
-  close():   void { this.ctx?.sizeVm?.onClose(); }
-  goUp():    void { if (this.parentPath) this.navigateToAnalysisPath(this.parentPath); }
-  refresh(): void { if (this.currentPath) this.navigateToAnalysisPath(this.currentPath); }
+  close(): void { this.ctx?.sizeVm?.onClose(); }
+
+  get canGoBack(): boolean { return this.navigationIndex > 0; }
+  get canGoForward(): boolean { return this.navigationIndex >= 0 && this.navigationIndex < this.navigationHistory.length - 1; }
+
+  goBack(): void {
+    if (!this.canGoBack) return;
+    this.navigationIndex -= 1;
+    this.navigateToAnalysisPath(this.navigationHistory[this.navigationIndex], false);
+  }
+
+  goForward(): void {
+    if (!this.canGoForward) return;
+    this.navigationIndex += 1;
+    this.navigateToAnalysisPath(this.navigationHistory[this.navigationIndex], false);
+  }
+
+  goUp(): void {
+    if (this.parentPath) this.navigateToAnalysisPath(this.parentPath);
+  }
+
+  refresh(): void {
+    if (this.currentPath) this.navigateToAnalysisPath(this.currentPath, false);
+  }
 
   returnToRoot(): void {
-    if (this.syncedAnalysisPath) this.navigateToAnalysisPath(this.syncedAnalysisPath);
+    if (this.analysisRootPath) this.navigateToAnalysisPath(this.analysisRootPath);
   }
 
   onChartSelect(entry: DiskUsageEntry | null): void {
@@ -514,15 +563,16 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   onEntryClick(e: DiskUsageEntry): void {
     this.selectEntry(e);
-    if (e.isDir) {
-      void this.onChartActivate(e);
-    } else {
-      this.cdr.markForCheck();
-    }
   }
 
   onEntryDblClick(e: DiskUsageEntry): void {
     if (e.isDir) this.navigateToAnalysisPath(e.path);
+  }
+
+  onEntryKeydown(event: Event, e: DiskUsageEntry): void {
+    if (!e.isDir) return;
+    event.preventDefault();
+    this.navigateToAnalysisPath(e.path);
   }
 
   /** Chart emits bucketed Other entries — we push a new pie frame. */
@@ -543,7 +593,24 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  private navigateToAnalysisPath(path: string): void {
+  navigateBreadcrumb(path: string): void {
+    this.navigateToAnalysisPath(path);
+  }
+
+  private navigateToAnalysisPath(path: string, recordHistory = true): void {
+    if (!path || !this.isWithinAnalysisRoot(path)) return;
+
+    if (recordHistory) {
+      const current = this.navigationHistory[this.navigationIndex];
+      if (this.normalizePathDisplay(current || '') !== this.normalizePathDisplay(path)) {
+        this.navigationHistory = [
+          ...this.navigationHistory.slice(0, this.navigationIndex + 1),
+          path,
+        ];
+        this.navigationIndex = this.navigationHistory.length - 1;
+      }
+    }
+
     this.syncedAnalysisPath = path;
     this.ctx?.sizeVm?.onAnalyse(path);
     void this.analyse(path);
@@ -570,6 +637,12 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   get showHeaderPath(): boolean {
     return this.normalizePathDisplay(this.headerLabel) !== this.normalizePathDisplay(this.headerPath);
+  }
+
+  get navigationBreadcrumbs(): Array<{ label: string; path: string }> {
+    return buildSegments(this.headerPath)
+      .map(segment => ({ label: segment.label, path: segment.fullPath }))
+      .filter(segment => this.isWithinAnalysisRoot(segment.path));
   }
 
   get hasVisibleContent(): boolean {
@@ -1062,7 +1135,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     const parent = this.getParent(path);
     if (!parent) return null;
 
-    const root = this.normalizePathDisplay(this.syncedAnalysisPath || '');
+    const root = this.analysisRootPath;
     if (!root) return parent;
 
     const current = this.normalizePathDisplay(path);
@@ -1072,6 +1145,20 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     if (normalizedParent === root) return parent;
     if (normalizedParent.startsWith(root + '/')) return parent;
     return null;
+  }
+
+  private isWithinAnalysisRoot(path: string): boolean {
+    const root = this.analysisRootPath;
+    if (!root) return true;
+
+    const candidate = this.normalizePathDisplay(path);
+    if (!candidate) return false;
+
+    const windowsPath = /^[a-z]:\//i.test(root);
+    const compareRoot = windowsPath ? root.toLowerCase() : root;
+    const compareCandidate = windowsPath ? candidate.toLowerCase() : candidate;
+
+    return compareCandidate === compareRoot || compareCandidate.startsWith(compareRoot.endsWith('/') ? compareRoot : `${compareRoot}/`);
   }
 
   private labelFromPath(path: string): string {

@@ -439,7 +439,19 @@ export class ApiService {
   }
 
   async getDrives(): Promise<DrivesList> {
-	    return castProtocol<DrivesList>(await window.go.app.App.GetDrives());
+    const response = castProtocol<DrivesList>(await window.go.app.App.GetDrives());
+    const schemes = [...(response.schemes ?? [])];
+    if (!schemes.some(entry => /^bin:\/\//i.test(entry.path ?? ''))) {
+      schemes.push({
+        name: 'Bin',
+        path: 'bin://',
+        schemeType: 'bin',
+        totalSpace: 0,
+        freeSpace: 0,
+        fileSystem: null,
+      });
+    }
+    return { ...response, schemes };
   }
 
   async getSpecialFolders(): Promise<SpecialFolder[]> {

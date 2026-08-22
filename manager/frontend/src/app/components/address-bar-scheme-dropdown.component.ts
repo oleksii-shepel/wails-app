@@ -288,6 +288,9 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'registry') {
       return 'Registry';
     }
+    if (d.schemeType === 'bin') {
+      return 'System Bin';
+    }
     if (d.schemeType === 'search') {
       return 'Search FS';
     }
@@ -319,6 +322,7 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'cloud-dropbox')  return '📦';
     if (d.schemeType === 'memory')         return '🧠';
     if (d.schemeType === 'registry')       return '🧩';
+    if (d.schemeType === 'bin')            return '🗑️';
     if (d.schemeType === 'search')         return '🔎';
     if (d.schemeType === 'http')           return '🌐';
     if (d.schemeType === 'https')          return '🔒';

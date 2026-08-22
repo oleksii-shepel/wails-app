@@ -40,18 +40,10 @@ import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
 import { AutorunPanelSource } from './autorun-panel-source.service';
+import { BinPanelSource } from './bin-panel-source.service';
 import { SystemSurfacePanelSource, systemField } from './system-surface-panel-source';
 import { SYSTEM_SURFACES } from './system-surface-definitions';
 import { getSourceCapabilities } from './source-capabilities';
-import { REGISTRY_ROOT, RegistryService } from './registry.service';
-import {
-  createRegistryPlugin,
-  RegistryKeyEditorService,
-  RegistryValueEditorService,
-  type RegistryPanelSourceHost,
-  type RegistryPluginOperations,
-  type RegistrySourceCapabilities,
-} from '@reassembly/registry-plugin';
 
 export interface PluginBackend {
   id: string;
@@ -76,9 +68,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly api = inject(ApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly autorunSource = inject(AutorunPanelSource);
-  private readonly registryService = inject(RegistryService);
-  private readonly registryKeyEditor = inject(RegistryKeyEditorService);
-  private readonly registryValueEditor = inject(RegistryValueEditorService);
+  private readonly binSource = inject(BinPanelSource);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -92,7 +82,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   readonly panelPresentations: PanelPresentationContribution[] = [];
 
   constructor() {
-    this.registerBuiltinRegistryProvider();
+    this.registerBuiltinBinProvider();
     this.registerBuiltinAutorunProvider();
     this.registerBuiltinSystemProviders();
     this.registerBuiltinRemoteProviders();
@@ -447,6 +437,101 @@ export class PluginManagerService implements PluginRegistryAPI {
     return null;
   }
 
+  private registerBuiltinBinProvider(): void {
+    const source = this.binSource;
+    const isBin = (path: string): boolean => /^bin:\/\//i.test(path ?? '');
+    const idFor = (path: string): string | null => source.decodeEntryPath(path);
+
+    this.registerBackend({
+      id: 'builtin.bin',
+      onRegister: api => {
+        api.registerPanelSource(source);
+
+        api.registerPanelColumn({
+          id: 'builtin.bin.originalPath', label: 'Original location', width: 'minmax(180px, 1fr)',
+          score: context => context.sourceId === source.id ? 110 : 0,
+          value: entry => (entry as any).binOriginalPath ?? '',
+        });
+        api.registerPanelColumn({
+          id: 'builtin.bin.deletedAt', label: 'Deleted', width: '170px',
+          score: context => context.sourceId === source.id ? 105 : 0,
+          value: entry => {
+            const value = String((entry as any).binDeletedAt ?? '');
+            if (!value) return '';
+            const date = new Date(value);
+            return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+          },
+        });
+
+        api.registerToolbarAction({
+          id: 'builtin.bin.restore', label: 'Restore', icon: '↩',
+          score: context => isBin(context.currentDirectory) && context.selectedPaths.some(path => !!idFor(path)) ? 120 : 0,
+          execute: async context => {
+            for (const path of context.selectedPaths) {
+              const id = idFor(path);
+              if (id) await source.restore(id);
+            }
+          },
+        });
+        api.registerToolbarAction({
+          id: 'builtin.bin.empty', label: 'Empty Bin', icon: '🗑',
+          score: context => isBin(context.currentDirectory) ? 80 : 0,
+          execute: async () => {
+            const confirmed = await this.confirmDialog.confirm({
+              title: 'Empty Bin',
+              message: 'Permanently delete every item in the system Recycle Bin?',
+              confirmText: 'Empty Bin', danger: true,
+            });
+            if (confirmed) await source.empty();
+          },
+        });
+
+        api.registerContextMenuItem({
+          id: 'builtin.bin.restore', label: 'Restore', icon: '↩',
+          score: context => !!idFor(context.targetPath) ? 120 : 0,
+          execute: async context => {
+            const paths = context.selectedPaths.length ? context.selectedPaths : [context.targetPath];
+            for (const path of paths) {
+              const id = idFor(path);
+              if (id) await source.restore(id);
+            }
+          },
+        });
+        api.registerContextMenuItem({
+          id: 'builtin.bin.deletePermanently', label: 'Delete Permanently', icon: '🗑',
+          score: context => !!idFor(context.targetPath) ? 110 : 0,
+          execute: async context => {
+            const paths = context.selectedPaths.length ? context.selectedPaths : [context.targetPath];
+            const ids = paths.map(idFor).filter((id): id is string => !!id);
+            if (!ids.length) return;
+            const confirmed = await this.confirmDialog.confirm({
+              title: 'Delete Permanently',
+              message: ids.length === 1
+                ? 'Permanently delete the selected Bin item?'
+                : `Permanently delete ${ids.length} selected Bin items?`,
+              confirmText: 'Delete', danger: true,
+            });
+            if (!confirmed) return;
+            for (const id of ids) await source.deletePermanently(id);
+          },
+        });
+      },
+      onUnregister: api => {
+        api.unregisterContextMenuItem('builtin.bin.deletePermanently');
+        api.unregisterContextMenuItem('builtin.bin.restore');
+        api.unregisterToolbarAction('builtin.bin.empty');
+        api.unregisterToolbarAction('builtin.bin.restore');
+        api.unregisterPanelColumn('builtin.bin.deletedAt');
+        api.unregisterPanelColumn('builtin.bin.originalPath');
+        api.unregisterPanelSource(source.id);
+      },
+    }, {
+      id: 'builtin.bin', name: 'System Bin', version: '1.0.0',
+      description: 'Exposes the native system Recycle Bin as bin://.',
+      schemes: ['bin'],
+    });
+  }
+
   private registerBuiltinAutorunProvider(): void {
     const source = this.autorunSource;
     const isEntry = (path: string): boolean => /^autorun:\/\/entry\//i.test(path ?? '');
@@ -532,58 +617,6 @@ export class PluginManagerService implements PluginRegistryAPI {
     });
   }
 
-  private registerBuiltinRegistryProvider(): void {
-    const host: RegistryPanelSourceHost = {
-      getPathKind: path => this.isRegistryPath(path) ? 'registry' : 'unknown',
-      listDirectory: async (path, _showHidden) => {
-        const frame = path === REGISTRY_ROOT
-          ? await this.registryService.openRoot()
-          : await this.registryService.navigateInto(path);
-        return {
-          path: frame.path,
-          entries: frame.entries as any,
-        };
-      },
-      getRootPath: path => this.isRegistryPath(path) ? REGISTRY_ROOT : null,
-      getParentPath: path => this.registryParentPath(path),
-      joinChildPath: (path, childName) => this.joinRegistryPath([path, childName]),
-      supportsStreaming: () => false,
-      capabilities: (): RegistrySourceCapabilities => ({
-        read: true,
-        create: true,
-        delete: true,
-        rename: true,
-        trash: false,
-      }),
-    };
-
-    const operations: RegistryPluginOperations = {
-      joinPaths: async parts => this.joinRegistryPath(parts),
-      createDirectory: (path, recursive) => this.api.createDirectory(path, recursive),
-      writeFile: (path, content, encoding) => this.api.writeFile(path, content, encoding),
-      getFileInfo: path => this.api.getFileInfo(path) as Promise<any>,
-      moveFile: (source, destination) => this.api.moveFile(source, destination),
-      readFile: async (path, _encoding) => ({
-        content: await this.registryService.readValue(path),
-      }),
-      writeRegistryValue: (path, type, data) =>
-        this.api.writeRegistryValue(path, type, data),
-      deletePath: (path, recursive, useTrash) =>
-        this.api.deletePath(path, recursive, useTrash),
-      prompt: request => this.confirmDialog.prompt(request),
-      confirm: request => this.confirmDialog.confirm(request),
-    };
-
-    const plugin = createRegistryPlugin({
-      panelSource: host,
-      operations,
-      keyEditor: this.registryKeyEditor,
-      valueEditor: this.registryValueEditor,
-    });
-
-    this.registerBackend(plugin.backend as PluginBackend, plugin.descriptor);
-  }
-
   private registerBuiltinSystemProviders(): void {
     for (const descriptor of SYSTEM_SURFACES) {
       const source = new SystemSurfacePanelSource(descriptor);
@@ -655,43 +688,6 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   private commandOwner(commandId: string): string {
     return `plugin-command:${commandId}`;
-  }
-
-  private isRegistryPath(path: string): boolean {
-    return /^registry:\/\//i.test(String(path ?? '').trim());
-  }
-
-  private joinRegistryPath(parts: readonly string[]): string {
-    if (parts.length === 0) return 'registry://';
-
-    const [head, ...tail] = parts;
-    let result = this.normalizeRegistryPath(head || 'registry://');
-    for (const part of tail) {
-      const segment = String(part ?? '').replace(/^\/+|\/+$/g, '');
-      if (!segment) continue;
-      result = result === 'registry://'
-        ? `registry://${segment}`
-        : `${result.replace(/\/+$/, '')}/${segment}`;
-    }
-    return this.normalizeRegistryPath(result);
-  }
-
-  private registryParentPath(path: string): string {
-    const normalized = this.normalizeRegistryPath(path).replace(/\/+$/, '');
-    if (normalized === 'registry:' || normalized === 'registry://') {
-      return 'registry://';
-    }
-
-    const body = normalized.slice('registry://'.length);
-    const slash = body.lastIndexOf('/');
-    return slash < 0 ? 'registry://' : `registry://${body.slice(0, slash)}`;
-  }
-
-  private normalizeRegistryPath(path: string): string {
-    const raw = String(path ?? 'registry://').trim().replace(/\\/g, '/');
-    if (!/^registry:\/\//i.test(raw)) return raw;
-    const rest = raw.slice(raw.indexOf('://') + 3).replace(/^\/+/, '');
-    return rest ? `registry://${rest}` : 'registry://';
   }
 
 }

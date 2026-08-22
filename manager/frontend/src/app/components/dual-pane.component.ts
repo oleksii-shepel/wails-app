@@ -54,6 +54,7 @@ import {
 } from './pane-sync-review.component';
 import { SelectionBasketComponent } from './selection-basket.component';
 import { ToolsCenterComponent } from './tools-center.component';
+import { DiskUsageDialogComponent } from './disk-usage-dialog.component';
 import {
   GlobalSearchComponent,
   type SearchResultsPanelRequest,
@@ -405,6 +406,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     PaneSyncReviewComponent,
     SelectionBasketComponent,
     ToolsCenterComponent,
+    DiskUsageDialogComponent,
     GlobalSearchComponent,
     ToolWorkspaceHostComponent,
 
@@ -663,6 +665,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (navigateTo)="navigateFromTools($event)"
         (openBasketRequested)="selectionBasket?.show()">
       </app-tools-center>
+
+      <app-disk-usage-dialog
+        [visible]="diskUsageDialogVisible"
+        [rootPath]="diskUsageDialogPath"
+        (closed)="closeDiskUsageDialog()">
+      </app-disk-usage-dialog>
 
       <app-selection-basket
         #selectionBasket
@@ -996,6 +1004,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `],
 })
 export class DualPaneComponent implements OnInit, OnDestroy {
+  diskUsageDialogVisible = false;
+  diskUsageDialogPath = '';
+
   @ViewChild('managerRoot') managerRoot?: ElementRef<HTMLElement>;
   @ViewChild('paneIntelligenceMore') paneIntelligenceMore?: ElementRef<HTMLButtonElement>;
   @ViewChild('paneIntelligenceMenu') paneIntelligenceMenu?: ElementRef<HTMLElement>;
@@ -3331,6 +3342,27 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     if (!pane || !path) return;
     pane.navigation?.navigateTo(path);
+    this.cdr.markForCheck();
+  }
+
+  openDiskUsageDialog(): void {
+    const pane = this.activePane?.contextState.isDirectoryTab
+      ? this.activePane
+      : this.otherPane?.contextState.isDirectoryTab
+        ? this.otherPane
+        : null;
+
+    const path = pane?.contextState.path?.trim() ?? '';
+    if (!path) return;
+
+    this.diskUsageDialogPath = path;
+    this.diskUsageDialogVisible = true;
+    this.cdr.markForCheck();
+  }
+
+  closeDiskUsageDialog(): void {
+    this.diskUsageDialogVisible = false;
+    this.diskUsageDialogPath = '';
     this.cdr.markForCheck();
   }
 
@@ -5673,7 +5705,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.clearBasket, 'Clear Selection Basket', 'Tools', () => this.selectionBasketService.clear(), () => this.selectionBasketService.snapshot.length > 0);
 
     descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
-    descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openTools('disk'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openDiskUsageDialog(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.recentFiles, 'Recent Files', 'Tools', () => this.activePane?.viewerCommands?.openRecentFilesPanel(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(

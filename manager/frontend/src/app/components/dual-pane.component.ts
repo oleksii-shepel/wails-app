@@ -4246,6 +4246,24 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const sourcePane = payload.sourcePaneId === 'left' ? this.leftPane : this.rightPane;
     const operation = dragOperationFromModifiers(event);
+    const entries = collapseNestedDragEntries(payload.entries);
+    const sourcePaths = entries.map(entry => entry.path).filter(path => !!path);
+    if (sourcePaths.length === 0) return;
+
+    const sourceIsBin = this.isRecycleBinPane(sourcePane) || this.isRecycleBinPath(payload.sourceDirectory);
+    const targetIsBin = this.isRecycleBinPane(targetPane) || this.isRecycleBinPath(targetPath);
+    if (sourceIsBin || targetIsBin) {
+      await this.transferRecycleBinDrop({
+        operation,
+        sourcePane,
+        targetPane,
+        sourcePaths,
+        targetPath,
+        sourceIsBin,
+        targetIsBin,
+      });
+      return;
+    }
 
     const sourceCapabilities = sourcePane?.contextState.sourceCapabilities ?? {
       read: true,
@@ -4267,10 +4285,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       );
       return;
     }
-
-    const entries = collapseNestedDragEntries(payload.entries);
-    const sourcePaths = entries.map(entry => entry.path).filter(path => !!path);
-    if (sourcePaths.length === 0) return;
 
     const dropDecision = decideInternalDrop({
       entries,
@@ -4492,6 +4506,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         y: event.clientY,
         title: entry.name || 'Recycle Bin item',
         items: normalizeContextMenuItems([
+          this.menuCommand(COMMAND.copyToOther, 'Copy to other pane', 'F5'),
+          this.menuCommand(COMMAND.moveToOther, 'Restore to other pane', 'F6'),
+          { separator: true },
           this.menuCommand(COMMAND.emptyBin, 'Empty Bin'),
           this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
         ]),
@@ -5897,6 +5914,20 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return false;
     }
 
+    const sourceIsBin = this.isRecycleBinPane(source);
+    const destinationIsBin = this.isRecycleBinPane(destination);
+    if (sourceIsBin || destinationIsBin) {
+      if (sourceIsBin && destinationIsBin) return false;
+      if (sourceIsBin) {
+        return destination.contextState.sourceCapabilities.create;
+      }
+      // A Recycle Bin is a trash endpoint, not a writable directory. Only a
+      // move into it is meaningful; copy-in would create ambiguous semantics.
+      return operation === 'move' &&
+        !source.contextState.isInArchive &&
+        source.contextState.sourceCapabilities.trash;
+    }
+
     if (source.contextState.isInArchive) {
       if (!destination.contextState.sourceCapabilities.create) return false;
       if (operation === 'copy') return true;
@@ -5921,6 +5952,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const selected = Array.from(source.selection?.selectedPaths ?? []) as string[];
     if (selected.length === 0) return;
+
+    const sourceIsBin = this.isRecycleBinPane(source);
+    const destinationIsBin = this.isRecycleBinPane(destination);
+    if (sourceIsBin || destinationIsBin) {
+      await this.transferRecycleBinBetweenPanes(
+        source,
+        destination,
+        selected,
+        operation,
+      );
+      return;
+    }
 
     if (source.contextState.isInArchive) {
       if (!destination.contextState.sourceCapabilities.create) {
@@ -6057,6 +6100,212 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     } finally {
       this.cdr.markForCheck();
     }
+  }
+
+  private isRecycleBinPath(path: string | null | undefined): boolean {
+    return /^bin:\/\//i.test((path ?? '').trim());
+  }
+
+  private recycleBinEntryId(path: string): string | null {
+    const match = /^bin:\/\/entry\/(.+)$/i.exec((path ?? '').trim());
+    if (!match) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+
+  private async transferRecycleBinBetweenPanes(
+    source: PaneHostComponent,
+    destination: PaneHostComponent,
+    selected: readonly string[],
+    operation: 'copy' | 'move',
+  ): Promise<void> {
+    const sourceIsBin = this.isRecycleBinPane(source);
+    const destinationIsBin = this.isRecycleBinPane(destination);
+
+    if (sourceIsBin && destinationIsBin) return;
+
+    if (destinationIsBin) {
+      if (operation === 'copy') {
+        await this.confirmDialog.alert({
+          title: 'Recycle Bin',
+          message: 'Copying into the Recycle Bin is not supported. Move the items instead.',
+        });
+        return;
+      }
+      if (!source.contextState.sourceCapabilities.trash) {
+        await this.confirmDialog.alert({
+          title: 'Recycle Bin',
+          message: 'The source does not support moving items to the Recycle Bin.',
+        });
+        return;
+      }
+
+      const result = await this.api.batchDelete([...selected], true, true);
+      this.lastTransfer = `trash: ${result.succeeded}/${result.total}`;
+      await Promise.all([
+        source.navigation?.refresh(),
+        destination.navigation?.refresh(),
+      ]);
+      if (result.failed > 0 || result.skipped > 0) {
+        await this.confirmDialog.alert({
+          title: 'Move to Recycle Bin Completed with Issues',
+          message: `${result.failed} failed · ${result.skipped} skipped`,
+        });
+      }
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (!sourceIsBin) return;
+    if (!destination.contextState.sourceCapabilities.create) {
+      await this.confirmDialog.alert({
+        title: 'Recycle Bin',
+        message: 'The destination pane is read-only.',
+      });
+      return;
+    }
+
+    const result = await this.transferRecycleBinEntries(
+      selected,
+      destination.contextState.path,
+      operation,
+    );
+    this.lastTransfer = `${operation === 'copy' ? 'bin copy' : 'bin restore'}: ${result.succeeded}/${result.total}`;
+    await destination.navigation?.refresh();
+    if (operation === 'move') await source.navigation?.refresh();
+
+    if (result.failed > 0) {
+      await this.confirmDialog.alert({
+        title: operation === 'copy'
+          ? 'Copy from Recycle Bin Completed with Errors'
+          : 'Restore from Recycle Bin Completed with Errors',
+        message: result.errors.join('\n'),
+      });
+    }
+    this.cdr.markForCheck();
+  }
+
+  private async transferRecycleBinDrop(input: {
+    operation: 'copy' | 'move';
+    sourcePane: PaneHostComponent | undefined;
+    targetPane: PaneHostComponent;
+    sourcePaths: readonly string[];
+    targetPath: string;
+    sourceIsBin: boolean;
+    targetIsBin: boolean;
+  }): Promise<void> {
+    if (input.sourceIsBin && input.targetIsBin) {
+      this.lastDrop = 'ignored: already in recycle bin';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    try {
+      if (input.targetIsBin) {
+        if (input.operation === 'copy') {
+          await this.confirmDialog.alert({
+            title: 'Recycle Bin',
+            message: 'Copying into the Recycle Bin is not supported. Move the items instead.',
+          });
+          return;
+        }
+        if (!input.sourcePane?.contextState.sourceCapabilities.trash) {
+          await this.confirmDialog.alert({
+            title: 'Recycle Bin',
+            message: 'The source does not support moving items to the Recycle Bin.',
+          });
+          return;
+        }
+
+        const result = await this.api.batchDelete([...input.sourcePaths], true, true);
+        this.lastDrop = `trash drop: ${result.succeeded}/${result.total}`;
+        this.lastTransfer = this.lastDrop;
+        await input.targetPane.navigation?.refresh();
+        if (input.sourcePane && input.sourcePane !== input.targetPane) {
+          await input.sourcePane.navigation?.refresh();
+        }
+        if (result.failed > 0 || result.skipped > 0) {
+          await this.confirmDialog.alert({
+            title: 'Move to Recycle Bin Completed with Issues',
+            message: `${result.failed} failed · ${result.skipped} skipped`,
+          });
+        }
+        return;
+      }
+
+      if (!input.sourceIsBin) return;
+      if (!input.targetPane.contextState.sourceCapabilities.create) {
+        await this.confirmDialog.alert({
+          title: 'Recycle Bin',
+          message: 'The destination pane is read-only.',
+        });
+        return;
+      }
+
+      const result = await this.transferRecycleBinEntries(
+        input.sourcePaths,
+        input.targetPath,
+        input.operation,
+      );
+      this.lastDrop = `${input.operation === 'copy' ? 'bin copy' : 'bin restore'} drop: ${result.succeeded}/${result.total}`;
+      this.lastTransfer = this.lastDrop;
+      await input.targetPane.navigation?.refresh();
+      if (input.operation === 'move') await input.sourcePane?.navigation?.refresh();
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: input.operation === 'copy'
+            ? 'Copy from Recycle Bin Completed with Errors'
+            : 'Restore from Recycle Bin Completed with Errors',
+          message: result.errors.join('\n'),
+        });
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Recycle Bin Transfer Error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async transferRecycleBinEntries(
+    paths: readonly string[],
+    destinationDir: string,
+    operation: 'copy' | 'move',
+  ): Promise<{ total: number; succeeded: number; failed: number; errors: string[] }> {
+    const ids = paths
+      .map(path => ({ path, id: this.recycleBinEntryId(path) }))
+      .filter((item): item is { path: string; id: string } => !!item.id);
+
+    const errors: string[] = [];
+    let succeeded = 0;
+    for (const item of ids) {
+      try {
+        if (operation === 'copy') {
+          await this.api.copyTrashEntryTo(item.id, destinationDir);
+        } else {
+          await this.api.restoreTrashEntryTo(item.id, destinationDir);
+        }
+        succeeded += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`${this.leafName(item.path)}: ${message}`);
+      }
+    }
+
+    const invalid = paths.length - ids.length;
+    if (invalid > 0) errors.push(`${invalid} invalid Recycle Bin item${invalid === 1 ? '' : 's'}.`);
+    return {
+      total: paths.length,
+      succeeded,
+      failed: paths.length - succeeded,
+      errors,
+    };
   }
 
   private otherPaneId(): PaneId {

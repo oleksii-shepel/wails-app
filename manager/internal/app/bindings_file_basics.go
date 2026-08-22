@@ -15,6 +15,22 @@ func (a *App) RestoreTrashEntry(id string) (string, error) {
 	return platform.RestoreTrashEntry(id)
 }
 
+func (a *App) CopyTrashEntryTo(id, destinationDir string) (string, error) {
+	resolved, err := a.State.Filesystem.RealPath(destinationDir)
+	if err != nil {
+		return "", fmt.Errorf("trash copy: resolve destination: %w", err)
+	}
+	return platform.CopyTrashEntryTo(id, resolved)
+}
+
+func (a *App) RestoreTrashEntryTo(id, destinationDir string) (string, error) {
+	resolved, err := a.State.Filesystem.RealPath(destinationDir)
+	if err != nil {
+		return "", fmt.Errorf("trash restore: resolve destination: %w", err)
+	}
+	return platform.RestoreTrashEntryTo(id, resolved)
+}
+
 func (a *App) DeleteTrashEntry(id string) error {
 	return platform.DeleteTrashEntry(id)
 }

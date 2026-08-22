@@ -54,6 +54,73 @@ func RestoreTrashEntry(id string) (string, error) {
 	return restoreTrashFreedesktop(id)
 }
 
+func CopyTrashEntryTo(id, destinationDir string) (string, error) {
+	entry, err := findTrashEntry(id)
+	if err != nil {
+		return "", err
+	}
+
+	destinationDir = filepath.Clean(strings.TrimSpace(destinationDir))
+	if destinationDir == "" || destinationDir == "." {
+		return "", fmt.Errorf("trash copy: invalid destination")
+	}
+	info, err := os.Stat(destinationDir)
+	if err != nil {
+		return "", fmt.Errorf("trash copy: destination: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("trash copy: destination is not a directory: %s", destinationDir)
+	}
+
+	destination := filepath.Join(destinationDir, entry.Name)
+	if _, err := os.Lstat(destination); err == nil {
+		return "", fmt.Errorf("trash copy: destination already exists: %s", destination)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	sourceInfo, err := os.Lstat(entry.TrashedPath)
+	if err != nil {
+		return "", fmt.Errorf("trash copy: source: %w", err)
+	}
+	if sourceInfo.IsDir() {
+		if err := copyDirAll(entry.TrashedPath, destination); err != nil {
+			return "", fmt.Errorf("trash copy: %w", err)
+		}
+	} else if err := copyFileData(entry.TrashedPath, destination, sourceInfo.Mode()); err != nil {
+		return "", fmt.Errorf("trash copy: %w", err)
+	}
+	return destination, nil
+}
+
+func RestoreTrashEntryTo(id, destinationDir string) (string, error) {
+	destination, err := CopyTrashEntryTo(id, destinationDir)
+	if err != nil {
+		return "", err
+	}
+	if err := DeleteTrashEntry(id); err != nil {
+		return destination, fmt.Errorf(
+			"trash restore: copied to %q but could not remove trash entry: %w",
+			destination,
+			err,
+		)
+	}
+	return destination, nil
+}
+
+func findTrashEntry(id string) (contracts.TrashEntry, error) {
+	entries, err := ListTrashEntries()
+	if err != nil {
+		return contracts.TrashEntry{}, err
+	}
+	for _, entry := range entries {
+		if entry.ID == id {
+			return entry, nil
+		}
+	}
+	return contracts.TrashEntry{}, fmt.Errorf("trash: item not found")
+}
+
 func DeleteTrashEntry(id string) error {
 	if runtime.GOOS == "darwin" {
 		return deleteTrashDarwin(id)

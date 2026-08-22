@@ -85,6 +85,8 @@ export function Copy(arg1:string,arg2:string,arg3:boolean):Promise<contracts.Ope
 
 export function CopyFile(arg1:string,arg2:string,arg3:boolean):Promise<contracts.OperationResult>;
 
+export function CopyTrashEntryTo(arg1:string,arg2:string):Promise<string>;
+
 export function CreateDir(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;
 
 export function CreateDirectory(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;
@@ -304,6 +306,8 @@ export function ResolveConflict(arg1:string,arg2:contracts.ConflictResolution,ar
 export function ResolveLink(arg1:string):Promise<utility.ResolvedLink>;
 
 export function RestoreTrashEntry(arg1:string):Promise<string>;
+
+export function RestoreTrashEntryTo(arg1:string,arg2:string):Promise<string>;
 
 export function RevealInFileManager(arg1:string):Promise<void>;
 

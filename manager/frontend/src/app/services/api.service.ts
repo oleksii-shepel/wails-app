@@ -404,6 +404,20 @@ export class ApiService {
     return await app.RestoreTrashEntry(id);
   }
 
+  async copyTrashEntryTo(id: string, destinationDir: string): Promise<string> {
+    const app = window.go.app.App as unknown as {
+      CopyTrashEntryTo(id: string, destinationDir: string): Promise<string>;
+    };
+    return await app.CopyTrashEntryTo(id, this.normalizeCanonicalPath(destinationDir));
+  }
+
+  async restoreTrashEntryTo(id: string, destinationDir: string): Promise<string> {
+    const app = window.go.app.App as unknown as {
+      RestoreTrashEntryTo(id: string, destinationDir: string): Promise<string>;
+    };
+    return await app.RestoreTrashEntryTo(id, this.normalizeCanonicalPath(destinationDir));
+  }
+
   async deleteTrashEntry(id: string): Promise<void> {
     const app = window.go.app.App as unknown as {
       DeleteTrashEntry(id: string): Promise<void>;
@@ -439,19 +453,7 @@ export class ApiService {
   }
 
   async getDrives(): Promise<DrivesList> {
-    const response = castProtocol<DrivesList>(await window.go.app.App.GetDrives());
-    const schemes = [...(response.schemes ?? [])];
-    if (!schemes.some(entry => /^bin:\/\//i.test(entry.path ?? ''))) {
-      schemes.push({
-        name: 'Bin',
-        path: 'bin://',
-        schemeType: 'bin',
-        totalSpace: 0,
-        freeSpace: 0,
-        fileSystem: null,
-      });
-    }
-    return { ...response, schemes };
+	    return castProtocol<DrivesList>(await window.go.app.App.GetDrives());
   }
 
   async getSpecialFolders(): Promise<SpecialFolder[]> {

@@ -150,6 +150,10 @@ export function CopyFile(arg1, arg2, arg3) {
   return window['go']['app']['App']['CopyFile'](arg1, arg2, arg3);
 }
 
+export function CopyTrashEntryTo(arg1, arg2) {
+  return window['go']['app']['App']['CopyTrashEntryTo'](arg1, arg2);
+}
+
 export function CreateDir(arg1, arg2) {
   return window['go']['app']['App']['CreateDir'](arg1, arg2);
 }
@@ -588,6 +592,10 @@ export function ResolveLink(arg1) {
 
 export function RestoreTrashEntry(arg1) {
   return window['go']['app']['App']['RestoreTrashEntry'](arg1);
+}
+
+export function RestoreTrashEntryTo(arg1, arg2) {
+  return window['go']['app']['App']['RestoreTrashEntryTo'](arg1, arg2);
 }
 
 export function RevealInFileManager(arg1) {

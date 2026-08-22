@@ -134,6 +134,56 @@ Write-Output $original
 	return strings.TrimSpace(output), nil
 }
 
+func CopyTrashEntryTo(id, destinationDir string) (string, error) {
+	destinationDir = normalizeShellTrashPath(destinationDir)
+	if destinationDir == "" {
+		return "", fmt.Errorf("trash copy: empty destination")
+	}
+
+	const script = `
+$ErrorActionPreference = 'Stop'
+$target = $env:FM_TRASH_ID
+$destinationDir = $env:FM_TRASH_DESTINATION
+if (-not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
+  throw ('Destination directory does not exist: ' + $destinationDir)
+}
+$shell = New-Object -ComObject Shell.Application
+$bin = $shell.Namespace(10)
+$item = @($bin.Items()) | Where-Object { [string]$_.Path -eq $target } | Select-Object -First 1
+if ($null -eq $item) { throw 'Recycle Bin item not found.' }
+$name = [string]$item.Name
+$source = [string]$item.Path
+$destination = Join-Path $destinationDir $name
+if (Test-Path -LiteralPath $destination) { throw ('Destination already exists: ' + $destination) }
+Copy-Item -LiteralPath $source -Destination $destination -Recurse
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Write-Output $destination
+`
+	output, err := runTrashPowerShell(script, map[string]string{
+		"FM_TRASH_ID":          id,
+		"FM_TRASH_DESTINATION": destinationDir,
+	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
+}
+
+func RestoreTrashEntryTo(id, destinationDir string) (string, error) {
+	destination, err := CopyTrashEntryTo(id, destinationDir)
+	if err != nil {
+		return "", err
+	}
+	if err := DeleteTrashEntry(id); err != nil {
+		return destination, fmt.Errorf(
+			"trash restore: copied to %q but could not remove recycle-bin entry: %w",
+			destination,
+			err,
+		)
+	}
+	return destination, nil
+}
+
 func DeleteTrashEntry(id string) error {
 	const script = `
 $ErrorActionPreference = 'Stop'

@@ -13,7 +13,7 @@ describe('address bar edit shortcut model', () => {
 
   it('uses Ctrl+Space as the explicit autocomplete shortcut', () => {
     expect(catalog).toContain(
-      "keyBinding('widget.addressBar.edit.complete.ctrlSpace', 'widget.addressBar.edit', 'widget.addressBar.edit.showSuggestions', 'space', 'Show address suggestions', ['ctrl'])",
+      "keyBinding('widget.addressBar.edit.complete.ctrlSpace', 'widget.addressBar.edit', 'widget.addressBar.edit.showSuggestions', 'space', 'Show address suggestions', ['ctrl'], 'typing')",
     );
     expect(edit).toContain(
       "this.inputEngine.registerCommand('widget.addressBar.edit.showSuggestions'",
@@ -31,4 +31,12 @@ describe('address bar edit shortcut model', () => {
     expect(catalog).toContain('widget.addressBar.edit.prev.arrowUp');
     expect(catalog).toContain('widget.addressBar.edit.next.arrowDown');
   });
+  it('marks address-bar edit bindings as valid while typing', () => {
+    expect(catalog).toContain("'widget.addressBar.edit.commit', 'enter', 'Commit address bar path', undefined, 'typing'");
+    expect(catalog).toContain("'widget.addressBar.edit.cancel', 'escape', 'Cancel address bar edit', undefined, 'typing'");
+    expect(catalog).toContain("'widget.addressBar.edit.prevItem', 'arrowup', 'Select previous address suggestion', undefined, 'typing'");
+    expect(catalog).toContain("'widget.addressBar.edit.nextItem', 'arrowdown', 'Select next address suggestion', undefined, 'typing'");
+    expect(catalog).toContain("'widget.addressBar.edit.showSuggestions', 'space', 'Show address suggestions', ['ctrl'], 'typing'");
+  });
+
 });

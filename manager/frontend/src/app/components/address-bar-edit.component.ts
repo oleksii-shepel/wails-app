@@ -347,6 +347,11 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private readonly DROP_ROW_H = 26;   // must match .ab-item height in CSS
   private readonly DROP_OVERSCAN = 4;
   private readonly DROP_MAX_H = 272;  // must match max-height in CSS
+
+  // Autocomplete is intentionally bounded. Large directories may contain tens
+  // of thousands of entries and the address bar must not retain or render all
+  // of them just to offer navigation candidates.
+  private readonly MAX_AUTOCOMPLETE_SUGGESTIONS = 100;
   private vsStart = 0;
   private vsEnd = 20;
   private vsScrollTop = 0;
@@ -940,7 +945,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       if (!supportsDirectoryStreaming) {
         // Fall back to batch fetch for schemes that don't support streaming
         try {
-          const suggestions = await this.schemeAutocomplete.fetchSuggestions(dirPath, prefix);
+          const suggestions = (await this.schemeAutocomplete.fetchSuggestions(dirPath, prefix))
+            .slice(0, this.MAX_AUTOCOMPLETE_SUGGESTIONS);
           onBatch?.(suggestions);
           resolve(suggestions);
         } catch {
@@ -973,10 +979,13 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       const offBatch = EventsOn('fs:listStream:batch', (ev: any) => {
         if (ev?.streamId !== streamId) return;
         let changed = false;
+
         for (const entry of (ev.entries as FileInfo[] || [])) {
+          // Files are irrelevant to address navigation; never retain them.
           if (entry.type !== FileType.DIRECTORY) continue;
           if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
           if (seenNames.has(entry.name)) continue;
+
           seenNames.add(entry.name);
           accumulated.push({
             path:        normalizePath(entry.path),
@@ -986,10 +995,21 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
             exists:      true,
           });
           changed = true;
+
+          if (accumulated.length >= this.MAX_AUTOCOMPLETE_SUGGESTIONS) {
+            break;
+          }
         }
+
         if (changed) {
           accumulated.sort((a, b) => a.path.localeCompare(b.path));
           onBatch?.(accumulated.slice());
+        }
+
+        // A dropdown does not benefit from an unbounded scan. Once enough
+        // matching directories are known, stop the backend stream immediately.
+        if (accumulated.length >= this.MAX_AUTOCOMPLETE_SUGGESTIONS) {
+          cancel();
         }
       });
 

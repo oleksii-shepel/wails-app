@@ -609,40 +609,36 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.cdr.markForCheck();
   }
 
+  private async moveSuggestionSelectionWithFallback(delta: 1 | -1): Promise<void> {
+    if (this.suggestions.length === 0) {
+      const suggestions = await this.fetchChildren(this.value);
+      this.setSuggestions(suggestions);
+      this.resetVirtualScroll();
+      setTimeout(() => this.attachDropScroll(), 0);
+    }
+
+    if (this.suggestions.length === 0) return;
+
+    if (this.acIdx < 0) {
+      this.acIdx = delta > 0 ? 0 : this.suggestions.length - 1;
+    } else {
+      this.acIdx = (this.acIdx + delta + this.suggestions.length) % this.suggestions.length;
+    }
+
+    this.updateVirtualWindow();
+    this.cdr.markForCheck();
+  }
+
   async onKeyDown(e: KeyboardEvent): Promise<void> {
-    switch (e.key) {
-      case 'Enter': {
-        e.preventDefault();
-        this.commitCurrentValue();
-        break;
-      }
-      case 'Escape':
-        e.preventDefault();
-        this.cancelEdit();
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        this.moveSuggestionSelection(1);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        this.moveSuggestionSelection(-1);
-        break;
-      case 'Tab':
-        e.preventDefault();
-        // UX: first Tab on an empty input inserts the current drive root.
-        if (!(this.value || '').trim()) {
-          const root = this.getDefaultRootForTab();
-          if (root) {
-            this.writeProgrammaticValue(root);
-            this.tabSession = null;
-            this.scheduleSuggestions(root, true);
-            this.cdr.detectChanges();
-            break;
-          }
-        }
-        await this.cycleTab(e.shiftKey ? -1 : 1);
-        break;
+    // The global input listener intentionally skips application-owned inputs.
+    // Bridge this edit field into the canonical shortcut engine locally.
+    // Unbound keys (notably Tab / Shift+Tab) are left to the browser.
+    const handled = await this.inputEngine.dispatchKeyboardEvent(e, {
+      context: { inInput: true },
+    });
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
     }
   }
 
@@ -1035,7 +1031,14 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private buildAliasRootSuggestions(query: string): PathSuggestion[] {
-    const normalizedQuery = normalizePath((query || '').trim().replace(/\\/g, '/')).toLowerCase();
+    const rawQuery = (query || '').trim().replace(/\\/g, '/');
+    const normalizedQuery = normalizePath(rawQuery).toLowerCase();
+
+    // Root aliases are only for choosing a source. Once the edit value has
+    // committed to a concrete source/root, autocomplete must stay inside it.
+    if (this.hasSelectedAutocompleteRoot(rawQuery)) {
+      return [];
+    }
 
     const suggestions: PathSuggestion[] = [];
     const roots = [
@@ -1108,6 +1111,30 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       // makes Registry disappear immediately when its plugin is not active.
       return this.panelSources.resolve(context).source.id !== 'filesystem';
     });
+  }
+
+  private hasSelectedAutocompleteRoot(query: string): boolean {
+    const value = (query || '').trim().replace(/\\/g, '/');
+    if (!value) return false;
+
+    // Any explicit URI-like source selects that source, including plugin-backed
+    // roots such as registry:// and built-ins such as autorun://.
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+      return true;
+    }
+
+    // Friendly filesystem roots should likewise stop root-alias mixing.
+    if (/^[a-z]:\//i.test(value)) {
+      return true;
+    }
+    if (value.startsWith('/')) {
+      return true;
+    }
+    if (value.startsWith('//')) {
+      return true;
+    }
+
+    return false;
   }
 
   private async loadSyntheticRootSuggestions(): Promise<void> {
@@ -1188,50 +1215,25 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       this.cancelEdit();
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('widget.addressBar.edit.nextSuggestion', async () => {
-      if (!(this.value || '').trim()) {
-        const root = this.getDefaultRootForTab();
-        if (root) {
-          this.writeProgrammaticValue(root);
-          this.tabSession = null;
-          this.scheduleSuggestions(root, true);
-          this.cdr.detectChanges();
-          return;
-        }
-      }
-
-      await this.cycleTab(1);
+    this.inputEngine.registerCommand('widget.addressBar.edit.showSuggestions', () => {
+      this.tabSession = null;
+      this.scheduleSuggestions(this.value, true);
+      this.cdr.detectChanges();
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('widget.addressBar.edit.prevSuggestion', async () => {
-      if (!(this.value || '').trim()) {
-        const root = this.getDefaultRootForTab();
-        if (root) {
-          this.writeProgrammaticValue(root);
-          this.tabSession = null;
-          this.scheduleSuggestions(root, true);
-          this.cdr.detectChanges();
-          return;
-        }
-      }
-
-      await this.cycleTab(-1);
+    this.inputEngine.registerCommand('widget.addressBar.edit.prevItem', async () => {
+      await this.moveSuggestionSelectionWithFallback(-1);
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('widget.addressBar.edit.prevItem', () => {
-      this.moveSuggestionSelection(-1);
-    }, this.commandOwner);
-
-    this.inputEngine.registerCommand('widget.addressBar.edit.nextItem', () => {
-      this.moveSuggestionSelection(1);
+    this.inputEngine.registerCommand('widget.addressBar.edit.nextItem', async () => {
+      await this.moveSuggestionSelectionWithFallback(1);
     }, this.commandOwner);
   }
 
   private unregisterInputCommands(): void {
     this.inputEngine.unregisterCommand('widget.addressBar.edit.commit', this.commandOwner);
     this.inputEngine.unregisterCommand('widget.addressBar.edit.cancel', this.commandOwner);
-    this.inputEngine.unregisterCommand('widget.addressBar.edit.nextSuggestion', this.commandOwner);
-    this.inputEngine.unregisterCommand('widget.addressBar.edit.prevSuggestion', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.showSuggestions', this.commandOwner);
     this.inputEngine.unregisterCommand('widget.addressBar.edit.prevItem', this.commandOwner);
     this.inputEngine.unregisterCommand('widget.addressBar.edit.nextItem', this.commandOwner);
   }

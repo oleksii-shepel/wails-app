@@ -187,7 +187,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
-    PaneArrangeControlsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

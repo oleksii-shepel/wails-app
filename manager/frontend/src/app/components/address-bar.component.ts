@@ -38,6 +38,14 @@ interface BreadcrumbSegment {
   archiveBoundary: boolean;
 }
 
+const SOURCE_ROOT_SUGGESTIONS = [
+  { path: 'bin://', displayName: 'Recycle Bin' },
+  { path: 'autorun://', displayName: 'Autorun' },
+  { path: 'environment://', displayName: 'Environment' },
+  { path: 'network://', displayName: 'Network' },
+  { path: 'registry://', displayName: 'Registry' },
+] as const;
+
 const COMMAND = {
   accept: 'accept',
   cancel: 'cancel',
@@ -869,11 +877,20 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
     const generation = ++this.suggestionGeneration;
 
     try {
-      const suggestions = await this.history.getSuggestions(this.value, this.path);
+      const historySuggestions = await this.history.getSuggestions(this.value, this.path);
       if (generation !== this.suggestionGeneration || !this.editing) return;
 
       const query = this.value.trim();
-      this.suggestions = [...suggestions].sort((left, right) => {
+      const sourceSuggestions = this.buildSourceRootSuggestions(query);
+      const seen = new Set<string>();
+      const suggestions = [...sourceSuggestions, ...historySuggestions].filter(suggestion => {
+        const key = suggestion.path.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      this.suggestions = suggestions.sort((left, right) => {
         const leftScore = fuzzyPathScore(query, left.displayName, left.path);
         const rightScore = fuzzyPathScore(query, right.displayName, right.path);
         return rightScore - leftScore || right.score - left.score;
@@ -887,6 +904,41 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
       this.suggestionIndex = -1;
       this.cdr.markForCheck();
     }
+  }
+
+  private buildSourceRootSuggestions(query: string): PathSuggestion[] {
+    const normalizedQuery = query.trim().toLowerCase();
+    const results: PathSuggestion[] = [];
+
+    for (const root of SOURCE_ROOT_SUGGESTIONS) {
+      const resolved = this.panelSources.resolve({
+        path: root.path,
+        entries: [],
+        inArchive: false,
+      });
+
+      // Optional/plugin roots (for example Registry) only appear when a real
+      // PanelSource owns them. bin:// is built in and therefore always resolves
+      // to the dedicated BinPanelSource rather than the filesystem fallback.
+      if (resolved.source.kind === 'filesystem') continue;
+
+      const schemeName = root.path.slice(0, root.path.indexOf(':'));
+      const matches = !normalizedQuery ||
+        root.path.toLowerCase().startsWith(normalizedQuery) ||
+        schemeName.startsWith(normalizedQuery) ||
+        root.displayName.toLowerCase().includes(normalizedQuery);
+      if (!matches) continue;
+
+      results.push({
+        path: root.path,
+        displayName: root.displayName,
+        matchType: 'directory',
+        score: 140,
+        exists: true,
+      });
+    }
+
+    return results;
   }
 
   private focusAndSelect(): void {

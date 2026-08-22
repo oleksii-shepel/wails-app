@@ -159,6 +159,9 @@ Clear-RecycleBin -Force -ErrorAction Stop
 
 func runTrashPowerShell(script string, extraEnv map[string]string) (string, error) {
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	// This is an implementation detail of the Recycle Bin provider. Never flash
+	// a console window when bin:// is opened from the GUI address bar.
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	cmd.Env = os.Environ()
 	for key, value := range extraEnv {
 		cmd.Env = append(cmd.Env, key+"="+value)

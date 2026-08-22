@@ -236,6 +236,46 @@ class FilesystemDirectoryProvider implements DirectoryListingProvider {
   }
 }
 
+
+class BinDirectoryProvider implements DirectoryListingProvider {
+  readonly kind: DirectorySourceKind = 'filesystem';
+
+  constructor(private readonly apiService: ApiService) {}
+
+  canHandlePath(path: string): boolean {
+    return /^bin:\/\//i.test(normalizePath(path));
+  }
+
+  canHandleEntries(_entries: FileInfo[]): boolean {
+    return false;
+  }
+
+  async listDirectory(_path: string, _showHidden: boolean): Promise<DirectorySourceListing> {
+    const entries = await this.apiService.listTrashEntries();
+    return {
+      path: 'bin://',
+      entries: entries.map(entry => {
+        const deleted = Date.parse(entry.deletedAt || '');
+        return {
+          name: entry.name,
+          path: `bin://entry/${encodeURIComponent(entry.id)}`,
+          type: entry.isDir ? FileType.DIRECTORY : FileType.FILE,
+          size: Number(entry.size) || 0,
+          created: 0,
+          modified: Number.isFinite(deleted) ? deleted : 0,
+          accessed: 0,
+          permissions: 'r--',
+          isHidden: false,
+        } as FileInfo;
+      }),
+    };
+  }
+
+  getRootPath(_path: string): string | null { return 'bin://'; }
+  joinChildPath(_basePath: string, _childName: string): string { return 'bin://'; }
+  supportsStreaming(_path: string): boolean { return false; }
+}
+
 class AliasDirectoryProvider implements DirectoryListingProvider {
   readonly kind: DirectorySourceKind = 'filesystem';
 
@@ -334,6 +374,7 @@ export class DirectorySourceService implements FileViewDirectorySource {
   ) {
     this.providers = [
       new RegistryDirectoryProvider(this.registryService),
+      new BinDirectoryProvider(this.apiService),
       new AliasDirectoryProvider(this.apiService),
       new FilesystemDirectoryProvider(this.apiService),
     ];

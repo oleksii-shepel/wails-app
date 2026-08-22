@@ -241,6 +241,34 @@ export class RemotePanelSource extends BasePanelSource {
   }
 }
 
+
+class BinPanelSource extends BasePanelSource {
+  readonly id = 'bin';
+  readonly kind = 'bin' as const;
+  readonly title = 'Recycle Bin';
+
+  canHandle(context: PanelSourceContext): boolean {
+    return schemeOf(context.path) === 'bin';
+  }
+
+  capabilities(_context: PanelSourceContext): SourceCapabilities {
+    return { read: true, create: false, delete: false, rename: false, trash: false };
+  }
+
+  override getRootPath(): string { return 'bin://'; }
+  override getParentPath(): string { return 'bin://'; }
+  override joinChildPath(): string { return 'bin://'; }
+  override supportsStreaming(): boolean { return false; }
+
+  override activateEntry(): boolean {
+    // Recycle-bin entries are shell objects, not navigable filesystem paths.
+    // Consume activation so the pane never falls back to native-path handling.
+    return true;
+  }
+
+  override canPreviewEntry(): boolean { return false; }
+}
+
 class ResultsPanelSource extends BasePanelSource {
   readonly id = 'results';
   readonly kind = 'results' as const;
@@ -344,6 +372,7 @@ export class PanelSourceRegistryService {
   ) {
     this.sources = [
       new ArchivePanelSource(this.directories),
+      new BinPanelSource(this.directories),
       new RemotePanelSource(this.directories, remoteConnections, resilience),
       new ResultsPanelSource(this.directories, this.resultsPanels),
       new VirtualPanelSource(this.directories),

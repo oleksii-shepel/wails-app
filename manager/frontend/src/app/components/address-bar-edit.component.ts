@@ -965,8 +965,13 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private isFilesystemDriveRoot(path: string): boolean {
-    const normalized = normalizePath((path || '').trim().replace(/\\/g, '/'));
-    return /^filesystem:\/\/[a-z]$/i.test(normalized);
+    const raw = (path || '').trim().replace(/\\/g, '/');
+    const normalized = normalizePath(raw);
+
+    // normalizePath intentionally trims a trailing slash, while autocomplete
+    // directory context keeps it. Accept both representations.
+    return /^filesystem:\/\/[a-z]\/?$/i.test(raw)
+      || /^filesystem:\/\/[a-z]$/i.test(normalized);
   }
 
   private streamDirChildren(
@@ -1163,7 +1168,21 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private splitQueryContext(query: string): { dirPath: string; prefix: string } {
-    return this.schemeAutocomplete.splitQueryContext(query);
+    const result = this.schemeAutocomplete.splitQueryContext(query);
+    if (result.dirPath) return result;
+
+    // Some routed sources' splitQueryContext only recognizes a directory
+    // context once a prefix character anchors it (e.g. "C:/W"), and return
+    // an empty dirPath for a bare drive root like "C:/" or "filesystem://c/"
+    // with nothing typed after the slash yet. Without this fallback, typing
+    // "C:/" or pressing Ctrl+Space right after it falls through to the
+    // (empty, since a concrete root is already selected) alias-root list
+    // instead of listing the drive's folders.
+    const trimmed = (query || '').trim().replace(/\\/g, '/');
+    if (this.isFilesystemDriveRoot(trimmed)) {
+      return { dirPath: normalizePath(trimmed), prefix: '' };
+    }
+    return result;
   }
 
   private joinPath(dirPath: string, name: string): string {

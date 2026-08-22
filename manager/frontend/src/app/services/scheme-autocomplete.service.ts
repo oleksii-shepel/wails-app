@@ -92,7 +92,8 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
     const q = normalizePath((query || '').replace(/\\/g, '/'));
     if (!q) return { dirPath: '/', prefix: '' };
 
-    // Handle drive roots (e.g., "C:", "filesystem://X")
+    // A Windows drive root is a directory context. Keep the trailing slash so
+    // friendly `C:/` and canonical `filesystem://c/` have the same semantics.
     const driveRootMatch = /^filesystem:\/\/[a-z]$/i.exec(q);
     if (driveRootMatch) return { dirPath: `${q}/`, prefix: '' };
 

@@ -620,15 +620,35 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
     const requestId = ++this.suggestionsRequestId;
     const query = this.value || '';
-    const suggestions = await this.fetchChildren(query);
-    if (requestId !== this.suggestionsRequestId) return;
+    const aliasRoots = this.buildAliasRootSuggestions(query);
+    const { dirPath, prefix } = this.splitQueryContext(query);
 
-    this.setSuggestions(suggestions);
-    this.acIdx = suggestions.length > 0 ? 0 : -1;
-    this.resetVirtualScroll();
-    this.updateVirtualWindow();
-    this.cdr.detectChanges();
-    setTimeout(() => this.attachDropScroll(), 0);
+    if (!dirPath) {
+      this.setSuggestions(aliasRoots);
+      this.acIdx = aliasRoots.length > 0 ? 0 : -1;
+      this.resetVirtualScroll();
+      this.updateVirtualWindow();
+      this.cdr.detectChanges();
+      setTimeout(() => this.attachDropScroll(), 0);
+      return;
+    }
+
+    const publish = (children: PathSuggestion[]) => {
+      if (requestId !== this.suggestionsRequestId) return;
+      const suggestions = this.buildMergedSuggestions(children, [], aliasRoots, query);
+      this.setSuggestions(suggestions);
+      if (this.acIdx < 0 && suggestions.length > 0) this.acIdx = 0;
+      this.resetVirtualScroll();
+      this.updateVirtualWindow();
+      this.cdr.detectChanges();
+      setTimeout(() => this.attachDropScroll(), 0);
+    };
+
+    // Forced completion must be progressive too. In a large drive root such as
+    // C:/, waiting for the entire directory stream to finish makes Ctrl+Space
+    // appear broken even though batches are already arriving.
+    const suggestions = await this.streamDirChildren(dirPath, prefix, publish);
+    publish(suggestions);
   }
 
   private async moveSuggestionSelectionWithFallback(delta: 1 | -1): Promise<void> {
@@ -944,6 +964,11 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
+  private isFilesystemDriveRoot(path: string): boolean {
+    const normalized = normalizePath((path || '').trim().replace(/\\/g, '/'));
+    return /^filesystem:\/\/[a-z]$/i.test(normalized);
+  }
+
   private streamDirChildren(
     dirPath: string,
     prefix: string,
@@ -975,6 +1000,48 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         inArchive: false,
       };
       const resolvedSource = this.panelSources.resolve(sourceContext);
+
+      // Bare Windows drive roots are small navigation surfaces and should open
+      // synchronously/reliably on explicit completion. Do not wait for the
+      // filesystem stream protocol for `C:/` / `filesystem://c`.
+      if (
+        resolvedSource.source.id === 'filesystem' &&
+        this.isFilesystemDriveRoot(dirPath)
+      ) {
+        try {
+          const listing = await resolvedSource.source.list(sourceContext, false);
+          const prefixLower = prefix.toLowerCase();
+          const seenNames = new Set<string>();
+          const suggestions: PathSuggestion[] = [];
+
+          for (const entry of listing.entries) {
+            if (entry.type !== FileType.DIRECTORY) continue;
+            if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
+            if (seenNames.has(entry.name)) continue;
+            seenNames.add(entry.name);
+
+            suggestions.push({
+              path: normalizePath(entry.path),
+              displayName: entry.name,
+              matchType: 'directory',
+              score: 100,
+              exists: true,
+            });
+
+            if (suggestions.length >= this.MAX_AUTOCOMPLETE_SUGGESTIONS) break;
+          }
+
+          suggestions.sort((left, right) =>
+            left.displayName.localeCompare(right.displayName),
+          );
+          onBatch?.(suggestions);
+          resolve(suggestions);
+        } catch {
+          resolve([]);
+        }
+        return;
+      }
+
       const supportsDirectoryStreaming =
         resolvedSource.source.id === 'filesystem' &&
         resolvedSource.source.supportsStreaming(sourceContext);

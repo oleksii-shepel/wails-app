@@ -545,25 +545,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
         [model]="panelPresentationModel">
       </app-panel-presentation-outlet>
 
-      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
-        <div
-          class="details-header"
-          [style.grid-template-columns]="detailsGridTemplate"
-          [style.transform]="'translateX(' + (-detailsScrollLeft) + 'px)'">
-          <ng-container *ngIf="isBinLocation; else normalDetailsHeader">
-            <ng-container *ngIf="binDetailsMode === 'flat'; else groupedBinDetailsHeader">
-              <span></span><span>Name</span><span>Location</span><span>Deleted</span><span>Size</span><span>Revision</span>
-            </ng-container>
-            <ng-template #groupedBinDetailsHeader>
-              <span></span><span>Name</span><span>Path</span><span>Deleted</span><span>Size</span><span>Revision</span>
-            </ng-template>
-          </ng-container>
-          <ng-template #normalDetailsHeader>
-            <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
-            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
-          </ng-template>
-        </div>
-      </div>
 
       <div
         #listViewport
@@ -586,6 +567,26 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
         (dragleave)="onBackgroundDragLeave($event)"
         (drop)="onBackgroundDrop($event)">
 
+        <div class="list-content-track">
+      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
+        <div
+          class="details-header"
+          [style.grid-template-columns]="detailsGridTemplate">
+          <ng-container *ngIf="isBinLocation; else normalDetailsHeader">
+            <ng-container *ngIf="binDetailsMode === 'flat'; else groupedBinDetailsHeader">
+              <span></span><span>Name</span><span>Location</span><span>Deleted</span><span>Size</span><span>Revision</span>
+            </ng-container>
+            <ng-template #groupedBinDetailsHeader>
+              <span></span><span>Name</span><span>Path</span><span>Deleted</span><span>Size</span><span>Revision</span>
+            </ng-template>
+          </ng-container>
+          <ng-template #normalDetailsHeader>
+            <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+          </ng-template>
+        </div>
+      </div>
+
         <div
           *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
           class="virtual-spacer list-virtual-spacer"
@@ -605,7 +606,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
           [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
-          [class.bin-group-cursor]="isBinGroupHeader(entry) && entry.path === cursorPath"
           [class.selected]="!isBinGroupHeader(entry) && selectedPaths.has(entry.path)"
           [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
           [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
@@ -727,6 +727,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
           <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
           <span *ngIf="filterText">Clear the filter to see all items.</span>
           <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
+        </div>
         </div>
       </div>
 
@@ -1145,6 +1146,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     
       overscroll-behavior: none;
       scroll-behavior: auto;
+      scroll-padding-top: 25px;
       touch-action: pan-y;}
 
     .entry.compare-only,
@@ -1446,36 +1448,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 
 
     /*
-     * Group header cursor is structural, not a file selection. Give it the
-     * same visual state as a Directory selected cursor without adding it to
-     * selectedPaths or exposing aria-selected=true.
-     */
-    .entry.bin-group-cursor {
-      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
-      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
-    }
-
-    .pane.active-pane .entry.bin-group-cursor {
-      background: color-mix(
-        in srgb,
-        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
-        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
-      );
-      box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
-        inset 0 0 0 1px color-mix(
-          in srgb,
-          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
-          transparent
-        );
-    }
-
-    .entry.bin-group-cursor .bin-group-directory {
-      color: inherit;
-      opacity: .72;
-    }
-
-    /*
      * Group Path cell: original directory for group header rows only.
      * Revision rows leave this cell empty (path is shown once, on the
      * header they belong to).
@@ -1488,9 +1460,12 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     }
 
     .details-header-viewport {
-      flex: 0 0 auto;
-      min-width: 0;
-      overflow: hidden;
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      width: max-content;
+      min-width: 100%;
+      overflow: visible;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
@@ -1503,7 +1478,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
       min-height: 25px;
       box-sizing: border-box;
       padding: 0 8px;
-      width: 100%;
+      width: max-content;
       min-width: 100%;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       will-change: transform;
@@ -2055,6 +2030,119 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
       padding-inline: 2px;
       overflow: hidden;
     }
+
+
+    /*
+     * Horizontal cursor coverage:
+     * List/Details/Tree use one shared intrinsic-width track. The widest row
+     * establishes the horizontal scroll extent and every sibling stretches to
+     * that same extent, so cursor/selection never ends before nested or wider
+     * rows. Grid tiles intentionally keep their normal tile width.
+     */
+    .list.view-list,
+    .list.view-details {
+      display: block;
+    }
+
+    .list.view-list .list-content-track,
+    .list.view-details .list-content-track {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+      width: max-content;
+      min-width: 100%;
+    }
+
+    .list.view-list .entry,
+    .list.view-details .entry,
+    .list.view-list .list-virtual-spacer,
+    .list.view-details .list-virtual-spacer {
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+    }
+
+    .tree-view {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+    }
+
+    .tree-row,
+    .tree-virtual-spacer {
+      width: 100%;
+      min-width: 100%;
+    }
+
+    /*
+     * Details is one solid horizontal surface: the header and every row share
+     * the same grid track. Keep outer table geometry flush; cell gutters own
+     * the spacing. Grid items use stretch rather than percentage widths so
+     * max-content sizing cannot collapse a cursor against an indefinite track.
+     */
+    .list.view-details {
+      padding: 0;
+    }
+
+    .list.view-details .details-header-viewport {
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+    }
+
+    .list.view-details .details-header {
+      width: 100%;
+      min-width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+
+    /* Bin uses one intrinsic-width content track for header and rows. Keep the
+     * standard 4px Directory row inset while stretching every cursor through
+     * the entire horizontal overflow extent. */
+    .list.view-list,
+    .list.view-details {
+      padding: 0;
+    }
+
+    .list.view-list .list-content-track,
+    .list.view-details .list-content-track {
+      width: max-content;
+      min-width: 100%;
+      grid-template-columns: minmax(100%, max-content);
+    }
+
+    .list.view-list .list-content-track > .entry,
+    .list.view-details .list-content-track > .entry {
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+      margin-left: 4px;
+      margin-right: 4px;
+    }
+
+    .list.view-details .list-content-track > .details-header-viewport,
+    .list.view-details .list-content-track > .list-virtual-spacer {
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+      margin: 0;
+    }
+
+    .list.view-details .list-content-track > .details-header-viewport > .details-header {
+      width: 100%;
+      min-width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row {
+      width: auto !important;
+      min-width: 0 !important;
+      margin-left: 26px;
+      margin-right: 4px;
+    }
   `],
 })
 export class BinPaneComponent implements OnInit, OnDestroy {
@@ -2121,7 +2209,6 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   sortDirection: SortDirection = 'asc';
   private readonly expandedBinRevisionGroups = new Set<string>();
   binDetailsMode: BinDetailsMode = 'grouped';
-  detailsScrollLeft = 0;
   directoriesFirst = true;
 
   readonly treeExpandedPaths = new Set<string>();
@@ -8570,10 +8657,6 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   onContentScroll(event: Event): void {
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
-
-    if (this.viewMode === 'details') {
-      this.detailsScrollLeft = Math.max(0, target.scrollLeft);
-    }
 
     if (!this.isDirectoryTab) {
       this.cdr.markForCheck();

@@ -535,25 +535,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         [model]="panelPresentationModel">
       </app-panel-presentation-outlet>
 
-      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
-        <div
-          class="details-header"
-          [style.grid-template-columns]="detailsGridTemplate"
-          [style.transform]="'translateX(' + (-detailsScrollLeft) + 'px)'">
-          <ng-container *ngIf="isBinLocation; else normalDetailsHeader">
-            <ng-container *ngIf="binDetailsMode === 'flat'; else groupedBinDetailsHeader">
-              <span></span><span>Name</span><span>Location</span><span>Deleted</span><span>Size</span><span>Revision</span>
-            </ng-container>
-            <ng-template #groupedBinDetailsHeader>
-              <span></span><span>Name</span><span>Deleted</span><span>Size</span><span>Revision</span>
-            </ng-template>
-          </ng-container>
-          <ng-template #normalDetailsHeader>
-            <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
-            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
-          </ng-template>
-        </div>
-      </div>
 
       <div
         #listViewport
@@ -575,6 +556,25 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         (dragover)="onBackgroundDragOver($event)"
         (dragleave)="onBackgroundDragLeave($event)"
         (drop)="onBackgroundDrop($event)">
+
+      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
+        <div
+          class="details-header"
+          [style.grid-template-columns]="detailsGridTemplate">
+          <ng-container *ngIf="isBinLocation; else normalDetailsHeader">
+            <ng-container *ngIf="binDetailsMode === 'flat'; else groupedBinDetailsHeader">
+              <span></span><span>Name</span><span>Location</span><span>Deleted</span><span>Size</span><span>Revision</span>
+            </ng-container>
+            <ng-template #groupedBinDetailsHeader>
+              <span></span><span>Name</span><span>Deleted</span><span>Size</span><span>Revision</span>
+            </ng-template>
+          </ng-container>
+          <ng-template #normalDetailsHeader>
+            <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+          </ng-template>
+        </div>
+      </div>
 
         <div
           *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
@@ -1152,6 +1152,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     
       overscroll-behavior: none;
       scroll-behavior: auto;
+      scroll-padding-top: 25px;
       touch-action: pan-y;}
 
     .entry.compare-only,
@@ -1615,9 +1616,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .details-header-viewport {
-      flex: 0 0 auto;
-      min-width: 0;
-      overflow: hidden;
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      width: max-content;
+      min-width: 100%;
+      overflow: visible;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
@@ -1630,7 +1634,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-height: 25px;
       box-sizing: border-box;
       padding: 0 8px;
-      width: 100%;
+      width: max-content;
       min-width: 100%;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       will-change: transform;
@@ -2185,6 +2189,105 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       padding-inline: 2px;
       overflow: hidden;
     }
+
+
+    /*
+     * Horizontal cursor coverage:
+     * List/Details/Tree use one shared intrinsic-width track. The widest row
+     * establishes the horizontal scroll extent and every sibling stretches to
+     * that same extent, so cursor/selection never ends before nested or wider
+     * rows. Grid tiles intentionally keep their normal tile width.
+     */
+    .list.view-list,
+    .list.view-details,
+    .tree-view {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+    }
+
+    .list.view-list .entry,
+    .list.view-details .entry,
+    .tree-row,
+    .list.view-list .list-virtual-spacer,
+    .list.view-details .list-virtual-spacer,
+    .tree-virtual-spacer {
+      width: 100%;
+      min-width: 100%;
+    }
+
+    /*
+     * Details is one solid horizontal surface: the header and every row share
+     * the same grid track. Keep outer table geometry flush; cell gutters own
+     * the spacing. Grid items use stretch rather than percentage widths so
+     * max-content sizing cannot collapse a cursor against an indefinite track.
+     */
+    .list.view-details {
+      padding: 0;
+    }
+
+    .list.view-details .details-header-viewport,
+    .list.view-details .entry,
+    .list.view-details .list-virtual-spacer {
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+    }
+
+    .list.view-details .details-header {
+      width: 100%;
+      min-width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    .list.view-details .entry {
+      margin-right: 0;
+      padding-left: 0;
+      padding-right: 0;
+      border-radius: 0;
+    }
+
+    /* Shared horizontal surface: rows fill the available viewport width and,
+     * when columns overflow, expand with the complete scrollable track.
+     * The 4px row inset is preserved on both sides. */
+    .list.view-list,
+    .list.view-details {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+      padding: 0;
+    }
+
+    .list.view-list > .entry,
+    .list.view-details > .entry {
+      grid-column: 1;
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+      margin-left: 4px;
+      margin-right: 4px;
+    }
+
+    .list.view-list > .list-virtual-spacer,
+    .list.view-details > .list-virtual-spacer,
+    .list.view-details > .details-header-viewport {
+      grid-column: 1;
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+    }
+
+    .list.view-details > .details-header-viewport,
+    .list.view-details > .details-header-viewport > .details-header {
+      margin: 0;
+      padding: 0;
+    }
+
+    .list.view-details > .details-header-viewport > .details-header {
+      width: 100%;
+      min-width: 100%;
+    }
   `],
 })
 export class DirectoryPaneComponent implements OnInit, OnDestroy {
@@ -2251,7 +2354,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   sortDirection: SortDirection = 'asc';
   private readonly expandedBinRevisionGroups = new Set<string>();
   binDetailsMode: BinDetailsMode = 'grouped';
-  detailsScrollLeft = 0;
   directoriesFirst = true;
 
   readonly treeExpandedPaths = new Set<string>();
@@ -8610,10 +8712,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   onContentScroll(event: Event): void {
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
-
-    if (this.viewMode === 'details') {
-      this.detailsScrollLeft = Math.max(0, target.scrollLeft);
-    }
 
     if (!this.isDirectoryTab) {
       this.cdr.markForCheck();

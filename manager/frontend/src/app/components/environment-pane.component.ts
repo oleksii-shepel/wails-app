@@ -484,10 +484,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         [model]="panelPresentationModel">
       </app-panel-presentation-outlet>
 
-      <div class="details-header" *ngIf="!activePanelPresentation && !error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Scope</span><span>Value</span><span>Type</span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
-      </div>
 
       <div
         #listViewport
@@ -507,6 +503,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         (dragover)="onBackgroundDragOver($event)"
         (dragleave)="onBackgroundDragLeave($event)"
         (drop)="onBackgroundDrop($event)">
+
+      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
+        <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
+        <span></span><span>Name</span><span>Scope</span><span>Value</span><span>Type</span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+      </div>
+      </div>
 
         <div
           *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
@@ -1033,6 +1036,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     
       overscroll-behavior: none;
       scroll-behavior: auto;
+      scroll-padding-top: 25px;
       touch-action: pan-y;}
 
     .entry.compare-only,
@@ -1115,6 +1119,18 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       font-size: 9px;
     }
 
+
+    .details-header-viewport {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      width: max-content;
+      min-width: 100%;
+      overflow: visible;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+    }
+
     .details-header {
       display: grid;
       grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
@@ -1128,7 +1144,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       font-size: 10px;
     
       column-gap: var(--pane-column-gap, 6px);
-}
+      width: max-content;
+      min-width: 100%;
+    }
 
     .list.view-list .modified {
       display: none;
@@ -1616,6 +1634,105 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .environment-value {
       font-family: var(--vsc-font-family-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
       font-size: 10.5px;
+    }
+
+
+    /*
+     * Horizontal cursor coverage:
+     * List/Details/Tree use one shared intrinsic-width track. The widest row
+     * establishes the horizontal scroll extent and every sibling stretches to
+     * that same extent, so cursor/selection never ends before nested or wider
+     * rows. Grid tiles intentionally keep their normal tile width.
+     */
+    .list.view-list,
+    .list.view-details,
+    .tree-view {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+    }
+
+    .list.view-list .entry,
+    .list.view-details .entry,
+    .tree-row,
+    .list.view-list .list-virtual-spacer,
+    .list.view-details .list-virtual-spacer,
+    .tree-virtual-spacer {
+      width: 100%;
+      min-width: 100%;
+    }
+
+    /*
+     * Details is one solid horizontal surface: the header and every row share
+     * the same grid track. Keep outer table geometry flush; cell gutters own
+     * the spacing. Grid items use stretch rather than percentage widths so
+     * max-content sizing cannot collapse a cursor against an indefinite track.
+     */
+    .list.view-details {
+      padding: 0;
+    }
+
+    .list.view-details .details-header-viewport,
+    .list.view-details .entry,
+    .list.view-details .list-virtual-spacer {
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+    }
+
+    .list.view-details .details-header {
+      width: 100%;
+      min-width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    .list.view-details .entry {
+      margin-right: 0;
+      padding-left: 0;
+      padding-right: 0;
+      border-radius: 0;
+    }
+
+    /* Shared horizontal surface: rows fill the available viewport width and,
+     * when columns overflow, expand with the complete scrollable track.
+     * The 4px row inset is preserved on both sides. */
+    .list.view-list,
+    .list.view-details {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+      padding: 0;
+    }
+
+    .list.view-list > .entry,
+    .list.view-details > .entry {
+      grid-column: 1;
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+      margin-left: 4px;
+      margin-right: 4px;
+    }
+
+    .list.view-list > .list-virtual-spacer,
+    .list.view-details > .list-virtual-spacer,
+    .list.view-details > .details-header-viewport {
+      grid-column: 1;
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+    }
+
+    .list.view-details > .details-header-viewport,
+    .list.view-details > .details-header-viewport > .details-header {
+      margin: 0;
+      padding: 0;
+    }
+
+    .list.view-details > .details-header-viewport > .details-header {
+      width: 100%;
+      min-width: 100%;
     }
   `],
 })

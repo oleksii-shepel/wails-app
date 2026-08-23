@@ -19,11 +19,6 @@ import { schemeOf } from './pane-renderer-registry.service';
         <span>{{ session.entries.length }} items</span>
       </div>
 
-      <div class="table-header" [style.grid-template-columns]="gridTemplate">
-        <span>Name</span>
-        <span *ngFor="let column of descriptor?.columns">{{ column.label }}</span>
-      </div>
-
       <div
         class="rows"
         data-pane-content
@@ -32,6 +27,13 @@ import { schemeOf } from './pane-renderer-registry.service';
         (scroll)="session.onScroll($event)"
         (click)="backgroundClick.emit($event)"
         (contextmenu)="backgroundContextMenu.emit($event)">
+        <div class="table-header-viewport">
+          <div class="table-header" [style.grid-template-columns]="gridTemplate">
+            <span>Name</span>
+            <span *ngFor="let column of descriptor?.columns">{{ column.label }}</span>
+          </div>
+        </div>
+
         <div
           *ngFor="let entry of session.entries; trackBy: track"
           class="row"
@@ -66,15 +68,15 @@ import { schemeOf } from './pane-renderer-registry.service';
       white-space: nowrap;
     }
 
-
     :host,.surface{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden}
     .surface{flex-direction:column;background:var(--vsc-editor-background,#fff)}
     .title-row{display:flex;align-items:center;justify-content:space-between;min-height:30px;padding:0 9px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:11px}
     .title-row span{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
-    .table-header,.row {display:grid;      column-gap: var(--pane-column-gap, 6px);align-items:center}
-    .table-header{min-height:26px;padding:0 8px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    .rows{flex:1 1 0%;min-height:0;overflow:auto;background:var(--vsc-editor-background,#fff);outline:none}
-    .row{min-height:30px;padding:2px 8px;font-size:11px;cursor:default}
+    .rows{flex:1 1 0%;min-height:0;overflow:auto;background:var(--vsc-editor-background,#fff);outline:none;display:grid;grid-template-columns:minmax(100%,max-content);align-content:start;scroll-padding-top:26px}
+    .table-header-viewport{position:sticky;top:0;z-index:4;width:auto;min-width:0;justify-self:stretch;overflow:visible;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background,#fff)}
+    .table-header,.row{display:grid;column-gap:var(--pane-column-gap,6px);align-items:center}
+    .table-header{min-height:26px;width:100%;min-width:100%;margin:0;padding:0;font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));background:var(--vsc-editor-background,#fff)}
+    .row{min-height:30px;width:auto;min-width:0;justify-self:stretch;padding:2px 0;font-size:11px;cursor:default}
     .row:hover{background:var(--vsc-list-hover-background)}
     .row.selected{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground,var(--vsc-foreground))}
     .row.cursor{box-shadow:inset 0 0 0 1px var(--vsc-focus-border,var(--vsc-accent-blue))}
@@ -93,6 +95,32 @@ import { schemeOf } from './pane-renderer-registry.service';
     .row > span {
       min-width: 0;
       padding-inline: 2px;
+    }
+
+    /* Keep one horizontal table track. Header is flush; data cursors keep the
+     * normal 4px side inset and stretch with horizontal overflow. */
+    .rows {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+      padding: 0;
+    }
+    .table-header-viewport {
+      grid-column: 1;
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+      margin: 0;
+      padding: 0;
+    }
+    .table-header { width: 100%; min-width: 100%; margin: 0; padding: 0; }
+    .row {
+      grid-column: 1;
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+      margin-left: 4px;
+      margin-right: 4px;
     }
   `],
 })

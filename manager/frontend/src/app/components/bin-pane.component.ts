@@ -118,8 +118,8 @@ type BinFileInfo = FileInfo & {
   binGroupKey?: string;
   binRevisionCount?: number;
 
-  // Cached Bin presentation metadata. These values are derived when the trash
-  // collection changes and are read directly during scroll/cursor rendering.
+  // Precomputed Bin render metadata. These fields are refreshed only when
+  // the trash entry collection changes, never during cursor/scroll painting.
   binRenderKey?: string;
   binRevisionIndex?: number;
   binRevisionLabel?: string;
@@ -1441,11 +1441,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
      * Grouped revision rows are ordinary Directory Details entries.
      * The only visual difference is structural indentation.
      */
-    .list.view-details.bin-grouped .entry.bin-revision-row {
-      margin-left: 22px;
-      width: calc(100% - 22px);
-      min-width: calc(100% - 22px);
-    }
+    
 
 
     /*

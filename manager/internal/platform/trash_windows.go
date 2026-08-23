@@ -79,11 +79,15 @@ $result = @()
 foreach ($item in @($bin.Items())) {
   $from = [string]$item.ExtendedProperty('System.Recycle.DeletedFrom')
   $deleted = $item.ExtendedProperty('System.Recycle.DateDeleted')
-  $original = if ($from) { Join-Path $from $item.Name } else { '' }
+  # ShellItem.Name is a display name and follows Explorer's "hide extensions"
+  # setting. System.FileName preserves the actual basename, including extension.
+  $fileName = [string]$item.ExtendedProperty('System.FileName')
+  $name = if ($fileName) { $fileName } else { [string]$item.Name }
+  $original = if ($from) { Join-Path $from $name } else { '' }
   $deletedText = if ($deleted -is [datetime]) { $deleted.ToString('o') } else { [string]$deleted }
   $result += [pscustomobject]@{
     id = [string]$item.Path
-    name = [string]$item.Name
+    name = [string]$name
     originalPath = [string]$original
     trashedPath = [string]$item.Path
     deletedAt = [string]$deletedText
@@ -119,7 +123,9 @@ $bin = $shell.Namespace(10)
 $item = @($bin.Items()) | Where-Object { [string]$_.Path -eq $target } | Select-Object -First 1
 if ($null -eq $item) { throw 'Recycle Bin item not found.' }
 $from = [string]$item.ExtendedProperty('System.Recycle.DeletedFrom')
-$original = if ($from) { Join-Path $from $item.Name } else { '' }
+$fileName = [string]$item.ExtendedProperty('System.FileName')
+$name = if ($fileName) { $fileName } else { [string]$item.Name }
+$original = if ($from) { Join-Path $from $name } else { '' }
 if (-not $original) { throw 'Original path is unavailable.' }
 if (Test-Path -LiteralPath $original) { throw ('Restore destination already exists: ' + $original) }
 $item.InvokeVerb('RESTORE')
@@ -151,7 +157,8 @@ $shell = New-Object -ComObject Shell.Application
 $bin = $shell.Namespace(10)
 $item = @($bin.Items()) | Where-Object { [string]$_.Path -eq $target } | Select-Object -First 1
 if ($null -eq $item) { throw 'Recycle Bin item not found.' }
-$name = [string]$item.Name
+$fileName = [string]$item.ExtendedProperty('System.FileName')
+$name = if ($fileName) { $fileName } else { [string]$item.Name }
 $source = [string]$item.Path
 $destination = Join-Path $destinationDir $name
 if (Test-Path -LiteralPath $destination) { throw ('Destination already exists: ' + $destination) }

@@ -17,6 +17,19 @@ describe('BinPanelSource', () => {
     expect((listing.entries[0] as any).binOriginalPath).toBe('C:/Work/report.txt');
   });
 
+  it('preserves the real filename extension from the original path', async () => {
+    const api = {
+      // Windows ShellItem.Name may be the extension-hidden display name.
+      listTrashEntries: async () => [{ id: 'zip-id', name: 'backup', originalPath: 'C:/Work/backup.zip', trashedPath: 'native', deletedAt: '2026-08-22T10:00:00Z', size: 42, isDir: true, canRestore: true }],
+    } as any;
+    const source = new BinPanelSource(api);
+
+    const listing = await source.list({ path: 'bin://' });
+
+    expect(listing.entries[0].name).toBe('backup.zip');
+    expect(listing.entries[0].type).toBe(FileType.ARCHIVE);
+  });
+
   it('round-trips native trash identities through synthetic paths', () => {
     const source = new BinPanelSource({} as any);
     const id = 'C:/\u0024Recycle.Bin/item with spaces';

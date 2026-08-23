@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 import { FileType, type FileInfo } from '../shared/protocol';
 import type { TrashEntry } from './api.service';
 import { ApiService } from './api.service';
+import { isArchive } from './archive.service';
 import type { PanelSource, PanelSourceContext, PanelSourceListing } from './panel-source';
 import type { SourceCapabilities } from './source-capabilities';
 
@@ -72,12 +73,28 @@ export class BinPanelSource implements PanelSource {
     await this.api.emptyTrash();
   }
 
+  private basename(path: string): string {
+    const normalized = (path || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized) return '';
+    const index = normalized.lastIndexOf('/');
+    return index >= 0 ? normalized.slice(index + 1) : normalized;
+  }
+
   private toFileInfo(entry: TrashEntry): BinFileInfo {
     const deleted = Date.parse(entry.deletedAt || '');
+    // Prefer the basename from the original path. On Windows the Recycle Bin
+    // shell's display Name can omit extensions when Explorer hides them.
+    const originalName = this.basename(entry.originalPath);
+    const name = originalName || entry.name;
+    const type = isArchive(name)
+      ? FileType.ARCHIVE
+      : entry.isDir
+        ? FileType.DIRECTORY
+        : FileType.FILE;
     return {
-      name: entry.name,
+      name,
       path: `bin://entry/${encodeURIComponent(entry.id)}`,
-      type: entry.isDir ? FileType.DIRECTORY : FileType.FILE,
+      type,
       size: entry.size,
       created: 0,
       modified: Number.isFinite(deleted) ? Math.floor(deleted / 1000) : 0,

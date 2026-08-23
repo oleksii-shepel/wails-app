@@ -34,7 +34,6 @@ import type {
   PanelPresentationModel,
 } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
-import { PanelPresentationOutletComponent } from './panel-presentation-outlet.component';
 import {
   ArchiveService,
   type ArchiveFrame,
@@ -50,13 +49,9 @@ import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { RemoteConnectionsService } from '../services/remote-connections.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
-import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
-import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
-import { AddressBarComponent } from './address-bar.component';
-import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
@@ -203,6 +198,11 @@ const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
+import { AddressBarComponent } from './address-bar.component';
+import { PanelPresentationOutletComponent } from './panel-presentation-outlet.component';
+import { FilterComponent } from './filter.component';
+import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
+import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 @Component({
   selector: 'app-bin-pane',
   standalone: true,
@@ -582,12 +582,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           role="option"
           [attr.aria-posinset]="renderedEntryStart + virtualIndex + 1"
           [attr.aria-setsize]="visibleEntryCount"
-          [attr.draggable]="isBinLocation && isBinGroupHeader(entry) ? 'false' : 'true'"
+          [attr.draggable]="isBinGroupHeader(entry) ? 'false' : 'true'"
           [attr.data-file-entry]="entry.path"
           [attr.aria-selected]="isBinGroupHeader(entry) ? false : selectedPaths.has(entry.path)"
           [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
+          [class.bin-group-cursor]="isBinGroupHeader(entry) && entry.path === cursorPath"
           [class.selected]="!isBinGroupHeader(entry) && selectedPaths.has(entry.path)"
           [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
           [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
@@ -622,7 +623,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
                 {{ isBinGroupExpanded(entry) ? '▾' : '▸' }}
               </button>
               <ng-template #binRevisionIndent><span class="bin-revision-indent"></span></ng-template>
-              <span *ngIf="!isBinGroupHeader(entry)" class="icon bin-revision-icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
+              <span *ngIf="!isBinGroupHeader(entry)" class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
                 {{ entryDisplayIcon(entry) }}
               </span>
             </span>
@@ -632,6 +633,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
               {{ entryDisplayIcon(entry) }}
             </span>
           </ng-template>
+
 
           <span class="name bin-name" *ngIf="isBinLocation; else normalEntryName">
             <ng-container *ngIf="isBinGroupHeader(entry); else binRevisionName">
@@ -677,8 +679,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             </ng-container>
             <ng-template #binRevisionDetails>
               <span *ngIf="binDetailsMode === 'flat'" class="kind" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
-              <span class="modified bin-deleted" [title]="binDeletedAt(entry)">{{ formatBinDeleted(entry) }}</span>
-              <span class="size bin-size">{{ entry.type !== FileType.DIRECTORY ? formatSize(entry.size) : '' }}</span>
+              <span class="modified" [title]="binDeletedAt(entry)">{{ formatBinDeleted(entry) }}</span>
+              <span class="size">{{ entry.type !== FileType.DIRECTORY ? formatSize(entry.size) : '' }}</span>
               <span class="kind">{{ binRevisionInfo(entry).label }}</span>
             </ng-template>
           </ng-container>
@@ -1260,31 +1262,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
     .bin-mode-switch button:focus-visible { outline: 1px solid var(--vsc-focus-ring, var(--vsc-focus-border)); outline-offset: 1px; }
 
-    .bin-group-header {
-      min-height: 34px; font-weight: 600;
-      background: color-mix(in srgb, var(--vsc-panel-background) 92%, var(--vsc-editor-background));
-      border-top: 1px solid color-mix(in srgb, var(--vsc-border-subtle, var(--vsc-border)) 78%, transparent);
-      border-bottom: 1px solid color-mix(in srgb, var(--vsc-border-subtle, var(--vsc-border)) 48%, transparent);
-    }
+    
 
-    .bin-group-header:first-of-type {
-      border-top-color: transparent;
-    }
+    
 
-    .bin-group-header .name {
-      font-weight: 600;
-    }
+    
 
     .bin-name {
       min-width: 0;
     }
 
-    .bin-group-header .bin-name {
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-      min-width: 0;
-    }
+    
 
     .bin-group-filename {
       flex: 0 1 auto;
@@ -1323,13 +1311,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       text-align: right;
     }
 
-    .bin-group-header.cursor {
-      box-shadow: inset 3px 0 0 var(--vsc-focus-ring, var(--vsc-focus-border));
-    }
+    
 
-    .bin-group-header.selected {
-      background: color-mix(in srgb, var(--vsc-panel-background) 72%, transparent);
-    }
+    
 
     .bin-group-spacer {
       min-width: 0;
@@ -1337,21 +1321,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .bin-flat-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
     .bin-flat-filename { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-    .bin-revision-row {
-      min-height: 30px; color: color-mix(in srgb, var(--vsc-foreground) 88%, transparent);
-      border-bottom-color: color-mix(in srgb, var(--vsc-border-subtle, var(--vsc-border)) 24%, transparent);
-    }
-    .bin-revision-row:hover:not(.selected) { background: color-mix(in srgb, var(--vsc-list-hover-background) 72%, transparent); }
-    .bin-revision-row .modified, .bin-revision-row .size { font-variant-numeric: tabular-nums; color: var(--vsc-description-foreground, var(--vsc-foreground-dim)); }
+    
+    
+    
 
-    .bin-revision-row .bin-leading {
-      padding-left: 4px;
-    }
+    
 
-    .bin-revision-row .name {
-      padding-left: 6px;
-      font-weight: 400;
-    }
+    
 
 
     .bin-revision {
@@ -1369,123 +1345,139 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
 
     /* Bin visual parity: Directory Details is the source of truth. */
-    .list.view-details.bin-flat .entry.bin-revision-row {
-      margin: 0;
-      padding: inherit;
-      min-height: inherit;
-      width: max-content;
-      min-width: 100%;
-      border-radius: inherit;
-      background: transparent;
-      color: inherit;
-      box-shadow: none;
-    }
+    
 
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-leading {
-      padding: 0;
-      justify-content: inherit;
-    }
+    
 
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-revision-indent {
-      display: none;
-    }
+    
 
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-revision-icon {
-      font-size: inherit;
-      opacity: 1;
-      transform: none;
-    }
+    
 
-    .list.view-details.bin-flat .entry.bin-revision-row .name,
-    .list.view-details.bin-flat .entry.bin-revision-row .kind,
-    .list.view-details.bin-flat .entry.bin-revision-row .size,
-    .list.view-details.bin-flat .entry.bin-revision-row .modified {
-      font: inherit;
-    }
+    
 
     /* Grouped mode differs only by hierarchy. */
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+
+    /* Flat Bin rows: exact Directory Details typography, only extra columns differ. */
+    
+
+    
+
+    
+
+    
+
+    
+
+
+    /*
+     * Bin row geometry parity:
+     * Directory .entry and .list.view-details .entry remain the sole source
+     * of row height, padding, border radius, cursor, hover and selection shape.
+     * Bin adds only hierarchy/column behavior.
+     */
+    .list.view-details.bin-flat .entry.bin-revision-row,
     .list.view-details.bin-grouped .entry.bin-group-header {
-      margin: 0;
-      min-height: inherit;
-      background: transparent;
-      border: 0;
-      border-radius: inherit;
-      color: inherit;
+      margin-left: 0;
     }
 
-    .list.view-details.bin-grouped .entry.bin-group-header .bin-group-filename {
-      font: inherit;
-      font-weight: 600;
+    
+
+    /*
+     * Keep full horizontal-scroll coverage without changing Directory cursor
+     * styling. The interactive row box itself spans the intrinsic grid width.
+     */
+    .list.view-details .entry {
+      width: max-content;
+      min-width: 100%;
     }
 
-    .list.view-details.bin-grouped .entry.bin-group-header .bin-group-directory {
-      font: inherit;
-      font-size: 10px;
-      font-weight: 400;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    .list.view-details .list-virtual-spacer {
+      width: max-content;
+      min-width: 100%;
     }
 
+    /*
+     * Grouped revision rows are ordinary Directory Details entries.
+     * The only visual difference is structural indentation.
+     */
     .list.view-details.bin-grouped .entry.bin-revision-row {
       margin-left: 22px;
       width: max-content;
       min-width: calc(100% - 22px);
-      padding: inherit;
-      min-height: inherit;
-      border-radius: inherit;
-      background: transparent;
+    }
+
+
+    /*
+     * Group header cursor is structural, not a file selection. Give it the
+     * same visual state as a Directory selected cursor without adding it to
+     * selectedPaths or exposing aria-selected=true.
+     */
+    .entry.bin-group-cursor {
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+    }
+
+    .pane.active-pane .entry.bin-group-cursor {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    .entry.bin-group-cursor .bin-group-directory {
       color: inherit;
+      opacity: .72;
     }
 
-    .list.view-details.bin-grouped .entry.bin-revision-row .bin-revision-indent {
-      display: none;
+    /*
+     * Group Name cell: filename and original directory are separate flex
+     * fragments. The explicit gap prevents values such as "Games" + "C:"
+     * from visually collapsing into "GamesC:".
+     */
+    .bin-group-header .bin-name {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+      overflow: hidden;
     }
 
-    .list.view-details.bin-grouped .entry.bin-revision-row .bin-revision-icon {
-      font-size: inherit;
-      opacity: 1;
-      transform: none;
-    }
-
-    .list.view-details.bin-grouped .entry.bin-revision-row .name,
-    .list.view-details.bin-grouped .entry.bin-revision-row .kind,
-    .list.view-details.bin-grouped .entry.bin-revision-row .size,
-    .list.view-details.bin-grouped .entry.bin-revision-row .modified {
-      font: inherit;
-    }
-
-
-    /* Flat Bin rows: exact Directory Details typography, only extra columns differ. */
-    .list.view-details.bin-flat .entry.bin-revision-row .name {
-      font: inherit;
-      font-weight: 600;
-      color: var(--vsc-foreground);
-    }
-
-    .list.view-details.bin-flat .entry.bin-revision-row .kind,
-    .list.view-details.bin-flat .entry.bin-revision-row .size,
-    .list.view-details.bin-flat .entry.bin-revision-row .modified {
-      font: inherit;
-      font-size: 10px;
-      font-weight: 400;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      opacity: 1;
-    }
-
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-location {
+    .bin-group-header .bin-group-filename {
+      flex: 0 1 auto;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-revision {
-      font-variant-numeric: tabular-nums;
-      text-align: left;
-    }
-
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-size,
-    .list.view-details.bin-flat .entry.bin-revision-row .bin-deleted {
-      font-variant-numeric: tabular-nums;
+    .bin-group-header .bin-group-directory {
+      flex: 1 1 auto;
+      min-width: 32px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .details-header-viewport {

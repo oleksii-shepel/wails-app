@@ -21,6 +21,9 @@
   "include": [
     "frontend/src/**/*.ts"
   ],
+  "exclude": [
+    "frontend/src/**/*.d.ts"
+  ],
   "angularCompilerOptions": {
     "compilationMode": "partial",
     "strictInjectionParameters": true,

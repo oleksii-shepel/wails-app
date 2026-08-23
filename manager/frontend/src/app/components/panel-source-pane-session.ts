@@ -193,7 +193,17 @@ export class PanelSourcePaneSession implements PaneComponent {
   }
 
   async navigateTo(path: string): Promise<void> {
-    await this.load(path, { history: 'record', preserveSelection: false });
+    const canonicalPath = this.canonicalize(path);
+    if (!canonicalPath) return;
+
+    if (this.path !== canonicalPath) {
+      this.path = canonicalPath;
+      this.error = '';
+      this.events.locationChanged?.(canonicalPath);
+      this.events.changed?.();
+    }
+
+    await this.load(canonicalPath, { history: 'record', preserveSelection: false });
   }
 
   navigateLinkedLocation(path: string): Promise<boolean> {

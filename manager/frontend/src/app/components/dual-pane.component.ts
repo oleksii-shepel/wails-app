@@ -9,6 +9,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Subscription } from 'rxjs';
 
 import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
@@ -1082,6 +1083,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private navigationTrailCommands = new Map<string, { paneId: PaneId; path: string }>();
   private contextMenuActions = new Map<string, () => void | Promise<void>>();
   private contextMenuActionSequence = 0;
+  private readonly subscription = new Subscription();
 
   constructor(
     private readonly input: InputEngineService,
@@ -1363,9 +1365,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.registerCommands();
     for (const binding of BINDINGS) this.input.registerBinding(binding);
     this.input.activateContext(CONTEXT_ID);
+
+    this.subscription.add(
+      this.trashDialog.mutated$.subscribe(() => {
+        void this.refreshVisibleRecycleBinPanes();
+      }),
+    );
   }
 
   ngOnDestroy(): void {
+    this.subscription.unsubscribe();
     this.clearPaneIntelligenceTypeahead();
     this.stopDriveLifecycle?.();
     this.stopDriveLifecycle = null;
@@ -4686,6 +4695,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       .filter((pane): pane is PaneHostComponent => this.isRecycleBinPane(pane));
   }
 
+  private async refreshVisibleRecycleBinPanes(): Promise<void> {
+    const binPanes = this.visibleRecycleBinPanes();
+    if (binPanes.length === 0) return;
+
+    await Promise.all(binPanes.map(pane => pane.navigation?.refresh()));
+    await new Promise(resolve => setTimeout(resolve, 120));
+    await Promise.all(this.visibleRecycleBinPanes().map(pane => pane.navigation?.refresh()));
+    this.cdr.markForCheck();
+  }
+
   async emptyRecycleBin(invocation?: CommandInvocation): Promise<void> {
     const sourcePane = this.paneForInvocation(invocation);
     if (!this.recycleBinHasEntries(sourcePane)) return;
@@ -4699,18 +4718,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     try {
       await this.api.emptyTrash();
-
-      // Recycle Bin is global. Refresh every pane currently showing bin:// so
-      // both views become consistent immediately after the destructive action.
-      //
-      // Some shell backends report EmptyTrash() completion slightly before a
-      // subsequent listing stops returning stale entries, so follow the first
-      // refresh with one short retry to settle the pane state.
-      const binPanes = this.visibleRecycleBinPanes();
-      await Promise.all(binPanes.map(pane => pane.navigation?.refresh()));
-      await new Promise(resolve => setTimeout(resolve, 120));
-      await Promise.all(this.visibleRecycleBinPanes().map(pane => pane.navigation?.refresh()));
-      this.cdr.markForCheck();
+      await this.refreshVisibleRecycleBinPanes();
     } catch (error) {
       await this.confirmDialog.alert({
         title: 'Empty Recycle Bin Failed',

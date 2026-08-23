@@ -323,6 +323,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       }
       this.selectedIds = new Set();
       await this.reload();
+      this.dialog.notifyMutated();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       this.loading = false;
@@ -354,6 +355,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       }
       this.selectedIds = new Set();
       await this.reload();
+      this.dialog.notifyMutated();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       this.loading = false;
@@ -379,6 +381,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       await this.api.emptyTrash();
       this.selectedIds = new Set();
       await this.reload();
+      this.dialog.notifyMutated();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       this.loading = false;

@@ -2137,11 +2137,36 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
       padding: 0;
     }
 
+    /*
+     * Preserve the original Directory cursor geometry in Bin grouped mode.
+     * Older, more-specific Bin rules set group-header margin-left to 0, which
+     * wins over the generic shared-track inset after expand/collapse. Reassert
+     * the standard 4px row gutter here at matching specificity. Child revisions
+     * add only their 22px hierarchy indent. Cursor expansion changes width only;
+     * it must never flatten the established 3px row radius.
+     */
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-group-header,
+    .list.view-details.bin-flat .list-content-track > .entry.bin-revision-row {
+      width: auto !important;
+      min-width: 0 !important;
+      margin-left: 4px;
+      margin-right: 4px;
+      border-radius: 3px;
+    }
+
     .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row {
       width: auto !important;
       min-width: 0 !important;
       margin-left: 26px;
       margin-right: 4px;
+      border-radius: 3px;
+    }
+
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-group-header.cursor,
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-group-header.selected,
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row.cursor,
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row.selected {
+      border-radius: 3px;
     }
   `],
 })

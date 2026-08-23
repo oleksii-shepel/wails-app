@@ -76,7 +76,7 @@ import { schemeOf } from './pane-renderer-registry.service';
     .table-header-viewport{position:sticky;top:0;z-index:4;width:auto;min-width:0;justify-self:stretch;overflow:visible;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background,#fff)}
     .table-header,.row{display:grid;column-gap:var(--pane-column-gap,6px);align-items:center}
     .table-header{min-height:26px;width:100%;min-width:100%;margin:0;padding:0;font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));background:var(--vsc-editor-background,#fff)}
-    .row{min-height:30px;width:auto;min-width:0;justify-self:stretch;padding:2px 0;font-size:11px;cursor:default}
+    .row{min-height:30px;width:auto;min-width:0;justify-self:stretch;padding:2px 0;border-radius:3px;font-size:11px;cursor:default}
     .row:hover{background:var(--vsc-list-hover-background)}
     .row.selected{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground,var(--vsc-foreground))}
     .row.cursor{box-shadow:inset 0 0 0 1px var(--vsc-focus-border,var(--vsc-accent-blue))}

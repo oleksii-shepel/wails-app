@@ -1501,7 +1501,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-width: calc(100% - 22px);
       width: calc(100% - 22px);
       padding-left: 0;
-      border-radius: 0;
+      border-radius: 3px;
     }
 
     .list.view-details.bin-grouped .entry.bin-revision-row.selected,
@@ -1510,7 +1510,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
        * Selection remains a full-row Directory-pane selection inside the
        * revision's inset coordinate system.
        */
-      border-radius: 0;
+      border-radius: 3px;
     }
 
     .bin-grouped-revision-name {
@@ -2245,7 +2245,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       margin-right: 0;
       padding-left: 0;
       padding-right: 0;
-      border-radius: 0;
+      border-radius: 3px;
     }
 
     /* Shared horizontal surface: rows fill the available viewport width and,

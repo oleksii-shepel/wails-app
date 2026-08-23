@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
+    "allowJs": false,
     "strict": true,
     "skipLibCheck": true,
     "declaration": true,
@@ -22,7 +23,10 @@
     "frontend/src/**/*.ts"
   ],
   "exclude": [
-    "frontend/src/**/*.d.ts"
+    "frontend/src/**/*.d.ts",
+    "frontend/src/**/*.js",
+    "frontend/src/**/*.js.map",
+    "dist"
   ],
   "angularCompilerOptions": {
     "compilationMode": "partial",

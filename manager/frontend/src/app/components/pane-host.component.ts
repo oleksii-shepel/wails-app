@@ -11,6 +11,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { DirectoryPaneComponent } from './directory-pane.component';
+import { BinPaneComponent } from './bin-pane.component';
 import { RegistryPaneComponent } from './registry-pane.component';
 import { AutorunPaneComponent } from './autorun-pane.component';
 import { SystemTablePaneComponent } from './system-table-pane.component';
@@ -50,6 +51,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
   imports: [
     CommonModule,
     DirectoryPaneComponent,
+    BinPaneComponent,
     RegistryPaneComponent,
     AutorunPaneComponent,
     SystemTablePaneComponent,
@@ -59,7 +61,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'registry' && rendererKind !== 'autorun' && rendererKind !== 'network' && rendererKind !== 'environment'; else standardPane">
+    <ng-container *ngIf="rendererKind !== 'directory' && rendererKind !== 'bin' && rendererKind !== 'registry' && rendererKind !== 'autorun' && rendererKind !== 'network' && rendererKind !== 'environment'; else standardPane">
       <section
         class="specialized-pane"
         tabindex="-1"
@@ -285,6 +287,28 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
         (backgroundContextMenu)="backgroundContextMenu.emit($event)"
         (internalDrop)="internalDrop.emit($event)">
       </app-directory-pane>
+
+      <app-bin-pane
+        *ngSwitchCase="'bin'"
+        #component
+        [paneId]="paneId"
+        [active]="active"
+        [showHidden]="showHidden"
+        [currentPathPinned]="currentPathPinned"
+        [pluginToolbarActions]="effectivePluginToolbarActions"
+        [comparisonStatuses]="comparisonStatuses"
+        (activateRequested)="activateRequested.emit()"
+        (navigationTrailRequested)="navigationTrailRequested.emit($event)"
+        (remoteRecoveryRequested)="remoteRecoveryRequested.emit()"
+        (togglePinRequested)="togglePinRequested.emit()"
+        (locationChange)="locationChange.emit($event)"
+        (cursorChange)="cursorChange.emit($event)"
+        (presentationChange)="presentationChange.emit($event)"
+        (viewportChange)="viewportChange.emit($event)"
+        (entryContextMenu)="entryContextMenu.emit($event)"
+        (backgroundContextMenu)="backgroundContextMenu.emit($event)"
+        (internalDrop)="internalDrop.emit($event)">
+      </app-bin-pane>
 
       <app-registry-pane
         *ngSwitchCase="'registry'"
@@ -581,7 +605,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:3px 9px}
     .plugin-icon{display:inline-grid;place-items:center;width:16px;height:16px}
     .error{display:flex;flex:1 1 0%;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
-    app-registry-pane,app-autorun-pane,app-network-pane,app-environment-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
+    app-bin-pane,app-registry-pane,app-autorun-pane,app-network-pane,app-environment-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
@@ -664,7 +688,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   ngDoCheck(): void {
-    if (this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'autorun' || this.rendererKind === 'network' || this.rendererKind === 'environment') return;
+    if (this.rendererKind === 'directory' || this.rendererKind === 'bin' || this.rendererKind === 'registry' || this.rendererKind === 'autorun' || this.rendererKind === 'network' || this.rendererKind === 'environment') return;
     const path = this.workspaceService.getActiveTab(this.paneId)?.path ?? '';
     void this.provider.sync(this.paneId, path, this.showHidden);
     if (!this.specializedLocationEditing) this.specializedLocationDraft = this.provider.path;
@@ -676,7 +700,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   }
 
   private get activeComponent(): PaneComponent | undefined {
-    return this.rendererKind === 'directory' || this.rendererKind === 'registry' || this.rendererKind === 'autorun' || this.rendererKind === 'network' || this.rendererKind === 'environment'
+    return this.rendererKind === 'directory' || this.rendererKind === 'bin' || this.rendererKind === 'registry' || this.rendererKind === 'autorun' || this.rendererKind === 'network' || this.rendererKind === 'environment'
       ? (this.inner as unknown as PaneComponent | undefined)
       : this.provider;
   }
@@ -775,14 +799,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   get viewerCommands(): PaneViewerCommands | undefined { return this.activeComponent; }
 
   onProviderBackgroundClick(event: MouseEvent): void {
-    if (event.target !== event.currentTarget) return;
-
-    // Provider panes follow the same ownership rule as directory-like panes:
-    // clicking unused content activates/focuses the pane without changing its
-    // current selection or cursor.
-    this.activateRequested.emit();
-    const current = event.currentTarget as HTMLElement | null;
-    current?.focus({ preventScroll: true });
+    if (event.target === event.currentTarget) this.provider.clearSelection();
   }
 
   onProviderSelect(event: any): void {

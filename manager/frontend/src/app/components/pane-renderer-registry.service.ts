@@ -8,6 +8,7 @@ import {
 
 export type PaneRendererKind =
   | 'directory'
+  | 'bin'
   | 'registry'
   | 'autorun'
   | 'network'
@@ -33,6 +34,11 @@ export class PaneRendererRegistryService {
   private readonly registry = new PaneRendererRegistry<PaneRendererKind>('directory');
 
   constructor() {
+    this.register({
+      id: 'builtin.bin-pane',
+      kind: 'bin',
+      score: scheme => scheme === 'bin' ? 100 : 0,
+    });
     this.register({
       id: 'builtin.registry-pane',
       kind: 'registry',

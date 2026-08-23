@@ -4,8 +4,25 @@ describe('sibling pane architecture', () => {
   const host = readFileSync(new URL('./pane-host.component.ts', import.meta.url), 'utf8');
   const renderers = readFileSync(new URL('./pane-renderer-registry.service.ts', import.meta.url), 'utf8');
   const directory = readFileSync(new URL('./directory-pane.component.ts', import.meta.url), 'utf8');
+  const bin = readFileSync(new URL('./bin-pane.component.ts', import.meta.url), 'utf8');
   const registry = readFileSync(new URL('./registry-pane.component.ts', import.meta.url), 'utf8');
   const autorun = readFileSync(new URL('./autorun-pane.component.ts', import.meta.url), 'utf8');
+
+  it('routes bin:// through a dedicated BinPane sibling', () => {
+    expect(renderers).toContain("kind: 'bin'");
+    expect(renderers).toContain("scheme === 'bin'");
+    expect(host).toContain("import { BinPaneComponent } from './bin-pane.component'");
+    expect(host).toContain("*ngSwitchCase=\"'bin'\"");
+    expect(host).toContain('<app-bin-pane');
+  });
+
+  it('starts BinPane as a literal DirectoryPane clone apart from selector and class name', () => {
+    const normalizedBin = bin
+      .replace("selector: 'app-bin-pane'", "selector: 'app-directory-pane'")
+      .replace('export class BinPaneComponent implements OnInit, OnDestroy {',
+               'export class DirectoryPaneComponent implements OnInit, OnDestroy {');
+    expect(normalizedBin).toBe(directory);
+  });
 
   it('keeps Registry as a renderer identity but uses the same pane implementation shape as Directory', () => {
     expect(host).toContain("import { RegistryPaneComponent } from './registry-pane.component'");

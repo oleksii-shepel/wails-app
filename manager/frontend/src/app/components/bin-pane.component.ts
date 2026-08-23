@@ -208,6 +208,7 @@ const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
 import { AddressBarComponent } from './address-bar.component';
+import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { PanelPresentationOutletComponent } from './panel-presentation-outlet.component';
 import { FilterComponent } from './filter.component';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
@@ -218,6 +219,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
   imports: [
     CommonModule,
     AddressBarComponent,
+    FileEntryInlineComponent,
     PanelPresentationOutletComponent,
     FilterComponent,
     ViewerHostSurfaceComponent,
@@ -491,7 +493,12 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
             {{ row.loading ? '\u2026' : (row.expandable ? (row.expanded ? '\u25BE' : '\u25B8') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
-          <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
+          <app-file-entry-inline
+            *ngIf="renamingPath !== row.entry.path"
+            class="name tree-name"
+            [entry]="row.entry"
+            [showIcon]="false">
+          </app-file-entry-inline>
           <span
             class="rename-editor"
             *ngIf="renamingPath === row.entry.path"
@@ -654,7 +661,12 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
             <span *ngIf="isBinGroupHeader(entry)" class="bin-group-directory" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
           </span>
           <ng-template #normalEntryName>
-            <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
+            <app-file-entry-inline
+              *ngIf="renamingPath !== entry.path"
+              class="name entry-name"
+              [entry]="entry"
+              [showIcon]="false">
+            </app-file-entry-inline>
           </ng-template>
           <span
             class="rename-editor"
@@ -1412,16 +1424,16 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     
 
     /*
-     * Keep full horizontal-scroll coverage without changing Directory cursor
-     * styling. The interactive row box itself spans the intrinsic grid width.
+     * Keep full Details-row coverage without changing Directory cursor styling.
+     * The interactive row box spans the viewport-constrained grid width.
      */
     .list.view-details .entry {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
     }
 
     .list.view-details .list-virtual-spacer {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
     }
 
@@ -1431,7 +1443,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
      */
     .list.view-details.bin-grouped .entry.bin-revision-row {
       margin-left: 22px;
-      width: max-content;
+      width: calc(100% - 22px);
       min-width: calc(100% - 22px);
     }
 
@@ -1492,8 +1504,9 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 
       align-items: center;
       min-height: 25px;
+      box-sizing: border-box;
       padding: 0 8px;
-      width: max-content;
+      width: 100%;
       min-width: 100%;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       will-change: transform;
@@ -1545,7 +1558,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     .list.view-grid .entry .modified { display: none; }
 
     .list.view-details .entry {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
       grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
     }
@@ -1582,7 +1595,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     }
 
     .list.view-details .list-virtual-spacer {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
     }
 
@@ -2033,6 +2046,17 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     .list.view-details .entry > span:not(:first-child) {
       min-width: 0;
       padding-inline: 2px;
+    }
+
+    .list.view-list .entry > app-file-entry-inline,
+    .list.view-details .entry > app-file-entry-inline,
+    .tree-row > app-file-entry-inline {
+      display: block;
+      min-width: 0;
+      width: 100%;
+      max-width: 100%;
+      padding-inline: 2px;
+      overflow: hidden;
     }
   `],
 })

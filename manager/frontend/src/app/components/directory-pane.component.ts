@@ -58,6 +58,7 @@ import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
+import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
@@ -211,6 +212,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     AddressBarComponent,
     PanelPresentationOutletComponent,
     FilterComponent,
+    FileEntryInlineComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
@@ -482,7 +484,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ row.loading ? '\u2026' : (row.expandable ? (row.expanded ? '\u25BE' : '\u25B8') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
-          <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
+          <app-file-entry-inline
+            *ngIf="renamingPath !== row.entry.path"
+            class="name tree-name"
+            [entry]="row.entry"
+            [showIcon]="false">
+          </app-file-entry-inline>
           <span
             class="rename-editor"
             *ngIf="renamingPath === row.entry.path"
@@ -633,18 +640,23 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             </span>
           </ng-template>
 
-          <span class="name bin-name" *ngIf="isBinLocation; else normalEntryName">
+          <div class="name bin-name" *ngIf="isBinLocation; else normalEntryName">
             <ng-container *ngIf="isBinGroupHeader(entry); else binRevisionName">
-              <span class="bin-group-filename">{{ entry.name }}</span>
-              <span class="bin-group-directory" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
+              <div class="bin-group-filename">{{ entry.name }}</div>
+              <div class="bin-group-directory" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</div>
             </ng-container>
             <ng-template #binRevisionName>
               <ng-container *ngIf="binDetailsMode === 'flat'; else groupedRevisionName">{{ entry.name }}</ng-container>
               <ng-template #groupedRevisionName>{{ entry.name }}</ng-template>
             </ng-template>
-          </span>
+          </div>
           <ng-template #normalEntryName>
-            <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
+            <app-file-entry-inline
+              *ngIf="renamingPath !== entry.path"
+              class="name entry-name"
+              [entry]="entry"
+              [showIcon]="false">
+            </app-file-entry-inline>
           </ng-template>
           <span
             class="rename-editor"
@@ -676,21 +688,21 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
               <span class="bin-group-spacer"></span>
             </ng-container>
             <ng-template #binRevisionDetails>
-              <span *ngIf="binDetailsMode === 'flat'" class="kind bin-location" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
-              <span class="modified bin-deleted" [title]="binDeletedAt(entry)">{{ formatBinDeleted(entry) }}</span>
-              <span class="size bin-size">{{ entry.type !== FileType.DIRECTORY ? formatSize(entry.size) : '' }}</span>
-              <span class="kind bin-revision">{{ binRevisionInfo(entry).label }}</span>
+              <div *ngIf="binDetailsMode === 'flat'" class="kind bin-location" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</div>
+              <div class="modified bin-deleted" [title]="binDeletedAt(entry)">{{ formatBinDeleted(entry) }}</div>
+              <div class="size bin-size">{{ entry.type !== FileType.DIRECTORY ? formatSize(entry.size) : '' }}</div>
+              <div class="kind bin-revision">{{ binRevisionInfo(entry).label }}</div>
             </ng-template>
           </ng-container>
           <ng-template #normalEntryDetails>
-            <span class="kind" [style.color]="entryCategory(entry)?.color || null">
+            <div class="kind" [style.color]="entryCategory(entry)?.color || null">
               {{ entryDisplayKind(entry) }}
-            </span>
-            <span class="size">
+            </div>
+            <div class="size">
               {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
-            </span>
-            <span class="modified">{{ formatModified(entry.modified) }}</span>
-            <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
+            </div>
+            <div class="modified">{{ formatModified(entry.modified) }}</div>
+            <div class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</div>
           </ng-template>
         </div>
 
@@ -834,6 +846,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-details .entry .name,
     .list.view-grid .entry .name,
     .tree-row .name {
+      display: block;
+      width: 100%;
+      justify-self: stretch;
+      align-self: center;
       min-width: 0;
       max-width: 100%;
       overflow: hidden;
@@ -1295,6 +1311,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .bin-name {
+      display: block;
+      width: 100%;
+      max-width: 100%;
       min-width: 0;
     }
 
@@ -1479,7 +1498,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
        */
       margin-left: 22px;
       min-width: calc(100% - 22px);
-      width: max-content;
+      width: calc(100% - 22px);
       padding-left: 0;
       border-radius: 0;
     }
@@ -1565,7 +1584,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-details.bin-flat .entry.bin-revision-row {
       margin-left: 0;
       min-width: 100%;
-      width: max-content;
+      width: 100%;
       padding-left: 0;
       min-height: inherit;
       border-radius: inherit;
@@ -1609,8 +1628,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       align-items: center;
       min-height: 25px;
+      box-sizing: border-box;
       padding: 0 8px;
-      width: max-content;
+      width: 100%;
       min-width: 100%;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       will-change: transform;
@@ -1662,7 +1682,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-grid .entry .modified { display: none; }
 
     .list.view-details .entry {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
       grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
     }
@@ -1699,7 +1719,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .list.view-details .list-virtual-spacer {
-      width: max-content;
+      width: 100%;
       min-width: 100%;
     }
 
@@ -1860,6 +1880,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .name {
+      display: block;
+      width: 100%;
+      max-width: 100%;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -2150,6 +2173,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-details .entry > span:not(:first-child) {
       min-width: 0;
       padding-inline: 2px;
+    }
+
+    .list.view-list .entry > app-file-entry-inline,
+    .list.view-details .entry > app-file-entry-inline,
+    .tree-row > app-file-entry-inline {
+      display: block;
+      min-width: 0;
+      width: 100%;
+      max-width: 100%;
+      padding-inline: 2px;
+      overflow: hidden;
     }
   `],
 })

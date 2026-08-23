@@ -18,7 +18,7 @@ describe('Bin grouped revision entry parity', () => {
     const block = source.slice(start, end + 1);
 
     expect(block).toContain('margin-left: 22px');
-    expect(block).toContain('width: max-content');
+    expect(block).toContain('width: calc(100% - 22px)');
     expect(block).toContain('min-width: calc(100% - 22px)');
     expect(block).not.toContain('font-size');
     expect(block).not.toContain('min-height');

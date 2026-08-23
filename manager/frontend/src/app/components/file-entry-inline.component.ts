@@ -1,37 +1,17 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  Input,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
+
+import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import { getFileEntryPresentation } from './file-entry-presentation.util';
-import { FileCategoryResolverService } from '../services/file-category-resolver.service';
-
-/** Smart truncate file names while preserving extension. */
-function truncateFileName(name: string, maxLength: number): string {
-  if (!name || name.length <= maxLength) {
-    return name;
-  }
-
-  // Find the last dot to separate name from extension
-  const lastDotIndex = name.lastIndexOf('.');
-  const hasExtension = lastDotIndex > 0 && lastDotIndex < name.length - 1;
-
-  if (!hasExtension || lastDotIndex < 3) {
-    // No extension or very short base name, just truncate at end
-    return name.slice(0, Math.max(1, maxLength - 1)) + '…';
-  }
-
-  const baseName = name.slice(0, lastDotIndex);
-  const extension = name.slice(lastDotIndex);
-  const maxBaseLength = Math.max(1, maxLength - extension.length - 1); // -1 for ellipsis
-
-  if (maxBaseLength < 3) {
-    // Not enough space to show meaningful base + extension
-    return name.slice(0, maxLength - 1) + '…';
-  }
-
-  // Truncate base name and add ellipsis in the middle to hint at full length
-  const keep = Math.max(1, Math.floor(maxBaseLength / 2) - 1);
-  return baseName.slice(0, keep) + '…' + extension;
-}
 
 @Component({
   selector: 'app-file-entry-inline',
@@ -39,8 +19,8 @@ function truncateFileName(name: string, maxLength: number): string {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="inline-entry" [class.parent-dir]="isParent" (click)="select.emit($event)" (dblclick)="navigate.emit()">
-      <span class="file-icon" [class.parent-icon]="isParent">
+    <div class="inline-entry" [class.parent-dir]="isParent">
+      <span *ngIf="showIcon" class="file-icon" [class.parent-icon]="isParent">
         <ng-container *ngIf="isParent; else normalIcon">
           <svg
             width="16"
@@ -59,11 +39,17 @@ function truncateFileName(name: string, maxLength: number): string {
         <ng-template #normalIcon>
           <span class="icon-emoji">{{ iconEmoji }}</span>
           <svg *ngIf="isSymlink" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
-            <path d="M2 8 C2 5 5 3 8 2"
-              stroke="var(--vsc-icon-symlink,var(--vsc-info))" stroke-width="2" stroke-linecap="round"/>
-            <path d="M6 1.2 L8.8 1.2 L8.8 4"
-              stroke="var(--vsc-icon-symlink,var(--vsc-info))" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M2 8 C2 5 5 3 8 2"
+              stroke="var(--vsc-icon-symlink,var(--vsc-info))"
+              stroke-width="2"
+              stroke-linecap="round" />
+            <path
+              d="M6 1.2 L8.8 1.2 L8.8 4"
+              stroke="var(--vsc-icon-symlink,var(--vsc-info))"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round" />
           </svg>
         </ng-template>
       </span>
@@ -81,6 +67,8 @@ function truncateFileName(name: string, maxLength: number): string {
   `,
   styles: [`
     :host {
+      display: block;
+      width: 100%;
       min-width: 0;
       max-width: 100%;
       overflow: hidden;
@@ -98,14 +86,12 @@ function truncateFileName(name: string, maxLength: number): string {
       white-space: nowrap;
     }
 
-
     .inline-entry {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       min-width: 0;
       width: 100%;
       color: inherit;
-      pointer-events: none;
     }
 
     .inline-entry.parent-dir .file-name-text {
@@ -150,7 +136,8 @@ function truncateFileName(name: string, maxLength: number): string {
     }
 
     .file-name {
-      display: inline-flex;
+      display: flex;
+      flex: 1 1 auto;
       align-items: center;
       gap: 6px;
       min-width: 0;
@@ -159,6 +146,10 @@ function truncateFileName(name: string, maxLength: number): string {
     }
 
     .file-name-text {
+      display: block;
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       color: var(--entry-name-color, inherit);
@@ -201,7 +192,7 @@ function truncateFileName(name: string, maxLength: number): string {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
-  `]
+  `],
 })
 export class FileEntryInlineComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) entry!: FileInfo;
@@ -209,9 +200,7 @@ export class FileEntryInlineComponent implements OnChanges, OnDestroy {
   @Input() colorizeByMime = false;
   @Input() directorySizePending = false;
   @Input() showDirectorySizeSpinnerInName = false;
-
-  @Output() select = new EventEmitter<MouseEvent>();
-  @Output() navigate = new EventEmitter<void>();
+  @Input() showIcon = true;
 
   private resolvedCategoryId: string | null | undefined;
   private unwatchResolvedCategory: (() => void) | null = null;
@@ -238,11 +227,7 @@ export class FileEntryInlineComponent implements OnChanges, OnDestroy {
   }
 
   get displayName(): string {
-    const fullName = this.displayNameOverride?.trim() || this.entry?.name || '';
-    if (fullName && !this.isParent) {
-      return truncateFileName(fullName, 70); // Inline variant allows more space
-    }
-    return fullName;
+    return this.displayNameOverride?.trim() || this.entry?.name || '';
   }
 
   get fullName(): string {
@@ -267,7 +252,9 @@ export class FileEntryInlineComponent implements OnChanges, OnDestroy {
     this.resolvedCategoryId = undefined;
 
     const path = this.entry?.path;
-    if (!path || !this.colorizeByMime) return;
+    if (!path || !this.colorizeByMime) {
+      return;
+    }
 
     this.resolvedCategoryId = this.categoryResolver.getResolvedCategory(path);
     this.unwatchResolvedCategory = this.categoryResolver.watch(path, () => {

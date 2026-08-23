@@ -21,8 +21,8 @@ describe('Bin row/cursor geometry parity', () => {
     expect(bin).toContain('min-width: calc(100% - 22px);');
   });
 
-  it('keeps horizontal scroll width without changing cursor style', () => {
-    expect(bin).toContain('.list.view-details .entry {\n      width: max-content;\n      min-width: 100%;');
+  it('keeps viewport-width details rows without changing cursor style', () => {
+    expect(bin).toContain('.list.view-details .entry {\n      width: 100%;\n      min-width: 100%;');
     expect(directory).toContain('.entry {');
   });
 });

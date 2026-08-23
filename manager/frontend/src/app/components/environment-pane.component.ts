@@ -58,6 +58,7 @@ import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
+import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
@@ -184,6 +185,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     AddressBarComponent,
     PanelPresentationOutletComponent,
     FilterComponent,
+    FileEntryInlineComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
@@ -431,7 +433,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ row.loading ? '\u2026' : (row.expandable ? (row.expanded ? '\u25BE' : '\u25B8') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
-          <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
+          <app-file-entry-inline
+            *ngIf="renamingPath !== row.entry.path"
+            class="name tree-name"
+            [entry]="row.entry"
+            [showIcon]="false">
+          </app-file-entry-inline>
           <span
             class="rename-editor"
             *ngIf="renamingPath === row.entry.path"
@@ -542,7 +549,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ entryDisplayIcon(entry) }}
           </span>
 
-          <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
+          <app-file-entry-inline
+            *ngIf="renamingPath !== entry.path"
+            class="name entry-name"
+            [entry]="entry"
+            [showIcon]="false">
+          </app-file-entry-inline>
           <span
             class="rename-editor"
             *ngIf="renamingPath === entry.path"
@@ -1588,6 +1600,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-details .entry > span:not(:first-child) {
       min-width: 0;
       padding-inline: 2px;
+    }
+
+    .list.view-list .entry > app-file-entry-inline,
+    .list.view-details .entry > app-file-entry-inline,
+    .tree-row > app-file-entry-inline {
+      display: block;
+      min-width: 0;
+      width: 100%;
+      max-width: 100%;
+      padding-inline: 2px;
+      overflow: hidden;
     }
 
     .environment-value {

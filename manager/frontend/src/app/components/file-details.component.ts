@@ -249,6 +249,14 @@ interface DetailsRowVm {
       white-space: nowrap;
     }
 
+    .details-cell > app-file-entry-inline {
+      display: block;
+      min-width: 0;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
 
     :host {
       display: flex;

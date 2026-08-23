@@ -57,12 +57,22 @@ import { schemeOf } from './pane-renderer-registry.service';
     </section>
   `,
   styles: [`
+    .row > *,
+    .table-header > * {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
     :host,.surface{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden}
     .surface{flex-direction:column;background:var(--vsc-editor-background,#fff)}
     .title-row{display:flex;align-items:center;justify-content:space-between;min-height:30px;padding:0 9px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:11px}
     .title-row span{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
-    .table-header,.row {display:grid; width:max-content;min-width:100%;      column-gap: var(--pane-column-gap, 6px);align-items:center}
-    .table-header{width:max-content;min-width:100%;min-height:26px;padding:0 8px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .table-header,.row {display:grid;      column-gap: var(--pane-column-gap, 6px);align-items:center}
+    .table-header{min-height:26px;padding:0 8px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .rows{flex:1 1 0%;min-height:0;overflow:auto;background:var(--vsc-editor-background,#fff);outline:none}
     .row{min-height:30px;padding:2px 8px;font-size:11px;cursor:default}
     .row:hover{background:var(--vsc-list-hover-background)}

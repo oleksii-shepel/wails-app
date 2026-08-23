@@ -713,6 +713,20 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     </section>
   `,
   styles: [`
+    /* Universal entry-name clipping. */
+    .entry .name,
+    .list.view-list .entry .name,
+    .list.view-details .entry .name,
+    .list.view-grid .entry .name,
+    .tree-row .name {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
     :host {
       display: block;
       width: 100%;
@@ -1146,9 +1160,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-grid .entry .modified { display: none; }
 
     .list.view-details .entry {
-      width: max-content;
-      min-width: 100%;
-grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
+      grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
     }
 
     .list.view-details .entry .modified {
@@ -1178,13 +1190,9 @@ grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
       grid-column:1 / -1;
       width:100%;
     }
-    .list.view-list .list-virtual-spacer {
-      width: 100%;
-    }
-
-    .list.view-details .list-virtual-spacer {
-      width: max-content;
-      min-width: 100%;
+    .list.view-list .list-virtual-spacer,
+    .list.view-details .list-virtual-spacer{
+      width:100%;
     }
 
     .list {

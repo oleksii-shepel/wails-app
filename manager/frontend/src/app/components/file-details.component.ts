@@ -239,6 +239,17 @@ interface DetailsRowVm {
     </reassembly-pane-table>
   `,
   styles: [`
+    .details-cell,
+    .details-cell .file-name,
+    .details-cell .file-name-text {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
     :host {
       display: flex;
       flex-direction: column;
@@ -267,8 +278,6 @@ interface DetailsRowVm {
     .details-row {
       display: flex;
       align-items: center;
-      width: max-content;
-      min-width: 100%;
       height: 24px;
       padding: 0 var(--vsc-padding-md);
       border-bottom: 1px solid transparent;
@@ -438,18 +447,11 @@ interface DetailsRowVm {
       pointer-events: none;
     }
     
-    .details-window {
-      width: max-content;
-      min-width: 100%;
-    }
-
     .details-window.virtual-window {
       position: absolute;
       left: 0;
-      right: auto;
+      right: 0;
       top: 0;
-      width: max-content;
-      min-width: 100%;
       will-change: transform;
     }
 

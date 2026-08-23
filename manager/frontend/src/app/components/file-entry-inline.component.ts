@@ -80,6 +80,25 @@ function truncateFileName(name: string, maxLength: number): string {
     </div>
   `,
   styles: [`
+    :host {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .file-entry-inline,
+    .file-name,
+    .file-name-text,
+    .entry-name,
+    .name {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
     .inline-entry {
       display: inline-flex;
       align-items: center;

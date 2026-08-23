@@ -166,6 +166,18 @@ export interface DropTarget {
     </div>
   `,
   styles: [`
+    .tree-node,
+    .tree-entry {
+      min-width: 0;
+    }
+
+    .tree-entry {
+      flex: 1 1 auto;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+
     :host {
       display: flex;
       flex-direction: column;

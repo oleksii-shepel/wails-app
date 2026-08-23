@@ -141,6 +141,15 @@ import {
     </div>
   `,
   styles: [`
+    .grid-item,
+    .grid-info,
+    .grid-info app-file-entry {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+
     :host {
       display: flex;
       flex-direction: column;
@@ -1258,8 +1267,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     } else {
       if (this.isParentEntry(entry)) {
         this.anchorPath = entry.path;
-        this.setCursor(entry.path);
         this.selectionChange.emit([entry]);
+        this.navigate.emit(entry);
         return;
       }
       this.setCursor(entry.path);
@@ -1271,10 +1280,6 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   onItemDoubleClick(entry: FileInfo): void {
-    if (this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
-      return;
-    }
     if (this.singleClickToOpen) {
       return;
     }

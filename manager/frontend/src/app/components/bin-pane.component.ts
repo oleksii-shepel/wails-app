@@ -117,6 +117,15 @@ type BinFileInfo = FileInfo & {
   binGroupHeader?: boolean;
   binGroupKey?: string;
   binRevisionCount?: number;
+
+  // Precomputed Bin render metadata. These fields are refreshed only when
+  // the trash entry collection changes, never during cursor/scroll painting.
+  binRenderKey?: string;
+  binRevisionIndex?: number;
+  binRevisionLabel?: string;
+  binLatestRevision?: boolean;
+  binOriginalDirectory?: string;
+  binDeletedText?: string;
 };
 
 type Tab =
@@ -538,7 +547,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
               <span></span><span>Name</span><span>Location</span><span>Deleted</span><span>Size</span><span>Revision</span>
             </ng-container>
             <ng-template #groupedBinDetailsHeader>
-              <span></span><span>Name</span><span>Deleted</span><span>Size</span><span>Revision</span>
+              <span></span><span>Name</span><span></span><span>Deleted</span><span>Size</span><span>Revision</span>
             </ng-template>
           </ng-container>
           <ng-template #normalDetailsHeader>
@@ -588,7 +597,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
           [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
-          [class.bin-group-cursor]="isBinGroupHeader(entry) && entry.path === cursorPath"
           [class.selected]="!isBinGroupHeader(entry) && selectedPaths.has(entry.path)"
           [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
           [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
@@ -637,13 +645,9 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 
           <span class="name bin-name" *ngIf="isBinLocation; else normalEntryName">
             <ng-container *ngIf="isBinGroupHeader(entry); else binRevisionName">
-              <span class="bin-group-filename">{{ entry.name }}</span>
-              <span class="bin-group-directory" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
+              {{ entry.name }}
             </ng-container>
-            <ng-template #binRevisionName>
-              <ng-container *ngIf="binDetailsMode === 'flat'; else groupedRevisionName">{{ entry.name }}</ng-container>
-              <ng-template #groupedRevisionName>{{ entry.name }}</ng-template>
-            </ng-template>
+            <ng-template #binRevisionName>{{ entry.name }}</ng-template>
           </span>
           <ng-template #normalEntryName>
             <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
@@ -673,15 +677,16 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 
           <ng-container *ngIf="isBinLocation; else normalEntryDetails">
             <ng-container *ngIf="isBinGroupHeader(entry); else binRevisionDetails">
-              <span class="bin-group-spacer"></span>
-              <span class="bin-group-spacer"></span>
-              <span class="bin-group-spacer"></span>
+              <span class="kind bin-group-location" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
+              <span class="modified"></span>
+              <span class="size"></span>
+              <span class="kind"></span>
             </ng-container>
             <ng-template #binRevisionDetails>
               <span *ngIf="binDetailsMode === 'flat'" class="kind" [title]="binOriginalPath(entry)">{{ binOriginalDirectory(entry) }}</span>
               <span class="modified" [title]="binDeletedAt(entry)">{{ formatBinDeleted(entry) }}</span>
               <span class="size">{{ entry.type !== FileType.DIRECTORY ? formatSize(entry.size) : '' }}</span>
-              <span class="kind">{{ binRevisionInfo(entry).label }}</span>
+              <span class="kind">{{ binRevisionLabel(entry) }}</span>
             </ng-template>
           </ng-container>
           <ng-template #normalEntryDetails>
@@ -830,6 +835,20 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     </section>
   `,
   styles: [`
+    /* Universal entry-name clipping. */
+    .entry .name,
+    .list.view-list .entry .name,
+    .list.view-details .entry .name,
+    .list.view-grid .entry .name,
+    .tree-row .name {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
     :host {
       display: block;
       width: 100%;
@@ -1414,11 +1433,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
      * Grouped revision rows are ordinary Directory Details entries.
      * The only visual difference is structural indentation.
      */
-    .list.view-details.bin-grouped .entry.bin-revision-row {
-      margin-left: 22px;
-      width: max-content;
-      min-width: calc(100% - 22px);
-    }
+    
 
 
     /*
@@ -1426,19 +1441,74 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
      * same visual state as a Directory selected cursor without adding it to
      * selectedPaths or exposing aria-selected=true.
      */
-    .entry.bin-group-cursor {
-      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
-      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+    
+
+    .pane.active-pane 
+
+    
+
+    /*
+     * Group Name cell: filename and original directory are separate flex
+     * fragments. The explicit gap prevents values such as "Games" + "C:"
+     * from visually collapsing into "GamesC:".
+     */
+    
+
+    
+
+    
+
+
+    /* Grouped Bin header uses the same Details column model as Directory rows. */
+    .bin-group-header .bin-group-location {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .pane.active-pane .entry.bin-group-cursor {
+    /* Disclosure is an affordance, not an accent button. */
+    .bin-group-header .bin-disclosure {
+      width: 18px;
+      height: 18px;
+      min-width: 18px;
+      padding: 0;
+      border: 0;
+      border-radius: 2px;
+      background: transparent;
+      color: var(--vsc-foreground);
+      opacity: .72;
+      font: inherit;
+      line-height: 18px;
+    }
+
+    .bin-group-header .bin-disclosure:hover {
+      background: var(--vsc-list-hover-background);
+      color: var(--vsc-foreground);
+      opacity: 1;
+    }
+
+    
+
+    /*
+     * Group headers use the exact Directory cursor rectangle.
+     * No extra margin/padding/inset is allowed here.
+     */
+    .list.view-details.bin-grouped .entry.bin-group-header {
+      margin-left: 0;
+      padding-left: inherit;
+      min-width: 100%;
+    }
+
+
+    /* Grouped header cursor paint: exact Directory cursor colors/border only. */
+    .list.view-details.bin-grouped .entry.bin-group-header.cursor {
       background: color-mix(
         in srgb,
-        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
-        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+        transparent
       );
-      box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+      box-shadow: inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
         inset 0 0 0 1px color-mix(
           in srgb,
           var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
@@ -1446,38 +1516,32 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
         );
     }
 
-    .entry.bin-group-cursor .bin-group-directory {
-      color: inherit;
-      opacity: .72;
+
+    /* Grouped mode: Location is parent context, not a table field. */
+    .list.view-details.bin-grouped .entry.bin-group-header .bin-group-location {
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     /*
-     * Group Name cell: filename and original directory are separate flex
-     * fragments. The explicit gap prevents values such as "Games" + "C:"
-     * from visually collapsing into "GamesC:".
+     * Revision children are deliberately shorter than the expandable parent.
+     * Left + right inset makes the hierarchy visible in the cursor/selection box
+     * without changing Directory row height or cursor paint.
      */
-    .bin-group-header .bin-name {
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      min-width: 0;
-      overflow: hidden;
-    }
+    
 
-    .bin-group-header .bin-group-filename {
-      flex: 0 1 auto;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
 
-    .bin-group-header .bin-group-directory {
-      flex: 1 1 auto;
-      min-width: 32px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    /*
+     * Group children use the parent's Details grid but their row box is
+     * deliberately inset on both sides. Do not use width:max-content here:
+     * it makes the child cursor grow to the intrinsic table width and can
+     * become longer than the expandable parent.
+     */
+    .list.view-details.bin-grouped .entry.bin-revision-row {
+      box-sizing: border-box;
+      width: calc(100% - 40px);
+      min-width: calc(100% - 40px);
+      margin-left: 22px;
+      margin-right: 18px;
     }
 
     .details-header-viewport {
@@ -2123,6 +2187,17 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   private projectionDirectoriesFirst = true;
   private projectionFilterText = '';
   private projectionCache: FileInfo[] = [];
+
+  // Recycle Bin projection caches. Grouping/sorting/revision metadata are
+  // invalidated by data/filter/mode/expansion changes, not cursor or scroll.
+  private binGroupsEntriesRef: FileInfo[] | null = null;
+  private binGroupsCache = new Map<string, FileInfo[]>();
+  private binProjectionEntriesRef: FileInfo[] | null = null;
+  private binProjectionFilterText = '';
+  private binProjectionMode: BinDetailsMode = 'grouped';
+  private binProjectionExpansionVersion = -1;
+  private binExpansionVersion = 0;
+  private binProjectionCache: FileInfo[] = [];
   private entryCategoryRef: FileInfo[] | null = null;
   private entryCategoryCache = new Map<string, ReturnType<PluginManagerService['resolveFileCategory']> | null>();
   private entryLookupRef: FileInfo[] | null = null;
@@ -2695,7 +2770,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       if (this.binDetailsMode === 'flat') {
         return ['28px', 'minmax(220px, 1.15fr)', 'minmax(220px, 1.15fr)', '150px', '90px', '72px'].join(' ');
       }
-      return ['28px', 'minmax(220px, 1fr)', '132px', '78px', '72px'].join(' ');
+      return ['28px', 'minmax(220px, 1.15fr)', 'minmax(220px, 1.15fr)', '150px', '90px', '72px'].join(' ');
     }
     const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
     return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
@@ -2706,7 +2781,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   isBinGroupHeader(entry: FileInfo): boolean {
-    return this.isBinLocation && !!(entry as BinFileInfo).binGroupHeader;
+    return !!(entry as BinFileInfo).binGroupHeader;
   }
 
   binRevisionCount(entry: FileInfo): number {
@@ -2763,26 +2838,29 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   binRevisionInfo(entry: FileInfo): BinRevisionInfo {
-    const groups = this.binRevisionGroups(this.entries);
+    const metadata = entry as BinFileInfo;
     const key = this.binGroupKeyForEntry(entry);
-    const group = groups.get(key) ?? [];
-    if (this.isBinGroupHeader(entry)) {
+    if (metadata.binGroupHeader) {
       return {
         groupKey: key,
         versionIndex: -1,
-        versionCount: group.length,
+        versionCount: metadata.binRevisionCount ?? 0,
         label: '',
         latest: false,
       };
     }
-    const index = Math.max(0, group.findIndex(candidate => candidate.path === entry.path));
+
     return {
       groupKey: key,
-      versionIndex: index,
-      versionCount: group.length,
-      label: String(group.length - index),
-      latest: index === 0,
+      versionIndex: metadata.binRevisionIndex ?? 0,
+      versionCount: metadata.binRevisionCount ?? 1,
+      label: metadata.binRevisionLabel ?? '1',
+      latest: metadata.binLatestRevision ?? true,
     };
+  }
+
+  binRevisionLabel(entry: FileInfo): string {
+    return (entry as BinFileInfo).binRevisionLabel || '';
   }
 
   isBinGroupExpanded(entry: FileInfo): boolean {
@@ -2797,11 +2875,13 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     if (count === 0) return;
     if (this.expandedBinRevisionGroups.has(key)) this.expandedBinRevisionGroups.delete(key);
     else this.expandedBinRevisionGroups.add(key);
+    this.binExpansionVersion += 1;
 
     // If a hidden revision owned the cursor, move the cursor to the visible group header.
     if (!this.expandedBinRevisionGroups.has(key)) {
+      const group = this.binRevisionGroups(this.entries).get(key);
       const current = this.cursorPath
-        ? this.binRevisionGroups(this.entries).get(key)?.some(item => item.path === this.cursorPath)
+        ? group?.some(item => item.path === this.cursorPath)
         : false;
       if (current) {
         this.cursorPath = this.binGroupHeaderPath(key);
@@ -2819,7 +2899,14 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   binOriginalDirectory(entry: FileInfo): string {
-    const original = this.binOriginalPath(entry);
+    const metadata = entry as BinFileInfo;
+    if (metadata.binOriginalDirectory !== undefined) {
+      return metadata.binOriginalDirectory;
+    }
+    return this.computeBinOriginalDirectory(metadata.binOriginalPath || '');
+  }
+
+  private computeBinOriginalDirectory(original: string): string {
     if (!original) return 'Original location unavailable';
     const normalized = original.split('\\').join('/');
     const slash = normalized.lastIndexOf('/');
@@ -2833,7 +2920,15 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   formatBinDeleted(entry: FileInfo): string {
-    const parsed = Date.parse(this.binDeletedAt(entry));
+    const metadata = entry as BinFileInfo;
+    if (metadata.binDeletedText !== undefined) {
+      return metadata.binDeletedText;
+    }
+    return this.computeBinDeletedText(entry);
+  }
+
+  private computeBinDeletedText(entry: FileInfo): string {
+    const parsed = Date.parse((entry as BinFileInfo).binDeletedAt || '');
     const timestamp = Number.isFinite(parsed) ? parsed : Number(entry.modified || 0);
     return timestamp > 0 ? this.formatModified(timestamp) : '';
   }
@@ -2846,6 +2941,20 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     return `bin://group/${encodeURIComponent(key)}`;
   }
 
+  private binRevisionRenderKey(entry: FileInfo): string {
+    const metadata = entry as BinFileInfo;
+    if (metadata.binTrashId) {
+      return `revision:${metadata.binTrashId}`;
+    }
+
+    // Legacy/fallback identity deliberately excludes basename/index. Use only
+    // stable object metadata; filenames are not unique across directories.
+    const original = this.binGroupKey(metadata.binOriginalPath || '');
+    const deleted = metadata.binDeletedAt || String(entry.modified || '');
+    const trashedPath = (entry.path || '').split('\\').join('/').toLocaleLowerCase();
+    return `revision:${original}|${trashedPath}|${deleted}`;
+  }
+
   private createBinGroupHeader(key: string, revisions: FileInfo[]): FileInfo {
     const latest = revisions[0];
     const metadata = latest as BinFileInfo;
@@ -2856,40 +2965,83 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       binGroupHeader: true,
       binGroupKey: key,
       binRevisionCount: revisions.length,
+      binRenderKey: `group:${key}`,
+      binRevisionIndex: -1,
+      binRevisionLabel: '',
+      binLatestRevision: false,
       binOriginalPath: metadata.binOriginalPath || '',
+      binOriginalDirectory: metadata.binOriginalDirectory ?? this.computeBinOriginalDirectory(metadata.binOriginalPath || ''),
       binDeletedAt: '',
+      binDeletedText: '',
       binCanRestore: false,
     } as BinFileInfo;
   }
 
   private binRevisionGroups(entries: FileInfo[]): Map<string, FileInfo[]> {
+    if (this.binGroupsEntriesRef === entries) {
+      return this.binGroupsCache;
+    }
+
     const groups = new Map<string, FileInfo[]>();
     for (const entry of entries) {
-      const original = (entry as BinFileInfo).binOriginalPath || entry.name;
+      const metadata = entry as BinFileInfo;
+      const original = metadata.binOriginalPath || '';
       const key = this.binGroupKey(original);
+
+      // Precompute invariant per-entry values once per backend collection.
+      metadata.binGroupKey = key;
+      metadata.binRenderKey = this.binRevisionRenderKey(entry);
+      metadata.binOriginalDirectory = this.computeBinOriginalDirectory(original);
+      metadata.binDeletedText = this.computeBinDeletedText(entry);
+
       const group = groups.get(key);
-      if (group) group.push(entry); else groups.set(key, [entry]);
+      if (group) group.push(entry);
+      else groups.set(key, [entry]);
     }
-    for (const group of groups.values()) {
+
+    for (const [key, group] of groups) {
       group.sort((a, b) => {
         const ad = Date.parse((a as BinFileInfo).binDeletedAt || '') || 0;
         const bd = Date.parse((b as BinFileInfo).binDeletedAt || '') || 0;
         return bd - ad;
       });
+
+      const count = group.length;
+      for (let index = 0; index < count; index += 1) {
+        const metadata = group[index] as BinFileInfo;
+        metadata.binGroupKey = key;
+        metadata.binRevisionIndex = index;
+        metadata.binRevisionCount = count;
+        metadata.binRevisionLabel = String(count - index);
+        metadata.binLatestRevision = index === 0;
+      }
     }
+
+    this.binGroupsEntriesRef = entries;
+    this.binGroupsCache = groups;
     return groups;
   }
 
   private projectBinEntries(entries: FileInfo[]): FileInfo[] {
+    if (
+      this.binProjectionEntriesRef === entries &&
+      this.binProjectionFilterText === this.filterText &&
+      this.binProjectionMode === this.binDetailsMode &&
+      this.binProjectionExpansionVersion === this.binExpansionVersion
+    ) {
+      return this.binProjectionCache;
+    }
+
+    const query = this.filterText.trim().toLocaleLowerCase();
     const groups = [...this.binRevisionGroups(entries).entries()]
       .map(([key, revisions]) => ({ key, revisions }))
       .filter(group => {
-        const query = this.filterText.trim().toLocaleLowerCase();
         if (!query) return true;
-        return group.revisions.some(entry =>
-          entry.name.toLocaleLowerCase().includes(query) ||
-          this.binOriginalPath(entry).toLocaleLowerCase().includes(query)
-        );
+        return group.revisions.some(entry => {
+          const metadata = entry as BinFileInfo;
+          return entry.name.toLocaleLowerCase().includes(query) ||
+            (metadata.binOriginalPath || '').toLocaleLowerCase().includes(query);
+        });
       })
       .sort((a, b) => {
         const ad = Date.parse((a.revisions[0] as BinFileInfo).binDeletedAt || '') || 0;
@@ -2897,21 +3049,30 @@ export class BinPaneComponent implements OnInit, OnDestroy {
         return bd - ad;
       });
 
+    let visible: FileInfo[];
     if (this.binDetailsMode === 'flat') {
-      return groups
+      visible = groups
         .flatMap(group => group.revisions)
         .sort((a, b) => {
           const ad = Date.parse((a as BinFileInfo).binDeletedAt || '') || 0;
           const bd = Date.parse((b as BinFileInfo).binDeletedAt || '') || 0;
           return bd - ad;
         });
+    } else {
+      visible = [];
+      for (const group of groups) {
+        visible.push(this.createBinGroupHeader(group.key, group.revisions));
+        if (this.expandedBinRevisionGroups.has(group.key)) {
+          visible.push(...group.revisions);
+        }
+      }
     }
 
-    const visible: FileInfo[] = [];
-    for (const group of groups) {
-      visible.push(this.createBinGroupHeader(group.key, group.revisions));
-      if (this.expandedBinRevisionGroups.has(group.key)) visible.push(...group.revisions);
-    }
+    this.binProjectionEntriesRef = entries;
+    this.binProjectionFilterText = this.filterText;
+    this.binProjectionMode = this.binDetailsMode;
+    this.binProjectionExpansionVersion = this.binExpansionVersion;
+    this.binProjectionCache = visible;
     return visible;
   }
 
@@ -7830,6 +7991,13 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   trackEntry(_index: number, entry: FileInfo): string {
+    if (this.isBinLocation) {
+      const metadata = entry as BinFileInfo;
+      return metadata.binRenderKey ||
+        (metadata.binGroupHeader
+          ? `group:${this.binGroupKeyForEntry(entry)}`
+          : this.binRevisionRenderKey(entry));
+    }
     return entry.path;
   }
 

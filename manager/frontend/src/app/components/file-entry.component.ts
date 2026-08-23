@@ -166,6 +166,27 @@ function truncateFileName(name: string, maxLength: number): string {
     <ng-template #detailPlaceholder>&nbsp;</ng-template>
   `,
   styles: [`
+    :host {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .file-info,
+    .file-name,
+    .file-name-text {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .file-name,
+    .file-name-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+
     .file-entry {
       display: flex;
       align-items: center;

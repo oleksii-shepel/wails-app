@@ -1279,6 +1279,11 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   onItemDoubleClick(entry: FileInfo): void {
+    if (this.isParentEntry(entry)) {
+      this.navigate.emit(entry);
+      return;
+    }
+
     if (this.singleClickToOpen) {
       return;
     }

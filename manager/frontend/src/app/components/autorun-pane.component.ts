@@ -2466,9 +2466,12 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
   }
 
   private get entriesByPath(): ReadonlyMap<string, FileInfo> {
-    if (this.entryLookupRef !== this.entries) {
-      this.entryLookupRef = this.entries;
-      this.entryLookup = new Map(this.entries.map(entry => [entry.path, entry]));
+    const lookupEntries = this.viewMode === 'tree'
+      ? this.entriesWithoutPresentationParent(this.visibleEntries)
+      : this.visibleEntries;
+    if (this.entryLookupRef !== lookupEntries) {
+      this.entryLookupRef = lookupEntries;
+      this.entryLookup = new Map(lookupEntries.map(entry => [entry.path, entry]));
     }
     return this.entryLookup;
   }

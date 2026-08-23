@@ -72,6 +72,7 @@ type VisibleRowVm = {
           class="file-list-row"
           [attr.data-path]="parentEntry.path"
           [draggable]="false"
+          (dblclick)="onRowDoubleClick(parentEntry)"
           (auxclick)="onItemAuxClick($event, parentEntry)"
           (dragstart)="onDragStart($event, parentEntry)"
           (dragover)="onDragOver($event, parentEntry)"
@@ -106,6 +107,7 @@ type VisibleRowVm = {
             [class.drag-over-before]="row.dragOverBefore"
             [class.drag-over-after]="row.dragOverAfter"
             [draggable]="!isParentEntry(row.entry)"
+            (dblclick)="onRowDoubleClick(row.entry)"
             (auxclick)="onItemAuxClick($event, row.entry)"
             (dragstart)="onDragStart($event, row.entry)"
             (dragover)="onDragOver($event, row.entry)"
@@ -725,6 +727,23 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   onNavigate(entry: FileInfo): void {
+    if (this.isParentEntry(entry)) {
+      this.navigate.emit(entry);
+      return;
+    }
+
+    if (this.singleClickToOpen) {
+      return;
+    }
+    this.navigate.emit(entry);
+  }
+
+  onRowDoubleClick(entry: FileInfo): void {
+    if (this.isParentEntry(entry)) {
+      this.navigate.emit(entry);
+      return;
+    }
+
     if (this.singleClickToOpen) {
       return;
     }

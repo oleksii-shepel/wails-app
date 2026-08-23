@@ -54,7 +54,7 @@ function truncateFileName(name: string, maxLength: number): string {
         [class.directory]="entry.type === FileType.DIRECTORY"
       [class.parent-dir]="isParent"
       (click)="onClick($event)"
-      (dblclick)="onDoubleClick()">
+      (dblclick)="onDoubleClick($event)">
       <ng-container *ngIf="isInlineVariant; else defaultLayout">
         <span class="file-icon" [class.parent-icon]="isParent">
           <ng-container *ngTemplateOutlet="entryIcon"></ng-container>
@@ -762,8 +762,9 @@ export class FileEntryComponent implements OnChanges, OnDestroy {
     this.select.emit({ entry: this.entry, mouseEvent });
   }
 
-  onDoubleClick(): void {
+  onDoubleClick(event: MouseEvent): void {
     if (this.isRenaming) return;
+    event.stopPropagation();
     this.navigate.emit(this.entry);
   }
 

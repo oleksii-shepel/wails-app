@@ -2837,7 +2837,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       if (this.binDetailsMode === 'flat') {
         return ['28px', 'minmax(220px, 420px)', 'minmax(220px, 380px)', '150px', '90px', '72px'].join(' ');
       }
-      return ['28px', 'minmax(180px, 360px)', 'minmax(160px, 320px)', '132px', '78px', '72px'].join(' ');
+      return ['28px', 'minmax(160px, 240px)', 'minmax(220px, 360px)', '128px', '82px', '68px'].join(' ');
     }
     const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
     return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
@@ -9779,9 +9779,16 @@ export class BinPaneComponent implements OnInit, OnDestroy {
           ? this.treeViewport?.nativeElement
           : this.listViewport?.nativeElement;
 
-      host
-        ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`)
-        ?.scrollIntoView({ block: 'nearest' });
+      const cursorElement = host
+        ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`);
+      if (!host || !cursorElement) return;
+
+      // Cursor visibility is a vertical concern. A Details/List row can be wider
+      // than the viewport, so scrollIntoView must not consume the normal left/right
+      // row inset by nudging the horizontal scroll position after expand/collapse.
+      const scrollLeft = host.scrollLeft;
+      cursorElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      host.scrollLeft = scrollLeft;
     });
   }
 }

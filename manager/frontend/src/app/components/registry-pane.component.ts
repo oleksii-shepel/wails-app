@@ -9033,9 +9033,16 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
           ? this.treeViewport?.nativeElement
           : this.listViewport?.nativeElement;
 
-      host
-        ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`)
-        ?.scrollIntoView({ block: 'nearest' });
+      const cursorElement = host
+        ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`);
+      if (!host || !cursorElement) return;
+
+      // Cursor visibility is a vertical concern. A Details/List row can be wider
+      // than the viewport, so scrollIntoView must not consume the normal left/right
+      // row inset by nudging the horizontal scroll position after expand/collapse.
+      const scrollLeft = host.scrollLeft;
+      cursorElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      host.scrollLeft = scrollLeft;
     });
   }
 }

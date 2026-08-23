@@ -3691,6 +3691,11 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
 
     const location = this.canonicalizePluginLocation(path);
     this.lastAction = `navigate: ${location}`;
+    // Preserve the requested scheme/location in the visible pane state while
+    // plugin activation and the asynchronous load are still in flight.
+    this.path = location;
+    this.error = null;
+    this.cdr.markForCheck();
 
     void (async () => {
       try {

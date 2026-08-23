@@ -2293,11 +2293,11 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   get activePanelPresentation(): PanelPresentationContribution | null {
-    if (this.viewMode !== 'list' && this.viewMode !== 'details') return null;
-    return this.pluginManager.resolvePanelPresentation({
-      ...this.panelColumnContext,
-      viewMode: 'details',
-    });
+    // Registry owns a fixed Details renderer. Generic panel presentations are
+    // allowed to match the same source context, but must never replace the
+    // Registry rows (which would leave the status model populated while the
+    // viewport appears empty).
+    return null;
   }
 
   get panelPresentationModel(): PanelPresentationModel {
@@ -8033,6 +8033,14 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
+      // Every load path (workspace restore, refresh, tab switch, direct navigation)
+      // must activate the scheme owner before source/stream resolution. Previously
+      // only navigateTo() did this, so a restored registry tab could briefly show
+      // cached entries and then resolve registry:// through the filesystem fallback,
+      // clearing the pane when that load failed.
+      await this.activatePluginsForLocation(requestedPath);
+      if (generation !== this.loadGeneration) return false;
+
       const streamMode = this.panelSources.streamMode(
         requestedPath,
         this.entries,

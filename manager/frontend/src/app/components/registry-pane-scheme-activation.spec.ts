@@ -10,7 +10,8 @@ describe('Registry pane scheme activation regression', () => {
     expect(source).toContain('await this.activatePluginsForLocation(requestedPath);');
   });
 
-  it('keeps registry on the built-in provider instead of reactivating the plugin scheme', () => {
-    expect(source).toContain("if (scheme === 'filesystem' || scheme === 'registry') return;");
+  it('does not bypass Registry plugin activation in the generic scheme path', () => {
+    expect(source).toContain("if (scheme === 'filesystem') return;");
+    expect(source).not.toContain("if (scheme === 'filesystem' || scheme === 'registry') return;");
   });
 });

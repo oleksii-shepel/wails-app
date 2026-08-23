@@ -13,11 +13,13 @@ describe('Bin pane routing', () => {
     expect(host).toContain('<app-bin-pane');
   });
 
-  it('keeps BinPane a literal DirectoryPane clone initially', () => {
-    const normalized = bin
-      .replace("selector: 'app-bin-pane'", "selector: 'app-directory-pane'")
-      .replace('export class BinPaneComponent implements OnInit, OnDestroy {',
-               'export class DirectoryPaneComponent implements OnInit, OnDestroy {');
-    expect(normalized).toBe(directory);
+  it('never falls back to a filesystem root while Bin is starting', () => {
+    expect(bin).toContain("const BIN_ROOT_PATH = 'bin://';");
+    expect(bin).toContain('path = BIN_ROOT_PATH;');
+    expect(bin).toContain('return candidates[0] ?? BIN_ROOT_PATH;');
+    expect(bin).not.toContain("await this.load('/', { history: 'record' });");
+    expect(bin).not.toContain('const drives = await this.api.listDrives();');
   });
+
+
 });

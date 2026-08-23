@@ -197,6 +197,7 @@ interface DirTabSession {
 }
 
 const REASSEMBLY_DIR_TAB_SESSION_VERSION = 4;
+const BIN_ROOT_PATH = 'bin://';
 
 // Directory contents are runtime data, not durable UI state. Persisting or
 // cloning a WinSxS-sized listing on every selection/scroll change defeats
@@ -2094,7 +2095,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     targetEntry: FileInfo | null;
   }>();
 
-  path = '';
+  path = BIN_ROOT_PATH;
   entries: FileInfo[] = [];
   cursorPath: string | null = null;
   selectedPaths = new Set<string>();
@@ -8000,38 +8001,20 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    try {
-      const drives = await this.api.listDrives();
-      const initialPath = drives[0]?.path || this.fallbackDirectoryPath();
-      const loaded = await this.load(initialPath, { history: 'record' });
-      if (loaded && this.tabs.length === 0) {
-        const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
-        const tab = persisted
-          ? this.fromPersistedDirTab(persisted)
-          : this.createDirectoryTab(this.path);
-        this.tabs = [tab];
-        this.activeTabId = tab.id;
-        if (tab.kind === 'dir') this.applyDirSessionBeforeLoad(tab);
-        this.workspaceTabsReady = !!persisted;
-        this.cdr.markForCheck();
-      }
-    } catch {
-      try {
-        const loaded = await this.load('/', { history: 'record' });
-        if (loaded && this.tabs.length === 0) {
-          const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
-          const tab = persisted
-            ? this.fromPersistedDirTab(persisted)
-            : this.createDirectoryTab(this.path);
-          this.tabs = [tab];
-          this.activeTabId = tab.id;
-          if (tab.kind === 'dir') this.applyDirSessionBeforeLoad(tab);
-          this.workspaceTabsReady = !!persisted;
-          this.cdr.markForCheck();
-        }
-      } catch {
-        // load() records the visible error state.
-      }
+    // BinPane owns the bin:// surface. It must never expose a filesystem
+    // placeholder while workspace restoration is settling.
+    const initialPath = this.fallbackDirectoryPath();
+    const loaded = await this.load(initialPath, { history: 'record' });
+    if (loaded && this.tabs.length === 0) {
+      const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
+      const tab = persisted
+        ? this.fromPersistedDirTab(persisted)
+        : this.createDirectoryTab(this.path);
+      this.tabs = [tab];
+      this.activeTabId = tab.id;
+      if (tab.kind === 'dir') this.applyDirSessionBeforeLoad(tab);
+      this.workspaceTabsReady = !!persisted;
+      this.cdr.markForCheck();
     }
   }
 
@@ -9457,39 +9440,24 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   private fallbackDirectoryPath(): string {
     const candidates: string[] = [];
 
-    const current = (this.path || '').trim();
-    if (current && current !== '/') {
-      candidates.push(current);
-    }
-
-    for (const tab of this.tabs) {
-      if (tab.kind !== 'dir') continue;
-      const candidate = (tab.path || '').trim();
-      if (candidate && candidate !== '/') {
+    const addBinCandidate = (value: unknown): void => {
+      const candidate = String(value ?? '').trim();
+      if (/^bin:\/\//i.test(candidate)) {
         candidates.push(candidate);
       }
+    };
+
+    addBinCandidate(this.path);
+
+    for (const tab of this.tabs) {
+      if (tab.kind === 'dir') addBinCandidate(tab.path);
     }
 
     for (const tab of this.workspaceService.getTabs(this.paneId)) {
-      const candidate = String(tab.location?.location ?? tab.path ?? '').trim();
-      if (candidate && candidate !== '/') {
-        candidates.push(candidate);
-      }
+      addBinCandidate(tab.location?.location ?? tab.path);
     }
 
-    const exact = candidates[0];
-    if (exact) {
-      return exact;
-    }
-
-    const workspaceRoot = this.workspaceService.getAllTabPaths().find(path =>
-      /^filesystem:\/\/[a-z](?:\/.*)?$/i.test((path || '').trim()),
-    );
-    if (workspaceRoot) {
-      return workspaceRoot.replace(/^(filesystem:\/\/[a-z]).*$/i, '$1');
-    }
-
-    return '/';
+    return candidates[0] ?? BIN_ROOT_PATH;
   }
 
   private syncActiveTab(path: string): void {

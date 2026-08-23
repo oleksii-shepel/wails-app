@@ -695,7 +695,6 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     if (this.isParentEntry(entry)) {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
-      this.navigate.emit(entry);
       return;
     }
 
@@ -718,6 +717,12 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   onNavigate(entry: FileInfo): void {
+    // `..` is deliberately double-click-only even when ordinary entries use
+    // single-click-to-open. FileEntry emits navigate from its double-click path.
+    if (this.isParentEntry(entry)) {
+      this.navigate.emit(entry);
+      return;
+    }
     if (this.singleClickToOpen) {
       return;
     }

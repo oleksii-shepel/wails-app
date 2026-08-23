@@ -1309,7 +1309,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .list.view-grid .entry .modified { display: none; }
 
     .list.view-details .entry {
-      grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
+      width: max-content;
+      min-width: 100%;
+grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
     }
 
     .list.view-details .entry .modified {
@@ -1339,9 +1341,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       grid-column:1 / -1;
       width:100%;
     }
-    .list.view-list .list-virtual-spacer,
-    .list.view-details .list-virtual-spacer{
-      width:100%;
+    .list.view-list .list-virtual-spacer {
+      width: 100%;
+    }
+
+    .list.view-details .list-virtual-spacer {
+      width: max-content;
+      min-width: 100%;
     }
 
     .list {

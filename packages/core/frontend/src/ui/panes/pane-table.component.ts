@@ -53,6 +53,8 @@ import {
     .reassembly-pane-table-row {
       box-sizing: border-box;
       position: relative;
+      width: max-content;
+      min-width: 100%;
       min-height: 24px;
       height: 24px;
       padding: 0 var(--vsc-padding-md);

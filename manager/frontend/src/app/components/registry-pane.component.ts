@@ -2293,11 +2293,11 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   get activePanelPresentation(): PanelPresentationContribution | null {
-    // Registry owns a fixed Details renderer. Generic panel presentations are
-    // allowed to match the same source context, but must never replace the
-    // Registry rows (which would leave the status model populated while the
-    // viewport appears empty).
-    return null;
+    if (this.viewMode !== 'list' && this.viewMode !== 'details') return null;
+    return this.pluginManager.resolvePanelPresentation({
+      ...this.panelColumnContext,
+      viewMode: 'details',
+    });
   }
 
   get panelPresentationModel(): PanelPresentationModel {
@@ -4318,7 +4318,16 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     this.markUserInteraction();
 
     if (entry.path === '__parent__') {
-      this.openEntry(entry);
+      // Parent is a navigable row, but a single click only moves keyboard
+      // focus/cursor to it. Navigation is reserved for double-click / Enter.
+      this.cursorPath = entry.path;
+      this.selectedPaths = new Set();
+      this.anchorPath = entry.path;
+      this.lastAction = 'select: parent';
+      this.cursorChange.emit(null);
+      this.syncActiveDirSessionState();
+      this.focusContent();
+      this.cdr.markForCheck();
       return;
     }
 

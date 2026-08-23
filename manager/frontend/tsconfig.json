@@ -1,6 +1,7 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
+    "rootDir": "../..",
     "paths": {
       "@reassembly/core": [
         "../../packages/core/frontend/src/index.ts"
@@ -64,7 +65,8 @@
       "dom"
     ],
     "types": [
-      "jasmine"
+      "jasmine",
+      "node"
     ]
   },
   "angularCompilerOptions": {

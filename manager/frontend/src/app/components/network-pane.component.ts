@@ -7445,6 +7445,9 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
     directory: string,
     currentPath?: string,
   ): Promise<string> {
+    if (value === null) {
+      return '';
+    }
     const clean = this.cleanLeafName(value);
 
     if (!clean) {

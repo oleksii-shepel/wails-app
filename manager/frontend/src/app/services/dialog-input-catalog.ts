@@ -132,17 +132,6 @@ export const QUICK_ACCESS_INPUT: DialogBindingCatalogEntry = {
 
 export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
   {
-    context: dialogContext('dialog.confirm', 'dialog', 1000, 'Confirmation and alert dialog'),
-    bindings: [
-      keyBinding('dialog.confirm.accept.enter', 'dialog.confirm', 'dialog.confirm.accept', 'enter', 'Accept confirm dialog', undefined, 'typing'),
-      keyBinding('dialog.confirm.cancel.escape', 'dialog.confirm', 'dialog.confirm.cancel', 'escape', 'Cancel confirm dialog', undefined, 'typing'),
-      keyBinding('dialog.confirm.focus.next', 'dialog.confirm', 'dialog.confirm.focusNext', 'tab', 'Move focus to next action', undefined, 'typing'),
-      keyBinding('dialog.confirm.focus.prev', 'dialog.confirm', 'dialog.confirm.focusPrev', 'tab', 'Move focus to previous action', ['shift'], 'typing'),
-      keyBinding('dialog.confirm.focus.next.arrowRight', 'dialog.confirm', 'dialog.confirm.focusNextArrow', 'arrowright', 'Move focus to next action with arrows'),
-      keyBinding('dialog.confirm.focus.prev.arrowLeft', 'dialog.confirm', 'dialog.confirm.focusPrevArrow', 'arrowleft', 'Move focus to previous action with arrows'),
-    ],
-  },
-  {
     context: dialogContext('dialog.archiveMoveWarning', 'dialog', 990, 'Archive move warning dialog'),
     bindings: [
       keyBinding('dialog.archiveMoveWarning.confirm.enter', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.confirm', 'enter', 'Confirm archive move'),
@@ -188,6 +177,24 @@ export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('dialog.settings.close.escape', 'dialog.settings', 'dialog.settings.close', 'escape', 'Close settings dialog'),
       keyBinding('dialog.settings.focus.next', 'dialog.settings', 'dialog.settings.focusNext', 'tab', 'Move focus to next control'),
       keyBinding('dialog.settings.focus.prev', 'dialog.settings', 'dialog.settings.focusPrev', 'tab', 'Move focus to previous control', ['shift']),
+    ],
+  },
+  {
+    context: dialogContext('dialog.batchRename', 'dialog', 945, 'Batch rename dialog'),
+    bindings: [
+      keyBinding('dialog.batchRename.apply.ctrlEnter', 'dialog.batchRename', 'dialog.batchRename.apply', 'enter', 'Apply batch rename', ['ctrl']),
+      keyBinding('dialog.batchRename.close.escape', 'dialog.batchRename', 'dialog.batchRename.close', 'escape', 'Close batch rename dialog'),
+      keyBinding('dialog.batchRename.focus.next', 'dialog.batchRename', 'dialog.batchRename.focusNext', 'tab', 'Move focus to next control'),
+      keyBinding('dialog.batchRename.focus.prev', 'dialog.batchRename', 'dialog.batchRename.focusPrev', 'tab', 'Move focus to previous control', ['shift']),
+    ],
+  },
+  {
+    context: dialogContext('dialog.trash', 'dialog', 940, 'Trash dialog'),
+    bindings: [
+      keyBinding('dialog.trash.close.escape', 'dialog.trash', 'dialog.trash.close', 'escape', 'Close Trash dialog'),
+      keyBinding('dialog.trash.focus.next', 'dialog.trash', 'dialog.trash.focusNext', 'tab', 'Move focus to next control'),
+      keyBinding('dialog.trash.focus.prev', 'dialog.trash', 'dialog.trash.focusPrev', 'tab', 'Move focus to previous control', ['shift']),
+      keyBinding('dialog.trash.open.enter', 'dialog.trash', 'dialog.trash.openSelection', 'enter', 'Open selected Trash item', undefined, '!typing'),
     ],
   },
   {
@@ -269,3 +276,4 @@ export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
 ];
 /** @deprecated Use BUILTIN_INPUT_CATALOG. */
 export const DIALOG_INPUT_CATALOG = BUILTIN_INPUT_CATALOG;
+

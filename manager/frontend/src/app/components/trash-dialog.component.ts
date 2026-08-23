@@ -2,8 +2,10 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   OnDestroy,
   OnInit,
+  ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
@@ -13,7 +15,10 @@ import {
   type TrashEntry,
 } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 import { TrashDialogService } from '../services/trash-dialog.service';
+import { moveFocusWithin } from '../utils/focus-navigation.utils';
 @Component({
   selector: 'app-trash-dialog',
   standalone: true,
@@ -25,10 +30,13 @@ import { TrashDialogService } from '../services/trash-dialog.service';
       class="backdrop"
       (mousedown)="onBackdrop($event)">
       <section
+        #dialogPanel
         class="dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Trash / Recycle Bin"
+        tabindex="-1"
+        (keydown.tab)="onTabKey($event)"
         >
         <header>
           <div>
@@ -75,7 +83,8 @@ import { TrashDialogService } from '../services/trash-dialog.service';
             class="trash-row"
             [class.selected]="selectedIds.has(entry.id)"
             [attr.aria-selected]="selectedIds.has(entry.id)"
-            (click)="toggle(entry, $event)">
+            (click)="toggle(entry, $event)"
+            (dblclick)="openSelection()">
             <span class="icon">{{ entry.isDir ? '📁' : '📄' }}</span>
             <span class="main">
               <strong>{{ entry.name }}</strong>
@@ -231,6 +240,8 @@ import { TrashDialogService } from '../services/trash-dialog.service';
   `],
 })
 export class TrashDialogComponent implements OnInit, OnDestroy {
+  @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
+
   visible = false;
   loading = false;
   error = '';
@@ -238,26 +249,42 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   selectedIds = new Set<string>();
 
   private readonly subscription = new Subscription();
+  private releaseDialogContext: (() => void) | null = null;
 
   constructor(
     private readonly api: ApiService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly dialog: TrashDialogService,
     private readonly cdr: ChangeDetectorRef,
+    private readonly inputContexts: InputContextService,
+    private readonly inputEngine: InputEngineService,
   ) {}
 
   ngOnInit(): void {
+    this.inputEngine.registerCommand('dialog.trash.close', () => this.close());
+    this.inputEngine.registerCommand('dialog.trash.focusNext', () => this.moveDialogFocus(1));
+    this.inputEngine.registerCommand('dialog.trash.focusPrev', () => this.moveDialogFocus(-1));
+    this.inputEngine.registerCommand('dialog.trash.openSelection', () => this.openSelection());
+
     this.subscription.add(
       this.dialog.openRequested$.subscribe(() => {
         this.visible = true;
         this.selectedIds = new Set();
         this.error = '';
+        this.releaseDialogContext ??= this.inputContexts.acquire('dialog.trash');
+        this.focusInitialControl();
         void this.reload();
       }),
     );
   }
 
   ngOnDestroy(): void {
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
+    this.inputEngine.unregisterCommand('dialog.trash.close');
+    this.inputEngine.unregisterCommand('dialog.trash.focusNext');
+    this.inputEngine.unregisterCommand('dialog.trash.focusPrev');
+    this.inputEngine.unregisterCommand('dialog.trash.openSelection');
     this.subscription.unsubscribe();
   }
 
@@ -290,6 +317,18 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     if (!value) return '';
     const date = new Date(value);
     return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+  }
+
+  onTabKey(event: Event): void {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+    if (!this.dialogPanel?.nativeElement) {
+      return;
+    }
+    moveFocusWithin(this.dialogPanel.nativeElement, event.shiftKey ? -1 : 1);
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   async reload(): Promise<void> {
@@ -392,12 +431,44 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   close(): void {
     this.visible = false;
     this.selectedIds = new Set();
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
     this.cdr.markForCheck();
   }
 
   onBackdrop(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
       this.close();
+    }
+  }
+
+  private focusInitialControl(): void {
+    requestAnimationFrame(() => {
+      const panel = this.dialogPanel?.nativeElement;
+      if (!panel || !this.visible) {
+        return;
+      }
+
+      const firstFocusable = panel.querySelector<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (firstFocusable) {
+        firstFocusable.focus({ preventScroll: true });
+        return;
+      }
+
+      panel.focus({ preventScroll: true });
+    });
+  }
+
+  private moveDialogFocus(delta: number): void {
+    if (!this.dialogPanel?.nativeElement) {
+      return;
+    }
+    moveFocusWithin(this.dialogPanel.nativeElement, delta);
+  }
+
+  openSelection(): void {
+    if (this.canRestoreSelection) {
+      void this.restoreSelected();
     }
   }
 }

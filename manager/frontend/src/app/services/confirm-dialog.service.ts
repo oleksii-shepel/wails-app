@@ -36,8 +36,9 @@ export interface ConfirmDialogOptions {
 }
 
 interface ConfirmDialogRequest {
+  kind: 'confirm' | 'alert' | 'prompt';
   options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions;
-  resolve: (value: boolean | string | null) => void;
+  resolves: Array<(value: boolean | string | null) => void>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -50,11 +51,7 @@ export class ConfirmDialogService {
     const normalized = this.normalizeOptions(options);
 
     return new Promise<boolean>((resolve) => {
-      this.queue.push({
-        options: normalized,
-        resolve: (value) => resolve(value === true),
-      });
-      this.tryOpenNext();
+      this.enqueueOrJoin('confirm', normalized, (value) => resolve(value === true));
     });
   }
 
@@ -65,11 +62,7 @@ export class ConfirmDialogService {
     normalized.tone ??= 'warning';
 
     return new Promise<void>((resolve) => {
-      this.queue.push({
-        options: normalized,
-        resolve: () => resolve(),
-      });
-      this.tryOpenNext();
+      this.enqueueOrJoin('alert', normalized, () => resolve());
     });
   }
 
@@ -78,11 +71,7 @@ export class ConfirmDialogService {
     normalized.isPrompt = true;
 
     return new Promise<string | null>((resolve) => {
-      this.queue.push({
-        options: normalized,
-        resolve: (value) => resolve(typeof value === 'string' ? value : null),
-      });
-      this.tryOpenNext();
+      this.enqueueOrJoin('prompt', normalized, (value) => resolve(typeof value === 'string' ? value : null));
     });
   }
 
@@ -90,7 +79,9 @@ export class ConfirmDialogService {
     const active = this.activeRequest$.value;
     if (!active) return;
 
-    active.resolve(result);
+    for (const resolve of active.resolves) {
+      resolve(result);
+    }
     this.activeRequest$.next(null);
     this.tryOpenNext();
   }
@@ -99,6 +90,46 @@ export class ConfirmDialogService {
     if (this.activeRequest$.value) return;
     const next = this.queue.shift() ?? null;
     this.activeRequest$.next(next);
+  }
+
+  private enqueueOrJoin(
+    kind: ConfirmDialogRequest['kind'],
+    options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions,
+    resolve: (value: boolean | string | null) => void,
+  ): void {
+    const duplicate = this.findDuplicate(kind, options);
+    if (duplicate) {
+      duplicate.resolves.push(resolve);
+      return;
+    }
+
+    this.queue.push({
+      kind,
+      options,
+      resolves: [resolve],
+    });
+    this.tryOpenNext();
+  }
+
+  private findDuplicate(
+    kind: ConfirmDialogRequest['kind'],
+    options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions,
+  ): ConfirmDialogRequest | null {
+    const active = this.activeRequest$.value;
+    if (active && this.requestsMatch(active, kind, options)) {
+      return active;
+    }
+
+    return this.queue.find(request => this.requestsMatch(request, kind, options)) ?? null;
+  }
+
+  private requestsMatch(
+    request: ConfirmDialogRequest,
+    kind: ConfirmDialogRequest['kind'],
+    options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions,
+  ): boolean {
+    return request.kind === kind &&
+      JSON.stringify(request.options) === JSON.stringify(options);
   }
 
   private normalizeOptions(options: ConfirmDialogOptions | string): Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions {

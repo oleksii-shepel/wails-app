@@ -3,19 +3,19 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService, type ConfirmDialogDetailRow } from '../services/confirm-dialog.service';
 import { InputHistoryService } from '../services/input-history.service';
-import { InputHistoryDirective } from '../directives/input-history.directive';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 interface ConfirmDialogRequest {
+  kind: 'confirm' | 'alert' | 'prompt';
   options: any;
-  resolve: (value: boolean | string | null) => void;
+  resolves: Array<(value: boolean | string | null) => void>;
 }
 
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, InputHistoryDirective],
+  imports: [CommonModule, FormsModule],
   template: `
     <ng-container *ngIf="request$ | async as request">
       <div 
@@ -27,6 +27,7 @@ interface ConfirmDialogRequest {
         <div
           #dialogPanel
           class="confirm-panel"
+          data-input-owned
           [class.confirm-panel--alert]="request.options.isAlert"
           [class.confirm-panel--detailed]="request.options.isAlert && request.options.details?.length"
           [attr.data-tone]="request.options.tone || 'warning'"
@@ -112,8 +113,6 @@ interface ConfirmDialogRequest {
                   name="confirm-prompt-value"
                   [(ngModel)]="draftValue"
                   [placeholder]="request.options.placeholder || ''"
-                  [appInputHistory]="request.options.historyKey || null"
-                  [appInputHistoryEnabled]="!!request.options.historyKey"
                   data-dialog-initial-focus
                   autocomplete="off"
                 />
@@ -537,9 +536,7 @@ export class ConfirmDialogComponent {
       .subscribe(request => {
         if (request) {
           this.draftValue = request.options.defaultValue ?? '';
-          if (request.options.isPrompt) {
-            this.focusPromptInput();
-          }
+          this.focusInitialControl();
           return;
         }
 
@@ -594,6 +591,29 @@ export class ConfirmDialogComponent {
     });
   }
 
+  private focusInitialControl(): void {
+    if (this.promptInput?.nativeElement) {
+      this.focusPromptInput();
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const panel = this.dialogPanel?.nativeElement;
+      if (!panel) {
+        return;
+      }
+
+      const initial = panel.querySelector<HTMLElement>('[data-dialog-initial-focus]');
+      if (initial) {
+        initial.focus({ preventScroll: true });
+        return;
+      }
+
+      panel.focus({ preventScroll: true });
+    });
+  }
+
+
   getAlertTitle(options: any): string {
     if (options.title) {
       return options.title;
@@ -630,5 +650,4 @@ export class ConfirmDialogComponent {
     if (typeof options.footerHint === 'string') return options.footerHint;
     return options.details?.length ? null : 'Press Enter to continue';
   }
-
 }

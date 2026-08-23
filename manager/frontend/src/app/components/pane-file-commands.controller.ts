@@ -260,6 +260,9 @@ export class PaneFileCommandsController {
   }
 
   private async validateRequestedLeaf(value: string | null, directory: string): Promise<string> {
+    if (value === null) {
+      return '';
+    }
     const clean = this.cleanLeafName(value);
     if (!clean) {
       await this.confirm.alert({

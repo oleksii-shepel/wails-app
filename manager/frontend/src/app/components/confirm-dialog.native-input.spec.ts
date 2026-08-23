@@ -1,3 +1,5 @@
+## File: manager/frontend/src/app/components/confirm-dialog.native-input.spec.ts
+````typescript
 import { readFileSync } from 'node:fs';
 
 describe('ConfirmDialog native input contract', () => {
@@ -17,7 +19,14 @@ describe('ConfirmDialog native input contract', () => {
     expect(source).not.toContain('InputEngineService');
   });
 
+
+  it('leaves native Tab focus traversal untouched', () => {
+    expect(source).not.toContain('(keydown.tab)="onTabKey($event)"');
+    expect(source).not.toContain('moveFocusWithin');
+  });
+
   it('keeps Escape local to the dialog surface', () => {
     expect(source).toContain('(keydown.escape)="onCancel(); $event.stopPropagation()"');
   });
 });
+````

@@ -7,8 +7,10 @@ import {
   type BatchRenameItem,
   type BatchRenameRequest,
 } from '../services/batch-rename-dialog.service';
-
 import { applyBatchRenameTemplate } from '../services/batch-rename-template';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
+import { moveFocusWithin } from '../utils/focus-navigation.utils';
 
 interface PreviewRow {
   entry: BatchRenameItem['entry'];
@@ -31,6 +33,7 @@ interface PreviewRow {
           aria-modal="true"
           aria-label="Batch Rename"
           tabindex="-1"
+          (keydown.tab)="onTabKey($event)"
           (click)="$event.stopPropagation()"
         >
           <header class="br-header">
@@ -145,19 +148,54 @@ export class BatchRenameDialogComponent {
   conflictCount = 0;
 
   private readonly destroy$ = createSubject<void>();
+  private releaseDialogContext: (() => void) | null = null;
 
   constructor(
     private readonly service: BatchRenameDialogService,
+    private readonly inputContexts: InputContextService,
+    private readonly inputEngine: InputEngineService,
   ) {
+    this.inputEngine.registerCommand('dialog.batchRename.apply', () => this.onApply());
+    this.inputEngine.registerCommand('dialog.batchRename.close', () => this.onCancel());
+    this.inputEngine.registerCommand('dialog.batchRename.focusNext', () => this.moveDialogFocus(1));
+    this.inputEngine.registerCommand('dialog.batchRename.focusPrev', () => this.moveDialogFocus(-1));
+
     this.service.activeRequest$.pipe(takeUntil(this.destroy$)).subscribe((req) => {
       if (req) {
         this.pattern = '*';
         this.startAt = 1;
         this.increment = 1;
         this.rebuildPreview(req);
+        this.releaseDialogContext ??= this.inputContexts.acquire('dialog.batchRename');
+        this.focusInitialControl();
       } else {
+        this.releaseDialogContext?.();
+        this.releaseDialogContext = null;
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
+    this.inputEngine.unregisterCommand('dialog.batchRename.apply');
+    this.inputEngine.unregisterCommand('dialog.batchRename.close');
+    this.inputEngine.unregisterCommand('dialog.batchRename.focusNext');
+    this.inputEngine.unregisterCommand('dialog.batchRename.focusPrev');
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  onTabKey(event: Event): void {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+    if (!this.dialogPanel?.nativeElement) {
+      return;
+    }
+    moveFocusWithin(this.dialogPanel.nativeElement, event.shiftKey ? -1 : 1);
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   onPatternChange(): void {
@@ -214,5 +252,29 @@ export class BatchRenameDialogComponent {
       newName: row.newName,
     }));
     this.service.resolveActive(result);
+  }
+
+  private focusInitialControl(): void {
+    requestAnimationFrame(() => {
+      const panel = this.dialogPanel?.nativeElement;
+      if (!panel) {
+        return;
+      }
+
+      const initial = panel.querySelector<HTMLElement>('[data-dialog-initial-focus]');
+      if (initial) {
+        initial.focus({ preventScroll: true });
+        return;
+      }
+
+      panel.focus({ preventScroll: true });
+    });
+  }
+
+  private moveDialogFocus(delta: number): void {
+    if (!this.dialogPanel?.nativeElement) {
+      return;
+    }
+    moveFocusWithin(this.dialogPanel.nativeElement, delta);
   }
 }

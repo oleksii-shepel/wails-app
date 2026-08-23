@@ -347,7 +347,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div class="action-bar registry-action-bar">
         <app-responsive-toolbar
-          [actions]="pluginToolbarActions"
+          [actions]="registryToolbarActions"
           [minVisible]="0"
           [showIcons]="false"
           align="left"
@@ -2398,6 +2398,67 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
   get canPaste(): boolean {
     return this.isDirectoryTab && !!this.clipboard?.paths.length && this.sourceCapabilities.create;
+  }
+
+  get registryToolbarActions(): readonly PresentedCommand[] {
+    const actions: PresentedCommand[] = [
+      {
+        id: 'registry.newFolder',
+        label: 'New folder',
+        shortcut: 'F7',
+        enabled: !this.loading && this.canCreate,
+        source: 'builtin',
+        execute: () => this.newFolder(),
+      },
+      {
+        id: 'registry.rename',
+        label: 'Rename',
+        shortcut: 'F2',
+        enabled: !this.loading && this.canRename,
+        source: 'builtin',
+        execute: () => this.renameSelected(),
+      },
+      {
+        id: 'registry.copy',
+        label: 'Copy',
+        shortcut: 'Ctrl+C',
+        enabled: !this.loading && this.hasSelection,
+        separatorBefore: true,
+        source: 'builtin',
+        execute: () => this.copySelected(),
+      },
+      {
+        id: 'registry.cut',
+        label: 'Cut',
+        shortcut: 'Ctrl+X',
+        enabled: !this.loading && this.canCut,
+        source: 'builtin',
+        execute: () => this.cutSelected(),
+      },
+      {
+        id: 'registry.paste',
+        label: 'Paste',
+        shortcut: 'Ctrl+V',
+        enabled: !this.loading && this.canPaste,
+        source: 'builtin',
+        execute: () => this.paste(),
+      },
+      {
+        id: 'registry.delete',
+        label: 'Delete',
+        shortcut: 'Delete / F8',
+        enabled: !this.loading && this.canDelete,
+        separatorBefore: true,
+        source: 'builtin',
+        execute: () => this.deleteSelected(),
+      },
+      ...this.pluginToolbarActions.map((action, index) => ({
+        ...action,
+        separatorBefore: index === 0 ? true : action.separatorBefore,
+      })),
+    ];
+
+    return actions;
   }
 
   readonly archiveStack: ArchiveFrame[] = [];
@@ -7087,6 +7148,9 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     directory: string,
     currentPath?: string,
   ): Promise<string> {
+    if (value === null) {
+      return '';
+    }
     const clean = this.cleanLeafName(value);
 
     if (!clean) {

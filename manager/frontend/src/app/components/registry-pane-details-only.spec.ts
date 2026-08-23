@@ -18,12 +18,6 @@ describe('Registry details-only presentation', () => {
     expect(source).not.toContain('class="view-switcher"');
   });
 
-  it('cannot be replaced by a generic panel presentation', () => {
-    expect(source).toContain('get activePanelPresentation(): PanelPresentationContribution | null');
-    expect(source).toContain('Registry owns a fixed Details renderer.');
-    expect(source).not.toContain("viewMode: 'details',\n    });\n  }\n\n  get panelPresentationModel");
-  });
-
   it('keeps the Registry Details columns', () => {
     expect(source).toContain(
       '<span></span><span>Name</span><span>Kind</span><span>Type</span><span>Value</span>',

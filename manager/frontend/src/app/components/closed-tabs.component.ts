@@ -12,11 +12,10 @@ import {
   WorkspaceService,
   type RecentlyClosedTab,
 } from '../services/workspace.service';
-import { LocalDateTimePipe } from '../utils/local-date-time.pipe';
 @Component({
   selector: 'app-closed-tabs',
   standalone: true,
-  imports: [LocalDateTimePipe, CommonModule],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
@@ -46,7 +45,7 @@ import { LocalDateTimePipe } from '../utils/local-date-time.pipe';
               <small>{{ entry.tab.path || viewerPath(entry) || entry.tab.surfaceId || 'surface' }}</small>
             </span>
             <span class="meta">
-              {{ entry.paneId }} · {{ entry.closedAt | localDateTime:'time' }}
+              {{ entry.paneId }} · {{ entry.closedAt | date:'shortTime' }}
             </span>
           </button>
 

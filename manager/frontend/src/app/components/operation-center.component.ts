@@ -2,7 +2,6 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { OperationHistoryEntry, OperationService, OperationState } from '../services/operation.service';
-import { formatLocalTime } from '../utils/local-date-time';
 
 type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
 
@@ -194,7 +193,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     const delta = Math.max(0, Date.now() - when);
     if (delta < 60_000) return 'just now';
     if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
-    return formatLocalTime(when);
+    return new Date(when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
   async cancel(id: string): Promise<void> { await this.operationService.cancel(id); }
   clearHistory(): void { this.operationService.clearHistory(); }

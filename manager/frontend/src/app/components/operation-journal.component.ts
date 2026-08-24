@@ -2,11 +2,10 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, In
 import { CommonModule } from '@angular/common';
 import { OperationHistoryService, type OperationJournalEntry } from '../services/operation-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
-import { LocalDateTimePipe } from '../utils/local-date-time.pipe';
 @Component({
   selector: 'app-operation-journal',
   standalone: true,
-  imports: [LocalDateTimePipe, CommonModule],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
@@ -18,7 +17,7 @@ import { LocalDateTimePipe } from '../utils/local-date-time.pipe';
           <article *ngFor="let entry of entries; trackBy: trackEntry">
             <span class="state">{{ stateIcon(entry) }}</span>
             <div class="main"><strong>{{ entry.label }}</strong>
-              <small>{{ entry.kind }} · {{ entry.completedAt | localDateTime }} · {{ entry.reversible ? 'undoable' : 'not undoable' }}</small>
+              <small>{{ entry.kind }} · {{ entry.completedAt | date:'short' }} · {{ entry.reversible ? 'undoable' : 'not undoable' }}</small>
               <span *ngIf="entry.summary">{{ entry.summary }}</span>
               <span class="error" *ngIf="entry.error">{{ entry.error }}</span>
               <details *ngIf="entry.affectedPaths.length"><summary>{{ entry.affectedPaths.length }} affected paths</summary>

@@ -101,7 +101,6 @@ import { ClosedTabsComponent } from './closed-tabs.component';
 import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { PowerFileOperationsService } from '../services/power-file-operations.service';
-import { formatLocalDateTime, formatLocalTime } from '../utils/local-date-time';
 
 type PaneId = 'left' | 'right';
 
@@ -2806,7 +2805,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             entries: request.entries.map(entry => ({ ...entry })),
             busy: false,
             error: '',
-            refreshedAt: formatLocalTime(Date.now()),
+            refreshedAt: new Date().toLocaleTimeString(),
           },
           [
             { id: 'refresh', title: 'Refresh' },
@@ -2851,7 +2850,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
               rows,
               busy: false,
               error: '',
-              refreshedAt: formatLocalTime(Date.now()),
+              refreshedAt: new Date().toLocaleTimeString(),
             },
             [
               { id: 'refresh', title: 'Refresh' },
@@ -2893,8 +2892,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const timestamp = (value: unknown): string =>
-        formatLocalDateTime(value, '—');
+      const timestamp = (value: unknown): string => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return 'вЂ”';
+        return new Date(
+          numeric * (numeric < 10_000_000_000 ? 1000 : 1),
+        ).toLocaleString();
+      };
 
       const size =
         !pane.contextState.isInArchive && info.type === FileType.DIRECTORY
@@ -2924,7 +2928,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
               inArchive: pane.contextState.isInArchive,
               busy: false,
               error: '',
-              refreshedAt: formatLocalTime(Date.now()),
+              refreshedAt: new Date().toLocaleTimeString(),
               items: [
                 { label: 'Name', value: info.name },
                 { label: 'Type', value: type },
@@ -3067,7 +3071,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         entries,
         busy: false,
         error: '',
-        refreshedAt: formatLocalTime(Date.now()),
+        refreshedAt: new Date().toLocaleTimeString(),
       });
     } catch (error) {
       this.patchLiveSurface(surface.id, {
@@ -3128,7 +3132,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         rows,
         busy: false,
         error: '',
-        refreshedAt: formatLocalTime(Date.now()),
+        refreshedAt: new Date().toLocaleTimeString(),
       });
 
       const summarySurface =
@@ -3143,7 +3147,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             { label: 'Only left', value: summary.onlyLeft },
             { label: 'Only right', value: summary.onlyRight },
           ],
-          refreshedAt: formatLocalTime(Date.now()),
+          refreshedAt: new Date().toLocaleTimeString(),
         });
       }
     } catch (error) {
@@ -3182,8 +3186,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
           ? await this.api.dirSizeRecursive(info.path)
           : Number(info.size) || 0;
 
-      const timestamp = (value: unknown): string =>
-        formatLocalDateTime(value, '—');
+      const timestamp = (value: unknown): string => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return 'вЂ”';
+        return new Date(
+          numeric * (numeric < 10_000_000_000 ? 1000 : 1),
+        ).toLocaleString();
+      };
 
       const type =
         info.type === FileType.DIRECTORY
@@ -3213,7 +3222,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ],
         busy: false,
         error: '',
-        refreshedAt: formatLocalTime(Date.now()),
+        refreshedAt: new Date().toLocaleTimeString(),
       });
     } catch (error) {
       this.patchLiveSurface(surface.id, {

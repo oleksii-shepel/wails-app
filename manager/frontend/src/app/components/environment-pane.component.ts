@@ -176,7 +176,6 @@ const MAX_PERSISTED_TAB_CACHE_ENTRIES = 256;
 const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
-import { formatLocalDateTime, formatLocalDateTimeInput } from '../utils/local-date-time';
 
 @Component({
   selector: 'app-environment-pane',
@@ -3549,7 +3548,15 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
   }
 
   formatModified(value: unknown): string {
-    return formatLocalDateTime(value);
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString([], {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
   }
 
   trackTreeRow(_index: number, row: TreeRow): string {
@@ -5217,7 +5224,7 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
 
     if (entries.length === 0) return;
 
-    const initial = formatLocalDateTimeInput();
+    const initial = new Date().toISOString().slice(0, 19);
     const value = await this.confirmDialog.prompt({
       title:
         entries.length === 1
@@ -6439,8 +6446,14 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const formatTimestamp = (value: unknown): string =>
-        formatLocalDateTime(value, '—');
+      const formatTimestamp = (value: unknown): string => {
+        const timestamp = Number(value);
+        return Number.isFinite(timestamp) && timestamp > 0
+          ? new Date(
+              timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
+            ).toLocaleString()
+          : '\u2014';
+      };
 
       const modifiedText = formatTimestamp(info.modified);
       const createdText = formatTimestamp(info.created);

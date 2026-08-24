@@ -20,7 +20,6 @@ import {
 } from '../services/path-history.service';
 
 import { discoveryScore } from './discovery';
-import { formatLocalDate } from '../utils/local-date-time';
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
 const CONTEXT_ID = PATH_HISTORY_INPUT.context.id;
@@ -268,7 +267,7 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     if(delta<3_600_000)return`${Math.floor(delta/60_000)}m`;
     if(delta<86_400_000)return`${Math.floor(delta/3_600_000)}h`;
     if(delta<604_800_000)return`${Math.floor(delta/86_400_000)}d`;
-    return formatLocalDate(timestamp);
+    return new Date(timestamp).toLocaleDateString();
   }
 
   private reload():void{

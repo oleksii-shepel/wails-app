@@ -31,9 +31,9 @@ import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { isRegistryPath } from '../services/registry.service';
 import { VirtualCollection } from '../services/virtual-window';
-import { formatLocalDateTime } from '../utils/local-date-time';
+import { PaneDetailsResizeHandleDirective, type PaneDetailsColumnWidthChange } from './pane-details-resize-handle.directive';
 
-export interface ColumnDef {
+export interface PaneDetailsColumn {
   field: keyof FileInfo | string;
   header: string;
   width?: string;
@@ -44,19 +44,19 @@ export interface ColumnDef {
   maxWidth?: number;
 }
 
-export interface DetailsColumnState {
+export interface PaneDetailsColumnState {
   readonly key: string;
   readonly visible?: boolean;
   readonly order?: number;
   readonly width?: number;
 }
 
-export interface DetailsColumnConfiguration {
-  readonly columns: readonly DetailsColumnState[];
+export interface PaneDetailsColumnConfiguration {
+  readonly columns: readonly PaneDetailsColumnState[];
 }
 
 interface DetailsColumnVm {
-  column: ColumnDef;
+  column: PaneDetailsColumn;
   key: string;
   widthVar: string | null;
   flex: string;
@@ -65,7 +65,7 @@ interface DetailsColumnVm {
 }
 
 interface DetailsCellVm {
-  column: ColumnDef;
+  column: PaneDetailsColumn;
   key: string;
   widthVar: string | null;
   flex: string;
@@ -104,10 +104,11 @@ interface DetailsRowVm {
     PaneTableRowDirective,
     PaneTableCellDirective,
     PaneTableDividerDirective,
+    PaneDetailsResizeHandleDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <reassembly-pane-table #detailsRoot class="file-details" role="table">
+    <reassembly-pane-table #detailsRoot class="file-details" role="table" data-pane-details-root>
       <div class="details-header" reassemblyPaneTableHeader role="rowgroup">
         <div class="details-row header-row" reassemblyPaneTableHeaderRow role="row">
           <div 
@@ -133,7 +134,10 @@ interface DetailsRowVm {
               *ngIf="i < activeColumnVms.length - 1"
               class="view-divider" reassemblyPaneTableDivider
               title="Resize column"
-              (mousedown)="onColumnResizeStart($event, col.column)">
+              [paneDetailsResizeHandle]="col.key"
+              [paneDetailsMinWidth]="col.minWidth"
+              [paneDetailsMaxWidth]="col.maxWidth"
+              (paneDetailsWidthCommit)="onColumnWidthCommit($event)">
             </div>
           </div>
         </div>
@@ -534,19 +538,19 @@ interface DetailsRowVm {
 })
 export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
   FileType = FileType;
-  private readonly defaultColumns: ColumnDef[] = [
+  private readonly defaultColumns: PaneDetailsColumn[] = [
     { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
     { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 220, formatter: (value) => this.formatSize(value) },
     { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
     { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 260, formatter: (_, entry) => this.getFileTypeLabel(entry) }
   ];
-  private readonly registryColumns: ColumnDef[] = [
+  private readonly registryColumns: PaneDetailsColumn[] = [
     { field: 'name', header: 'Name', flex: 1.7, sortable: true },
     { field: 'registryKind', header: 'Kind', width: '110px', sortable: true, formatter: (_, entry) => this.getRegistryKind(entry) },
     { field: 'registryValueType', header: 'Data Type', width: '150px', sortable: true, formatter: (value) => value?.toString() || '' },
     { field: 'registryPreview', header: 'Data', flex: 2.3, sortable: true, formatter: (value) => value?.toString() || '' }
   ];
-  private readonly searchColumns: ColumnDef[] = [
+  private readonly searchColumns: PaneDetailsColumn[] = [
     { field: 'name', header: 'Name', flex: 1.5, sortable: true },
     { field: 'searchParentPath', header: 'Folder', flex: 1.8, sortable: true, formatter: (_, entry) => this.getSearchParentPath(entry) },
     { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
@@ -566,8 +570,8 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
-  @Input() columns: ColumnDef[] | null = null;
-  @Input() columnConfiguration: DetailsColumnConfiguration | null = null;
+  @Input() columns: PaneDetailsColumn[] | null = null;
+  @Input() columnConfiguration: PaneDetailsColumnConfiguration | null = null;
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() paneActive = true;
@@ -578,7 +582,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() sort = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
-  @Output() columnConfigurationChange = new EventEmitter<DetailsColumnConfiguration>();
+  @Output() columnConfigurationChange = new EventEmitter<PaneDetailsColumnConfiguration>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
@@ -612,7 +616,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private pathToEntryIndex = new Map<string, number>();
   activeColumnVms: DetailsColumnVm[] = [];
   visibleRowVms: DetailsRowVm[] = [];
-  private resolvedActiveColumns: ColumnDef[] = [];
+  private resolvedActiveColumns: PaneDetailsColumn[] = [];
   private rowVmCache = new Map<string, DetailsRowVm>();
   private readonly formattedValueCache = new WeakMap<FileInfo, Map<string, { signature: string; value: string }>>();
   private readonly columnWidths = new Map<string, number>();
@@ -754,11 +758,6 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       this.cdr.markForCheck();
     });
   }
-  private resizingColumnKey: string | null = null;
-  private resizeStartX = 0;
-  private resizeStartWidth = 0;
-  private boundResizeMouseMove?: (event: MouseEvent) => void;
-  private boundResizeMouseUp?: () => void;
 
   selectionRect = {
     active: false,
@@ -790,15 +789,15 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return `translateY(${this.virtualStart * this.rowHeight}px)`;
   }
 
-  get activeColumns(): ColumnDef[] {
+  get activeColumns(): PaneDetailsColumn[] {
     return this.resolvedActiveColumns;
   }
 
-  getColumnKey(col: ColumnDef): string {
+  getColumnKey(col: PaneDetailsColumn): string {
     return String(col.field);
   }
 
-  getColumnWidthVar(col: ColumnDef): string | null {
+  getColumnWidthVar(col: PaneDetailsColumn): string | null {
     const key = this.getColumnKey(col);
     if (this.columnWidths.has(key) || !!col.width) {
       return `var(--details-column-${this.cssKey(key)}-width)`;
@@ -806,7 +805,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return null;
   }
 
-  getColumnFlex(col: ColumnDef): string {
+  getColumnFlex(col: PaneDetailsColumn): string {
     const key = this.getColumnKey(col);
     if (this.columnWidths.has(key) || !!col.width) {
       return 'none';
@@ -860,81 +859,16 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.detachMarqueeListeners();
     this.cleanupResizeObserver();
     this.cleanupScrollListener();
-    this.cleanupColumnResizeListeners();
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
     if (this.scrollRAF) {
       cancelAnimationFrame(this.scrollRAF);
     }
   }
 
-  onColumnResizeStart(event: MouseEvent, col: ColumnDef): void {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const key = this.getColumnKey(col);
-    const headerCell = (event.target as HTMLElement).closest('.header-cell') as HTMLElement | null;
-    if (!headerCell) return;
-
-    this.resizingColumnKey = key;
-    this.resizeStartX = event.clientX;
-    this.resizeStartWidth = Math.max(
-      col.minWidth ?? this.MIN_COLUMN_WIDTH,
-      Math.round(headerCell.getBoundingClientRect().width),
-    );
-    this.setColumnWidthCss(key, this.resizeStartWidth);
-
-    this.boundResizeMouseMove = (moveEvent: MouseEvent) => this.onColumnResizeMove(moveEvent);
-    this.boundResizeMouseUp = () => this.onColumnResizeEnd();
-    window.addEventListener('mousemove', this.boundResizeMouseMove);
-    window.addEventListener('mouseup', this.boundResizeMouseUp);
-    document.body.style.userSelect = 'none';
-    this.cdr.markForCheck();
-  }
-
-  private onColumnResizeMove(event: MouseEvent): void {
-    const key = this.resizingColumnKey;
-    if (!key) return;
-
-    const column = this.resolvedActiveColumns.find(
-      candidate => this.getColumnKey(candidate) === key,
-    );
-    const minimum = column?.minWidth ?? this.MIN_COLUMN_WIDTH;
-    const maximum = column?.maxWidth ?? 1200;
-    const delta = event.clientX - this.resizeStartX;
-    const next = Math.max(
-      minimum,
-      Math.min(maximum, this.resizeStartWidth + delta),
-    );
-
-    // Direct CSS variable mutation changes header + every visible cell without
-    // rebuilding row VMs or running Angular change detection for each mousemove.
-    this.setColumnWidthCss(key, next);
-  }
-
-  private onColumnResizeEnd(): void {
-    const key = this.resizingColumnKey;
-    this.resizingColumnKey = null;
-    this.cleanupColumnResizeListeners();
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-
-    if (key) {
-      this.columnConfigurationChange.emit({
-        columns: this.serializeColumnConfiguration(),
-      });
-    }
-  }
-
-  private cleanupColumnResizeListeners(): void {
-    if (this.boundResizeMouseMove) {
-      window.removeEventListener('mousemove', this.boundResizeMouseMove);
-      this.boundResizeMouseMove = undefined;
-    }
-    if (this.boundResizeMouseUp) {
-      window.removeEventListener('mouseup', this.boundResizeMouseUp);
-      this.boundResizeMouseUp = undefined;
-    }
+  onColumnWidthCommit(change: PaneDetailsColumnWidthChange): void {
+    this.columnWidths.set(change.key, Math.max(1, Math.round(change.width)));
+    this.columnConfigurationChange.emit({
+      columns: this.serializeColumnConfiguration(),
+    });
   }
 
   private setupResizeObserver(): void {
@@ -1075,7 +1009,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.rebuildColumnVms();
   }
 
-  private resolveActiveColumns(): ColumnDef[] {
+  private resolveActiveColumns(): PaneDetailsColumn[] {
     const source = this.columns?.length
       ? this.columns
       : this.computeIsRegistryListing()
@@ -1525,7 +1459,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return this.sortDirection === 'asc' ? 'ascending' : 'descending';
   }
 
-  getCellValue(entry: FileInfo, col: ColumnDef): string {
+  getCellValue(entry: FileInfo, col: PaneDetailsColumn): string {
     const key = this.getColumnKey(col);
     const value = (entry as any)[col.field];
     const signature = this.cellSignature(entry, col, value);
@@ -1549,7 +1483,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return formatted;
   }
 
-  private cellSignature(entry: FileInfo, col: ColumnDef, value: unknown): string {
+  private cellSignature(entry: FileInfo, col: PaneDetailsColumn, value: unknown): string {
     switch (col.field) {
       case 'size':
         return `size:${entry.size}`;
@@ -1605,7 +1539,9 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   formatDate(timestamp: number): string {
-    return formatLocalDateTime(timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp * 1000);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   }
 
   private setColumnWidthCss(key: string, width: number): void {
@@ -1617,7 +1553,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     );
   }
 
-  private serializeColumnConfiguration(): DetailsColumnState[] {
+  private serializeColumnConfiguration(): PaneDetailsColumnState[] {
     return this.resolvedActiveColumns.map((column, order) => {
       const key = this.getColumnKey(column);
       return {

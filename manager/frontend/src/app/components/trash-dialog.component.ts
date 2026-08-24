@@ -19,7 +19,6 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TrashDialogService } from '../services/trash-dialog.service';
 import { moveFocusWithin } from '../utils/focus-navigation.utils';
-import { formatLocalDateTime } from '../utils/local-date-time';
 @Component({
   selector: 'app-trash-dialog',
   standalone: true,
@@ -317,7 +316,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   formatDeleted(value: string): string {
     if (!value) return '';
     const date = new Date(value);
-    return Number.isFinite(date.getTime()) ? formatLocalDateTime(date, value) : value;
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
   }
 
   onTabKey(event: Event): void {

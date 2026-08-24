@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { getFileEntryPresentation } from './file-entry-presentation.util';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
-import { formatLocalDateTime } from '../utils/local-date-time';
 
 export interface FileEntrySelectEvent {
   entry: FileInfo;
@@ -827,6 +826,8 @@ export class FileEntryComponent implements OnChanges, OnDestroy {
   }
 
   formatDate(timestamp: number): string {
-    return formatLocalDateTime(timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp * 1000);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   }
 }

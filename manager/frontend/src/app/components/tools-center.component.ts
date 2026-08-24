@@ -32,7 +32,6 @@ import type {
   DiskUsageProgress,
   DiskUsageResult,
 } from '../shared/protocol-enhanced';
-import { LocalDateTimePipe } from '../utils/local-date-time.pipe';
 type ToolPage = 'operations' | 'disk' | 'duplicates';
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
 type DiskSort = 'size' | 'files' | 'name';
@@ -68,7 +67,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-tools-center',
   standalone: true,
-  imports: [LocalDateTimePipe, CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
@@ -149,7 +148,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               <strong>{{ operation.config.title }}</strong>
               <span>{{ operation.status }}</span>
             </div>
-            <small>{{ operation.completedAt | localDateTime }}</small>
+            <small>{{ operation.completedAt | date:'short' }}</small>
             <small *ngIf="operation.destination" [title]="operation.destination">
               → {{ operation.destination }}
             </small>

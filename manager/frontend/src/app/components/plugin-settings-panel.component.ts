@@ -7,7 +7,6 @@ import {
   type ManagedPluginRuntimeSnapshot,
 } from '../services/plugin-lifecycle-coordinator.service';
 import type { PluginBackendPrivilege, PluginPermission } from '../plugin/plugin-manifest';
-import { formatLocalDateTime } from '../utils/local-date-time';
 
 interface PluginPolicyDraft {
   trusted: boolean;
@@ -385,7 +384,7 @@ export class PluginSettingsPanelComponent implements OnInit {
   formatActivation(snapshot: ManagedPluginRuntimeSnapshot): string {
     const state = snapshot.plugin.state;
     if (state.lastActivationStatus === 'never') return 'Never';
-    const suffix = state.lastActivatedAt ? ` · ${formatLocalDateTime(state.lastActivatedAt)}` : '';
+    const suffix = state.lastActivatedAt ? ` · ${new Date(state.lastActivatedAt).toLocaleString()}` : '';
     return `${state.lastActivationStatus}${suffix}`;
   }
 

@@ -835,7 +835,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tab {
       display: grid;
-      transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
       width: min(180px, 34vw);
@@ -1093,6 +1092,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .tree-row {
+      /* Same rule for tree rows: cursor movement must not animate. */
+      transition: none;
       display: grid;
       grid-template-columns: 18px 24px minmax(0, 1fr) auto;
 
@@ -1287,6 +1288,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       touch-action: pan-y;}
 
     .entry {
+      /*
+       * Pane cursor/selection feedback must be frame-immediate.
+       * Global button styles animate background for 100ms, and these rows are
+       * buttons, so explicitly opt pane entries out of that transition.
+       */
+      transition: none;
       box-sizing: border-box;
       display: grid;
       grid-template-columns: 28px minmax(0, 1fr) 100px 100px;
@@ -2573,7 +2580,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private readonly dirStream: DirListStreamController;
   private resultStreamAbort: AbortController | null = null;
   private streamRenderActive = false;
-  private mutationOrder: string[] | null = null;
   private streamLoadGeneration = 0;
   private streamPreviousCursor: string | null = null;
   private streamRestoreSession = false;
@@ -2759,24 +2765,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
     }
 
-    if (this.mutationOrder) {
-      const byPath = new Map(this.entries.map(entry => [entry.path, entry] as const));
-      const ordered = this.mutationOrder
-        .map(path => byPath.get(path))
-        .filter((entry): entry is FileInfo => !!entry);
-      const query = this.filterText.trim().toLocaleLowerCase();
-      const visible = !query
-        ? ordered
-        : ordered.filter(entry =>
-            entry.path === '__parent__' ||
-            entry.name.toLocaleLowerCase().includes(query) ||
-            entry.path.toLocaleLowerCase().includes(query),
-          );
-      return this.withPresentationParent(visible);
-    }
-
     return this.withPresentationParent(this.projectionCache);
   }
+
   get listVirtualWindow(): VirtualWindow {
     const grid = this.viewMode === 'grid';
     const columns = grid
@@ -6099,66 +6090,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       const input = this.renameInputForPath(path);
       input?.focus({ preventScroll: true });
     });
-  }
-
-  reconcileAddedEntries(entries: readonly FileInfo[], commit = true): void {
-    if (entries.length === 0) return;
-
-    const existing = new Map(
-      this.entries.map(entry => [entry.path.toLocaleLowerCase(), entry] as const),
-    );
-    let changed = false;
-
-    for (const incoming of entries) {
-      const key = incoming.path.toLocaleLowerCase();
-      const current = existing.get(key);
-      if (current) {
-        Object.assign(current, incoming);
-        continue;
-      }
-      this.entries.push(incoming);
-      existing.set(key, incoming);
-      changed = true;
-    }
-
-    if (changed) {
-      this.invalidateTreeRows();
-    }
-
-    if (commit) {
-      this.commitMutationProjection();
-    } else {
-      this.syncActiveDirSessionState();
-      this.cdr.markForCheck();
-    }
-  }
-
-  commitMutationProjection(): void {
-    // Destination/same-pane mutations may need normal active sorting, but only
-    // once after the whole batch has been applied.
-    this.mutationOrder = null;
-    this.invalidateProjection();
-    this.invalidateTreeRows();
-    this.syncActiveDirSessionState();
-    this.cdr.markForCheck();
-  }
-
-  reconcileRemovedPaths(paths: readonly string[]): void {
-    if (paths.length === 0) return;
-
-    // Known source-only mutation: preserve exactly what the user is looking at.
-    // `visibleEntries` normally derives from the active sort, so snapshot its
-    // current order before mutating the underlying entries.
-    this.mutationOrder = this.visibleEntries
-      .filter(entry => entry.path !== '__parent__')
-      .map(entry => entry.path);
-
-    const selectable = this.selectableEntries();
-    const preferredIndex = this.cursorPath
-      ? selectable.findIndex(entry => this.samePath(entry.path, this.cursorPath!))
-      : selectable.findIndex(entry => this.selectedPaths.has(entry.path));
-
-    this.applyOptimisticDeletedPaths(paths, preferredIndex);
   }
 
   private applyOptimisticDeletedPaths(

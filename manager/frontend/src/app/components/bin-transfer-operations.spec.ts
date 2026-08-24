@@ -28,4 +28,21 @@ describe('Recycle Bin operations integration', () => {
     expect(contracts).toContain('TrashTransferCopy');
     expect(contracts).toContain('TrashTransferRestore');
   });
+  it('models filesystem to Recycle Bin as MOVE progress', () => {
+    const batchService = readFileSync(
+      new URL('../../../../internal/batch/service.go', import.meta.url),
+      'utf8',
+    );
+    const transfers = readFileSync(
+      new URL('../../../../internal/batch/transfers.go', import.meta.url),
+      'utf8',
+    );
+
+    expect(batchService).toContain('opType = contracts.OpMove');
+    expect(batchService).toContain('title = "Move to Recycle Bin"');
+    expect(batchService).toContain('destination = "bin://"');
+    expect(transfers).toContain('itemWork := work[path]');
+    expect(transfers).toContain('itemWork.bytes');
+  });
+
 });

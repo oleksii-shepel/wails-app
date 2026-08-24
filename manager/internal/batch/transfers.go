@@ -359,6 +359,12 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 }
 
 func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.BatchDeleteRequest) (*contracts.BatchResult, error) {
+	type deleteWork struct {
+		items int64
+		bytes int64
+	}
+
+	work := make(map[string]deleteWork, len(req.Paths))
 	var totalItems, totalBytes int64
 	for _, path := range req.Paths {
 		resolvedPath, err := r.resolvePath(path)
@@ -366,6 +372,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 			continue
 		}
 		n, b := r.callbacks.CalculateSize(resolvedPath)
+		work[path] = deleteWork{items: n, bytes: b}
 		totalItems += n
 		totalBytes += b
 	}
@@ -394,7 +401,14 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 					useTrashElev := true
 					success, elevErr := r.callbacks.RunElevatedDelete(resolvedPath, false, &useTrashElev)
 					if elevErr == nil && success {
-						progress.Advance(1, 0, filepath.Base(path), 0, false)
+						itemWork := work[path]
+						progress.Advance(
+							itemWork.items,
+							itemWork.bytes,
+							filepath.Base(path),
+							itemWork.bytes,
+							true,
+						)
 						result.Succeeded++
 						continue
 					}
@@ -406,7 +420,14 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 				result.Errors = append(result.Errors, r.callbacks.BatchErr(path, "", err))
 				continue
 			}
-			progress.Advance(1, 0, filepath.Base(path), 0, false)
+			itemWork := work[path]
+			progress.Advance(
+				itemWork.items,
+				itemWork.bytes,
+				filepath.Base(path),
+				itemWork.bytes,
+				true,
+			)
 			result.Succeeded++
 			continue
 		}

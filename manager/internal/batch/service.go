@@ -162,7 +162,22 @@ func (s *Service) BatchMove(req contracts.BatchRequest) (*contracts.BatchResult,
 }
 
 func (s *Service) BatchDelete(req contracts.BatchDeleteRequest) (*contracts.BatchResult, error) {
-	op := s.config.StartOperation(contracts.OpDelete, "Batch delete", "", "")
+	useTrash := req.UseTrash == nil || *req.UseTrash
+	opType := contracts.OpDelete
+	title := "Batch delete"
+	destination := ""
+	if useTrash {
+		opType = contracts.OpMove
+		title = "Move to Recycle Bin"
+		destination = "bin://"
+	}
+
+	source := ""
+	if len(req.Paths) > 0 {
+		source = req.Paths[0]
+	}
+
+	op := s.config.StartOperation(opType, title, source, destination)
 	return s.newTransferRunner(op).Delete(op, req)
 }
 

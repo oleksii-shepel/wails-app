@@ -52,6 +52,10 @@ import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
 import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
+import {
+  SourceChangeObserverService,
+  type SourceObservation,
+} from '../services/source-change-observer.service';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
@@ -2199,6 +2203,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
   `],
 })
 export class BinPaneComponent implements OnInit, OnDestroy {
+  private sourceObservation?: SourceObservation;
   readonly FileType = FileType;
 
   @ViewChild('addressBar') addressBar?: AddressBarComponent;
@@ -3300,6 +3305,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
+    private readonly sourceChanges: SourceChangeObserverService,
     private readonly cdr: ChangeDetectorRef,
   ) {
     this.dirStream = new DirListStreamController(this.api);
@@ -3591,6 +3597,11 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.sourceObservation = this.sourceChanges.observe(
+      this.paneId,
+      () => this.refresh(),
+    );
+    this.sourceObservation.setLocation(BIN_ROOT_PATH);
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
@@ -3601,6 +3612,8 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.sourceObservation?.close();
+    this.sourceObservation = undefined;
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
       clearTimeout(this.presentationReloadTimer);

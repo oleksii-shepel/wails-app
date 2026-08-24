@@ -64,15 +64,27 @@ func CopyTrashEntryTo(id, destinationDir string) (string, error) {
 	if destinationDir == "" || destinationDir == "." {
 		return "", fmt.Errorf("trash copy: invalid destination")
 	}
-	info, err := os.Stat(destinationDir)
+	return CopyTrashEntryToPath(id, filepath.Join(destinationDir, entry.Name))
+}
+
+func CopyTrashEntryToPath(id, destination string) (string, error) {
+	entry, err := findTrashEntry(id)
+	if err != nil {
+		return "", err
+	}
+
+	destination = filepath.Clean(strings.TrimSpace(destination))
+	if destination == "" || destination == "." {
+		return "", fmt.Errorf("trash copy: invalid destination")
+	}
+	parent := filepath.Dir(destination)
+	info, err := os.Stat(parent)
 	if err != nil {
 		return "", fmt.Errorf("trash copy: destination: %w", err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("trash copy: destination is not a directory: %s", destinationDir)
+		return "", fmt.Errorf("trash copy: destination is not a directory: %s", parent)
 	}
-
-	destination := filepath.Join(destinationDir, entry.Name)
 	if _, err := os.Lstat(destination); err == nil {
 		return "", fmt.Errorf("trash copy: destination already exists: %s", destination)
 	} else if !os.IsNotExist(err) {
@@ -94,7 +106,15 @@ func CopyTrashEntryTo(id, destinationDir string) (string, error) {
 }
 
 func RestoreTrashEntryTo(id, destinationDir string) (string, error) {
-	destination, err := CopyTrashEntryTo(id, destinationDir)
+	entry, err := findTrashEntry(id)
+	if err != nil {
+		return "", err
+	}
+	return RestoreTrashEntryToPath(id, filepath.Join(destinationDir, entry.Name))
+}
+
+func RestoreTrashEntryToPath(id, destination string) (string, error) {
+	destination, err := CopyTrashEntryToPath(id, destination)
 	if err != nil {
 		return "", err
 	}
@@ -106,19 +126,6 @@ func RestoreTrashEntryTo(id, destinationDir string) (string, error) {
 		)
 	}
 	return destination, nil
-}
-
-func findTrashEntry(id string) (contracts.TrashEntry, error) {
-	entries, err := ListTrashEntries()
-	if err != nil {
-		return contracts.TrashEntry{}, err
-	}
-	for _, entry := range entries {
-		if entry.ID == id {
-			return entry, nil
-		}
-	}
-	return contracts.TrashEntry{}, fmt.Errorf("trash: item not found")
 }
 
 func DeleteTrashEntry(id string) error {

@@ -276,6 +276,14 @@ func (s *Service) BatchSelectiveExtract(req contracts.BatchSelectiveExtractReque
 	return result, nil
 }
 
+func (s *Service) CheckConflict(
+	op *internalops.ActiveOperation,
+	srcLabel, dst string,
+	blanket **contracts.ConflictResolution,
+) (string, bool, error) {
+	return s.checkConflict(op, srcLabel, dst, blanket)
+}
+
 func (s *Service) ResolveConflict(conflictID string, resolution contracts.ConflictResolution, applyToAll bool) bool {
 	return s.conflicts.Resolve(conflictID, contracts.ConflictResolutionRequest{
 		Resolution: resolution,

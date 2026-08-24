@@ -2,6 +2,11 @@ package app
 
 import (
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/platform"
@@ -46,21 +51,82 @@ func (a *App) BatchTransferTrash(req contracts.TrashTransferRequest) (*contracts
 		return nil, err
 	}
 
+	trashEntries, listErr := platform.ListTrashEntries()
+	if listErr != nil {
+		op.SetError(listErr)
+		return nil, listErr
+	}
+	entryByID := make(map[string]contracts.TrashEntry, len(trashEntries))
+	for _, entry := range trashEntries {
+		entryByID[entry.ID] = entry
+	}
+
 	result := &contracts.TrashTransferResult{
 		OperationID: op.ID,
 		Total:       len(req.IDs),
 	}
+	var blanket *contracts.ConflictResolution
 
 	for index, id := range req.IDs {
-		if op.IsCancelled() {
+		if op.IsCancelled() || (blanket != nil && *blanket == contracts.ConflictCancel) {
 			break
+		}
+
+		entry, found := entryByID[id]
+		if !found {
+			result.Failed++
+			result.Errors = append(result.Errors, contracts.TrashTransferItemError{
+				ID: id, Error: "Recycle Bin item not found.",
+			})
+			op.UpdateProgress(int64(index+1), 0, id, 0)
+			continue
+		}
+
+		requestedDestination := filepath.Join(resolved, entry.Name)
+		sourceLabel := "bin://entry/" + url.PathEscape(id)
+		finalDestination, skip, conflictErr := a.State.Batch.CheckConflict(
+			op,
+			sourceLabel,
+			requestedDestination,
+			&blanket,
+		)
+		if conflictErr != nil {
+			// Cancel is a user decision, not a failed filesystem transfer.
+			if strings.Contains(strings.ToLower(conflictErr.Error()), "cancel") {
+				break
+			}
+			result.Failed++
+			result.Errors = append(result.Errors, contracts.TrashTransferItemError{
+				ID: id, Error: conflictErr.Error(),
+			})
+			op.UpdateProgress(int64(index+1), 0, id, 0)
+			continue
+		}
+		if skip {
+			op.UpdateProgress(int64(index+1), 0, id, 0)
+			continue
+		}
+
+		// Overwrite resolves to the requested path. Remove the old destination
+		// only after the user explicitly chose Replace.
+		if sameNativePath(finalDestination, requestedDestination) {
+			if _, statErr := os.Lstat(finalDestination); statErr == nil {
+				if removeErr := os.RemoveAll(finalDestination); removeErr != nil {
+					result.Failed++
+					result.Errors = append(result.Errors, contracts.TrashTransferItemError{
+						ID: id, Error: fmt.Sprintf("replace destination: %v", removeErr),
+					})
+					op.UpdateProgress(int64(index+1), 0, id, 0)
+					continue
+				}
+			}
 		}
 
 		var destination string
 		if req.Operation == contracts.TrashTransferCopy {
-			destination, err = platform.CopyTrashEntryTo(id, resolved)
+			destination, err = platform.CopyTrashEntryToPath(id, finalDestination)
 		} else {
-			destination, err = platform.RestoreTrashEntryTo(id, resolved)
+			destination, err = platform.RestoreTrashEntryToPath(id, finalDestination)
 		}
 
 		if err != nil {
@@ -81,6 +147,15 @@ func (a *App) BatchTransferTrash(req contracts.TrashTransferRequest) (*contracts
 		op.Complete()
 	}
 	return result, nil
+}
+
+func sameNativePath(a, b string) bool {
+	cleanA := filepath.Clean(a)
+	cleanB := filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(cleanA, cleanB)
+	}
+	return cleanA == cleanB
 }
 
 func (a *App) CopyTrashEntryTo(id, destinationDir string) (string, error) {

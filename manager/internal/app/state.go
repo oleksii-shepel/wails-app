@@ -73,6 +73,11 @@ type Batch interface {
 	BatchDelete(req contracts.BatchDeleteRequest) (*contracts.BatchResult, error)
 	BatchExtract(req contracts.BatchExtractRequest) (*contracts.BatchExtractResult, error)
 	BatchSelectiveExtract(req contracts.BatchSelectiveExtractRequest) (*contracts.BatchSelectiveExtractResult, error)
+	CheckConflict(
+		op *internalops.ActiveOperation,
+		srcLabel, dst string,
+		blanket **contracts.ConflictResolution,
+	) (string, bool, error)
 	ResolveConflict(conflictID string, resolution contracts.ConflictResolution, applyToAll bool) bool
 }
 

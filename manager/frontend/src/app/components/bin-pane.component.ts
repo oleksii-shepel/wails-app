@@ -6159,6 +6159,110 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private applyOptimisticDeletedPaths(
+    deletedPaths: readonly string[],
+    preferredCursorIndex: number,
+  ): void {
+    if (deletedPaths.length === 0) return;
+
+    const isDeleted = (path: string): boolean =>
+      deletedPaths.some(deleted => this.samePath(path, deleted));
+
+    const cursorSurvives =
+      !!this.cursorPath &&
+      !isDeleted(this.cursorPath) &&
+      this.entries.some(entry => this.samePath(entry.path, this.cursorPath!));
+
+    this.entries = this.entries.filter(entry =>
+      entry.path === '__parent__' || !isDeleted(entry.path),
+    );
+
+    this.selectedPaths = new Set(
+      [...this.selectedPaths].filter(path => !isDeleted(path)),
+    );
+
+    for (const deleted of deletedPaths) {
+      this.treeExpandedPaths.delete(deleted);
+      this.treeChildren.delete(deleted);
+      this.treeLoadingPaths.delete(deleted);
+    }
+
+    for (const [parent, children] of this.treeChildren) {
+      const survivingChildren = children.filter(entry => !isDeleted(entry.path));
+      if (survivingChildren.length !== children.length) {
+        this.treeChildren.set(parent, survivingChildren);
+      }
+    }
+    this.invalidateTreeRows();
+
+    if (cursorSurvives && this.cursorPath) {
+      const current = this.entries.find(entry =>
+        this.samePath(entry.path, this.cursorPath!),
+      ) ?? null;
+      if (current) {
+        this.anchorPath = current.path;
+        this.cursorChange.emit(current);
+        this.syncActiveDirSessionState();
+        this.cdr.markForCheck();
+        return;
+      }
+    }
+
+    const surviving = this.selectableEntries();
+    const next =
+      surviving.length > 0
+        ? surviving[
+            Math.min(
+              Math.max(preferredCursorIndex, 0),
+              surviving.length - 1,
+            )
+          ] ?? surviving[surviving.length - 1]
+        : null;
+
+    if (next) {
+      this.cursorPath = next.path;
+      this.selectedPaths = new Set([next.path]);
+      this.anchorPath = next.path;
+      this.cursorChange.emit(next);
+      queueMicrotask(() => this.ensureCursorVisible());
+    } else {
+      this.cursorPath = null;
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+      this.cursorChange.emit(null);
+    }
+
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  private applyOptimisticMoveToFolder(
+    movedPaths: readonly string[],
+    folderEntry: FileInfo,
+    preferredCursorIndex: number,
+  ): void {
+    this.applyOptimisticDeletedPaths(
+      movedPaths,
+      preferredCursorIndex,
+    );
+
+    const existingIndex = this.entries.findIndex(entry =>
+      this.samePath(entry.path, folderEntry.path),
+    );
+
+    if (existingIndex >= 0) {
+      this.entries = this.entries.map((entry, index) =>
+        index === existingIndex ? folderEntry : entry,
+      );
+    } else {
+      this.entries = [...this.entries, folderEntry];
+    }
+
+    this.invalidateTreeRows();
+    this.syncActiveDirSessionState();
+    this.selectPath(folderEntry.path);
+  }
+
   async revealSelectedInFileManager(): Promise<void> {
     const entry = this.cursorEntry ?? this.selectedEntries[0];
     if (
@@ -6454,6 +6558,13 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     const sourcePaths = entries.map(entry => entry.path);
 
     try {
+      const selectableBeforeMove = this.selectableEntries();
+      const cursorIndexBeforeMove = this.cursorPath
+        ? selectableBeforeMove.findIndex(entry => entry.path === this.cursorPath)
+        : selectableBeforeMove.findIndex(entry =>
+            this.selectedPaths.has(entry.path),
+          );
+
       const folderPath = await this.api.joinPaths([
         this.path,
         folderName,
@@ -6517,8 +6628,13 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       });
 
       this.lastAction = `move to folder: ${folderName}`;
-      await this.refresh();
-      this.selectPath(folderPath);
+      const folderEntry = await this.api.getFileInfo(folderPath);
+      this.applyOptimisticMoveToFolder(
+        sourcePaths,
+        folderEntry,
+        cursorIndexBeforeMove,
+      );
+      this.focusContent();
     } catch (error) {
       await this.showOperationError(
         'Move Selection to New Folder',

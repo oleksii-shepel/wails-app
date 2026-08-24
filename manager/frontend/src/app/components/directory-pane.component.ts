@@ -5659,6 +5659,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const sourcePaths = entries.map(entry => entry.path);
 
     try {
+      const selectableBeforeMove = this.selectableEntries();
+      const cursorIndexBeforeMove = this.cursorPath
+        ? selectableBeforeMove.findIndex(entry => entry.path === this.cursorPath)
+        : selectableBeforeMove.findIndex(entry =>
+            this.selectedPaths.has(entry.path),
+          );
+
       const folderPath = await this.api.joinPaths([
         this.path,
         folderName,
@@ -5722,8 +5729,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
 
       this.lastAction = `move to folder: ${folderName}`;
-      await this.refresh();
-      this.selectPath(folderPath);
+      const folderEntry = await this.api.getFileInfo(folderPath);
+      this.applyOptimisticMoveToFolder(
+        sourcePaths,
+        folderEntry,
+        cursorIndexBeforeMove,
+      );
+      this.focusContent();
     } catch (error) {
       await this.showOperationError(
         'Move Selection to New Folder',
@@ -6167,6 +6179,33 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
+  }
+
+  private applyOptimisticMoveToFolder(
+    movedPaths: readonly string[],
+    folderEntry: FileInfo,
+    preferredCursorIndex: number,
+  ): void {
+    this.applyOptimisticDeletedPaths(
+      movedPaths,
+      preferredCursorIndex,
+    );
+
+    const existingIndex = this.entries.findIndex(entry =>
+      this.samePath(entry.path, folderEntry.path),
+    );
+
+    if (existingIndex >= 0) {
+      this.entries = this.entries.map((entry, index) =>
+        index === existingIndex ? folderEntry : entry,
+      );
+    } else {
+      this.entries = [...this.entries, folderEntry];
+    }
+
+    this.invalidateTreeRows();
+    this.syncActiveDirSessionState();
+    this.selectPath(folderEntry.path);
   }
 
   async deleteSelected(forcePermanent = false): Promise<void> {

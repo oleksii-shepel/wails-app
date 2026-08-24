@@ -328,6 +328,7 @@ func TestPaneWatchManagerToEventPath(t *testing.T) {
 
 func TestPaneWatchManagerSetPaneDirectory(t *testing.T) {
 	var events []testEvent
+	watchPath := t.TempDir()
 	m := NewPaneWatchManager(
 		func(name string, data interface{}) { events = append(events, testEvent{name, data}) },
 		func(s string) (string, error) { return s, nil },
@@ -335,22 +336,23 @@ func TestPaneWatchManagerSetPaneDirectory(t *testing.T) {
 	)
 	defer m.Close()
 
-	err := m.SetPaneDirectory("left", "/tmp")
+	err := m.SetPaneDirectory("left", watchPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if m.panePaths["left"] != "/tmp" {
-		t.Fatalf("expected pane path /tmp, got %s", m.panePaths["left"])
+	normalizedPath := normalizeNativeWatchPath(watchPath)
+	if m.panePaths["left"] != normalizedPath {
+		t.Fatalf("expected pane path %q, got %q", normalizedPath, m.panePaths["left"])
 	}
 
-	// Setting same path again should be no-op
-	err = m.SetPaneDirectory("left", "/tmp")
+	// Setting same path again should be no-op.
+	err = m.SetPaneDirectory("left", watchPath)
 	if err != nil {
 		t.Fatalf("unexpected error on repeat: %v", err)
 	}
 
-	// Clear path
+	// Clear path.
 	err = m.SetPaneDirectory("left", "")
 	if err != nil {
 		t.Fatalf("unexpected error on clear: %v", err)
@@ -370,23 +372,29 @@ func TestPaneWatchManagerAddRemoveWatchRefCount(t *testing.T) {
 	m := NewPaneWatchManager(nil, nil, nil)
 	defer m.Close()
 
-	m.addWatchLocked("/tmp")
-	if m.pathRef["/tmp"] != 1 {
-		t.Fatalf("expected ref count 1, got %d", m.pathRef["/tmp"])
+	watchPath := normalizeNativeWatchPath(t.TempDir())
+
+	if err := m.addWatchLocked(watchPath); err != nil {
+		t.Fatalf("unexpected error adding first watch: %v", err)
+	}
+	if m.pathRef[watchPath] != 1 {
+		t.Fatalf("expected ref count 1, got %d", m.pathRef[watchPath])
 	}
 
-	m.addWatchLocked("/tmp")
-	if m.pathRef["/tmp"] != 2 {
-		t.Fatalf("expected ref count 2, got %d", m.pathRef["/tmp"])
+	if err := m.addWatchLocked(watchPath); err != nil {
+		t.Fatalf("unexpected error adding second watch: %v", err)
+	}
+	if m.pathRef[watchPath] != 2 {
+		t.Fatalf("expected ref count 2, got %d", m.pathRef[watchPath])
 	}
 
-	m.removeWatchLocked("/tmp")
-	if m.pathRef["/tmp"] != 1 {
-		t.Fatalf("expected ref count 1 after remove, got %d", m.pathRef["/tmp"])
+	m.removeWatchLocked(watchPath)
+	if m.pathRef[watchPath] != 1 {
+		t.Fatalf("expected ref count 1 after remove, got %d", m.pathRef[watchPath])
 	}
 
-	m.removeWatchLocked("/tmp")
-	if _, ok := m.pathRef["/tmp"]; ok {
+	m.removeWatchLocked(watchPath)
+	if _, ok := m.pathRef[watchPath]; ok {
 		t.Fatal("expected path ref to be deleted")
 	}
 }

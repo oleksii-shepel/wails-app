@@ -25,6 +25,7 @@ import { ActionFeedbackService } from '../services/action-feedback.service';
 import { RecentFilesService } from '../services/recent-files.service';
 import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
+import { SourceChangeObserverService, type SourceObservation } from '../services/source-change-observer.service';
 import { calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type {
@@ -214,7 +215,6 @@ import { PanelPresentationOutletComponent } from './panel-presentation-outlet.co
 import { FilterComponent } from './filter.component';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
-import { formatLocalDateTime, formatLocalDateTimeInput } from '../utils/local-date-time';
 @Component({
   selector: 'app-bin-pane',
   standalone: true,
@@ -3232,6 +3232,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   );
 
   private readonly clipboardCommands: PaneClipboardController;
+  private sourceObservation: SourceObservation | null = null;
 
   constructor(
     private readonly api: ApiService,
@@ -3251,6 +3252,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
+    private readonly sourceChanges: SourceChangeObserverService,
     private readonly cdr: ChangeDetectorRef,
   ) {
     this.dirStream = new DirListStreamController(this.api);
@@ -3542,6 +3544,11 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.sourceObservation = this.sourceChanges.observe(
+      this.paneId,
+      () => this.refresh(),
+    );
+    this.sourceObservation.setLocation(BIN_ROOT_PATH);
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
@@ -3552,6 +3559,8 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.sourceObservation?.close();
+    this.sourceObservation = null;
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
       clearTimeout(this.presentationReloadTimer);
@@ -4334,7 +4343,15 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   formatModified(value: unknown): string {
-    return formatLocalDateTime(value);
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString([], {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
   }
 
   trackTreeRow(_index: number, row: TreeRow): string {
@@ -6097,7 +6114,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
     if (entries.length === 0) return;
 
-    const initial = formatLocalDateTimeInput();
+    const initial = new Date().toISOString().slice(0, 19);
     const value = await this.confirmDialog.prompt({
       title:
         entries.length === 1
@@ -7319,8 +7336,14 @@ export class BinPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const formatTimestamp = (value: unknown): string =>
-        formatLocalDateTime(value, '—');
+      const formatTimestamp = (value: unknown): string => {
+        const timestamp = Number(value);
+        return Number.isFinite(timestamp) && timestamp > 0
+          ? new Date(
+              timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
+            ).toLocaleString()
+          : '\u2014';
+      };
 
       const modifiedText = formatTimestamp(info.modified);
       const createdText = formatTimestamp(info.created);

@@ -61,9 +61,20 @@ export function mutationTouchesDirectory(mutation: ResourceMutation, directory: 
   });
 }
 
+const MUTATION_COALESCE_MS = 80;
+
+interface PendingMutation {
+  kind: ResourceMutationKind;
+  origin?: string;
+  timestamp: number;
+  items: Map<string, ResourceMutationItem>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ResourceMutationService {
   private readonly listeners = new Set<ResourceMutationListener>();
+  private readonly pending = new Map<ResourceMutationKind, PendingMutation>();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   subscribe(listener: ResourceMutationListener): () => void {
     this.listeners.add(listener);
@@ -79,15 +90,48 @@ export class ResourceMutationService {
       .filter(item => !!item.source || !!item.destination);
     if (!items.length) return;
 
-    const mutation: ResourceMutation = {
-      ...input,
-      items,
-      timestamp: input.timestamp ?? Date.now(),
-    };
-    for (const listener of [...this.listeners]) {
-      void Promise.resolve(listener(mutation)).catch(error => {
-        console.warn('Resource mutation listener failed', error);
-      });
+    const timestamp = input.timestamp ?? Date.now();
+    let pending = this.pending.get(input.kind);
+    if (!pending) {
+      pending = {
+        kind: input.kind,
+        origin: input.origin,
+        timestamp,
+        items: new Map<string, ResourceMutationItem>(),
+      };
+      this.pending.set(input.kind, pending);
+    } else {
+      pending.timestamp = Math.max(pending.timestamp, timestamp);
+      if (pending.origin !== input.origin) pending.origin = undefined;
+    }
+
+    for (const item of items) {
+      const key = `${item.source ?? ''}\u0000${item.destination ?? ''}`;
+      pending.items.set(key, item);
+    }
+
+    if (this.flushTimer === null) {
+      this.flushTimer = setTimeout(() => this.flush(), MUTATION_COALESCE_MS);
+    }
+  }
+
+  private flush(): void {
+    this.flushTimer = null;
+    const batch = [...this.pending.values()];
+    this.pending.clear();
+
+    for (const pending of batch) {
+      const mutation: ResourceMutation = {
+        kind: pending.kind,
+        items: [...pending.items.values()],
+        origin: pending.origin,
+        timestamp: pending.timestamp,
+      };
+      for (const listener of [...this.listeners]) {
+        void Promise.resolve(listener(mutation)).catch(error => {
+          console.warn('Resource mutation listener failed', error);
+        });
+      }
     }
   }
 }

@@ -25,6 +25,7 @@ import { ActionFeedbackService } from '../services/action-feedback.service';
 import { RecentFilesService } from '../services/recent-files.service';
 import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
+import { SourceChangeObserverService, type SourceObservation } from '../services/source-change-observer.service';
 import { calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type {
@@ -203,7 +204,6 @@ const MAX_PERSISTED_TAB_CACHE_ENTRIES = 256;
 const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
-import { formatLocalDateTime, formatLocalDateTimeInput } from '../utils/local-date-time';
 
 @Component({
   selector: 'app-directory-pane',
@@ -3251,6 +3251,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   );
 
   private readonly clipboardCommands: PaneClipboardController;
+  private sourceObservation: SourceObservation | null = null;
 
   constructor(
     private readonly api: ApiService,
@@ -3270,6 +3271,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
+    private readonly sourceChanges: SourceChangeObserverService,
     private readonly cdr: ChangeDetectorRef,
   ) {
     this.dirStream = new DirListStreamController(this.api);
@@ -3561,6 +3563,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.sourceObservation = this.sourceChanges.observe(
+      this.paneId,
+      () => this.refresh(),
+    );
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
@@ -3571,6 +3577,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.sourceObservation?.close();
+    this.sourceObservation = null;
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
       clearTimeout(this.presentationReloadTimer);
@@ -4353,7 +4361,15 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   formatModified(value: unknown): string {
-    return formatLocalDateTime(value);
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString([], {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
   }
 
   trackTreeRow(_index: number, row: TreeRow): string {
@@ -4655,6 +4671,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     // Preserve the requested scheme/location in the visible pane state while
     // plugin activation and the asynchronous load are still in flight.
     this.path = location;
+    this.sourceObservation?.setLocation(location);
     this.error = null;
     this.cdr.markForCheck();
 
@@ -6116,7 +6133,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (entries.length === 0) return;
 
-    const initial = formatLocalDateTimeInput();
+    const initial = new Date().toISOString().slice(0, 19);
     const value = await this.confirmDialog.prompt({
       title:
         entries.length === 1
@@ -7338,8 +7355,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const formatTimestamp = (value: unknown): string =>
-        formatLocalDateTime(value, '—');
+      const formatTimestamp = (value: unknown): string => {
+        const timestamp = Number(value);
+        return Number.isFinite(timestamp) && timestamp > 0
+          ? new Date(
+              timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
+            ).toLocaleString()
+          : '\u2014';
+      };
 
       const modifiedText = formatTimestamp(info.modified);
       const createdText = formatTimestamp(info.created);
@@ -7783,6 +7806,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }, this.showHidden);
 
     this.path = listing.location.path;
+    this.sourceObservation?.setLocation(this.path);
     this.entries = [...listing.entries];
 
     const preserved = previousCursor
@@ -9292,6 +9316,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     const pathChanged = !!this.path && this.path !== nextPath;
     this.path = nextPath;
+    this.sourceObservation?.setLocation(nextPath);
 
     if (/^bin:\/\//i.test(nextPath)) {
       this.viewMode = 'details';

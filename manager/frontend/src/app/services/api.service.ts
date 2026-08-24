@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { 
   BatchItem, 
   BatchResult, 
@@ -29,6 +29,7 @@ import {
 import { SpecialFolder } from '../shared/protocol';
 import { normalizePath } from '../components/address-bar.utils';
 import { EventsEmit } from 'wailsjs/runtime';
+import { ResourceMutationService } from './resource-mutation.service';
 import { app, contracts, elevation, plugin } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
@@ -152,6 +153,16 @@ function normalizeElevatedSessionStatus(status: elevation.SessionStatus): Elevat
   providedIn: 'root'
 })
 export class ApiService {
+    private readonly resourceMutations = inject(ResourceMutationService);
+
+    private invalidateRecycleBin(): void {
+      this.resourceMutations.publish({
+        kind: 'modify',
+        items: [{ source: 'bin://' }],
+        origin: 'recycle-bin',
+      });
+    }
+
     private normalizeCanonicalPath(path: string): string {
       return normalizePath(path);
     }
@@ -417,7 +428,9 @@ export class ApiService {
     const app = window.go.app.App as unknown as {
       RestoreTrashEntry(id: string): Promise<string>;
     };
-    return await app.RestoreTrashEntry(id);
+    const destination = await app.RestoreTrashEntry(id);
+    this.invalidateRecycleBin();
+    return destination;
   }
 
   async batchTransferTrash(
@@ -432,11 +445,13 @@ export class ApiService {
         operation: TrashTransferOperation;
       }): Promise<TrashTransferResult>;
     };
-    return await app.BatchTransferTrash({
+    const result = await app.BatchTransferTrash({
       ids: [...ids],
       destinationDir: this.normalizeCanonicalPath(destinationDir),
       operation,
     });
+    if (operation === 'restore' && result.succeeded > 0) this.invalidateRecycleBin();
+    return result;
   }
 
   async copyTrashEntryTo(id: string, destinationDir: string): Promise<string> {
@@ -450,7 +465,9 @@ export class ApiService {
     const app = window.go.app.App as unknown as {
       RestoreTrashEntryTo(id: string, destinationDir: string): Promise<string>;
     };
-    return await app.RestoreTrashEntryTo(id, this.normalizeCanonicalPath(destinationDir));
+    const destination = await app.RestoreTrashEntryTo(id, this.normalizeCanonicalPath(destinationDir));
+    this.invalidateRecycleBin();
+    return destination;
   }
 
   async deleteTrashEntry(id: string): Promise<void> {
@@ -458,6 +475,7 @@ export class ApiService {
       DeleteTrashEntry(id: string): Promise<void>;
     };
     await app.DeleteTrashEntry(id);
+    this.invalidateRecycleBin();
   }
 
   async emptyTrash(): Promise<void> {
@@ -465,6 +483,7 @@ export class ApiService {
       EmptyTrash(): Promise<void>;
     };
     await app.EmptyTrash();
+    this.invalidateRecycleBin();
   }
 
   async getPathAttributes(path: string): Promise<PathAttributes> {
@@ -728,7 +747,9 @@ export class ApiService {
       recursive,
       useTrash
     };
-    return castProtocol<BatchResult>(await window.go.app.App.BatchDelete(request));
+    const result = castProtocol<BatchResult>(await window.go.app.App.BatchDelete(request));
+    if (useTrash && result.succeeded > 0) this.invalidateRecycleBin();
+    return result;
   }
 
   async batchExtract(request: BatchExtractRequest): Promise<BatchExtractResult> {

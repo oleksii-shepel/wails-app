@@ -8,6 +8,7 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { locationIcon, locationLabel } from '../services/location-reference';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
+import { formatLocalDate } from '../utils/local-date-time';
 
 @Component({
   selector: 'app-path-history-viewer',
@@ -613,7 +614,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
-    return new Date(timestamp).toLocaleDateString();
+    return formatLocalDate(timestamp);
   }
 
   exportHistory(): void {

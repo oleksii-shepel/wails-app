@@ -64,7 +64,6 @@ import type { DirectoryView, PanePresentation, SortDirection, SortField } from '
 import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
-import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -176,6 +175,7 @@ const MAX_PERSISTED_TAB_CACHE_ENTRIES = 256;
 const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
+import { formatLocalDateTime, formatLocalDateTimeInput } from '../utils/local-date-time';
 
 @Component({
   selector: 'app-registry-pane',
@@ -189,7 +189,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
-    PaneDetailsResizeHandleDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -490,7 +489,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
-        data-pane-details-root
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
@@ -508,14 +506,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
         <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span>
-        <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
-        <span>Kind<i [paneDetailsResizeHandle]="'kind'" [paneDetailsMinWidth]="72"></i></span>
-        <span>Type<i [paneDetailsResizeHandle]="'type'" [paneDetailsMinWidth]="72"></i></span>
-        <span>Value<i [paneDetailsResizeHandle]="'value'" [paneDetailsMinWidth]="100"></i></span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
-          {{ column.label }}<i [paneDetailsResizeHandle]="'plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
-        </span>
+        <span></span><span>Name</span><span>Kind</span><span>Type</span><span>Value</span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
       </div>
 
@@ -2469,21 +2461,8 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   get detailsGridTemplate(): string {
-    const extra = this.pluginPanelColumns.map(column =>
-      `var(--details-column-plugin-${this.detailsCssKey(column.id)}-width, ${column.width?.trim() || '120px'})`,
-    );
-    return [
-      '28px',
-      'var(--details-column-name-width, minmax(120px, 1fr))',
-      'var(--details-column-kind-width, 90px)',
-      'var(--details-column-type-width, 82px)',
-      'var(--details-column-value-width, 150px)',
-      ...extra,
-    ].join(' ');
-  }
-
-  private detailsCssKey(value: string): string {
-    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
+    return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
   }
 
   panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {
@@ -3674,15 +3653,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   formatModified(value: unknown): string {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) return '';
-    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-    const date = new Date(millis);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleString([], {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit',
-    });
+    return formatLocalDateTime(value);
   }
 
   trackTreeRow(_index: number, row: TreeRow): string {
@@ -5370,7 +5341,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
     if (entries.length === 0) return;
 
-    const initial = new Date().toISOString().slice(0, 19);
+    const initial = formatLocalDateTimeInput();
     const value = await this.confirmDialog.prompt({
       title:
         entries.length === 1
@@ -6592,14 +6563,8 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const formatTimestamp = (value: unknown): string => {
-        const timestamp = Number(value);
-        return Number.isFinite(timestamp) && timestamp > 0
-          ? new Date(
-              timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
-            ).toLocaleString()
-          : '\u2014';
-      };
+      const formatTimestamp = (value: unknown): string =>
+        formatLocalDateTime(value, '—');
 
       const modifiedText = formatTimestamp(info.modified);
       const createdText = formatTimestamp(info.created);

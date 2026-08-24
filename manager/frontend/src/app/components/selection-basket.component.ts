@@ -3,6 +3,7 @@ import { Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/cor
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { FileType } from '../shared/protocol';
 import { SelectionBasketEntry, SelectionBasketService } from '../services/selection-basket.service';
+import { formatLocalTime } from '../utils/local-date-time';
 
 @Component({
   selector: 'app-selection-basket',
@@ -150,6 +151,6 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
     const delta = Math.max(0, Date.now() - addedAt);
     if (delta < 60_000) return 'just added';
     if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
-    return new Date(addedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return formatLocalTime(addedAt);
   }
 }

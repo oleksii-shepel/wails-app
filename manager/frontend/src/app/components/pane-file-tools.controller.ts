@@ -2,6 +2,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { OperationHistoryService } from '../services/operation-history.service';
+import { formatLocalDateTime, formatLocalDateTimeInput } from '../utils/local-date-time';
 
 export interface PaneFileToolsHost {
   readonly path: string;
@@ -37,7 +38,7 @@ export class PaneFileToolsController {
       title: entries.length === 1 ? `Modified Time — ${entries[0].name}` : `Modified Time — ${entries.length} items`,
       message: 'Enter local date/time as YYYY-MM-DDTHH:mm:ss, or "now".',
       confirmText: 'Apply',
-      defaultValue: new Date().toISOString().slice(0, 19),
+      defaultValue: formatLocalDateTimeInput(),
       historyKey: 'reassembly.modifiedTime',
     });
     if (value == null) return;
@@ -134,7 +135,7 @@ export class PaneFileToolsController {
     const info = host.isInArchive ? entry : await this.api.getFileInfo(entry.path);
     const displaySize = !host.isInArchive && info.type === FileType.DIRECTORY ? await this.api.dirSizeRecursive(info.path) : Number(info.size) || 0;
     const type = info.type === FileType.DIRECTORY ? 'Directory' : info.type === FileType.ARCHIVE ? 'Archive' : info.type === FileType.SYMLINK ? 'Symbolic link' : 'File';
-    const timestamp = (value: unknown) => { const n = Number(value); return Number.isFinite(n) && n > 0 ? new Date(n * (n < 10_000_000_000 ? 1000 : 1)).toLocaleString() : '—'; };
+    const timestamp = (value: unknown) => formatLocalDateTime(value, '—');
     await this.confirm.alert({ title: `Properties — ${info.name}`, message: [`Name: ${info.name}`, `Type: ${type}`, `Path: ${info.path}`, `Size: ${this.formatSize(displaySize) || '—'}`, `Bytes: ${displaySize.toLocaleString()}`, `Modified: ${timestamp(info.modified)}`, `Created: ${timestamp(info.created)}`, `Accessed: ${timestamp(info.accessed)}`, `Permissions: ${info.permissions || '—'}`, info.isSymlink ? 'Symbolic link: yes' : '', host.isInArchive ? 'Location: inside archive' : ''].filter(Boolean).join('\n') });
   }
 

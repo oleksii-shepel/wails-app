@@ -14,6 +14,7 @@ import type { SpecialFolder } from '../shared/protocol';
 
 import { discoveryScore } from './discovery';
 import { rankNavigationCandidates } from '../services/navigation-intelligence';
+import { formatLocalDate } from '../utils/local-date-time';
 
 export interface QuickAccessTarget {
   path: string;
@@ -430,7 +431,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
     if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
     if (delta < 604_800_000) return `${Math.floor(delta / 86_400_000)}d`;
-    return new Date(timestamp).toLocaleDateString();
+    return formatLocalDate(timestamp);
   }
 
   private locationKey(path: string): string {

@@ -8,6 +8,7 @@ import type {
   WorkspaceSurfaceActionContribution,
 } from './workspace-surface-action.types';
 import { FileType } from '../shared/protocol';
+import { formatLocalDateTimeInput } from '../utils/local-date-time';
 
 @Injectable({ providedIn: 'root' })
 export class BuiltinWorkspaceSurfaceActionsService {
@@ -288,7 +289,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
         title: 'Modified Time',
         message: 'Enter YYYY-MM-DDTHH:mm:ss or "now".',
         confirmText: 'Apply',
-        defaultValue: new Date().toISOString().slice(0, 19),
+        defaultValue: formatLocalDateTimeInput(),
         historyKey: 'reassembly.workspace.details.modified',
       });
 

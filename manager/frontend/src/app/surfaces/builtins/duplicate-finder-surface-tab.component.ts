@@ -8,11 +8,12 @@ import { WorkspaceService } from '../../services/workspace.service';
 import { SelectionBasketService } from '../../services/selection-basket.service';
 import { ResultsPanelService } from '../../services/results-panel.service';
 import { SurfaceContext } from '../surface-context';
+import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
 
 @Component({
   selector: 'app-duplicate-finder-surface-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [LocalDateTimePipe, CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="duplicates">
@@ -66,7 +67,7 @@ import { SurfaceContext } from '../surface-context';
           <input type="checkbox" [checked]="selected.has(file.path)" [disabled]="file.path === keeperPath(group)" (change)="toggle(file.path)">
           <span class="keeper" *ngIf="file.path === keeperPath(group)">KEEP</span>
           <span class="path" [title]="file.path">{{ file.path }}</span>
-          <span class="mtime">{{ file.modified * 1000 | date:'short' }}</span>
+          <span class="mtime">{{ file.modified | localDateTime }}</span>
           <button (click)="preview(file.path, file.name)">Preview</button>
         </div>
       </section>

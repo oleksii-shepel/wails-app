@@ -44,6 +44,7 @@ import { BinPanelSource } from './bin-panel-source.service';
 import { SystemSurfacePanelSource, systemField } from './system-surface-panel-source';
 import { SYSTEM_SURFACES } from './system-surface-definitions';
 import { getSourceCapabilities } from './source-capabilities';
+import { formatLocalDateTime } from '../utils/local-date-time';
 
 export interface PluginBackend {
   id: string;
@@ -459,7 +460,7 @@ export class PluginManagerService implements PluginRegistryAPI {
             const value = String((entry as any).binDeletedAt ?? '');
             if (!value) return '';
             const date = new Date(value);
-            return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+            return Number.isFinite(date.getTime()) ? formatLocalDateTime(date, value) : value;
           },
         });
 

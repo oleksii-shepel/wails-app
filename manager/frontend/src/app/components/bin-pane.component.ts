@@ -59,7 +59,6 @@ import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent, type ResponsiveToolbarCommand } from './responsive-toolbar.component';
 import { PaneArrangeControlsComponent, type PaneSortChange } from './pane-arrange-controls.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
-import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -215,6 +214,7 @@ import { PanelPresentationOutletComponent } from './panel-presentation-outlet.co
 import { FilterComponent } from './filter.component';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
+import { formatLocalDateTime, formatLocalDateTimeInput } from '../utils/local-date-time';
 @Component({
   selector: 'app-bin-pane',
   standalone: true,
@@ -228,7 +228,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
     PaneArrangeControlsComponent,
-    PaneDetailsResizeHandleDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -552,7 +551,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
         #listViewport
         class="list"
         data-pane-content
-        data-pane-details-root
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
@@ -577,31 +575,15 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
           [style.grid-template-columns]="detailsGridTemplate">
           <ng-container *ngIf="isBinLocation; else normalDetailsHeader">
             <ng-container *ngIf="binDetailsMode === 'flat'; else groupedBinDetailsHeader">
-              <span></span>
-              <span>Name<i [paneDetailsResizeHandle]="'bin-name'" [paneDetailsMinWidth]="140"></i></span>
-              <span>Location<i [paneDetailsResizeHandle]="'bin-location'" [paneDetailsMinWidth]="120"></i></span>
-              <span>Deleted<i [paneDetailsResizeHandle]="'bin-deleted'" [paneDetailsMinWidth]="100"></i></span>
-              <span>Size<i [paneDetailsResizeHandle]="'bin-size'" [paneDetailsMinWidth]="64"></i></span>
-              <span>Revision<i [paneDetailsResizeHandle]="'bin-revision'" [paneDetailsMinWidth]="64"></i></span>
+              <span></span><span>Name</span><span>Location</span><span>Deleted</span><span>Size</span><span>Revision</span>
             </ng-container>
             <ng-template #groupedBinDetailsHeader>
-              <span></span>
-              <span>Name<i [paneDetailsResizeHandle]="'bin-name'" [paneDetailsMinWidth]="140"></i></span>
-              <span>Path<i [paneDetailsResizeHandle]="'bin-location'" [paneDetailsMinWidth]="120"></i></span>
-              <span>Deleted<i [paneDetailsResizeHandle]="'bin-deleted'" [paneDetailsMinWidth]="100"></i></span>
-              <span>Size<i [paneDetailsResizeHandle]="'bin-size'" [paneDetailsMinWidth]="64"></i></span>
-              <span>Revision<i [paneDetailsResizeHandle]="'bin-revision'" [paneDetailsMinWidth]="64"></i></span>
+              <span></span><span>Name</span><span>Path</span><span>Deleted</span><span>Size</span><span>Revision</span>
             </ng-template>
           </ng-container>
           <ng-template #normalDetailsHeader>
-            <span></span>
-            <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
-            <span>Type<i [paneDetailsResizeHandle]="'type'" [paneDetailsMinWidth]="72"></i></span>
-            <span>Size<i [paneDetailsResizeHandle]="'size'" [paneDetailsMinWidth]="64"></i></span>
-            <span>Modified<i [paneDetailsResizeHandle]="'modified'" [paneDetailsMinWidth]="110"></i></span>
-            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
-              {{ column.label }}<i [paneDetailsResizeHandle]="'plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
-            </span>
+            <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+            <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
           </ng-template>
         </div>
       </div>
@@ -2853,35 +2835,13 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
   get detailsGridTemplate(): string {
     if (this.isBinLocation) {
-      const nameFallback = this.binDetailsMode === 'flat' ? 'minmax(220px, 420px)' : 'minmax(160px, 240px)';
-      const locationFallback = this.binDetailsMode === 'flat' ? 'minmax(220px, 380px)' : 'minmax(220px, 360px)';
-      const deletedFallback = this.binDetailsMode === 'flat' ? '150px' : '128px';
-      const sizeFallback = this.binDetailsMode === 'flat' ? '90px' : '82px';
-      const revisionFallback = this.binDetailsMode === 'flat' ? '72px' : '68px';
-      return [
-        '28px',
-        `var(--details-column-bin-name-width, ${nameFallback})`,
-        `var(--details-column-bin-location-width, ${locationFallback})`,
-        `var(--details-column-bin-deleted-width, ${deletedFallback})`,
-        `var(--details-column-bin-size-width, ${sizeFallback})`,
-        `var(--details-column-bin-revision-width, ${revisionFallback})`,
-      ].join(' ');
+      if (this.binDetailsMode === 'flat') {
+        return ['28px', 'minmax(220px, 420px)', 'minmax(220px, 380px)', '150px', '90px', '72px'].join(' ');
+      }
+      return ['28px', 'minmax(160px, 240px)', 'minmax(220px, 360px)', '128px', '82px', '68px'].join(' ');
     }
-    const extra = this.pluginPanelColumns.map(column =>
-      `var(--details-column-plugin-${this.detailsCssKey(column.id)}-width, ${column.width?.trim() || '120px'})`,
-    );
-    return [
-      '28px',
-      'var(--details-column-name-width, minmax(120px, 1fr))',
-      'var(--details-column-type-width, 90px)',
-      'var(--details-column-size-width, 82px)',
-      'var(--details-column-modified-width, 150px)',
-      ...extra,
-    ].join(' ');
-  }
-
-  private detailsCssKey(value: string): string {
-    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
+    return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
   }
 
   get isBinLocation(): boolean {
@@ -4374,15 +4334,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   formatModified(value: unknown): string {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) return '';
-    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-    const date = new Date(millis);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleString([], {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit',
-    });
+    return formatLocalDateTime(value);
   }
 
   trackTreeRow(_index: number, row: TreeRow): string {
@@ -6145,7 +6097,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
     if (entries.length === 0) return;
 
-    const initial = new Date().toISOString().slice(0, 19);
+    const initial = formatLocalDateTimeInput();
     const value = await this.confirmDialog.prompt({
       title:
         entries.length === 1
@@ -7367,14 +7319,8 @@ export class BinPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const formatTimestamp = (value: unknown): string => {
-        const timestamp = Number(value);
-        return Number.isFinite(timestamp) && timestamp > 0
-          ? new Date(
-              timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
-            ).toLocaleString()
-          : '\u2014';
-      };
+      const formatTimestamp = (value: unknown): string =>
+        formatLocalDateTime(value, '—');
 
       const modifiedText = formatTimestamp(info.modified);
       const createdText = formatTimestamp(info.created);

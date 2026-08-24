@@ -4401,25 +4401,42 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         });
       }
 
-      if (
-        operation === 'move' &&
-        sourcePane &&
-        sourcePane !== targetPane &&
-        affected.length > 0
-      ) {
-        sourcePane.selection?.reconcileRemovedPaths?.(
-          affected.map(item => item.source),
-        );
-      }
-
       this.lastDrop =
         `${operation} drop: ${result.succeeded}/${result.total}` +
         (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
         (result.failed > 0 ? ` · ${result.failed} failed` : '');
       this.lastTransfer = this.lastDrop;
 
-      // ApiService publishes copy/move mutations for both source and destination.
-      // Let pane observers reconcile once instead of forcing eager reloads here.
+      if (affected.length > 0 && sourcePane) {
+        const bySource = new Map(
+          (sourcePane.selection?.selectedEntries ?? []).map(entry => [
+            entry.path.toLocaleLowerCase(),
+            entry,
+          ] as const),
+        );
+
+        const destinationEntries = affected
+          .map(item => {
+            const original = bySource.get(item.source.toLocaleLowerCase());
+            if (!original) return null;
+            return {
+              ...original,
+              path: item.destination,
+              name: this.leafName(item.destination),
+            };
+          })
+          .filter((entry): entry is FileInfo => !!entry);
+
+        targetPane.selection?.reconcileAddedEntries?.(destinationEntries);
+
+        if (operation === 'move' && sourcePane !== targetPane) {
+          sourcePane.selection?.reconcileRemovedPaths?.(
+            affected.map(item => item.source),
+          );
+        }
+      }
+
+      // No source/destination refresh: update only the rows changed by the drop.
 
       if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
@@ -5967,6 +5984,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const selected = Array.from(source.selection?.selectedPaths ?? []) as string[];
     if (selected.length === 0) return;
+    const selectedEntries = [...(source.selection?.selectedEntries ?? [])];
 
     const sourceIsBin = this.isRecycleBinPane(source);
     const destinationIsBin = this.isRecycleBinPane(destination);
@@ -6094,21 +6112,40 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         });
       }
 
-      if (
-        operation === 'move' &&
-        source !== destination &&
-        affected.length > 0
-      ) {
-        source.selection?.reconcileRemovedPaths?.(
-          affected.map(item => item.source),
+      const successful = result.affectedPaths ?? [];
+      if (successful.length > 0) {
+        const bySource = new Map(
+          selectedEntries.map(entry => [
+            entry.path.toLocaleLowerCase(),
+            entry,
+          ] as const),
         );
+
+        const destinationEntries = successful
+          .map(item => {
+            const original = bySource.get(item.source.toLocaleLowerCase());
+            if (!original) return null;
+            return {
+              ...original,
+              path: item.destination,
+              name: this.leafName(item.destination),
+            };
+          })
+          .filter((entry): entry is FileInfo => !!entry);
+
+        destination.selection?.reconcileAddedEntries?.(destinationEntries);
+
+        if (operation === 'move' && source !== destination) {
+          source.selection?.reconcileRemovedPaths?.(
+            successful.map(item => item.source),
+          );
+        }
       }
 
       this.lastTransfer = `${operation}: ${result.succeeded}/${result.total}`;
 
-      // Filesystem mutations publish through ResourceMutationService. Both panes
-      // observe that shared stream, so do not manually reload either pane here.
-      // This avoids duplicate reads, visible flashing, and cursor resets.
+      // Do not refresh either pane here. Successful filesystem transfers are
+      // represented as entry deltas so unaffected rows and viewport DOM stay put.
 
       if (result.failed > 0) {
         await this.confirmDialog.alert({

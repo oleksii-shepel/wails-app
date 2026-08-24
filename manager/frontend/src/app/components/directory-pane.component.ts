@@ -2577,7 +2577,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private streamPreviousCursor: string | null = null;
   private streamRestoreSession = false;
   private streamFirstBatch = true;
-  private streamPreserveCursor = false;
   private streamLoadOptions: {
     preserveCursor?: boolean;
     history?: 'record' | 'none';
@@ -3959,16 +3958,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   async refresh(): Promise<void> {
     if (!this.isDirectoryTab || !this.path) return;
-
-    const selectableBeforeRefresh = this.selectableEntries();
-    const cursorBeforeRefresh = this.cursorPath;
-    const cursorIndexBeforeRefresh = cursorBeforeRefresh
-      ? selectableBeforeRefresh.findIndex(entry =>
-          this.samePath(entry.path, cursorBeforeRefresh),
-        )
-      : -1;
-    const selectionBeforeRefresh = new Set(this.selectedPaths);
-
     this.lastAction = 'refresh';
 
     if (this.activeResultsPanel) {
@@ -3992,51 +3981,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       preserveCursor: true,
       history: 'none',
     });
-
-    this.reconcileSelectionAfterRefresh(
-      cursorBeforeRefresh,
-      cursorIndexBeforeRefresh,
-      selectionBeforeRefresh,
-    );
-  }
-
-  private reconcileSelectionAfterRefresh(
-    previousCursor: string | null,
-    previousCursorIndex: number,
-    previousSelection: ReadonlySet<string>,
-  ): void {
-    const selectable = this.selectableEntries();
-    const existingByPath = new Map(
-      selectable.map(entry => [entry.path.toLocaleLowerCase(), entry] as const),
-    );
-
-    const survivingSelection = [...previousSelection]
-      .map(path => existingByPath.get(path.toLocaleLowerCase())?.path ?? null)
-      .filter((path): path is string => !!path);
-
-    const survivingCursor = previousCursor
-      ? selectable.find(entry => this.samePath(entry.path, previousCursor)) ?? null
-      : null;
-
-    let nextCursor = survivingCursor;
-    if (!nextCursor && selectable.length > 0) {
-      const preferredIndex = previousCursorIndex >= 0
-        ? Math.min(previousCursorIndex, selectable.length - 1)
-        : 0;
-      nextCursor = selectable[preferredIndex] ?? selectable[selectable.length - 1] ?? null;
-    }
-
-    this.cursorPath = nextCursor?.path ?? null;
-    this.selectedPaths = survivingSelection.length > 0
-      ? new Set(survivingSelection)
-      : nextCursor
-        ? new Set([nextCursor.path])
-        : new Set();
-    this.anchorPath = nextCursor?.path ?? null;
-    this.cursorChange.emit(nextCursor);
-    this.syncActiveDirSessionState();
-    queueMicrotask(() => this.ensureCursorVisible());
-    this.cdr.markForCheck();
   }
 
   async navigateUp(): Promise<void> {
@@ -6139,6 +6083,35 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       const input = this.renameInputForPath(path);
       input?.focus({ preventScroll: true });
     });
+  }
+
+  reconcileAddedEntries(entries: readonly FileInfo[]): void {
+    if (entries.length === 0) return;
+
+    const existing = new Map(
+      this.entries.map(entry => [entry.path.toLocaleLowerCase(), entry] as const),
+    );
+    let changed = false;
+
+    for (const incoming of entries) {
+      const key = incoming.path.toLocaleLowerCase();
+      const current = existing.get(key);
+      if (current) {
+        Object.assign(current, incoming);
+        continue;
+      }
+      this.entries.push(incoming);
+      existing.set(key, incoming);
+      changed = true;
+    }
+
+    if (changed) {
+      this.invalidateProjection();
+      this.invalidateTreeRows();
+    }
+
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
   }
 
   reconcileRemovedPaths(paths: readonly string[]): void {
@@ -8533,11 +8506,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
         if (this.streamFirstBatch) {
           this.streamFirstBatch = false;
-          this.seedStreamingCursor(
-            previousCursor,
-            options.restoreSession === true,
-            options.preserveCursor === true,
-          );
+          this.seedStreamingCursor(previousCursor, options.restoreSession === true);
         }
 
         this.cdr.markForCheck();
@@ -8570,11 +8539,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     },
   ): void {
     const restoreSession = options.restoreSession === true;
-    const preserveCursor = options.preserveCursor === true;
     this.streamLoadGeneration = generation;
     this.streamPreviousCursor = previousCursor;
     this.streamRestoreSession = restoreSession;
-    this.streamPreserveCursor = preserveCursor;
     this.streamLoadOptions = { ...options };
     this.streamFirstBatch = true;
     this.streamRenderActive = true;
@@ -8592,15 +8559,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.invalidateTreeRows();
     }
 
-    // A same-location refresh should not blank the pane or clear its cursor
-    // while the replacement listing is in flight. Keep the existing visual
-    // state until streamed data is available.
-    if (!preserveCursor) {
-      this.entries = [];
-      this.invalidateProjection();
-    }
+    this.entries = [];
+    this.invalidateProjection();
 
-    if (!restoreSession && !preserveCursor) {
+    if (!restoreSession) {
       this.cursorPath = null;
       this.selectedPaths = new Set();
       this.anchorPath = null;
@@ -8653,7 +8615,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.seedStreamingCursor(
         this.streamPreviousCursor,
         this.streamRestoreSession,
-        this.streamPreserveCursor,
       );
     }
 
@@ -8717,58 +8678,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private seedStreamingCursor(
     previousCursor: string | null,
     restoreSession: boolean,
-    preserveCursor = false,
   ): void {
     if (restoreSession || this.entries.length === 0) return;
 
     const preserved = previousCursor
-      ? this.entries.find(entry => this.samePath(entry.path, previousCursor))
+      ? this.entries.find(entry => entry.path === previousCursor)
       : null;
-
-    if (preserveCursor) {
-      // During a refresh, an early stream/window may not contain the cursor row
-      // yet. Do not temporarily select entry 0; leave the existing cursor state
-      // untouched until the preserved row arrives or final reconciliation runs.
-      if (!preserved) return;
-
-      const existingSelection = new Set(
-        [...this.selectedPaths].filter(path =>
-          this.entries.some(entry => this.samePath(entry.path, path)),
-        ),
-      );
-      this.cursorPath = preserved.path;
-      this.selectedPaths = existingSelection.size > 0
-        ? existingSelection
-        : new Set([preserved.path]);
-      this.anchorPath = this.anchorPath &&
-        this.entries.some(entry => this.samePath(entry.path, this.anchorPath!))
-          ? this.anchorPath
-          : preserved.path;
-      return;
-    }
-
     const next = preserved ?? this.entries[0] ?? null;
+
     this.cursorPath = next?.path ?? null;
     this.selectedPaths = next ? new Set([next.path]) : new Set();
     this.anchorPath = next?.path ?? null;
-  }
-
-  private recoverCursorNearCurrentPosition(): FileInfo | null {
-    const visible = this.visibleEntries.filter(entry => entry.path !== '__parent__');
-    if (visible.length === 0) return null;
-
-    // If a local reconciliation already chose a surviving cursor, retain it.
-    if (this.cursorPath) {
-      const current = visible.find(entry =>
-        this.samePath(entry.path, this.cursorPath!),
-      );
-      if (current) return current;
-    }
-
-    // Do not synthesize a first-row selection during refresh. Returning null is
-    // preferable to a visible jump; the initiating mutation path chooses the
-    // neighboring row when it knows which source rows were removed.
-    return null;
   }
 
   private applyLoadedDirectory(
@@ -8814,28 +8734,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       // expensive global ordering until visibleEntries is next requested after
       // completion; do not sort repeatedly during ingestion.
       const nextCursor = preserved ??
-        (options.preserveCursor
-          ? this.recoverCursorNearCurrentPosition()
-          : (streamed ? this.entries[0] : this.visibleEntries[0])) ??
+        (streamed ? this.entries[0] : this.visibleEntries[0]) ??
         null;
 
       this.cursorPath = nextCursor?.path ?? null;
-      if (options.preserveCursor) {
-        const survivingSelection = new Set(
-          [...this.selectedPaths].filter(path =>
-            this.entries.some(entry => this.samePath(entry.path, path)),
-          ),
-        );
-        this.selectedPaths = survivingSelection.size > 0
-          ? survivingSelection
-          : nextCursor
-            ? new Set([nextCursor.path])
-            : new Set();
-      } else {
-        this.selectedPaths = nextCursor
-          ? new Set([nextCursor.path])
-          : new Set();
-      }
+      this.selectedPaths = nextCursor
+        ? new Set([nextCursor.path])
+        : new Set();
       this.anchorPath = nextCursor?.path ?? null;
     }
 

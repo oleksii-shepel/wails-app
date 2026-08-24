@@ -25,7 +25,8 @@ export interface PaneSelection {
   selectPaths(paths: readonly string[]): void;
   selectComparisonItem(path: string): void;
   reconcileRemovedPaths?(paths: readonly string[]): void;
-  reconcileAddedEntries?(entries: readonly FileInfo[]): void;
+  reconcileAddedEntries?(entries: readonly FileInfo[], commit?: boolean): void;
+  commitMutationProjection?(): void;
   recoverVisibleCursor(): void;
   calculateSelectedSize(): Promise<void>;
   selectPeerByName(name: string): boolean;

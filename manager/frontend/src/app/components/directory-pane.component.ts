@@ -2573,6 +2573,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private readonly dirStream: DirListStreamController;
   private resultStreamAbort: AbortController | null = null;
   private streamRenderActive = false;
+  private mutationOrder: string[] | null = null;
   private streamLoadGeneration = 0;
   private streamPreviousCursor: string | null = null;
   private streamRestoreSession = false;
@@ -2758,9 +2759,24 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
     }
 
+    if (this.mutationOrder) {
+      const byPath = new Map(this.entries.map(entry => [entry.path, entry] as const));
+      const ordered = this.mutationOrder
+        .map(path => byPath.get(path))
+        .filter((entry): entry is FileInfo => !!entry);
+      const query = this.filterText.trim().toLocaleLowerCase();
+      const visible = !query
+        ? ordered
+        : ordered.filter(entry =>
+            entry.path === '__parent__' ||
+            entry.name.toLocaleLowerCase().includes(query) ||
+            entry.path.toLocaleLowerCase().includes(query),
+          );
+      return this.withPresentationParent(visible);
+    }
+
     return this.withPresentationParent(this.projectionCache);
   }
-
   get listVirtualWindow(): VirtualWindow {
     const grid = this.viewMode === 'grid';
     const columns = grid
@@ -6085,7 +6101,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
-  reconcileAddedEntries(entries: readonly FileInfo[]): void {
+  reconcileAddedEntries(entries: readonly FileInfo[], commit = true): void {
     if (entries.length === 0) return;
 
     const existing = new Map(
@@ -6106,16 +6122,36 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     if (changed) {
-      this.invalidateProjection();
       this.invalidateTreeRows();
     }
 
+    if (commit) {
+      this.commitMutationProjection();
+    } else {
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+    }
+  }
+
+  commitMutationProjection(): void {
+    // Destination/same-pane mutations may need normal active sorting, but only
+    // once after the whole batch has been applied.
+    this.mutationOrder = null;
+    this.invalidateProjection();
+    this.invalidateTreeRows();
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
   reconcileRemovedPaths(paths: readonly string[]): void {
     if (paths.length === 0) return;
+
+    // Known source-only mutation: preserve exactly what the user is looking at.
+    // `visibleEntries` normally derives from the active sort, so snapshot its
+    // current order before mutating the underlying entries.
+    this.mutationOrder = this.visibleEntries
+      .filter(entry => entry.path !== '__parent__')
+      .map(entry => entry.path);
 
     const selectable = this.selectableEntries();
     const preferredIndex = this.cursorPath

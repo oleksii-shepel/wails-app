@@ -64,6 +64,7 @@ import type { DirectoryView, PanePresentation, SortDirection, SortField } from '
 import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
+import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -188,6 +189,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
+    PaneDetailsResizeHandleDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -488,6 +490,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
+        data-pane-details-root
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
@@ -505,8 +508,14 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
         <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Kind</span><span>Type</span><span>Value</span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+        <span></span>
+        <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
+        <span>Kind<i [paneDetailsResizeHandle]="'kind'" [paneDetailsMinWidth]="72"></i></span>
+        <span>Type<i [paneDetailsResizeHandle]="'type'" [paneDetailsMinWidth]="72"></i></span>
+        <span>Value<i [paneDetailsResizeHandle]="'value'" [paneDetailsMinWidth]="100"></i></span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
+          {{ column.label }}<i [paneDetailsResizeHandle]="'plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
+        </span>
       </div>
       </div>
 
@@ -2460,8 +2469,21 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   get detailsGridTemplate(): string {
-    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
-    return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
+    const extra = this.pluginPanelColumns.map(column =>
+      `var(--details-column-plugin-${this.detailsCssKey(column.id)}-width, ${column.width?.trim() || '120px'})`,
+    );
+    return [
+      '28px',
+      'var(--details-column-name-width, minmax(120px, 1fr))',
+      'var(--details-column-kind-width, 90px)',
+      'var(--details-column-type-width, 82px)',
+      'var(--details-column-value-width, 150px)',
+      ...extra,
+    ].join(' ');
+  }
+
+  private detailsCssKey(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
   }
 
   panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {

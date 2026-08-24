@@ -24,6 +24,7 @@ export interface PaneSelection {
   unselectByMaskPrompt(): Promise<void>;
   selectPaths(paths: readonly string[]): void;
   selectComparisonItem(path: string): void;
+  reconcileRemovedPaths?(paths: readonly string[]): void;
   recoverVisibleCursor(): void;
   calculateSelectedSize(): Promise<void>;
   selectPeerByName(name: string): boolean;

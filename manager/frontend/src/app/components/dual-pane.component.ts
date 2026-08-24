@@ -4401,6 +4401,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         });
       }
 
+      if (
+        operation === 'move' &&
+        sourcePane &&
+        sourcePane !== targetPane &&
+        affected.length > 0
+      ) {
+        sourcePane.selection?.reconcileRemovedPaths?.(
+          affected.map(item => item.source),
+        );
+      }
+
       this.lastDrop =
         `${operation} drop: ${result.succeeded}/${result.total}` +
         (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
@@ -6081,6 +6092,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             }
           },
         });
+      }
+
+      if (
+        operation === 'move' &&
+        source !== destination &&
+        affected.length > 0
+      ) {
+        source.selection?.reconcileRemovedPaths?.(
+          affected.map(item => item.source),
+        );
       }
 
       this.lastTransfer = `${operation}: ${result.succeeded}/${result.total}`;

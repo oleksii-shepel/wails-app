@@ -42,6 +42,9 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
   @HostBinding('style.cursor') readonly cursor = 'col-resize';
   @HostBinding('style.z-index') readonly zIndex = '6';
   @HostBinding('style.user-select') readonly userSelect = 'none';
+  @HostBinding('style.background') readonly delimiterBackground =
+    'linear-gradient(to right, transparent calc(50% - 0.5px), var(--vsc-border, rgba(128, 128, 128, .7)) calc(50% - 0.5px), var(--vsc-border, rgba(128, 128, 128, .7)) calc(50% + 0.5px), transparent calc(50% + 0.5px))';
+  @HostBinding('style.opacity') delimiterOpacity = '0.72';
 
   private root: HTMLElement | null = null;
   private startX = 0;
@@ -57,6 +60,16 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
     if (parent && getComputedStyle(parent).position === 'static') {
       parent.style.position = 'relative';
     }
+  }
+
+  @HostListener('mouseenter')
+  onMouseEnter(): void {
+    this.delimiterOpacity = '1';
+  }
+
+  @HostListener('mouseleave')
+  onMouseLeave(): void {
+    if (!this.moveListener) this.delimiterOpacity = '0.72';
   }
 
   @HostListener('mousedown', ['$event'])
@@ -87,6 +100,7 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
       this.cleanup();
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      this.delimiterOpacity = '0.72';
       this.paneDetailsWidthCommit.emit({ key: this.key, width });
     };
 
@@ -94,6 +108,7 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
     window.addEventListener('mouseup', this.upListener);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    this.delimiterOpacity = '1';
   }
 
   ngOnDestroy(): void {

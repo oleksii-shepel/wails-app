@@ -55,10 +55,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
-import {
-  SourceChangeObserverService,
-  type SourceObservation,
-} from '../services/source-change-observer.service';
 import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
@@ -1844,7 +1840,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
   `],
 })
 export class DirectoryPaneComponent implements OnInit, OnDestroy {
-  private sourceObservation?: SourceObservation;
   readonly FileType = FileType;
 
   @ViewChild('addressBar') addressBar?: AddressBarComponent;
@@ -2614,7 +2609,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
-    private readonly sourceChanges: SourceChangeObserverService,
     private readonly cdr: ChangeDetectorRef,
   ) {
     this.dirStream = new DirListStreamController(this.api);
@@ -2902,10 +2896,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.sourceObservation = this.sourceChanges.observe(
-      this.paneId,
-      () => this.refresh(),
-    );
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
@@ -2916,8 +2906,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.sourceObservation?.close();
-    this.sourceObservation = undefined;
     this.cancelDragSpringOpen();
     if (this.presentationReloadTimer) {
       clearTimeout(this.presentationReloadTimer);
@@ -6097,6 +6085,83 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
+  private applyOptimisticDeletedPaths(
+    deletedPaths: readonly string[],
+    preferredCursorIndex: number,
+  ): void {
+    if (deletedPaths.length === 0) return;
+
+    const isDeleted = (path: string): boolean =>
+      deletedPaths.some(deleted => this.samePath(path, deleted));
+
+    const cursorSurvives =
+      !!this.cursorPath &&
+      !isDeleted(this.cursorPath) &&
+      this.entries.some(entry => this.samePath(entry.path, this.cursorPath!));
+
+    this.entries = this.entries.filter(entry =>
+      entry.path === '__parent__' || !isDeleted(entry.path),
+    );
+
+    this.selectedPaths = new Set(
+      [...this.selectedPaths].filter(path => !isDeleted(path)),
+    );
+
+    for (const deleted of deletedPaths) {
+      this.treeExpandedPaths.delete(deleted);
+      this.treeChildren.delete(deleted);
+      this.treeLoadingPaths.delete(deleted);
+    }
+
+    for (const [parent, children] of this.treeChildren) {
+      const survivingChildren = children.filter(entry => !isDeleted(entry.path));
+      if (survivingChildren.length !== children.length) {
+        this.treeChildren.set(parent, survivingChildren);
+      }
+    }
+    this.invalidateTreeRows();
+
+    if (cursorSurvives && this.cursorPath) {
+      const current = this.entries.find(entry =>
+        this.samePath(entry.path, this.cursorPath!),
+      ) ?? null;
+      if (current) {
+        this.anchorPath = current.path;
+        this.cursorChange.emit(current);
+        this.syncActiveDirSessionState();
+        this.cdr.markForCheck();
+        return;
+      }
+    }
+
+    const surviving = this.selectableEntries();
+    const next =
+      surviving.length > 0
+        ? surviving[
+            Math.min(
+              Math.max(preferredCursorIndex, 0),
+              surviving.length - 1,
+            )
+          ] ?? surviving[surviving.length - 1]
+        : null;
+
+    if (next) {
+      this.cursorPath = next.path;
+      this.selectedPaths = new Set([next.path]);
+      this.anchorPath = next.path;
+      this.cursorChange.emit(next);
+      queueMicrotask(() => this.ensureCursorVisible());
+    } else {
+      this.cursorPath = null;
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+      this.cursorChange.emit(null);
+    }
+
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
   async deleteSelected(forcePermanent = false): Promise<void> {
     if (!this.canDelete) return;
 
@@ -6120,6 +6185,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!confirmed) return;
 
     try {
+      const selectableBeforeDelete = this.selectableEntries();
+      const cursorIndexBeforeDelete = this.cursorPath
+        ? selectableBeforeDelete.findIndex(entry => entry.path === this.cursorPath)
+        : selectableBeforeDelete.findIndex(entry =>
+            this.selectedPaths.has(entry.path),
+          );
+
       const sourcePaths = entries.map(entry => entry.path);
       const trashBefore = useTrash
         ? await this.api.listTrashEntries().catch(() => [])
@@ -6206,7 +6278,24 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         );
       }
 
-      await this.refresh();
+      const failedPaths = result.errors?.map(error => error.source) ?? [];
+      const canIdentifySuccessfulDeletes =
+        result.skipped === 0 &&
+        result.succeeded > 0;
+
+      if (canIdentifySuccessfulDeletes) {
+        const deletedPaths = sourcePaths.filter(path =>
+          !failedPaths.some(failed => this.samePath(path, failed)),
+        );
+        this.applyOptimisticDeletedPaths(
+          deletedPaths,
+          cursorIndexBeforeDelete,
+        );
+      }
+
+      // Do not eagerly reload the directory here. The filesystem watcher is
+      // the authoritative reconciliation path; the optimistic update keeps the
+      // initiating pane responsive without causing a second directory read.
       this.focusContent();
 
       if (result.failed > 0 || result.skipped > 0) {
@@ -8579,7 +8668,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     const pathChanged = !!this.path && this.path !== nextPath;
     this.path = nextPath;
-    this.sourceObservation?.setLocation(nextPath);
 
     if (/^bin:\/\//i.test(nextPath)) {
       this.viewMode = 'details';

@@ -5784,65 +5784,78 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
 
   get responsiveFileActions(): readonly ResponsiveToolbarCommand[] {
-    const builtins: ResponsiveToolbarCommand[] = [
-      {
-        id: 'directory.new-folder',
-        label: 'New folder',
-        shortcut: 'F7',
-        enabled: !this.loading && this.canCreate,
-        source: 'builtin',
-        commandId: 'pane.files.newFolder',
-        execute: () => this.newFolder(),
-      },
-      {
-        id: 'directory.rename',
-        label: 'Rename',
-        shortcut: 'F2',
-        enabled: !this.loading && this.canRename,
-        source: 'builtin',
-        commandId: 'pane.files.rename',
-        execute: () => this.renameSelected(),
-      },
-      {
-        id: 'directory.copy',
-        label: 'Copy',
-        shortcut: 'Ctrl+C',
-        enabled: !this.loading && this.hasSelection,
-        separatorBefore: true,
-        source: 'builtin',
-        commandId: 'pane.files.copy',
-        execute: () => this.copySelected(),
-      },
-      {
-        id: 'directory.cut',
-        label: 'Cut',
-        shortcut: 'Ctrl+X',
-        enabled: !this.loading && this.canCut,
-        source: 'builtin',
-        commandId: 'pane.files.cut',
-        execute: () => this.cutSelected(),
-      },
-      {
-        id: 'directory.paste',
-        label: 'Paste',
-        shortcut: 'Ctrl+V',
-        enabled: !this.loading && this.canPaste,
-        source: 'builtin',
-        commandId: 'pane.files.paste',
-        execute: () => this.paste(),
-      },
-      {
-        id: 'directory.delete',
-        label: 'Delete',
-        icon: 'delete',
-        shortcut: 'Delete / F8',
-        enabled: !this.loading && this.canDelete,
-        separatorBefore: true,
-        source: 'builtin',
-        commandId: 'pane.files.delete',
-        execute: () => this.deleteSelected(),
-      },
-    ];
+    const builtins: ResponsiveToolbarCommand[] = this.isBinLocation
+      ? [
+          {
+            id: 'bin.delete-permanent',
+            label: 'Delete permanently',
+            icon: 'delete',
+            shortcut: 'Delete / F8',
+            enabled: !this.loading && this.canDelete,
+            source: 'builtin',
+            commandId: 'pane.bin.deletePermanent',
+            execute: () => this.deleteSelected(true),
+          },
+        ]
+      : [
+          {
+            id: 'directory.new-folder',
+            label: 'New folder',
+            shortcut: 'F7',
+            enabled: !this.loading && this.canCreate,
+            source: 'builtin',
+            commandId: 'pane.files.newFolder',
+            execute: () => this.newFolder(),
+          },
+          {
+            id: 'directory.rename',
+            label: 'Rename',
+            shortcut: 'F2',
+            enabled: !this.loading && this.canRename,
+            source: 'builtin',
+            commandId: 'pane.files.rename',
+            execute: () => this.renameSelected(),
+          },
+          {
+            id: 'directory.copy',
+            label: 'Copy',
+            shortcut: 'Ctrl+C',
+            enabled: !this.loading && this.hasSelection,
+            separatorBefore: true,
+            source: 'builtin',
+            commandId: 'pane.files.copy',
+            execute: () => this.copySelected(),
+          },
+          {
+            id: 'directory.cut',
+            label: 'Cut',
+            shortcut: 'Ctrl+X',
+            enabled: !this.loading && this.canCut,
+            source: 'builtin',
+            commandId: 'pane.files.cut',
+            execute: () => this.cutSelected(),
+          },
+          {
+            id: 'directory.paste',
+            label: 'Paste',
+            shortcut: 'Ctrl+V',
+            enabled: !this.loading && this.canPaste,
+            source: 'builtin',
+            commandId: 'pane.files.paste',
+            execute: () => this.paste(),
+          },
+          {
+            id: 'directory.delete',
+            label: 'Delete',
+            icon: 'delete',
+            shortcut: 'Delete / F8',
+            enabled: !this.loading && this.canDelete,
+            separatorBefore: true,
+            source: 'builtin',
+            commandId: 'pane.files.delete',
+            execute: () => this.deleteSelected(),
+          },
+        ];
 
     if (!this.pluginToolbarActions.length) return builtins;
 

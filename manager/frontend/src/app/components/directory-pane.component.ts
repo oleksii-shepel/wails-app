@@ -1510,16 +1510,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .list.view-details.bin-grouped .entry.bin-revision-row {
-      /*
-       * The whole actionable revision grid is inset, not only the Name cell.
-       * This keeps Deleted / Size / Revision aligned with one another while
-       * making the parent/child relationship immediately readable.
-       */
-      margin-left: 22px;
-      min-width: calc(100% - 22px);
-      width: calc(100% - 22px);
-      padding-left: 0;
       border-radius: 3px;
+    }
+
+    .list.view-details.bin-grouped .entry.bin-revision-row .bin-name {
+      box-sizing: border-box;
+      padding-left: 22px;
     }
 
     .list.view-details.bin-grouped .entry.bin-revision-row.selected,

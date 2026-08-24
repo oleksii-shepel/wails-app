@@ -2176,9 +2176,14 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row {
       width: auto !important;
       min-width: 0 !important;
-      margin-left: 26px;
+      margin-left: 4px;
       margin-right: 4px;
       border-radius: 3px;
+    }
+
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row .bin-name {
+      box-sizing: border-box;
+      padding-left: 22px;
     }
 
     .list.view-details.bin-grouped .list-content-track > .entry.bin-group-header.cursor,

@@ -2186,6 +2186,10 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
       padding-left: 22px;
     }
 
+    .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row .bin-leading {
+      transform: translateX(22px);
+    }
+
     .list.view-details.bin-grouped .list-content-track > .entry.bin-group-header.cursor,
     .list.view-details.bin-grouped .list-content-track > .entry.bin-group-header.selected,
     .list.view-details.bin-grouped .list-content-track > .entry.bin-revision-row.cursor,

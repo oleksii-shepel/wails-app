@@ -1518,6 +1518,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       padding-left: 22px;
     }
 
+    .list.view-details.bin-grouped .entry.bin-revision-row .bin-leading {
+      transform: translateX(22px);
+    }
+
     .list.view-details.bin-grouped .entry.bin-revision-row.selected,
     .list.view-details.bin-grouped .entry.bin-revision-row.cursor {
       /*

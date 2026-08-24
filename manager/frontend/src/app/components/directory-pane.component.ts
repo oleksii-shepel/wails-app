@@ -3958,6 +3958,16 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   async refresh(): Promise<void> {
     if (!this.isDirectoryTab || !this.path) return;
+
+    const selectableBeforeRefresh = this.selectableEntries();
+    const cursorBeforeRefresh = this.cursorPath;
+    const cursorIndexBeforeRefresh = cursorBeforeRefresh
+      ? selectableBeforeRefresh.findIndex(entry =>
+          this.samePath(entry.path, cursorBeforeRefresh),
+        )
+      : -1;
+    const selectionBeforeRefresh = new Set(this.selectedPaths);
+
     this.lastAction = 'refresh';
 
     if (this.activeResultsPanel) {
@@ -3981,6 +3991,51 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       preserveCursor: true,
       history: 'none',
     });
+
+    this.reconcileSelectionAfterRefresh(
+      cursorBeforeRefresh,
+      cursorIndexBeforeRefresh,
+      selectionBeforeRefresh,
+    );
+  }
+
+  private reconcileSelectionAfterRefresh(
+    previousCursor: string | null,
+    previousCursorIndex: number,
+    previousSelection: ReadonlySet<string>,
+  ): void {
+    const selectable = this.selectableEntries();
+    const existingByPath = new Map(
+      selectable.map(entry => [entry.path.toLocaleLowerCase(), entry] as const),
+    );
+
+    const survivingSelection = [...previousSelection]
+      .map(path => existingByPath.get(path.toLocaleLowerCase())?.path ?? null)
+      .filter((path): path is string => !!path);
+
+    const survivingCursor = previousCursor
+      ? selectable.find(entry => this.samePath(entry.path, previousCursor)) ?? null
+      : null;
+
+    let nextCursor = survivingCursor;
+    if (!nextCursor && selectable.length > 0) {
+      const preferredIndex = previousCursorIndex >= 0
+        ? Math.min(previousCursorIndex, selectable.length - 1)
+        : 0;
+      nextCursor = selectable[preferredIndex] ?? selectable[selectable.length - 1] ?? null;
+    }
+
+    this.cursorPath = nextCursor?.path ?? null;
+    this.selectedPaths = survivingSelection.length > 0
+      ? new Set(survivingSelection)
+      : nextCursor
+        ? new Set([nextCursor.path])
+        : new Set();
+    this.anchorPath = nextCursor?.path ?? null;
+    this.cursorChange.emit(nextCursor);
+    this.syncActiveDirSessionState();
+    queueMicrotask(() => this.ensureCursorVisible());
+    this.cdr.markForCheck();
   }
 
   async navigateUp(): Promise<void> {

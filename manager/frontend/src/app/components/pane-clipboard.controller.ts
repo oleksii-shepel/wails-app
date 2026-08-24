@@ -166,7 +166,8 @@ export class PaneClipboardController {
         );
       }
 
-      await host.refresh();
+      // ApiService publishes filesystem copy/move mutations. The pane observer
+      // reconciles the destination without a second eager directory reload.
       host.focusContent?.();
 
       if (result.failed > 0 || result.skipped > 0) {

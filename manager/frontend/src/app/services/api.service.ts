@@ -728,17 +728,41 @@ export class ApiService {
   // ============================================================================
 
   async batchCopy(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
-    return castProtocol<BatchResult>(await window.go.app.App.BatchCopy(contracts.BatchRequest.createFrom({
-      items: this.normalizeBatchItems(items),
+    const normalized = this.normalizeBatchItems(items);
+    const result = castProtocol<BatchResult>(await window.go.app.App.BatchCopy(contracts.BatchRequest.createFrom({
+      items: normalized,
       recursive
     })));
+    if (result.succeeded > 0) {
+      this.resourceMutations.publish({
+        kind: 'copy',
+        items: normalized.map(item => ({
+          source: item.source,
+          destination: item.destination,
+        })),
+        origin: 'batch-copy',
+      });
+    }
+    return result;
   }
 
   async batchMove(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
-    return castProtocol<BatchResult>(await window.go.app.App.BatchMove(contracts.BatchRequest.createFrom({
-      items: this.normalizeBatchItems(items),
+    const normalized = this.normalizeBatchItems(items);
+    const result = castProtocol<BatchResult>(await window.go.app.App.BatchMove(contracts.BatchRequest.createFrom({
+      items: normalized,
       recursive
     })));
+    if (result.succeeded > 0) {
+      this.resourceMutations.publish({
+        kind: 'move',
+        items: normalized.map(item => ({
+          source: item.source,
+          destination: item.destination,
+        })),
+        origin: 'batch-move',
+      });
+    }
+    return result;
   }
 
   async batchDelete(paths: string[], recursive: boolean = true, useTrash: boolean = true): Promise<BatchResult> {

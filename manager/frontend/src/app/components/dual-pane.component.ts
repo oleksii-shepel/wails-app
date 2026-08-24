@@ -4407,22 +4407,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         (result.failed > 0 ? ` · ${result.failed} failed` : '');
       this.lastTransfer = this.lastDrop;
 
-      await targetPane.navigation?.refresh();
-
-      if (
-        operation === 'move' &&
-        sourcePane &&
-        sourcePane !== targetPane
-      ) {
-        await sourcePane.navigation?.refresh();
-      } else if (
-        operation === 'move' &&
-        sourcePane &&
-        sourcePane === targetPane &&
-        targetPath !== sourcePane.contextState.path
-      ) {
-        await sourcePane.navigation?.refresh();
-      }
+      // ApiService publishes copy/move mutations for both source and destination.
+      // Let pane observers reconcile once instead of forcing eager reloads here.
 
       if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
@@ -6099,10 +6085,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       this.lastTransfer = `${operation}: ${result.succeeded}/${result.total}`;
 
-      await destination.navigation?.refresh();
-      if (operation === 'move') {
-        await source.navigation?.refresh();
-      }
+      // Filesystem mutations publish through ResourceMutationService. Both panes
+      // observe that shared stream, so do not manually reload either pane here.
+      // This avoids duplicate reads, visible flashing, and cursor resets.
 
       if (result.failed > 0) {
         await this.confirmDialog.alert({

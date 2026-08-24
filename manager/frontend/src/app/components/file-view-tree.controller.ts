@@ -3,7 +3,7 @@ import { normalizePath as normalizePathReference } from './address-bar.utils';
 import type { FileViewDirectorySource } from '../services/directory-source.service';
 import { FileType, type FileInfo } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
-import type { TreeNode } from './file-tree.component';
+import type { TreeNode } from './pane-tree.component';
 import type { ViewLayout } from './file-view-container.component';
 
 export interface FileViewTreeHost {

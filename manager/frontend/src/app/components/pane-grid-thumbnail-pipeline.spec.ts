@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 describe('Grid thumbnail pipeline integration', () => {
   const grid = readFileSync(
-    new URL('./file-grid.component.ts', import.meta.url),
+    new URL('./pane-grid.component.ts', import.meta.url),
     'utf8',
   );
   const entry = readFileSync(

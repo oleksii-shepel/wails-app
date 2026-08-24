@@ -1,4 +1,4 @@
-// file-tree.component.ts - FULLY OPTIMIZED FOR MASSIVE TREES
+// pane-tree.component.ts - FULLY OPTIMIZED FOR MASSIVE TREES
 import {
   Component,
   Input,
@@ -44,7 +44,7 @@ export interface DropTarget {
 }
 
 @Component({
-  selector: 'app-file-tree',
+  selector: 'app-pane-tree',
   standalone: true,
   imports: [CommonModule, FormsModule, FileEntryInlineComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -433,7 +433,7 @@ export interface DropTarget {
     }
   `]
 })
-export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
+export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() nodes: TreeNode[] = [];
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() currentPath = '';

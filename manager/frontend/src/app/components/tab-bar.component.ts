@@ -210,7 +210,7 @@ export class TabBarComponent {
     const payload: TabDragPayload = { source: 'tab', tabId: tab.id, fromPaneId: this.paneId };
     // IMPORTANT: Some embedded engines (notably WebView2) can be quirky with
     // custom MIME types and/or hiding getData() during dragover.
-    // Mirror the internal app DnD convention used by FileListComponent.
+    // Mirror the internal app DnD convention used by PaneListComponent.
     const payloadStr = JSON.stringify(payload);
     try { event.dataTransfer.setData('application/json', payloadStr); } catch {}
     try { event.dataTransfer.setData('application/x-wails-tab', payloadStr); } catch {}

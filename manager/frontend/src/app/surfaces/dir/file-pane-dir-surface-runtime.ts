@@ -1,5 +1,5 @@
 import type { FileInfo } from '../../shared/protocol';
-import type { TreeNode } from '../../components/file-tree.component';
+import type { TreeNode } from '../../components/pane-tree.component';
 import type { DirSurfaceRuntime } from './dir-surface-runtime';
 
 type FileViewContainerLike = {

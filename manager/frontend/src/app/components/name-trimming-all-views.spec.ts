@@ -29,10 +29,10 @@ describe('entry-name trimming across pane views', () => {
 
   it('clips tree names', () => {
     expect(read('file-entry-inline.component.ts')).toContain('text-overflow: ellipsis;');
-    expect(read('file-tree.component.ts')).toContain('.tree-entry');
+    expect(read('pane-tree.component.ts')).toContain('.tree-entry');
   });
 
   it('clips details cells', () => {
-    expect(read('file-details.component.ts')).toContain('.details-cell .file-name');
+    expect(read('pane-details.component.ts')).toContain('.details-cell .file-name');
   });
 });

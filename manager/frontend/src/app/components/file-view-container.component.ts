@@ -7,14 +7,14 @@ import {
 import { CommonModule } from '@angular/common';
 import { createSubject, fromPromise } from '@epikodelabs/streamix';
 import { mergeMap, takeUntil } from '@epikodelabs/streamix';
-import { FileListComponent } from './file-list.component';
-import { FileGridComponent } from './file-grid.component';
-import { FileTreeComponent, TreeNode, DropTarget } from './file-tree.component';
+import { PaneListComponent } from './pane-list.component';
+import { PaneGridComponent } from './pane-grid.component';
+import { PaneTreeComponent, TreeNode, DropTarget } from './pane-tree.component';
 import {
-  FileDetailsComponent,
-  type DetailsColumnConfiguration,
-  type ColumnDef,
-} from './file-details.component';
+  PaneDetailsComponent,
+  type PaneDetailsColumnConfiguration,
+  type PaneDetailsColumn,
+} from './pane-details.component';
 import type { DirectoryView as ViewMode } from './pane-component.contract';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
@@ -36,10 +36,10 @@ export type ViewLayout = ViewMode;
   standalone: true,
   imports: [
     CommonModule,
-    FileListComponent,
-    FileGridComponent,
-    FileTreeComponent,
-    FileDetailsComponent,
+    PaneListComponent,
+    PaneGridComponent,
+    PaneTreeComponent,
+    PaneDetailsComponent,
     NativeOverlayComponent,
     SplitDividerComponent,
   ],
@@ -68,7 +68,7 @@ export type ViewLayout = ViewMode;
       </app-split-divider>
 
       <div class="view-content">
-        <app-file-list
+        <app-pane-list
           *ngIf="currentView === 'list'"
           [entries]="sortedEntries"
           [pendingDirectorySizePaths]="pendingDirectorySizePaths"
@@ -87,9 +87,9 @@ export type ViewLayout = ViewMode;
           (dragDrop)="onViewDragDrop($event)"
           (rename)="rename.emit($event)"
           (viewportChange)="viewportChange.emit()">
-        </app-file-list>
+        </app-pane-list>
 
-        <app-file-grid
+        <app-pane-grid
           *ngIf="currentView === 'grid'"
           [entries]="sortedEntries"
           [pendingDirectorySizePaths]="pendingDirectorySizePaths"
@@ -107,9 +107,9 @@ export type ViewLayout = ViewMode;
           (dragDrop)="onViewDragDrop($event)"
           (rename)="rename.emit($event)"
           (viewportChange)="viewportChange.emit()">
-        </app-file-grid>
+        </app-pane-grid>
 
-        <app-file-tree
+        <app-pane-tree
           #fileTree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
@@ -131,9 +131,9 @@ export type ViewLayout = ViewMode;
           (dragDrop)="onTreeDragDrop($event)"
           (rename)="onTreeRename($event)"
           (viewportChange)="viewportChange.emit()">
-        </app-file-tree>
+        </app-pane-tree>
 
-        <app-file-details
+        <app-pane-details
           *ngIf="currentView === 'details'"
           [entries]="sortedEntries"
           [pendingDirectorySizePaths]="pendingDirectorySizePaths"
@@ -158,7 +158,7 @@ export type ViewLayout = ViewMode;
           (dragDrop)="onViewDragDrop($event)"
           (rename)="rename.emit($event)"
           (viewportChange)="viewportChange.emit()">
-        </app-file-details>
+        </app-pane-details>
       </div>
     </div>
   `,
@@ -211,10 +211,10 @@ export type ViewLayout = ViewMode;
       overflow: hidden;
     }
 
-    app-file-list,
-    app-file-grid,
-    app-file-tree,
-    app-file-details {
+    app-pane-list,
+    app-pane-grid,
+    app-pane-tree,
+    app-pane-details {
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
@@ -230,10 +230,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   readonly defaultBrowserPaneSplit = 42;
   readonly browserPaneSnapPoints = [25, 42, 60];
 
-  @ViewChild('fileTree') treeComponent?: FileTreeComponent;
-  @ViewChild(FileListComponent) listComponent?: FileListComponent;
-  @ViewChild(FileGridComponent) gridComponent?: FileGridComponent;
-  @ViewChild(FileDetailsComponent) detailsComponent?: FileDetailsComponent;
+  @ViewChild('fileTree') treeComponent?: PaneTreeComponent;
+  @ViewChild(PaneListComponent) listComponent?: PaneListComponent;
+  @ViewChild(PaneGridComponent) gridComponent?: PaneGridComponent;
+  @ViewChild(PaneDetailsComponent) detailsComponent?: PaneDetailsComponent;
 
   cachedBrowserPath = '';
   cachedShowBrowserPane = false;
@@ -255,8 +255,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Input() sortField     = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() directoriesFirst = true;
-  @Input() detailsColumns: ColumnDef[] | null = null;
-  @Input() detailsColumnConfiguration: DetailsColumnConfiguration | null = null;
+  @Input() detailsColumns: PaneDetailsColumn[] | null = null;
+  @Input() detailsColumnConfiguration: PaneDetailsColumnConfiguration | null = null;
   @Input() colorizeByMime = false;
   @Input() paneActive = true;
 
@@ -265,7 +265,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Output() navigate        = new EventEmitter<FileInfo>();
   @Output() openInNewTab    = new EventEmitter<FileInfo>();
   @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
-  @Output() detailsColumnConfigurationChange = new EventEmitter<DetailsColumnConfiguration>();
+  @Output() detailsColumnConfigurationChange = new EventEmitter<PaneDetailsColumnConfiguration>();
   @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();

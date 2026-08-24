@@ -1,4 +1,4 @@
-// file-grid.component.ts - FULLY OPTIMIZED FOR MASSIVE FOLDERS
+// pane-grid.component.ts - FULLY OPTIMIZED FOR MASSIVE FOLDERS
 import {
   Component,
   Input,
@@ -31,7 +31,7 @@ import {
 } from '../services/thumbnail-pipeline.service';
 
 @Component({
-  selector: 'app-file-grid',
+  selector: 'app-pane-grid',
   standalone: true,
   imports: [CommonModule, FileEntryComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -423,7 +423,7 @@ import {
     }
   `]
 })
-export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterViewInit {
+export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterViewInit {
   constructor(
     private zone: NgZone,
     private cdr: ChangeDetectorRef,

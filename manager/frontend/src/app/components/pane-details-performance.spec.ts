@@ -1,4 +1,4 @@
-import { FileDetailsComponent } from './file-details.component';
+import { PaneDetailsComponent } from './pane-details.component';
 import { FileType, type FileInfo } from '../shared/protocol';
 
 function entry(path: string, size: number, modified = 1): FileInfo {
@@ -16,9 +16,9 @@ function entry(path: string, size: number, modified = 1): FileInfo {
   };
 }
 
-describe('FileDetailsComponent performance model', () => {
+describe('PaneDetailsComponent performance model', () => {
   it('caches formatted values per immutable entry object', () => {
-    const component = new FileDetailsComponent(
+    const component = new PaneDetailsComponent(
       { runOutsideAngular: (fn: () => void) => fn() } as any,
       { markForCheck() {} } as any,
     );
@@ -32,7 +32,7 @@ describe('FileDetailsComponent performance model', () => {
   });
 
   it('applies independent visibility and order configuration', () => {
-    const component = new FileDetailsComponent(
+    const component = new PaneDetailsComponent(
       { runOutsideAngular: (fn: () => void) => fn() } as any,
       { markForCheck() {} } as any,
     );
@@ -53,9 +53,9 @@ describe('FileDetailsComponent performance model', () => {
   });
 
   it('keeps Details virtualization on the shared VirtualCollection engine', () => {
-    const source = FileDetailsComponent.toString();
+    const source = PaneDetailsComponent.toString();
     expect(source).toBeTruthy();
-    const component = new FileDetailsComponent(
+    const component = new PaneDetailsComponent(
       { runOutsideAngular: (fn: () => void) => fn() } as any,
       { markForCheck() {} } as any,
     );

@@ -21,7 +21,7 @@ describe('details-row cursor width', () => {
   });
 
   it('does not require intrinsic-width FileDetails rows', () => {
-    const source = read('file-details.component.ts');
+    const source = read('pane-details.component.ts');
     expect(source).not.toContain('width: max-content;');
     expect(source).toContain('.details-window.virtual-window');
   });

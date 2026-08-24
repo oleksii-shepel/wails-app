@@ -22,9 +22,9 @@ describe('parent entry double-click navigation parity', () => {
   });
 
   it('does not navigate parent from shared List/Grid/Details click handlers', () => {
-    const list = files('file-list.component.ts');
-    const grid = files('file-grid.component.ts');
-    const details = files('file-details.component.ts');
+    const list = files('pane-list.component.ts');
+    const grid = files('pane-grid.component.ts');
+    const details = files('pane-details.component.ts');
 
     expect(list).not.toContain(
       'this.selectionChange.emit([entry]);\n      this.navigate.emit(entry);\n      return;',
@@ -38,13 +38,13 @@ describe('parent entry double-click navigation parity', () => {
   });
 
   it('always allows parent navigation from double-click handlers', () => {
-    expect(files('file-list.component.ts')).toContain(
+    expect(files('pane-list.component.ts')).toContain(
       'if (this.isParentEntry(entry)) {\n      this.navigate.emit(entry);',
     );
-    expect(files('file-grid.component.ts')).toContain(
+    expect(files('pane-grid.component.ts')).toContain(
       'onItemDoubleClick(entry: FileInfo): void {\n    if (this.isParentEntry(entry)) {',
     );
-    expect(files('file-details.component.ts')).toContain(
+    expect(files('pane-details.component.ts')).toContain(
       'onRowDoubleClick(entry: FileInfo): void {\n    if (this.isParentEntry(entry)) {',
     );
   });

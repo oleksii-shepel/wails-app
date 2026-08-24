@@ -1,5 +1,5 @@
 import { FileType, type FileInfo } from '../shared/protocol';
-import type { TreeNode } from './file-tree.component';
+import type { TreeNode } from './pane-tree.component';
 
 export interface FileViewSortHost {
   get entries(): FileInfo[];

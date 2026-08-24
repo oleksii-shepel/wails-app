@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 
 describe('shared VirtualCollection integration', () => {
   const files = [
-    './file-list.component.ts',
-    './file-details.component.ts',
-    './file-grid.component.ts',
+    './pane-list.component.ts',
+    './pane-details.component.ts',
+    './pane-grid.component.ts',
     './global-search.component.ts',
     './directory-pane.component.ts',
   ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));

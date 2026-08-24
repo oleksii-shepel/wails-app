@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 
 describe('Details view pipeline integration', () => {
   const details = readFileSync(
-    new URL('./file-details.component.ts', import.meta.url),
+    new URL('./pane-details.component.ts', import.meta.url),
     'utf8',
   );
   const container = readFileSync(

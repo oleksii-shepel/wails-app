@@ -1,7 +1,7 @@
 import type { EventEmitter } from '@angular/core';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
-import type { TreeNode } from './file-tree.component';
+import type { TreeNode } from './pane-tree.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export interface FileViewEventsHost {

@@ -1,5 +1,5 @@
 import type { FileInfo } from '../shared/protocol';
-import type { TreeNode } from './file-tree.component';
+import type { TreeNode } from './pane-tree.component';
 import type { ViewLayout } from './file-view-container.component';
 
 export interface FileViewRuntimeHost {

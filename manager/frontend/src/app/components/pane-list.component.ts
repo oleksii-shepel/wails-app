@@ -1,4 +1,4 @@
-// file-list.component.ts
+// pane-list.component.ts
 import {
   Component,
   Input,
@@ -38,7 +38,7 @@ type VisibleRowVm = {
 };
 
 @Component({
-  selector: 'app-file-list',
+  selector: 'app-pane-list',
   standalone: true,
   imports: [CommonModule, FileEntryComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -279,7 +279,7 @@ type VisibleRowVm = {
     }
   `]
 })
-export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
+export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
   constructor(
     private zone: NgZone,
     private cdr: ChangeDetectorRef,

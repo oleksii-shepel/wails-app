@@ -1,4 +1,4 @@
-// file-details.component.ts
+// pane-details.component.ts
 import {
   Component,
   Input,
@@ -90,7 +90,7 @@ interface DetailsRowVm {
 }
 
 @Component({
-  selector: 'app-file-details',
+  selector: 'app-pane-details',
   standalone: true,
   imports: [
     CommonModule,
@@ -531,7 +531,7 @@ interface DetailsRowVm {
     }
   `]
 })
-export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
+export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
   FileType = FileType;
   private readonly defaultColumns: ColumnDef[] = [
     { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },

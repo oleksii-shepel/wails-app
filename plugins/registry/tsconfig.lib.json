@@ -4,9 +4,6 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "paths": {
-      "@reassembly/core": [
-        "../../packages/core/frontend/src/index.ts"
-      ],
       "@reassembly/core/contracts/files": [
         "../../packages/core/frontend/src/contracts/files/index.ts"
       ],
@@ -39,6 +36,9 @@
       ],
       "@reassembly/core/ui/panes": [
         "../../packages/core/frontend/src/ui/panes/index.ts"
+      ],
+      "@reassembly/core": [
+        "../../packages/core/frontend/src/index.ts"
       ]
     },
     "lib": [

@@ -3,9 +3,6 @@
   "compilerOptions": {
     "rootDir": "../..",
     "paths": {
-      "@reassembly/core": [
-        "../../packages/core/frontend/src/index.ts"
-      ],
       "@reassembly/core/contracts/files": [
         "../../packages/core/frontend/src/contracts/files/index.ts"
       ],
@@ -41,6 +38,9 @@
       ],
       "wailsjs/*": [
         "./wailsjs/*"
+      ],
+      "@reassembly/core": [
+        "../../packages/core/frontend/src/index.ts"
       ]
     },
     "outDir": "./out-tsc/app",

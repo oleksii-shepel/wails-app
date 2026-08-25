@@ -1,27 +1,27 @@
 import { Injectable } from '@angular/core';
-import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { contracts } from '../../../wailsjs/go/models';
+import { QueuedDialogGate } from './dialog-gate';
 
 interface RemoteConnectDialogRequest {
-  resolve: (value: contracts.RemoteMount | null) => void;
+  resolve(value: contracts.RemoteMount | null): void;
   initialName?: string;
   initialProtocol?: string;
 }
 
 @Injectable({ providedIn: 'root' })
 export class RemoteConnectDialogService {
-  public readonly activeRequest$ = createBehaviorSubject<RemoteConnectDialogRequest | null>(null);
-
-  private readonly queue: RemoteConnectDialogRequest[] = [];
+  private readonly gate = new QueuedDialogGate<RemoteConnectDialogRequest, contracts.RemoteMount | null>();
+  public readonly activeRequest$ = this.gate.activeRequest$;
+  public readonly mountedRequest$ = this.gate.mountedRequest$;
+  public readonly closingRequest$ = this.gate.closingRequest$;
 
   openDialog(options?: { name?: string; protocol?: string }): Promise<contracts.RemoteMount | null> {
     return new Promise<contracts.RemoteMount | null>((resolve) => {
-      this.queue.push({
+      this.gate.enqueue({
         resolve,
         initialName: options?.name?.trim() || undefined,
         initialProtocol: options?.protocol?.trim() || undefined,
       });
-      this.tryOpenNext();
     });
   }
 
@@ -30,20 +30,10 @@ export class RemoteConnectDialogService {
   }
 
   resolveActive(result: contracts.RemoteMount | null): void {
-    const active = this.activeRequest$.value;
-    if (!active) {
-      return;
-    }
-
-    active.resolve(result);
-    this.activeRequest$.next(null);
-    this.tryOpenNext();
+    this.gate.beginClose(result);
   }
 
-  private tryOpenNext(): void {
-    if (this.activeRequest$.value) {
-      return;
-    }
-    this.activeRequest$.next(this.queue.shift() ?? null);
+  finishClose(): void {
+    this.gate.finishClose();
   }
 }

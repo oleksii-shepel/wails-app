@@ -25,7 +25,7 @@ interface PreviewRow {
   styleUrls: ['./batch-rename-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async as request">
-      <div class="br-overlay" (click)="onCancel()">
+      <div class="br-overlay" [class.br-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
         <div
           #dialogPanel
           class="br-panel"
@@ -139,7 +139,7 @@ interface PreviewRow {
 export class BatchRenameDialogComponent {
   @ViewChild('dialogPanel') dialogPanel?: ElementRef<HTMLElement>;
 
-  readonly request$: Stream<BatchRenameRequest | null> = this.service.activeRequest$;
+  readonly request$: Stream<BatchRenameRequest | null> = this.service.mountedRequest$;
 
   pattern = '*';
   startAt = 1;
@@ -160,7 +160,7 @@ export class BatchRenameDialogComponent {
     this.inputEngine.registerCommand('dialog.batchRename.focusNext', () => this.moveDialogFocus(1));
     this.inputEngine.registerCommand('dialog.batchRename.focusPrev', () => this.moveDialogFocus(-1));
 
-    this.service.activeRequest$.pipe(takeUntil(this.destroy$)).subscribe((req) => {
+    this.service.mountedRequest$.pipe(takeUntil(this.destroy$)).subscribe((req) => {
       if (req) {
         this.pattern = '*';
         this.startAt = 1;
@@ -276,5 +276,16 @@ export class BatchRenameDialogComponent {
       return;
     }
     moveFocusWithin(this.dialogPanel.nativeElement, delta);
+  }
+
+  get isClosing(): boolean {
+    return !!this.service.closingRequest$.value;
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.service.finishClose();
   }
 }

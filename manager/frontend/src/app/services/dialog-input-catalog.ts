@@ -132,17 +132,6 @@ export const QUICK_ACCESS_INPUT: DialogBindingCatalogEntry = {
 
 export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
   {
-    context: dialogContext('dialog.archiveMoveWarning', 'dialog', 990, 'Archive move warning dialog'),
-    bindings: [
-      keyBinding('dialog.archiveMoveWarning.confirm.enter', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.confirm', 'enter', 'Confirm archive move'),
-      keyBinding('dialog.archiveMoveWarning.cancel.escape', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.cancel', 'escape', 'Cancel archive move'),
-      keyBinding('dialog.archiveMoveWarning.focus.next', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusNext', 'tab', 'Move focus to next action'),
-      keyBinding('dialog.archiveMoveWarning.focus.prev', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusPrev', 'tab', 'Move focus to previous action', ['shift']),
-      keyBinding('dialog.archiveMoveWarning.focus.next.arrowRight', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusNextArrow', 'arrowright', 'Move focus to next action with arrows'),
-      keyBinding('dialog.archiveMoveWarning.focus.prev.arrowLeft', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusPrevArrow', 'arrowleft', 'Move focus to previous action with arrows'),
-    ],
-  },
-  {
     context: dialogContext('dialog.commandPalette', 'dialog', 975, 'Command palette'),
     bindings: [
       keyBinding('dialog.commandPalette.close.escape', 'dialog.commandPalette', 'dialog.commandPalette.close', 'escape', 'Close command palette'),
@@ -276,4 +265,3 @@ export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
 ];
 /** @deprecated Use BUILTIN_INPUT_CATALOG. */
 export const DIALOG_INPUT_CATALOG = BUILTIN_INPUT_CATALOG;
-

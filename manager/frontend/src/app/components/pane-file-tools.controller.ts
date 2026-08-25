@@ -1,5 +1,6 @@
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
+import { ArchiveFilesDialogService } from '../services/archive-files-dialog.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { OperationHistoryService } from '../services/operation-history.service';
 
@@ -18,6 +19,7 @@ export interface PaneFileToolsHost {
 export class PaneFileToolsController {
   constructor(
     private readonly api: ApiService,
+    private readonly archiveFilesDialog: ArchiveFilesDialogService,
     private readonly confirm: ConfirmDialogService,
     private readonly history: OperationHistoryService,
   ) {}
@@ -143,7 +145,12 @@ export class PaneFileToolsController {
     const entries = [...host.selectedEntries];
     const first = entries[0];
     const baseName = entries.length === 1 ? first.name.replace(/\.[^.]+$/, '') || first.name : 'Archive';
-    const requested = await this.confirm.prompt({ title: 'Create ZIP Archive', message: entries.length === 1 ? `Compress "${first.name}" to:` : `Compress ${entries.length} selected items to:`, confirmText: 'Create', defaultValue: `${baseName}.zip`, historyKey: 'reassembly.createZip' });
+    const requested = await this.archiveFilesDialog.open({
+      title: 'Archive Files',
+      message: entries.length === 1 ? `Compress "${first.name}" to:` : `Compress ${entries.length} selected items to:`,
+      confirmText: 'Create',
+      defaultValue: `${baseName}.zip`,
+    });
     let cleanName = this.cleanLeafName(requested);
     if (!cleanName) { await this.confirm.alert({ title: 'Invalid Name', message: 'Choose a valid ZIP filename.' }); return; }
     if (!/\.zip$/i.test(cleanName)) cleanName += '.zip';

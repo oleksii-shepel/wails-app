@@ -22,7 +22,9 @@ interface ConfirmDialogRequest {
         class="confirm-overlay"
         [class.confirm-overlay--alert]="request.options.isAlert"
         [class.confirm-overlay--detailed]="request.options.isAlert && request.options.details?.length"
+        [class.confirm-overlay--closing]="isClosing"
         (click)="onCancel()"
+        (animationend)="onAnimationEnd($event)"
       >
         <div
           #dialogPanel
@@ -164,6 +166,7 @@ interface ConfirmDialogRequest {
       padding: var(--vsc-padding-xl);
       animation: fadeIn 0.2s ease;
     }
+    .confirm-overlay--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
 
     /* Alert variant - minimal backdrop, positioned at top-center */
     .confirm-overlay--alert {
@@ -181,10 +184,18 @@ interface ConfirmDialogRequest {
       from { opacity: 0; }
       to { opacity: 1; }
     }
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
 
     @keyframes slideDown {
       from { transform: translateY(-16px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(0); opacity: 1; }
+      to { transform: translateY(-16px); opacity: 0; }
     }
 
     .confirm-form {
@@ -210,6 +221,7 @@ interface ConfirmDialogRequest {
       overflow: hidden;
       animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .confirm-overlay--closing .confirm-panel { animation: slideUp 0.2s ease forwards; }
 
     /* Alert panel - toast-style */
     .confirm-panel--alert {
@@ -523,7 +535,7 @@ export class ConfirmDialogComponent {
 
   private readonly destroy$ = createSubject<void>();
   draftValue = '';
-  readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
+  readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.mountedRequest$;
 
   constructor(
     private confirmDialogService: ConfirmDialogService,
@@ -531,7 +543,7 @@ export class ConfirmDialogComponent {
   ) {}
 
   ngOnInit(): void {
-    this.confirmDialogService.activeRequest$
+    this.confirmDialogService.mountedRequest$
       .pipe(takeUntil(this.destroy$))
       .subscribe(request => {
         if (request) {
@@ -649,5 +661,16 @@ export class ConfirmDialogComponent {
     if (options.footerHint === false) return null;
     if (typeof options.footerHint === 'string') return options.footerHint;
     return options.details?.length ? null : 'Press Enter to continue';
+  }
+
+  get isClosing(): boolean {
+    return !!this.confirmDialogService.closingRequest$.value;
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.confirmDialogService.finishClose();
   }
 }

@@ -48,11 +48,6 @@ import { PathHistoryComponent } from './path-history.component';
 import { QuickAccessComponent, type QuickAccessTarget } from './quick-access.component';
 import { RemoteConnectionsComponent } from './remote-connections.component';
 import { OperationSurfaceComponent } from './operation-surface.component';
-import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
-import {
-  PaneSyncReviewComponent,
-  type PaneSyncPlan,
-} from './pane-sync-review.component';
 import { SelectionBasketComponent } from './selection-basket.component';
 import { ToolsCenterComponent } from './tools-center.component';
 import { DiskUsageDialogComponent } from './disk-usage-dialog.component';
@@ -93,7 +88,7 @@ import { presentPluginCommand } from './plugin-command-presentation';
 import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './pane-link-policy';
 import type { PanePresentation } from './pane-component.contract';
-import { FILE_MANAGER_COMMANDS } from './file-manager-command-registry';
+import { FILE_MANAGER_COMMANDS } from './command-registry';
 import { InputCenterComponent } from './input-center.component';
 import { KeyboardHelpComponent } from './keyboard-help.component';
 import { OperationJournalComponent } from './operation-journal.component';
@@ -101,6 +96,12 @@ import { ClosedTabsComponent } from './closed-tabs.component';
 import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { PowerFileOperationsService } from '../services/power-file-operations.service';
+import { PaneCompareDialogService } from '../services/pane-compare-dialog.service';
+import { PaneRecursiveCompareDialogService } from '../services/pane-recursive-compare-dialog.service';
+import {
+  PaneSyncReviewDialogService,
+  type PaneSyncPlan,
+} from '../services/pane-sync-review-dialog.service';
 
 type PaneId = 'left' | 'right';
 
@@ -171,7 +172,7 @@ const COMMAND = {
   undo: 'reassembly.edit.undo',
   redo: 'reassembly.edit.redo',
   operationHistory: FILE_MANAGER_COMMANDS.operationHistory,
-  createArchive: 'reassembly.archive.createZip',
+  createArchive: FILE_MANAGER_COMMANDS.createArchive,
   checksum: 'reassembly.files.checksum',
   splitFile: 'reassembly.files.splitFile',
   joinFiles: 'reassembly.files.joinFiles',
@@ -404,8 +405,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     QuickAccessComponent,
     RemoteConnectionsComponent,
     OperationSurfaceComponent,
-    PaneComparisonBarComponent,
-    PaneSyncReviewComponent,
     SelectionBasketComponent,
     ToolsCenterComponent,
     DiskUsageDialogComponent,
@@ -439,39 +438,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (surfaceAction)="handleWorkspaceSurfaceAction($event)">
       </app-tool-workspace-host>
 
-      <app-pane-comparison-bar
-        *ngIf="workspacePresentation?.kind !== 'tool'"
-        class="comparison-surface"
-        [visible]="comparisonVisible"
-        [leftEntries]="leftPane?.contextState.entries ?? []"
-        [rightEntries]="rightPane?.contextState.entries ?? []"
-        [leftPath]="leftPane?.contextState.path ?? ''"
-        [rightPath]="rightPane?.contextState.path ?? ''"
-        [recursive]="comparisonRecursive"
-        [scanning]="recursiveComparisonScanning"
-        [error]="recursiveComparisonError"
-        [comparisonResult]="paneComparisonResult"
-        [policy]="comparisonPolicy"
-        (policyChange)="setComparisonPolicy($event)"
-        (toggleRecursive)="toggleRecursiveComparison()"
-        (refreshRecursive)="refreshRecursiveComparison()"
-        (selectLeft)="selectComparisonDifferences('left')"
-        (selectRight)="selectComparisonDifferences('right')"
-        (copyMissingLeftToRight)="copyMissingComparison('left')"
-        (copyMissingRightToLeft)="copyMissingComparison('right')"
-        (review)="openSyncReview()"
-        (close)="closePaneComparison()">
-      </app-pane-comparison-bar>
-
-      <app-pane-sync-review
-        *ngIf="workspacePresentation?.kind !== 'tool'"
-        class="comparison-surface"
-        [visible]="syncReviewVisible"
-        [result]="paneComparisonResult"
-        [history]="recentSyncRuns"
-        (execute)="executeSyncPlan($event)"
-        (close)="closeSyncReview()">
-      </app-pane-sync-review>
       <div
         class="pane-intelligence"
         *ngIf="workspacePresentation?.kind !== 'tool'"
@@ -1047,8 +1013,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   commandPaletteCommands: PaletteCommand[] = [];
 
-  comparisonVisible = false;
-  syncReviewVisible = false;
   comparisonRecursive = false;
   comparisonPolicy: PaneComparisonPolicy = 'size-date';
   verifiedComparisonResult: PaneComparisonResult | null = null;
@@ -1106,6 +1070,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     private readonly operationHistory: OperationHistoryService,
     private readonly powerFileOperations: PowerFileOperationsService,
     private readonly trashDialog: TrashDialogService,
+    private readonly paneCompareDialog: PaneCompareDialogService,
+    private readonly paneRecursiveCompareDialog: PaneRecursiveCompareDialogService,
+    private readonly paneSyncReviewDialog: PaneSyncReviewDialogService,
     private readonly driveLifecycle: DriveLifecycleService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly settings: SettingsService,
@@ -3801,20 +3768,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   get rightComparisonStatuses() {
     return this.paneComparison.statusMaps(this.paneComparisonResult).right;
   }
-  get paneComparisonResult(): PaneComparisonResult {
-    const recursiveCurrent =
-      this.comparisonRecursive &&
-      !!this.recursiveComparisonResult &&
-      !!this.recursiveComparisonRoots &&
-      this.recursiveComparisonRoots.left === this.leftPane?.contextState.path &&
-      this.recursiveComparisonRoots.right === this.rightPane?.contextState.path;
 
-    if (this.verifiedComparisonResult && !this.comparisonRecursive) {
+  get flatPaneComparisonResult(): PaneComparisonResult {
+    if (this.verifiedComparisonResult) {
       return this.verifiedComparisonResult;
-    }
-
-    if (recursiveCurrent) {
-      return this.recursiveComparisonResult!;
     }
 
     return this.paneComparison.compare(
@@ -3824,10 +3781,26 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     );
   }
 
+  get paneComparisonResult(): PaneComparisonResult {
+    const recursiveCurrent =
+      this.comparisonRecursive &&
+      !!this.recursiveComparisonResult &&
+      !!this.recursiveComparisonRoots &&
+      this.recursiveComparisonRoots.left === this.leftPane?.contextState.path &&
+      this.recursiveComparisonRoots.right === this.rightPane?.contextState.path;
+
+    if (recursiveCurrent) {
+      return this.recursiveComparisonResult!;
+    }
+
+    return this.flatPaneComparisonResult;
+  }
+
   async setComparisonPolicy(policy: PaneComparisonPolicy): Promise<void> {
     this.comparisonPolicy = policy;
     this.verifiedComparisonResult = null;
-    this.syncReviewVisible = false;
+    this.paneSyncReviewDialog.close();
+    this.notifyCompareDialogsChanged();
 
     if (this.comparisonRecursive) {
       await this.refreshRecursiveComparison();
@@ -3860,11 +3833,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     } else {
       this.verifiedComparisonResult = base;
     }
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
   togglePaneComparison(): void {
-    if (this.comparisonVisible) {
+    if (this.paneCompareDialog.activeRequest$.value) {
       this.closePaneComparison();
       return;
     }
@@ -3877,46 +3851,110 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.comparisonVisible = true;
+    void this.paneCompareDialog.openDialog({
+      getLeftPath: () => this.leftPane?.contextState.path ?? '',
+      getRightPath: () => this.rightPane?.contextState.path ?? '',
+      getResult: () => this.flatPaneComparisonResult,
+      getPolicy: () => this.comparisonPolicy,
+      onPolicyChange: (policy: PaneComparisonPolicy) => this.setComparisonPolicy(policy),
+      onSelectLeft: () => this.selectComparisonDifferences('left', false),
+      onSelectRight: () => this.selectComparisonDifferences('right', false),
+      onCopyMissingLeftToRight: () => this.copyMissingComparison('left', false),
+      onCopyMissingRightToLeft: () => this.copyMissingComparison('right', false),
+      onOpenRecursiveCompare: () => this.openRecursiveComparisonDialog(),
+      onOpenSyncReview: () => this.openSyncReview(false),
+    }).finally(() => {
+      this.notifyCompareDialogsChanged();
+      this.cdr.markForCheck();
+    });
+
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
   closePaneComparison(): void {
-    this.comparisonVisible = false;
-    this.syncReviewVisible = false;
-    this.comparisonRecursive = false;
-    this.recursiveComparisonResult = null;
-    this.verifiedComparisonResult = null;
-    this.recursiveComparisonError = '';
+    this.paneCompareDialog.close();
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
-  openSyncReview(): void {
+  openSyncReview(recursive = this.comparisonRecursive): void {
     if (!this.canComparePanes()) return;
-    this.comparisonVisible = true;
-    this.syncReviewVisible = true;
+
+    const result = recursive ? this.paneComparisonResult : this.flatPaneComparisonResult;
+    if (result.summary.different === 0) return;
+
+    this.paneCompareDialog.close();
+    if (!recursive) {
+      this.paneRecursiveCompareDialog.close();
+    }
+
+    void this.paneSyncReviewDialog.openDialog({
+      getResult: () => recursive ? this.paneComparisonResult : this.flatPaneComparisonResult,
+      getHistory: () => this.recentSyncRuns,
+      onExecute: (plan: PaneSyncPlan) => this.executeSyncPlan(plan, recursive),
+    }).finally(() => {
+      this.notifyCompareDialogsChanged();
+      this.cdr.markForCheck();
+    });
+
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
   closeSyncReview(): void {
-    this.syncReviewVisible = false;
+    this.paneSyncReviewDialog.close();
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
-  async toggleRecursiveComparison(): Promise<void> {
+  async openRecursiveComparisonDialog(refresh = false): Promise<void> {
     if (!this.canComparePanes()) return;
 
-    this.comparisonRecursive = !this.comparisonRecursive;
-    this.syncReviewVisible = false;
-
-    if (this.comparisonRecursive) {
-      await this.refreshRecursiveComparison();
-    } else {
-      this.recursiveComparisonResult = null;
-      this.recursiveComparisonRoots = null;
-      this.recursiveComparisonError = '';
-      this.cdr.markForCheck();
+    if (this.paneRecursiveCompareDialog.activeRequest$.value) {
+      if (refresh) {
+        await this.refreshRecursiveComparison();
+      } else {
+        this.closeRecursiveComparisonDialog();
+      }
+      return;
     }
+
+    this.comparisonRecursive = true;
+    await this.refreshRecursiveComparison();
+
+    this.paneCompareDialog.close();
+    void this.paneRecursiveCompareDialog.openDialog({
+      getLeftPath: () => this.leftPane?.contextState.path ?? '',
+      getRightPath: () => this.rightPane?.contextState.path ?? '',
+      getResult: () => this.paneComparisonResult,
+      getPolicy: () => this.comparisonPolicy,
+      getScanning: () => this.recursiveComparisonScanning,
+      getError: () => this.recursiveComparisonError,
+      onPolicyChange: (policy: PaneComparisonPolicy) => this.setComparisonPolicy(policy),
+      onRefresh: () => this.refreshRecursiveComparison(),
+      onSelectLeft: () => this.selectComparisonDifferences('left', true),
+      onSelectRight: () => this.selectComparisonDifferences('right', true),
+      onCopyMissingLeftToRight: () => this.copyMissingComparison('left', true),
+      onCopyMissingRightToLeft: () => this.copyMissingComparison('right', true),
+      onOpenSyncReview: () => this.openSyncReview(true),
+    }).finally(() => {
+      if (!this.paneRecursiveCompareDialog.activeRequest$.value) {
+        this.resetRecursiveComparisonState();
+      }
+      this.notifyCompareDialogsChanged();
+      this.cdr.markForCheck();
+    });
+
+    this.notifyCompareDialogsChanged();
+    this.cdr.markForCheck();
+  }
+
+  closeRecursiveComparisonDialog(): void {
+    this.paneRecursiveCompareDialog.close();
+    this.resetRecursiveComparisonState();
+    this.notifyCompareDialogsChanged();
+    this.cdr.markForCheck();
   }
 
   async refreshRecursiveComparison(): Promise<void> {
@@ -3924,6 +3962,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     this.recursiveComparisonScanning = true;
     this.recursiveComparisonError = '';
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
 
     try {
@@ -3956,6 +3995,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         error instanceof Error ? error.message : String(error);
     } finally {
       this.recursiveComparisonScanning = false;
+      this.notifyCompareDialogsChanged();
       this.cdr.markForCheck();
     }
   }
@@ -3972,6 +4012,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       await this.refreshRecursiveComparison();
     }
 
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
@@ -4009,10 +4050,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  selectComparisonDifferences(side: PaneId): void {
+  selectComparisonDifferences(side: PaneId, recursive = this.comparisonRecursive): void {
     if (!this.canComparePanes()) return;
 
-    const result = this.paneComparisonResult;
+    const result = recursive ? this.paneComparisonResult : this.flatPaneComparisonResult;
     const paths = side === 'left'
       ? this.paneComparison.leftDifferencePaths(result)
       : this.paneComparison.rightDifferencePaths(result);
@@ -4022,10 +4063,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.activate(side);
   }
 
-  async copyMissingComparison(sourceSide: PaneId): Promise<void> {
+  async copyMissingComparison(sourceSide: PaneId, recursive = this.comparisonRecursive): Promise<void> {
     if (!this.canComparePanes()) return;
 
-    const result = this.paneComparisonResult;
+    const result = recursive ? this.paneComparisonResult : this.flatPaneComparisonResult;
     const missing = result.items.filter(item =>
       sourceSide === 'left'
         ? item.status === 'only-left' && !!item.left
@@ -4043,7 +4084,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       missing.map(async item => {
         const source =
           sourceSide === 'left' ? item.left!.path : item.right!.path;
-        const relativePath = this.comparisonRecursive
+        const relativePath = recursive
           ? item.key
           : this.leafName(source);
 
@@ -4062,10 +4103,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       `Copy ${missing.length} missing item${missing.length === 1 ? '' : 's'} ${
         sourceSide === 'left' ? 'left в†’ right' : 'right в†’ left'
       }?`,
+      recursive,
     );
   }
 
-  async executeSyncPlan(plan: PaneSyncPlan): Promise<void> {
+  async executeSyncPlan(plan: PaneSyncPlan, recursive = this.comparisonRecursive): Promise<void> {
     if (!this.canComparePanes() || !plan) return;
 
     const approved = plan.items.filter(item => item.direction !== 'skip');
@@ -4102,7 +4144,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       if (!source || !destinationRoot) continue;
 
-      const relativePath = this.comparisonRecursive
+      const relativePath = recursive
         ? item.key
         : this.leafName(source);
 
@@ -4127,7 +4169,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       leftRoot: this.leftPane?.contextState.path ?? '',
       rightRoot: this.rightPane?.contextState.path ?? '',
       mode,
-      recursive: this.comparisonRecursive,
+      recursive,
       planned: items.length,
       succeeded: result.succeeded,
       skipped: result.skipped,
@@ -4136,13 +4178,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     });
     this.lastTransfer = `sync ${mode}: ${result.succeeded}/${result.total}`;
 
-    this.syncReviewVisible = false;
+    this.paneSyncReviewDialog.close();
     await Promise.all([
       this.leftPane?.navigation?.refresh(),
       this.rightPane?.navigation?.refresh(),
     ]);
 
-    if (this.comparisonRecursive) {
+    if (recursive) {
       await this.refreshRecursiveComparison();
     }
 
@@ -4153,12 +4195,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       });
     }
 
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
   }
 
   private async executeComparisonCopies(
     items: Array<{ source: string; destination: string }>,
     confirmationMessage: string,
+    recursive = this.comparisonRecursive,
   ): Promise<void> {
     const confirmed = await this.confirmDialog.confirm({
       title: 'Pane Synchronization',
@@ -4175,7 +4219,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.rightPane?.navigation?.refresh(),
     ]);
 
-    if (this.comparisonRecursive) {
+    if (recursive) {
       await this.refreshRecursiveComparison();
     }
 
@@ -4186,7 +4230,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       });
     }
 
+    this.notifyCompareDialogsChanged();
     this.cdr.markForCheck();
+  }
+
+  private resetRecursiveComparisonState(): void {
+    this.comparisonRecursive = false;
+    this.recursiveComparisonResult = null;
+    this.recursiveComparisonRoots = null;
+    this.recursiveComparisonError = '';
+  }
+
+  private notifyCompareDialogsChanged(): void {
+    this.paneCompareDialog.notifyActiveChanged();
+    this.paneRecursiveCompareDialog.notifyActiveChanged();
+    this.paneSyncReviewDialog.notifyActiveChanged();
   }
 
   async extractArchiveSelectionToOther(): Promise<void> {
@@ -5746,13 +5804,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       COMMAND.recursiveComparePanes,
       'Recursive Pane Compare',
       'Pane Control',
-      () => {
-        this.comparisonVisible = true;
-        if (!this.comparisonRecursive) {
-          return this.toggleRecursiveComparison();
-        }
-        return this.refreshRecursiveComparison();
-      },
+      () => this.openRecursiveComparisonDialog(true),
       () => this.canComparePanes(),
     );
     descriptor(

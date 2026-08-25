@@ -1,27 +1,14 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DoCheck } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { PaneComparisonItem, PaneComparisonResult, PaneComparisonStatus } from '../services/pane-comparison.service';
 import type { SyncHistoryEntry } from '../services/operation-history.service';
-
-export type PaneSyncDirection = 'skip' | 'left-to-right' | 'right-to-left';
-export type PaneSyncPreset = 'safe' | 'left-to-right' | 'right-to-left' | 'bidirectional';
-
-export interface PaneSyncPlanItem {
-  key: string;
-  name: string;
-  status: PaneComparisonStatus;
-  direction: PaneSyncDirection;
-  leftPath: string | null;
-  rightPath: string | null;
-}
-
-export interface PaneSyncPlan {
-  items: PaneSyncPlanItem[];
-  leftToRight: string[];
-  rightToLeft: string[];
-  preset: PaneSyncPreset | 'custom';
-  conflicts: number;
-}
+import {
+  PaneSyncReviewDialogService,
+  type PaneSyncDirection,
+  type PaneSyncPlanItem,
+  type PaneSyncPreset,
+  type PaneSyncReviewDialogRequest,
+} from '../services/pane-sync-review-dialog.service';
 
 type Filter = 'different' | PaneComparisonStatus;
 
@@ -31,7 +18,9 @@ type Filter = 'different' | PaneComparisonStatus;
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="review" *ngIf="visible">
+    <ng-container *ngIf="activeRequest as request">
+    <div class="review-backdrop" [class.review-backdrop--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
+      <div class="review" role="dialog" aria-modal="true" aria-label="Synchronization review" (click)="$event.stopPropagation()">
       <div class="header">
         <div class="title">
           <strong>Synchronization Review</strong>
@@ -43,7 +32,7 @@ type Filter = 'different' | PaneComparisonStatus;
           <button type="button" (click)="applyPreset('right-to-left')">Right → Left</button>
           <button type="button" (click)="applyPreset('bidirectional')">Bidirectional</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
-          <button type="button" class="close" (click)="close.emit()" title="Close review">×</button>
+          <button type="button" class="close" (click)="dialogs.close()" title="Close review">×</button>
         </div>
       </div>
 
@@ -78,59 +67,72 @@ type Filter = 'different' | PaneComparisonStatus;
         <div class="empty" *ngIf="visibleItems.length === 0">No items in this filter.</div>
       </div>
     </div>
+    </div>
+    </ng-container>
   `,
   styles: [`
-    :host { display: block; flex: 0 0 auto; }
+    :host { position: fixed; inset: 0; z-index: 30012; }
+    .review-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--vsc-scrim); backdrop-filter: blur(2px); padding: 24px; animation: fadeIn 0.2s ease; }
+    .review-backdrop--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
     .review {
-      max-height: 320px;
+      width: min(1100px, calc(100vw - 48px));
+      max-height: min(720px, calc(100vh - 48px));
       display: flex;
       flex-direction: column;
-      border-bottom: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-medium));
-      background: var(--vsc-background, var(--vsc-editor-background));
+      overflow: hidden;
+      border: 1px solid var(--vsc-border-bright, var(--vsc-neutral-overlay-medium));
+      border-radius: var(--vsc-border-radius-lg, 8px);
+      background: var(--vsc-editor-background);
+      box-shadow: var(--vsc-widget-shadow), 0 32px 64px var(--vsc-scrim-soft), 0 0 0 1px var(--vsc-neutral-overlay-subtle) inset;
       font-size: 12px;
+      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .review-backdrop--closing .review { animation: slideUp 0.2s ease forwards; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes slideDown { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-16px); opacity: 0; } }
     .header, .filters, .columns, .row { display: grid; align-items: center; }
-    .header { grid-template-columns: minmax(0,1fr) auto; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-soft)); }
+    .header { grid-template-columns: minmax(0,1fr) auto; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: var(--vsc-titlebar-background); }
     .title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-    .title span { opacity: .65; }
+    .title strong { color: var(--vsc-foreground-bright); font-size: 14px; font-weight: 600; }
+    .title span { color: var(--vsc-foreground-dim); }
     .header-actions, .filters, .decision { display: flex; gap: 6px; align-items: center; }
     button {
-      border: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-strong));
-      background: var(--vsc-button-background, transparent);
+      border: 1px solid transparent;
+      background: var(--vsc-button-secondary, transparent);
       color: inherit;
-      border-radius: 3px;
-      padding: 3px 8px;
+      border-radius: var(--vsc-border-radius-sm, 4px);
+      min-height: 28px;
+      padding: 0 10px;
       font: inherit;
       cursor: pointer;
+      transition: background-color var(--vsc-transition-fast), border-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
     }
-    button:hover:not(:disabled), button.active { background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent); }
-    button.primary { background: var(--vsc-accent-blue, var(--vsc-accent-blue)); color: var(--vsc-on-accent); border-color: transparent; }
+    button:hover:not(:disabled), button.active { background: var(--vsc-button-secondary-hover, color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent)); }
+    button.primary { background: var(--vsc-button-background, var(--vsc-accent-blue)); color: var(--vsc-button-foreground, var(--vsc-on-accent)); border-color: transparent; }
     button:disabled { opacity: .38; cursor: default; }
-    .close { width: 25px; padding-inline: 0; font-size: 16px; }
-    .filters { padding: 5px 10px; overflow-x: auto; border-bottom: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-soft)); }
+    button:focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
+    .close { width: 28px; padding-inline: 0; font-size: 16px; background: transparent; color: var(--vsc-foreground-dim); }
+    .close:hover { background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent); color: var(--vsc-foreground-bright); }
+    .filters { padding: 8px 16px; overflow-x: auto; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: color-mix(in srgb, var(--vsc-foreground) 2%, var(--vsc-editor-background)); }
     .filters button { white-space: nowrap; }
     .filters span { opacity: .65; margin-left: 3px; }
-    .columns, .row { grid-template-columns: minmax(180px, 1fr) 150px minmax(270px, auto); gap: 10px; padding: 5px 10px; }
-    .columns { opacity: .55; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; border-bottom: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-soft)); }
-    .history { display:flex; gap:8px; align-items:center; padding:5px 10px; overflow-x:auto; border-bottom:1px solid var(--vsc-border, var(--vsc-neutral-overlay-soft)); font-size:10px; }
+    .columns, .row { grid-template-columns: minmax(180px, 1fr) 150px minmax(270px, auto); gap: 10px; padding: 7px 16px; }
+    .columns { color: var(--vsc-foreground-dim); text-transform: uppercase; font-size: 10px; letter-spacing: .08em; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: color-mix(in srgb, var(--vsc-sidebar-background) 30%, var(--vsc-editor-background)); }
+    .history { display:flex; gap:8px; align-items:center; padding:8px 16px; overflow-x:auto; border-bottom:1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); font-size:10px; background: color-mix(in srgb, var(--vsc-foreground) 2%, var(--vsc-editor-background)); }
     .history strong { white-space:nowrap; }
-    .history span { opacity:.7; white-space:nowrap; }
+    .history span { color: var(--vsc-foreground-dim); white-space:nowrap; }
     .rows { overflow: auto; min-height: 0; }
-    .row { min-height: 34px; border-bottom: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-neutral-overlay-medium)) 55%, transparent); }
+    .row { min-height: 38px; border-bottom: 1px solid color-mix(in srgb, var(--vsc-border-subtle, var(--vsc-neutral-overlay-medium)) 60%, transparent); }
     .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .status { opacity: .85; }
+    .status { color: var(--vsc-foreground-dim); }
     .status[data-status="only-left"], .status[data-status="only-right"] { font-weight: 600; }
     .decision { justify-content: flex-end; }
     .empty { padding: 18px 10px; text-align: center; opacity: .6; }
   `],
 })
-export class PaneSyncReviewComponent implements OnChanges {
-  @Input() visible = false;
-  @Input({ required: true }) result!: PaneComparisonResult;
-  @Input() history: readonly SyncHistoryEntry[] = [];
-  @Output() execute = new EventEmitter<PaneSyncPlan>();
-  @Output() close = new EventEmitter<void>();
-
+export class PaneSyncReviewComponent implements DoCheck {
   filter: Filter = 'different';
   items: PaneSyncPlanItem[] = [];
   preset: PaneSyncPreset | 'custom' = 'safe';
@@ -139,7 +141,34 @@ export class PaneSyncReviewComponent implements OnChanges {
     'only-left', 'only-right', 'left-newer', 'right-newer', 'size-different', 'hash-different', 'content-different', 'type-different',
   ];
 
-  ngOnChanges(): void {
+  constructor(readonly dialogs: PaneSyncReviewDialogService) {}
+
+  get activeRequest(): PaneSyncReviewDialogRequest | null {
+    return this.dialogs.mountedRequest$.value;
+  }
+
+  get isClosing(): boolean {
+    return !!this.dialogs.closingRequest$.value;
+  }
+
+  private get result(): PaneComparisonResult {
+    return this.dialogs.mountedRequest$.value?.viewModel.getResult() ?? {
+      items: [],
+      summary: {
+        total: 0, same: 0, onlyLeft: 0, onlyRight: 0,
+        leftNewer: 0, rightNewer: 0, sizeDifferent: 0,
+        hashDifferent: 0, contentDifferent: 0, typeDifferent: 0,
+        different: 0,
+      },
+      policy: 'size-date',
+    };
+  }
+
+  get history(): readonly SyncHistoryEntry[] {
+    return this.dialogs.mountedRequest$.value?.viewModel.getHistory() ?? [];
+  }
+
+  ngDoCheck(): void {
     this.rebuildPlan();
   }
 
@@ -183,7 +212,7 @@ export class PaneSyncReviewComponent implements OnChanges {
 
   executePlan(): void {
     const approved = this.items.filter(item => item.direction !== 'skip');
-    this.execute.emit({
+    this.dialogs.mountedRequest$.value?.viewModel.onExecute({
       items: approved.map(item => ({ ...item })),
       leftToRight: approved.filter(item => item.direction === 'left-to-right' && item.leftPath).map(item => item.leftPath!),
       rightToLeft: approved.filter(item => item.direction === 'right-to-left' && item.rightPath).map(item => item.rightPath!),
@@ -249,5 +278,12 @@ export class PaneSyncReviewComponent implements OnChanges {
 
   private isConflict(status: PaneComparisonStatus): boolean {
     return status === 'size-different' || status === 'hash-different' || status === 'content-different' || status === 'type-different';
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.dialogs.finishClose();
   }
 }

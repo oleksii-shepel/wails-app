@@ -1,7 +1,7 @@
 import {
   FILE_MANAGER_BINDINGS,
   FILE_MANAGER_COMMANDS,
-} from './file-manager-command-registry';
+} from './command-registry';
 
 describe('file manager command registry', () => {
   it('keeps command IDs stable and pane-scoped', () => {

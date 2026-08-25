@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
-import { createBehaviorSubject } from '@epikodelabs/streamix';
 import type { FileInfo } from '../shared/protocol';
+import { QueuedDialogGate } from './dialog-gate';
 
 export interface BatchRenameItem {
   entry: FileInfo;
@@ -16,32 +16,31 @@ export interface BatchRenameOptions {
 export interface BatchRenameRequest {
   items: BatchRenameItem[];
   currentPath: string;
-  resolve: (value: BatchRenameItem[] | null) => void;
+  resolve(value: BatchRenameItem[] | null): void;
 }
 
 @Injectable({ providedIn: 'root' })
 export class BatchRenameDialogService {
-  public readonly activeRequest$ = createBehaviorSubject<BatchRenameRequest | null>(null);
-
-  private queue: BatchRenameRequest[] = [];
+  private readonly gate = new QueuedDialogGate<BatchRenameRequest, BatchRenameItem[] | null>();
+  public readonly activeRequest$ = this.gate.activeRequest$;
+  public readonly mountedRequest$ = this.gate.mountedRequest$;
+  public readonly closingRequest$ = this.gate.closingRequest$;
 
   openDialog(items: BatchRenameItem[], currentPath: string): Promise<BatchRenameItem[] | null> {
     return new Promise<BatchRenameItem[] | null>((resolve) => {
-      this.queue.push({ items, currentPath, resolve });
-      this.tryOpenNext();
+      this.gate.enqueue({
+        items,
+        currentPath,
+        resolve,
+      });
     });
   }
 
   resolveActive(result: BatchRenameItem[] | null): void {
-    const active = this.activeRequest$.value;
-    if (!active) return;
-    active.resolve(result);
-    this.activeRequest$.next(null);
-    this.tryOpenNext();
+    this.gate.beginClose(result);
   }
 
-  private tryOpenNext(): void {
-    if (this.activeRequest$.value || this.queue.length === 0) return;
-    this.activeRequest$.next(this.queue.shift()!);
+  finishClose(): void {
+    this.gate.finishClose();
   }
 }

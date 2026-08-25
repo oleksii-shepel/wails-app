@@ -179,7 +179,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
   styleUrls: ['./remote-connect-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
-      <div class="remote-connect-overlay" (click)="onCancel()">
+      <div class="remote-connect-overlay" [class.remote-connect-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
         <div
           #dialogPanel
           class="remote-connect-panel"
@@ -465,7 +465,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
 export class RemoteConnectDialogComponent {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
 
-  readonly request$: Stream<RemoteConnectDialogRequest | null> = this.remoteConnectDialog.activeRequest$;
+  readonly request$: Stream<RemoteConnectDialogRequest | null> = this.remoteConnectDialog.mountedRequest$;
   readonly protocolPresets = REMOTE_PROTOCOL_PRESETS;
   readonly providerPresets = S3_PROVIDER_PRESETS;
 
@@ -501,7 +501,7 @@ export class RemoteConnectDialogComponent {
     this.inputEngine.registerCommand('dialog.remoteConnect.focusNext', () => this.moveDialogFocus(1));
     this.inputEngine.registerCommand('dialog.remoteConnect.focusPrev', () => this.moveDialogFocus(-1));
 
-    this.remoteConnectDialog.activeRequest$
+    this.remoteConnectDialog.mountedRequest$
       .pipe(takeUntil(this.destroy$))
       .subscribe((request) => {
         if (request) {
@@ -899,5 +899,16 @@ export class RemoteConnectDialogComponent {
     this.oauthSessionId = null;
     this.oauthRedirectUri = '';
     this.oauthAccountLabel = '';
+  }
+
+  get isClosing(): boolean {
+    return !!this.remoteConnectDialog.closingRequest$.value;
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.remoteConnectDialog.finishClose();
   }
 }

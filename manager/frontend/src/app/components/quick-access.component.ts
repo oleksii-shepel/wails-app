@@ -47,7 +47,7 @@ const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop" *ngIf="renderVisible" [class.backdrop--closing]="isClosing" (mousedown)="close()" (animationend)="onBackdropAnimationEnd($event)">
       <section class="quick" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
         tabindex="-1">
         <header>
@@ -87,8 +87,14 @@ const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:9460;pointer-events:none}
-    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(10vh,90px);background: var(--vsc-scrim-soft);pointer-events:auto}
-    .quick{box-sizing:border-box;display:flex;flex-direction:column;width:min(720px,calc(100vw - 24px));max-height:min(680px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(10vh,90px);background: var(--vsc-scrim-soft);pointer-events:auto;animation:fadeIn .2s ease}
+    .backdrop--closing{animation:fadeOut .2s ease forwards;pointer-events:none}
+    .quick{box-sizing:border-box;display:flex;flex-direction:column;width:min(720px,calc(100vw - 24px));max-height:min(680px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif);animation:slideDown .28s cubic-bezier(.16,1,.3,1)}
+    .backdrop--closing .quick{animation:slideUp .2s ease forwards}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes fadeOut{from{opacity:1}to{opacity:0}}
+    @keyframes slideDown{from{transform:translateY(-18px);opacity:0}to{transform:translateY(0);opacity:1}}
+    @keyframes slideUp{from{transform:translateY(0);opacity:1}to{transform:translateY(-18px);opacity:0}}
     header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px} header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))} header>div{display:flex;gap:8px;align-items:baseline}
     header span,.meta,.keys,footer>span,small{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit} input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}
@@ -108,6 +114,8 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   @Output() openTarget = new EventEmitter<QuickAccessTarget>();
 
   visible = false;
+  renderVisible = false;
+  isClosing = false;
   filterText = '';
   sections: QuickSection[] = [];
   sectionIndex = 0;
@@ -198,16 +206,17 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     }
 
     this.visible = true;
+    this.renderVisible = true;
+    this.isClosing = false;
     this.input.activateContext(CONTEXT_ID);
     this.cdr.markForCheck();
   }
 
   close(): void {
-    if(!this.visible)return;
+    if(!this.renderVisible||this.isClosing)return;
     this.visible=false;
+    this.isClosing=true;
     this.input.deactivateContext(CONTEXT_ID);
-    
-    
     this.cdr.markForCheck();
   }
   openItem(item: QuickItem): void {
@@ -444,4 +453,10 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   private moveItem(delta:-1|1):void{const count=this.activeItems.length;if(!count)return;this.itemIndex=(this.itemIndex+delta+count)%count;this.cdr.markForCheck()}
   private moveSection(delta:-1|1):void{const count=this.filteredSections.length;if(!count)return;this.sectionIndex=(this.sectionIndex+delta+count)%count;this.itemIndex=0;this.cdr.markForCheck()}
   private labelFor(path:string):string{const normalized=(path||'').replace(/\\/g,'/').replace(/\/+$/,'');const parts=normalized.split('/').filter(Boolean);return parts[parts.length-1]||normalized||path}
+  onBackdropAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.renderVisible = false;
+    this.isClosing = false;
+    this.cdr.markForCheck();
+  }
 }

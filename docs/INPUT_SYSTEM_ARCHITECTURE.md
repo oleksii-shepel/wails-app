@@ -34,7 +34,6 @@ All dialogs below now register commands via `InputEngineService` and acquire the
 | Surface | Context ID | Bindings |
 |---|---|---|
 | Confirm dialog | `dialog.confirm` | `Enter` (accept), `Escape` (cancel), `Tab` / `Shift+Tab` (focus), `ArrowLeft` / `ArrowRight` (focus) |
-| Archive move warning | `dialog.archiveMoveWarning` | `Enter` (confirm), `Escape` (cancel), `Tab` / `Shift+Tab` (focus), `ArrowLeft` / `ArrowRight` (focus) |
 | Global search | `dialog.globalSearch` | `Escape` (close), `ArrowUp` / `ArrowDown` (navigate), `Enter` (open), `Ctrl+Enter` (open folder), `Ctrl+,` (settings) |
 | Global search settings | `dialog.globalSearch.settings` | `Escape` (close), `Enter` (apply), `ArrowLeft` / `ArrowRight` (focus) |
 | Keyboard help | `dialog.keyboardHelp` | `Escape` (close), `Ctrl+F` (focus search), `Ctrl+S` (export), `ArrowUp` / `ArrowDown` (navigate), `Space` (toggle) |
@@ -184,16 +183,6 @@ Context ID: `dialog.confirm`
 | `Escape` | `dialog.confirm.cancel` |
 | `Tab` / `Shift+Tab` | `dialog.confirm.focusNext` / `dialog.confirm.focusPrev` |
 
-### Archive Move Warning
-
-Context ID: `dialog.archiveMoveWarning`
-
-| Binding | Command |
-|---|---|
-| `Enter` | `dialog.archiveMoveWarning.confirm` |
-| `Escape` | `dialog.archiveMoveWarning.cancel` |
-| `Tab` / `Shift+Tab` | `dialog.archiveMoveWarning.focusNext` / `dialog.archiveMoveWarning.focusPrev` |
-
 ### Global Search
 
 Context ID: `dialog.globalSearch`
@@ -339,7 +328,6 @@ All core input system features are implemented:
 
 Dialog contexts:
 - `dialog.confirm`
-- `dialog.archiveMoveWarning`
 - `dialog.globalSearch`
 - `dialog.globalSearch.settings`
 - `dialog.keyboardHelp`

@@ -18,6 +18,7 @@ import type { ResolvedPanelSource } from '../services/panel-source';
 import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { WorkspaceService } from '../services/workspace.service';
+import { ArchiveFilesDialogService } from '../services/archive-files-dialog.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
 import { OperationHistoryService } from '../services/operation-history.service';
@@ -2638,6 +2639,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     private readonly panelSources: PanelSourceRegistryService,
     private readonly pathHistory: PathHistoryService,
     private readonly workspaceService: WorkspaceService,
+    private readonly archiveFilesDialog: ArchiveFilesDialogService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly remoteConnections: RemoteConnectionsService,
     private readonly archiveService: ArchiveService,
@@ -6408,15 +6410,14 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
         ? first.name.replace(/\.[^.]+$/, '') || first.name
         : 'Archive';
 
-    const requestedName = await this.confirmDialog.prompt({
-      title: 'Create ZIP Archive',
+    const requestedName = await this.archiveFilesDialog.open({
+      title: 'Archive Files',
       message:
         entries.length === 1
           ? `Compress "${first.name}" to:`
           : `Compress ${entries.length} selected items to:`,
       confirmText: 'Create',
       defaultValue: `${baseName}.zip`,
-      historyKey: 'reassembly.createZip',
     });
 
     let cleanName = this.cleanLeafName(requestedName);

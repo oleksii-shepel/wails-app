@@ -8,7 +8,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subscription } from 'rxjs';
+import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 
 import {
   ApiService,
@@ -17,7 +17,7 @@ import {
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { TrashDialogService } from '../services/trash-dialog.service';
+import { TrashDialogService, type TrashDialogRequest } from '../services/trash-dialog.service';
 import { moveFocusWithin } from '../utils/focus-navigation.utils';
 @Component({
   selector: 'app-trash-dialog',
@@ -26,9 +26,11 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      *ngIf="visible"
+      *ngIf="request$ | async"
       class="backdrop"
-      (mousedown)="onBackdrop($event)">
+      [class.backdrop--closing]="isClosing"
+      (mousedown)="onBackdrop($event)"
+      (animationend)="onAnimationEnd($event)">
       <section
         #dialogPanel
         class="dialog"
@@ -116,7 +118,9 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       display: grid;
       place-items: center;
       background: var(--vsc-scrim);
+      animation: fadeIn 0.2s ease;
     }
+    .backdrop--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
 
     .dialog {
       width: min(900px, calc(100vw - 48px));
@@ -129,7 +133,13 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       color: var(--vsc-foreground, var(--vsc-foreground));
       border: 1px solid var(--vsc-panel-border, var(--vsc-control-background));
       box-shadow: 0 18px 60px var(--vsc-scrim);
+      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .backdrop--closing .dialog { animation: slideUp 0.2s ease forwards; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes slideDown { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-16px); opacity: 0; } }
 
     header,
     .toolbar,
@@ -242,13 +252,13 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
 export class TrashDialogComponent implements OnInit, OnDestroy {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
 
-  visible = false;
+  readonly request$: Stream<TrashDialogRequest | null> = this.dialog.mountedRequest$;
   loading = false;
   error = '';
   entries: TrashEntry[] = [];
   selectedIds = new Set<string>();
 
-  private readonly subscription = new Subscription();
+  private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
 
   constructor(
@@ -266,16 +276,26 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     this.inputEngine.registerCommand('dialog.trash.focusPrev', () => this.moveDialogFocus(-1));
     this.inputEngine.registerCommand('dialog.trash.openSelection', () => this.openSelection());
 
-    this.subscription.add(
-      this.dialog.openRequested$.subscribe(() => {
-        this.visible = true;
+    this.dialog.mountedRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(request => {
+        if (request) {
+          this.selectedIds = new Set();
+          this.error = '';
+          this.releaseDialogContext ??= this.inputContexts.acquire('dialog.trash');
+          this.focusInitialControl();
+          void this.reload();
+          return;
+        }
+
         this.selectedIds = new Set();
+        this.loading = false;
         this.error = '';
-        this.releaseDialogContext ??= this.inputContexts.acquire('dialog.trash');
-        this.focusInitialControl();
-        void this.reload();
-      }),
-    );
+        this.entries = [];
+        this.releaseDialogContext?.();
+        this.releaseDialogContext = null;
+        this.cdr.markForCheck();
+      });
   }
 
   ngOnDestroy(): void {
@@ -285,7 +305,8 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.trash.focusNext');
     this.inputEngine.unregisterCommand('dialog.trash.focusPrev');
     this.inputEngine.unregisterCommand('dialog.trash.openSelection');
-    this.subscription.unsubscribe();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   get selectedEntries(): TrashEntry[] {
@@ -429,11 +450,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   close(): void {
-    this.visible = false;
-    this.selectedIds = new Set();
-    this.releaseDialogContext?.();
-    this.releaseDialogContext = null;
-    this.cdr.markForCheck();
+    this.dialog.close();
   }
 
   onBackdrop(event: MouseEvent): void {
@@ -445,7 +462,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   private focusInitialControl(): void {
     requestAnimationFrame(() => {
       const panel = this.dialogPanel?.nativeElement;
-      if (!panel || !this.visible) {
+      if (!panel || !this.dialog.activeRequest$.value) {
         return;
       }
 
@@ -470,5 +487,16 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     if (this.canRestoreSelection) {
       void this.restoreSelected();
     }
+  }
+
+  get isClosing(): boolean {
+    return !!this.dialog.closingRequest$.value;
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.dialog.finishClose();
   }
 }

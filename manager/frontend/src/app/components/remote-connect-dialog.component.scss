@@ -2,13 +2,17 @@
   position: fixed;
   inset: 0;
   z-index: var(--vsc-z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: var(--vsc-scrim);
-  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: start center;
+  padding: min(10vh, 90px) 20px 24px;
+  background: var(--vsc-scrim-soft);
+  backdrop-filter: blur(6px);
   animation: fadeIn 0.2s ease;
+}
+
+.remote-connect-overlay--closing {
+  animation: fadeOut 0.2s ease forwards;
+  pointer-events: none;
 }
 
 @keyframes fadeIn {
@@ -16,19 +20,34 @@
   to { opacity: 1; }
 }
 
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 .remote-connect-panel {
-  width: min(840px, calc(100vw - 48px));
-  height: calc(100vh - 48px);
-  max-height: 600px;
+  width: min(820px, calc(100vw - 40px));
+  height: auto;
+  max-height: min(78vh, 640px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--vsc-border-bright);
-  border-radius: var(--vsc-border-radius);
-  background: var(--vsc-editor-background);
+  border: 1px solid var(--vsc-border);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 94%, white 6%) 0%,
+      var(--vsc-menu-background, var(--vsc-panel-background)) 22%,
+      color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 96%, black 4%) 100%
+    );
   color: var(--vsc-foreground);
-  box-shadow: var(--vsc-widget-shadow), 0 24px 56px var(--vsc-scrim);
+  box-shadow: 0 18px 60px var(--vsc-scrim), 0 0 0 1px color-mix(in srgb, var(--vsc-border) 68%, transparent);
   animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.remote-connect-overlay--closing .remote-connect-panel {
+  animation: slideUp 0.2s ease forwards;
 }
 
 @keyframes slideDown {
@@ -36,22 +55,32 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
+@keyframes slideUp {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-18px); opacity: 0; }
+}
+
 .remote-connect-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--vsc-border-subtle);
-  background: var(--vsc-titlebar-background);
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--vsc-border) 78%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 84%, white 16%) 0%,
+    color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 98%, transparent) 100%
+  );
 }
 
 .remote-connect-header h2 {
   margin: 0;
   color: var(--vsc-foreground-bright);
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.15;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .remote-connect-header p {
@@ -66,8 +95,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: none;
   background: transparent;
@@ -90,13 +119,14 @@
   min-height: 0;
   flex: 1;
   overflow: hidden;
+  background: transparent;
 }
 
 .remote-connect-form-section,
 .remote-connect-side {
   min-height: 0;
   overflow: auto;
-  padding: 12px 16px;
+  padding: 16px 18px 18px;
 }
 
 .remote-connect-form-section::-webkit-scrollbar,
@@ -127,12 +157,17 @@
 }
 
 .remote-connect-form-section {
-  background: var(--vsc-editor-background);
+  background: transparent;
 }
 
 .remote-connect-side {
-  border-left: 1px solid var(--vsc-border-subtle);
-  background: var(--vsc-sidebar-background);
+  border-left: 1px solid color-mix(in srgb, var(--vsc-border) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vsc-sidebar-background, var(--vsc-panel-background)) 86%, transparent) 0%,
+      color-mix(in srgb, var(--vsc-sidebar-background, var(--vsc-panel-background)) 94%, black 6%) 100%
+    );
 }
 
 .section-heading {
@@ -149,7 +184,7 @@
   line-height: 1.2;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--vsc-foreground-dim);
 }
 
@@ -195,16 +230,19 @@
 .field input,
 .field select {
   width: 100%;
-  height: 26px;
-  padding: 0 6px;
+  height: 32px;
+  padding: 0 10px;
   box-sizing: border-box;
   border: 1px solid var(--vsc-input-border);
-  border-radius: var(--vsc-border-radius-sm);
+  border-radius: 8px;
   background: var(--vsc-input-background);
   color: var(--vsc-input-foreground);
   font: inherit;
   font-size: 12px;
-  transition: border-color var(--vsc-transition-fast);
+  transition:
+    border-color var(--vsc-transition-fast),
+    box-shadow var(--vsc-transition-fast),
+    background-color var(--vsc-transition-fast);
 }
 
 .field select {
@@ -213,11 +251,11 @@
     linear-gradient(45deg, transparent 50%, var(--vsc-foreground-dim) 50%),
     linear-gradient(135deg, var(--vsc-foreground-dim) 50%, transparent 50%);
   background-position:
-    calc(100% - 12px) 10px,
-    calc(100% - 8px) 10px;
+    calc(100% - 14px) 13px,
+    calc(100% - 10px) 13px;
   background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
-  padding-right: 22px;
+  padding-right: 26px;
 }
 
 .field input:hover,
@@ -228,6 +266,7 @@
 .field input:focus,
 .field select:focus {
   border-color: var(--vsc-input-focus-border);
+  box-shadow: 0 0 0 1px var(--vsc-input-focus-border);
   outline: none;
 }
 
@@ -242,10 +281,10 @@
   flex-wrap: wrap;
   gap: 8px 16px;
   margin-top: 12px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--vsc-border);
-  border-radius: var(--vsc-border-radius-sm);
-  background: transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vsc-editor-background) 28%, transparent);
 }
 
 .toggle-field {
@@ -268,8 +307,8 @@
   margin: 16px 0 0;
   padding: 10px 12px;
   border: 1px solid var(--vsc-error);
-  border-radius: var(--vsc-border-radius-sm);
-  background: transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vsc-error) 10%, transparent);
   color: var(--vsc-error);
   font-size: 12px;
   line-height: 1.45;
@@ -280,7 +319,7 @@
 .success-banner {
   margin: 12px 0 0;
   padding: 10px 12px;
-  border-radius: var(--vsc-border-radius-sm);
+  border-radius: 8px;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -304,8 +343,10 @@
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--vsc-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--vsc-panel-background) 82%, var(--vsc-editor-background));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vsc-panel-background) 78%, transparent), transparent),
+    color-mix(in srgb, var(--vsc-editor-background) 18%, transparent);
 }
 
 .oauth-panel-copy {
@@ -329,8 +370,9 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 14px;
-  padding-top: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--vsc-border) 74%, transparent);
 }
 
 .btn,
@@ -344,10 +386,10 @@
   align-items: center;
   justify-content: center;
   min-width: 80px;
-  height: 26px;
+  height: 32px;
   padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: var(--vsc-border-radius-sm);
+  border-radius: 8px;
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
@@ -369,7 +411,7 @@
 
 .btn-utility {
   min-width: 0;
-  height: 24px;
+  height: 28px;
   padding: 0 8px;
   font-size: 11px;
 }
@@ -411,7 +453,7 @@
 
 .icon-btn,
 .link-btn {
-  height: 30px;
+  height: 32px;
   padding: 0 10px;
   border-radius: 8px;
 }
@@ -431,7 +473,7 @@
 .empty-state {
   padding: 18px 14px;
   border: 1px dashed var(--vsc-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--vsc-editor-background) 18%, transparent);
   color: var(--vsc-foreground-dim);
   font-size: 12px;
@@ -452,7 +494,7 @@
   width: 100%;
   padding: 12px;
   border: 1px solid var(--vsc-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--vsc-editor-background) 14%, transparent), transparent),
     color-mix(in srgb, var(--vsc-panel-background) 84%, var(--vsc-editor-background));
@@ -532,6 +574,7 @@
 @media (max-width: 900px) {
   .remote-connect-panel {
     width: min(100vw - 24px, 780px);
+    max-height: min(82vh, 680px);
   }
 
   .remote-connect-body {
@@ -539,19 +582,19 @@
   }
 
   .remote-connect-side {
-    border-top: 1px solid var(--vsc-border-subtle);
+    border-top: 1px solid color-mix(in srgb, var(--vsc-border) 72%, transparent);
     border-left: 0;
   }
 }
 
 @media (max-width: 640px) {
   .remote-connect-overlay {
-    padding: 12px;
+    padding: 28px 12px 12px;
   }
 
   .remote-connect-panel {
     width: calc(100vw - 24px);
-    max-height: calc(100vh - 24px);
+    max-height: calc(100vh - 40px);
     border-radius: 12px;
   }
 

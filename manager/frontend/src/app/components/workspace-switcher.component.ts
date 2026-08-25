@@ -214,7 +214,7 @@ interface WorkspaceSwitcherItem {
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop" *ngIf="renderVisible" [class.backdrop--closing]="isClosing" (mousedown)="close()" (animationend)="onBackdropAnimationEnd($event)">
       <section
         class="switcher"
         role="dialog"
@@ -370,7 +370,9 @@ interface WorkspaceSwitcherItem {
       padding-top: min(12vh, 110px);
       background: var(--vsc-scrim-soft);
       pointer-events: auto;
+      animation: fadeIn 0.2s ease;
     }
+    .backdrop--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
 
     .switcher {
       box-sizing: border-box;
@@ -385,7 +387,13 @@ interface WorkspaceSwitcherItem {
       color: var(--vsc-foreground, var(--vsc-foreground));
       box-shadow: 0 18px 60px var(--vsc-scrim);
       font: 12px/1.4 var(--vsc-font-family, system-ui, sans-serif);
+      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .backdrop--closing .switcher { animation: slideUp 0.2s ease forwards; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes slideDown { from { transform: translateY(-18px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-18px); opacity: 0; } }
 
     header,
     footer {
@@ -599,6 +607,8 @@ export class WorkspaceSwitcherComponent
   @ViewChild('nameInput') private nameInput?: ElementRef<HTMLInputElement>;
 
   visible = false;
+  renderVisible = false;
+  isClosing = false;
   selectedIndex = 0;
   edit: WorkspaceEdit = null;
   private editGeneration = 0;
@@ -856,18 +866,19 @@ export class WorkspaceSwitcherComponent
 
     this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
     this.visible = true;
+    this.renderVisible = true;
+    this.isClosing = false;
     this.input.activateContext(CONTEXT_ID);
     this.cdr.markForCheck();
   }
 
   close(): void {
-    if (!this.visible) return;
+    if (!this.renderVisible || this.isClosing) return;
 
     this.cancelEdit(false);
     this.visible = false;
+    this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
-    
-    
     this.cdr.markForCheck();
   }
 
@@ -1082,6 +1093,13 @@ export class WorkspaceSwitcherComponent
 
     this.selectedIndex =
       (this.selectedIndex + delta + count) % count;
+    this.cdr.markForCheck();
+  }
+
+  onBackdropAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.renderVisible = false;
+    this.isClosing = false;
     this.cdr.markForCheck();
   }
 }

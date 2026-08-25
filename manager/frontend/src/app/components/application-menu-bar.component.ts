@@ -9,7 +9,7 @@ import { CommonModule } from '@angular/common';
 
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
-import { FILE_MANAGER_COMMANDS } from './file-manager-command-registry';
+import { FILE_MANAGER_COMMANDS } from './command-registry';
 import { WindowStateService } from '../services/window-state.service';
 import {
   Quit,
@@ -54,6 +54,7 @@ const MENUS: readonly ApplicationMenu[] = [
       command(FILE_MANAGER_COMMANDS.newFolder, 'New Folder'),
       command('reassembly.manager.newFile', 'New File'),
       command('reassembly.manager.newTextDocument', 'New Text Document'),
+      command(FILE_MANAGER_COMMANDS.createArchive, 'Archive Files…'),
       separator(),
       command('reassembly.manager.properties', 'Properties'),
       separator(),

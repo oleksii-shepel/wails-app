@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
-import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { formatPathsInText } from '../components/address-bar.utils';
+import { QueuedDialogGate } from './dialog-gate';
 
 export type ConfirmDialogTone = 'warning' | 'info' | 'success' | 'error';
 
@@ -39,13 +39,15 @@ interface ConfirmDialogRequest {
   kind: 'confirm' | 'alert' | 'prompt';
   options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions;
   resolves: Array<(value: boolean | string | null) => void>;
+  resolve(result: boolean | string | null): void;
 }
 
 @Injectable({ providedIn: 'root' })
 export class ConfirmDialogService {
-  public readonly activeRequest$ = createBehaviorSubject<ConfirmDialogRequest | null>(null);
-  
-  private readonly queue: ConfirmDialogRequest[] = [];
+  private readonly gate = new QueuedDialogGate<ConfirmDialogRequest, boolean | string | null>();
+  public readonly activeRequest$ = this.gate.activeRequest$;
+  public readonly mountedRequest$ = this.gate.mountedRequest$;
+  public readonly closingRequest$ = this.gate.closingRequest$;
 
   confirm(options: ConfirmDialogOptions | string): Promise<boolean> {
     const normalized = this.normalizeOptions(options);
@@ -76,20 +78,11 @@ export class ConfirmDialogService {
   }
 
   resolveActive(result: boolean | string | null): void {
-    const active = this.activeRequest$.value;
-    if (!active) return;
-
-    for (const resolve of active.resolves) {
-      resolve(result);
-    }
-    this.activeRequest$.next(null);
-    this.tryOpenNext();
+    this.gate.beginClose(result);
   }
 
-  private tryOpenNext(): void {
-    if (this.activeRequest$.value) return;
-    const next = this.queue.shift() ?? null;
-    this.activeRequest$.next(next);
+  finishClose(): void {
+    this.gate.finishClose();
   }
 
   private enqueueOrJoin(
@@ -103,24 +96,28 @@ export class ConfirmDialogService {
       return;
     }
 
-    this.queue.push({
+    this.gate.enqueue({
       kind,
       options,
       resolves: [resolve],
+      resolve(result) {
+        for (const entry of this.resolves) {
+          entry(result);
+        }
+      },
     });
-    this.tryOpenNext();
   }
 
   private findDuplicate(
     kind: ConfirmDialogRequest['kind'],
     options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions,
   ): ConfirmDialogRequest | null {
-    const active = this.activeRequest$.value;
+    const active = this.gate.activeRequest;
     if (active && this.requestsMatch(active, kind, options)) {
       return active;
     }
 
-    return this.queue.find(request => this.requestsMatch(request, kind, options)) ?? null;
+    return this.gate.queuedRequests.find(request => this.requestsMatch(request, kind, options)) ?? null;
   }
 
   private requestsMatch(

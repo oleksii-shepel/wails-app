@@ -3,7 +3,6 @@ import { Component, EventEmitter, Input, Output, ViewChild } from '@angular/core
 import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
 import { PaneArrangeControlsComponent } from './pane-arrange-controls.component';
 import { AddressBarComponent } from './address-bar.component';
-import { ArchiveMoveWarningComponent } from './archive-move-warning.component';
 import { FileViewContainerComponent } from './file-view-container.component';
 import { FindWidgetComponent } from './filter-widget.component';
 import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
@@ -18,7 +17,6 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
     ResponsiveToolbarComponent,
     PaneArrangeControlsComponent,
     FileViewContainerComponent,
-    ArchiveMoveWarningComponent,
   ],
   template: `
     <app-address-bar
@@ -92,14 +90,6 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
         (rename)="vm.onRename($event)">
       </app-file-view-container>
     </div>
-
-    <!-- Archive move warning dialog -->
-    <app-archive-move-warning
-      [visible]="vm.archiveMoveWarning"
-      [entryCount]="vm.archiveMoveEntryCount"
-      (confirmed)="vm.onArchiveMoveConfirmed()"
-      (cancelled)="vm.onArchiveMoveCancelled()">
-    </app-archive-move-warning>
   `,
   styles: [`
     :host {

@@ -11,7 +11,7 @@ import {
   SettingsTab,
   type ProjectSettings,
 } from '../services/settings.service';
-import { FILE_MANAGER_BINDINGS } from './file-manager-command-registry';
+import { FILE_MANAGER_BINDINGS } from './command-registry';
 import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../services/input-system.types';
 import { PluginSettingsPanelComponent } from './plugin-settings-panel.component';
@@ -28,7 +28,7 @@ interface SettingsDialogRequest {
   styleUrls: ['./settings-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
-      <div class="settings-overlay" (click)="onCancel()">
+      <div class="settings-overlay" [class.settings-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
         <div
           #dialogPanel
           class="settings-panel"
@@ -1028,7 +1028,7 @@ export class SettingsDialogComponent {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
   @ViewChild(PluginSettingsPanelComponent) private pluginSettingsPanel?: PluginSettingsPanelComponent;
 
-  readonly request$: Stream<SettingsDialogRequest | null> = this.settingsService.getActiveRequest$();
+  readonly request$: Stream<SettingsDialogRequest | null> = this.settingsService.getMountedRequest$();
 
   activeTab: SettingsTab = 'general';
   hasChanges = false;
@@ -1110,7 +1110,7 @@ export class SettingsDialogComponent {
     this.inputEngine.registerCommand('dialog.settings.focusPrev', () => this.moveDialogFocus(-1));
 
     this.settingsService
-      .getActiveRequest$()
+      .getMountedRequest$()
       .pipe(takeUntil(this.destroy$))
       .subscribe((request) => {
         if (request) {
@@ -1554,5 +1554,16 @@ export class SettingsDialogComponent {
       return;
     }
     moveFocusWithin(this.dialogPanel.nativeElement, delta);
+  }
+
+  get isClosing(): boolean {
+    return !!this.settingsService.getClosingRequest();
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.settingsService.finishCloseSettings();
   }
 }

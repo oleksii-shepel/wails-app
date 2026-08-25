@@ -86,6 +86,7 @@ export const FILE_MANAGER_COMMANDS = {
   findDuplicates:       'pane.tools.findDuplicates',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
+  createArchive:        'pane.files.createArchive',
 } as const;
 
 const NAV  = 'Navigation';

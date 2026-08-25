@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { GetPreferences, SavePreferences } from 'wailsjs/go/app/App';
+import { QueuedDialogGate } from './dialog-gate';
 
 export type SettingsTab = 'general' | 'files' | 'editor' | 'view' | 'advanced' | 'plugins' | 'shortcuts' | 'about';
 
@@ -211,7 +212,7 @@ const DEFAULT_SETTINGS: ProjectSettings = {
 const STORAGE_KEY = 'project-settings-v1';
 
 interface SettingsDialogRequest {
-  resolve: (value: boolean) => void;
+  resolve(value: boolean): void;
   initialTab?: SettingsTab;
 }
 
@@ -258,7 +259,7 @@ function writeAppearanceCache(value: CachedAppearance): void {
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   private settings$ = createBehaviorSubject<ProjectSettings>(this.loadSettings());
-  private activeRequest$ = createBehaviorSubject<SettingsDialogRequest | null>(null);
+  private readonly dialogGate = new QueuedDialogGate<SettingsDialogRequest, boolean>();
   private backendPreferences: BackendUserPreferences | null = null;
 
   constructor() {
@@ -323,7 +324,7 @@ export class SettingsService {
 
   openSettings(initialTab?: SettingsTab): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      this.activeRequest$.next({
+      this.dialogGate.enqueue({
         resolve,
         initialTab,
       });
@@ -331,15 +332,27 @@ export class SettingsService {
   }
 
   closeSettings(confirmed: boolean): void {
-    const request = this.activeRequest$.value;
-    if (request) {
-      request.resolve(confirmed);
-      this.activeRequest$.next(null);
-    }
+    this.dialogGate.beginClose(confirmed);
   }
 
   getActiveRequest$(): Stream<SettingsDialogRequest | null> {
-    return this.activeRequest$;
+    return this.dialogGate.activeRequest$;
+  }
+
+  getMountedRequest$(): Stream<SettingsDialogRequest | null> {
+    return this.dialogGate.mountedRequest$;
+  }
+
+  getClosingRequest$(): Stream<SettingsDialogRequest | null> {
+    return this.dialogGate.closingRequest$;
+  }
+
+  getClosingRequest(): SettingsDialogRequest | null {
+    return this.dialogGate.closingRequest$.value;
+  }
+
+  finishCloseSettings(): void {
+    this.dialogGate.finishClose();
   }
 
   private loadSettings(): ProjectSettings {

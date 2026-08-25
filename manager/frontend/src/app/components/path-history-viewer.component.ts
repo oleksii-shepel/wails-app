@@ -1,6 +1,7 @@
 import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
@@ -14,7 +15,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
   standalone: true,
   imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
   template: `
-    <div class="path-history-overlay" *ngIf="isVisible" (click)="hide()">
+    <div class="path-history-overlay" *ngIf="renderVisible" [class.path-history-overlay--closing]="isClosing" (click)="hide()" (animationend)="onOverlayAnimationEnd($event)">
       <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
@@ -127,10 +128,15 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       animation: fadeIn 0.2s ease;
       padding: var(--vsc-padding-xl);
     }
+    .path-history-overlay--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
 
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
+    }
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
     }
 
     .path-history-modal {
@@ -147,10 +153,15 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       color: var(--vsc-foreground);
       overflow: hidden;
     }
+    .path-history-overlay--closing .path-history-modal { animation: slideUp 0.2s ease forwards; }
 
     @keyframes slideDown {
       from { transform: translateY(-18px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(0); opacity: 1; }
+      to { transform: translateY(-18px); opacity: 0; }
     }
 
     .modal-header {
@@ -475,6 +486,8 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   @ViewChild('filterInput') filterInput?: ElementRef<HTMLInputElement>;
 
   isVisible = false;
+  renderVisible = false;
+  isClosing = false;
   historyEntries: PathHistoryEntry[] = [];
   filteredEntries: PathHistoryEntry[] = [];
   filterText = '';
@@ -488,6 +501,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private cdr: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
@@ -515,17 +529,23 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
 
   show(): void {
     this.isVisible = true;
+    this.renderVisible = true;
+    this.isClosing = false;
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.pathHistory');
     this.filterText = '';
     this.historyEntries = this.pathHistoryService.getAllHistory();
     this.applyFilter();
     this.selectedIndex = 0;
+    this.cdr.markForCheck();
   }
 
   hide(): void {
+    if (!this.renderVisible || this.isClosing) return;
     this.isVisible = false;
+    this.isClosing = true;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
+    this.cdr.markForCheck();
   }
 
   normalizeEntryPath(location: string | null | undefined): string {
@@ -698,5 +718,12 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.pathHistory.nextItem');
     this.inputEngine.unregisterCommand('dialog.pathHistory.openSelected');
     this.inputEngine.unregisterCommand('dialog.pathHistory.removeSelected');
+  }
+
+  onOverlayAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.renderVisible = false;
+    this.isClosing = false;
+    this.cdr.markForCheck();
   }
 }

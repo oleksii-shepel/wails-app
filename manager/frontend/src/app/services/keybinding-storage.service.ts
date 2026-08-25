@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { InputTrigger, InputBindingDefinition } from './input-system.types';
-import { FILE_MANAGER_BINDINGS } from '../components/file-manager-command-registry';
+import { FILE_MANAGER_BINDINGS } from '../components/command-registry';
 import { BUILTIN_INPUT_CATALOG } from './dialog-input-catalog';
 
 export interface KeybindingOverride {

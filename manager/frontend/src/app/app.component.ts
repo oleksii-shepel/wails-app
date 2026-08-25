@@ -22,6 +22,19 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 import { ModalStackService } from './services/modal-stack.service';
 import { InputCustomizationService } from './services/input-customization.service';
 import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
+import { BatchRenameDialogService } from './services/batch-rename-dialog.service';
+import { RemoteConnectDialogService } from './services/remote-connect-dialog.service';
+import { SettingsService } from './services/settings.service';
+import { TrashDialogService } from './services/trash-dialog.service';
+import { ConfirmDialogService } from './services/confirm-dialog.service';
+import { PaneCompareDialogService } from './services/pane-compare-dialog.service';
+import { PaneRecursiveCompareDialogService } from './services/pane-recursive-compare-dialog.service';
+import { PaneSyncReviewDialogService } from './services/pane-sync-review-dialog.service';
+import { PaneCompareDialogComponent } from './components/pane-compare-dialog.component';
+import { PaneRecursiveCompareDialogComponent } from './components/pane-recursive-compare-dialog.component';
+import { PaneSyncReviewComponent } from './components/pane-sync-review.component';
+import { ArchiveFilesDialogComponent } from './components/archive-files-dialog.component';
+import { ArchiveFilesDialogService } from './services/archive-files-dialog.service';
 
 @Component({
   selector: 'app-root',
@@ -38,6 +51,10 @@ import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
     TrashDialogComponent,
     PerfOverlayComponent,
     ConfirmDialogComponent,
+    PaneCompareDialogComponent,
+    PaneRecursiveCompareDialogComponent,
+    PaneSyncReviewComponent,
+    ArchiveFilesDialogComponent,
     RegistryPluginHostComponent,
   ],
   template: `
@@ -51,11 +68,15 @@ import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
 
       <app-operation-surface></app-operation-surface>
       <app-action-feedback></app-action-feedback>
-      <app-batch-rename-dialog></app-batch-rename-dialog>
-      <app-remote-connect-dialog></app-remote-connect-dialog>
-      <app-settings-dialog></app-settings-dialog>
-      <app-trash-dialog></app-trash-dialog>
-      <app-confirm-dialog></app-confirm-dialog>
+      <app-batch-rename-dialog *ngIf="batchRenameMounted$ | async"></app-batch-rename-dialog>
+      <app-remote-connect-dialog *ngIf="remoteConnectMounted$ | async"></app-remote-connect-dialog>
+      <app-settings-dialog *ngIf="settingsMounted$ | async"></app-settings-dialog>
+      <app-trash-dialog *ngIf="trashMounted$ | async"></app-trash-dialog>
+      <app-confirm-dialog *ngIf="confirmMounted$ | async"></app-confirm-dialog>
+      <app-pane-compare-dialog *ngIf="paneCompareMounted$ | async"></app-pane-compare-dialog>
+      <app-pane-recursive-compare-dialog *ngIf="paneRecursiveCompareMounted$ | async"></app-pane-recursive-compare-dialog>
+      <app-pane-sync-review *ngIf="paneSyncReviewMounted$ | async"></app-pane-sync-review>
+      <app-archive-files-dialog *ngIf="archiveFilesMounted$ | async"></app-archive-files-dialog>
       <app-perf-overlay></app-perf-overlay>
       <reassembly-registry-plugin-host></reassembly-registry-plugin-host>
     </main>
@@ -100,6 +121,16 @@ import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
   `],
 })
 export class AppComponent implements OnInit, OnDestroy {
+  readonly batchRenameMounted$ = this.batchRenameDialog.mountedRequest$;
+  readonly remoteConnectMounted$ = this.remoteConnectDialog.mountedRequest$;
+  readonly settingsMounted$ = this.settingsService.getMountedRequest$();
+  readonly trashMounted$ = this.trashDialog.mountedRequest$;
+  readonly confirmMounted$ = this.confirmDialog.mountedRequest$;
+  readonly paneCompareMounted$ = this.paneCompareDialog.mountedRequest$;
+  readonly paneRecursiveCompareMounted$ = this.paneRecursiveCompareDialog.mountedRequest$;
+  readonly paneSyncReviewMounted$ = this.paneSyncReviewDialog.mountedRequest$;
+  readonly archiveFilesMounted$ = this.archiveFilesDialog.mountedRequest$;
+
   @ViewChild('manager')
   set manager(value: DualPaneComponent | undefined) {
     if (!value) return;
@@ -116,6 +147,15 @@ export class AppComponent implements OnInit, OnDestroy {
     private readonly inputCustomization: InputCustomizationService,
     private readonly ngZone: NgZone,
     private readonly cdr: ChangeDetectorRef,
+    private readonly batchRenameDialog: BatchRenameDialogService,
+    private readonly remoteConnectDialog: RemoteConnectDialogService,
+    private readonly settingsService: SettingsService,
+    private readonly trashDialog: TrashDialogService,
+    private readonly confirmDialog: ConfirmDialogService,
+    private readonly paneCompareDialog: PaneCompareDialogService,
+    private readonly paneRecursiveCompareDialog: PaneRecursiveCompareDialogService,
+    private readonly paneSyncReviewDialog: PaneSyncReviewDialogService,
+    private readonly archiveFilesDialog: ArchiveFilesDialogService,
   ) {}
 
   @HostListener('document:keydown.escape', ['$event'])

@@ -30,9 +30,6 @@ export interface DirSurfaceVm {
   colorizeByMime: boolean;
   browserPaneSplit: number | null;
 
-  archiveMoveWarning: boolean;
-  archiveMoveEntryCount: number;
-
   onPathChange(path: string): void;
   onPinnedLocationOpen(pin: PinnedLocation): void;
   onArchiveSegmentClick(path: string): void;
@@ -63,6 +60,4 @@ export interface DirSurfaceVm {
   onDragDrop(ev: any): void;
   onRename(ev: { entry: FileInfo; newName: string }): void;
 
-  onArchiveMoveConfirmed(): void;
-  onArchiveMoveCancelled(): void;
 }

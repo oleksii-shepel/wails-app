@@ -17,6 +17,7 @@ import { BatchRenameDialogComponent } from './components/batch-rename-dialog.com
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 import { SettingsDialogComponent } from './components/settings-dialog.component';
 import { TrashDialogComponent } from './components/trash-dialog.component';
+import { PerfOverlayComponent } from './components/perf-overlay.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 import { ModalStackService } from './services/modal-stack.service';
 import { InputCustomizationService } from './services/input-customization.service';
@@ -35,6 +36,7 @@ import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
     RemoteConnectDialogComponent,
     SettingsDialogComponent,
     TrashDialogComponent,
+    PerfOverlayComponent,
     ConfirmDialogComponent,
     RegistryPluginHostComponent,
   ],
@@ -54,6 +56,7 @@ import { RegistryPluginHostComponent } from '@reassembly/registry-plugin';
       <app-settings-dialog></app-settings-dialog>
       <app-trash-dialog></app-trash-dialog>
       <app-confirm-dialog></app-confirm-dialog>
+      <app-perf-overlay></app-perf-overlay>
       <reassembly-registry-plugin-host></reassembly-registry-plugin-host>
     </main>
   `,

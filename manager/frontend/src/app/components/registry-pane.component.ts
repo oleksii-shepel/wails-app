@@ -809,6 +809,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tab {
       display: grid;
+      transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
       width: min(180px, 34vw);
@@ -1082,8 +1083,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .tree-row {
-      /* Same rule for tree rows: cursor movement must not animate. */
-      transition: none;
       display: grid;
       grid-template-columns: 18px 24px minmax(0, 1fr) auto;
 
@@ -1257,12 +1256,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       touch-action: pan-y;}
 
     .entry {
-      /*
-       * Pane cursor/selection feedback must be frame-immediate.
-       * Global button styles animate background for 100ms, and these rows are
-       * buttons, so explicitly opt pane entries out of that transition.
-       */
-      transition: none;
       box-sizing: border-box;
       display: grid;
       grid-template-columns: 28px minmax(0, 1fr) 100px 100px;

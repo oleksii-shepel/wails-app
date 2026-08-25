@@ -4427,16 +4427,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
           })
           .filter((entry): entry is FileInfo => !!entry);
 
-        targetPane.selection?.reconcileAddedEntries?.(destinationEntries, false);
+        targetPane.selection?.reconcileAddedEntries?.(destinationEntries);
 
         if (operation === 'move' && sourcePane !== targetPane) {
           sourcePane.selection?.reconcileRemovedPaths?.(
             affected.map(item => item.source),
           );
-          // Keep source visual order frozen; destination sorts/projects once.
-          targetPane.selection?.commitMutationProjection?.();
-        } else {
-          targetPane.selection?.commitMutationProjection?.();
         }
       }
 
@@ -6137,17 +6133,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
           })
           .filter((entry): entry is FileInfo => !!entry);
 
-        destination.selection?.reconcileAddedEntries?.(destinationEntries, false);
+        destination.selection?.reconcileAddedEntries?.(destinationEntries);
 
         if (operation === 'move' && source !== destination) {
           source.selection?.reconcileRemovedPaths?.(
             successful.map(item => item.source),
           );
-          // Source-only pane is final after deterministic removals: no sort.
-          destination.selection?.commitMutationProjection?.();
-        } else {
-          // Copy or same-pane mutation: destination projection commits once.
-          destination.selection?.commitMutationProjection?.();
         }
       }
 

@@ -56,10 +56,6 @@ import type { SurfaceContext } from '../surfaces/surface-context';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
-import {
-  DirectoryListSurfaceComponent,
-  type DirectoryListSurfaceHost,
-} from './directory-list-surface.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
@@ -69,6 +65,7 @@ import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent, type ResponsiveToolbarCommand } from './responsive-toolbar.component';
 import { PaneArrangeControlsComponent, type PaneSortChange } from './pane-arrange-controls.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
+import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -173,14 +170,6 @@ interface DirTabSession {
 
 const REASSEMBLY_DIR_TAB_SESSION_VERSION = 4;
 
-const PERF_ISOLATION_MODE = typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-isolate') === '1';
-const PERF_DISABLE_PLUGIN_PRESENTATION = PERF_ISOLATION_MODE || (typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-no-plugin-presentation') === '1');
-const PERF_DISABLE_PLUGIN_COLUMNS = PERF_ISOLATION_MODE || (typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-no-plugin-columns') === '1');
-const PERF_DISABLE_PROJECTION = PERF_ISOLATION_MODE || (typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-no-projection') === '1');
-const PERF_DISABLE_VIRTUALIZATION = PERF_ISOLATION_MODE || (typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-no-virtualization') === '1');
-const PERF_DISABLE_CURSOR_FOLLOW = PERF_ISOLATION_MODE || (typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-no-cursor-follow') === '1');
-const PERF_DISABLE_SESSION_SYNC = PERF_ISOLATION_MODE || (typeof window !== 'undefined' && window.localStorage.getItem('afm-perf-no-session-sync') === '1');
-
 // Directory contents are runtime data, not durable UI state. Persisting or
 // cloning a WinSxS-sized listing on every selection/scroll change defeats
 // virtualization and can lock the renderer for seconds.
@@ -196,7 +185,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
   imports: [
     CommonModule,
     AddressBarComponent,
-    DirectoryListSurfaceComponent,
     PanelPresentationOutletComponent,
     FilterComponent,
     FileEntryInlineComponent,
@@ -204,6 +192,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
     PaneArrangeControlsComponent,
+    PaneDetailsResizeHandleDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -517,44 +506,132 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </app-panel-presentation-outlet>
 
 
-      <app-directory-list-surface
-        #listSurface
+      <div
+        #listViewport
+        class="list"
+        data-pane-content
+        data-pane-details-root
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
-        [paneId]="paneId"
-        [path]="path"
-        [viewMode]="viewMode"
-        [active]="active"
-        [loading]="loading"
-        [backgroundDropActive]="backgroundDropActive"
-        [detailsGridTemplate]="detailsGridTemplate"
-        [pluginPanelColumns]="pluginPanelColumns"
-        [listVirtualWindow]="listVirtualWindow"
-        [renderedEntries]="renderedEntries"
-        [renderedEntryStart]="renderedEntryStart"
-        [visibleEntryCount]="visibleEntryCount"
-        [selectedPaths]="selectedPaths"
-        [cursorPath]="cursorPath"
-        [dragOverPath]="dragOverPath"
-        [dropIntent]="dropIntent"
-        [renamingPath]="renamingPath"
-        [renameValue]="renameValue"
-        [renameError]="renameError"
-        [renameBusy]="renameBusy"
-        [filterText]="filterText"
-        [canCreate]="canCreate"
-        [isInArchive]="isInArchive"
-        [host]="listSurfaceHost"
-        [entryAriaLabel]="listSurfaceBindings.entryAriaLabel"
-        [entryDisplayColor]="listSurfaceBindings.entryDisplayColor"
-        [entryDisplayIcon]="listSurfaceBindings.entryDisplayIcon"
-        [entryDisplayKind]="listSurfaceBindings.entryDisplayKind"
-        [comparisonStatus]="listSurfaceBindings.comparisonStatus"
-        [isComparisonDifferent]="listSurfaceBindings.isComparisonDifferent"
-        [formatSize]="listSurfaceBindings.formatSize"
-        [formatModified]="listSurfaceBindings.formatModified"
-        [panelColumnValue]="listSurfaceBindings.panelColumnValue"
-        [trackEntry]="listSurfaceBindings.trackEntry">
-      </app-directory-list-surface>
+        tabindex="-1"
+        role="listbox"
+        [attr.aria-label]="'Files in ' + (path || 'location')"
+        [class.view-list]="viewMode === 'list'"
+        [class.view-grid]="viewMode === 'grid'"
+        [class.view-details]="viewMode === 'details'"
+        [attr.aria-busy]="loading"
+        (scroll)="onContentScroll($event)"
+        [class.background-drop-target]="backgroundDropActive"
+        (click)="onBackgroundClick($event)"        (contextmenu)="onBackgroundContextMenu($event)"
+        (dragover)="onBackgroundDragOver($event)"
+        (dragleave)="onBackgroundDragLeave($event)"
+        (drop)="onBackgroundDrop($event)">
+
+      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
+        <div
+          class="details-header"
+          [style.grid-template-columns]="detailsGridTemplate">
+          <span></span>
+          <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
+          <span>Type<i [paneDetailsResizeHandle]="'type'" [paneDetailsMinWidth]="72"></i></span>
+          <span>Size<i [paneDetailsResizeHandle]="'size'" [paneDetailsMinWidth]="64"></i></span>
+          <span>Modified<i [paneDetailsResizeHandle]="'modified'" [paneDetailsMinWidth]="110"></i></span>
+          <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
+            {{ column.label }}<i [paneDetailsResizeHandle]="'plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
+          </span>
+        </div>
+      </div>
+
+        <div
+          *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
+          class="virtual-spacer list-virtual-spacer"
+          [style.height.px]="listVirtualWindow.beforePx"
+          aria-hidden="true"></div>
+
+        <div
+          *ngFor="let entry of renderedEntries; let virtualIndex=index; trackBy: trackEntry"
+          class="entry"
+          tabindex="-1"
+          role="option"
+          [attr.aria-posinset]="renderedEntryStart + virtualIndex + 1"
+          [attr.aria-setsize]="visibleEntryCount"
+          draggable="true"
+          [attr.data-file-entry]="entry.path"
+          [attr.aria-selected]="selectedPaths.has(entry.path)"
+          [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
+          [attr.aria-label]="entryAriaLabel(entry)"
+          [class.cursor]="entry.path === cursorPath"
+          [class.selected]="selectedPaths.has(entry.path)"
+          [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
+          [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
+          [class.compare-different]="isComparisonDifferent(entry.path)"
+          (click)="selectFromPointer(entry, $event)"
+          (dblclick)="openEntry(entry)"
+          (contextmenu)="onEntryContextMenu(entry, $event)"
+          (dragstart)="onEntryDragStart(entry, $event)"
+          (dragend)="onDragEnd()"
+          (dragover)="onEntryDragOver(entry, $event)"
+          (dragleave)="onEntryDragLeave(entry)"
+          (drop)="onEntryDrop(entry, $event)"
+          [class.drop-target]="dragOverPath === entry.path"
+          [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
+          [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
+          [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
+          [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null">
+
+          <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
+            {{ entryDisplayIcon(entry) }}
+          </span>
+          <app-file-entry-inline
+            *ngIf="renamingPath !== entry.path"
+            class="name entry-name"
+            [entry]="entry"
+            [showIcon]="false">
+          </app-file-entry-inline>
+          <span
+            class="rename-editor"
+            *ngIf="renamingPath === entry.path"
+            (click)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()">
+            <input
+              class="rename-input"
+              [class.rename-input--invalid]="!!renameError"
+              [value]="renameValue"
+              [disabled]="renameBusy"
+              [attr.data-rename-input]="entry.path"
+              [attr.aria-invalid]="renameError ? 'true' : null"
+              [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
+              (input)="onRenameInput($event)"
+              (keydown)="onRenameKeyDown(entry, $event)"
+              (blur)="onRenameBlur(entry)" />
+            <span
+              *ngIf="renameError"
+              class="rename-error"
+              [id]="'rename-error-' + paneId"
+              role="alert">{{ renameError }}</span>
+          </span>
+
+          <div class="kind" [style.color]="entryCategory(entry)?.color || null">
+            {{ entryDisplayKind(entry) }}
+          </div>
+          <div class="size">
+            {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
+          </div>
+          <div class="modified">{{ formatModified(entry.modified) }}</div>
+          <div class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</div>
+        </div>
+
+        <div
+          *ngIf="listVirtualWindow.enabled && listVirtualWindow.afterPx > 0"
+          class="virtual-spacer list-virtual-spacer"
+          [style.height.px]="listVirtualWindow.afterPx"
+          aria-hidden="true"></div>
+
+        <div class="empty" *ngIf="!loading && visibleEntryCount === 0" role="status">
+          <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
+          <span *ngIf="filterText">Clear the filter to see all items.</span>
+          <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
+        </div>
+      </div>
 
       <div
         class="drop-intent"
@@ -758,6 +835,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tab {
       display: grid;
+      transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
       width: min(180px, 34vw);
@@ -1015,8 +1093,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .tree-row {
-      /* Same rule for tree rows: cursor movement must not animate. */
-      transition: none;
       display: grid;
       grid-template-columns: 18px 24px minmax(0, 1fr) auto;
 
@@ -1211,12 +1287,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       touch-action: pan-y;}
 
     .entry {
-      /*
-       * Pane cursor/selection feedback must be frame-immediate.
-       * Global button styles animate background for 100ms, and these rows are
-       * buttons, so explicitly opt pane entries out of that transition.
-       */
-      transition: none;
       box-sizing: border-box;
       display: grid;
       grid-template-columns: 28px minmax(0, 1fr) 100px 100px;
@@ -1777,7 +1847,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('surfaceOutlet') surfaceOutlet?: SurfaceOutletComponent;
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
-  @ViewChild('listSurface') listSurface?: DirectoryListSurfaceComponent;
+  @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -1853,12 +1923,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private projectionCache: FileInfo[] = [];
   private entryCategoryRef: FileInfo[] | null = null;
   private entryCategoryCache = new Map<string, ReturnType<PluginManagerService['resolveFileCategory']> | null>();
-  private renderedEntryPresentationRef: FileInfo[] | null = null;
-  private renderedEntryPresentationCache = new Map<string, {
-    color: string | null;
-    icon: string;
-    kind: string;
-  }>();
   private entryLookupRef: FileInfo[] | null = null;
   private entryLookup = new Map<string, FileInfo>();
   private treeRowsVisibleRef: FileInfo[] | null = null;
@@ -1888,47 +1952,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private readonly listRowExtent = 30;
   private readonly gridRowExtent = 109;
   private readonly treeRowExtent = 31;
-  private readonly listOverscanRows = 8;
-  private readonly detailsOverscanRows = 10;
-  private readonly gridOverscanRows = 8;
-  readonly listSurfaceHost: DirectoryListSurfaceHost = {
-    onScroll: event => this.onContentScroll(event),
-    onBackgroundClick: event => this.onBackgroundClick(event),
-    onBackgroundContextMenu: event => this.onBackgroundContextMenu(event),
-    onBackgroundDragOver: event => this.onBackgroundDragOver(event),
-    onBackgroundDragLeave: event => this.onBackgroundDragLeave(event),
-    onBackgroundDrop: event => this.onBackgroundDrop(event),
-    onSelect: (entry, event) => this.selectFromPointer(entry, event),
-    onOpen: entry => this.openEntry(entry),
-    onContextMenu: (entry, event) => this.onEntryContextMenu(entry, event),
-    onDragStart: (entry, event) => this.onEntryDragStart(entry, event),
-    onDragEnd: () => this.onDragEnd(),
-    onDragOver: (entry, event) => this.onEntryDragOver(entry, event),
-    onDragLeave: entry => this.onEntryDragLeave(entry),
-    onDrop: (entry, event) => this.onEntryDrop(entry, event),
-    onRenameInput: event => this.onRenameInput(event),
-    onRenameKeyDown: (entry, event) => this.onRenameKeyDown(entry, event),
-    onRenameBlur: entry => this.onRenameBlur(entry),
-  };
-  readonly listSurfaceBindings = {
-    entryAriaLabel: (entry: FileInfo) => this.entryAriaLabel(entry),
-    entryDisplayColor: (entry: FileInfo) => this.entryDisplayColor(entry),
-    entryDisplayIcon: (entry: FileInfo) => this.entryDisplayIcon(entry),
-    entryDisplayKind: (entry: FileInfo) => this.entryDisplayKind(entry),
-    comparisonStatus: (path: string) => this.comparisonStatus(path),
-    isComparisonDifferent: (path: string) => this.isComparisonDifferent(path),
-    formatSize: (value: number) => this.formatSize(value),
-    formatModified: (value: unknown) => this.formatModified(value),
-    panelColumnValue: (column: PanelColumnContribution, entry: FileInfo) => this.panelColumnValue(column, entry),
-    trackEntry: (index: number, entry: FileInfo) => this.trackEntry(index, entry),
-  } as const;
 
   get paneStatusId(): string {
     return `${this.paneId}-status`;
-  }
-
-  private get listViewportElement(): HTMLElement | null {
-    return this.listSurface?.viewportElement ?? null;
   }
 
   focusContent(): void {
@@ -1942,7 +1968,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         ? this.paneRoot?.nativeElement
         : this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
-          : this.listViewportElement;
+          : this.listViewport?.nativeElement;
 
     target?.focus({ preventScroll: true });
   }
@@ -1986,10 +2012,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       visible[0];
 
     this.setSingleSelection(fallback);
-    if (!PERF_ISOLATION_MODE) {
-      this.ensureCursorVisible();
-      this.syncActiveDirSessionState();
-    }
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -2015,10 +2039,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.setSingleSelection(entry);
     this.lastAction = `follow: ${entry.name}`;
-    if (!PERF_ISOLATION_MODE) {
-      this.ensureCursorVisible();
-      this.syncActiveDirSessionState();
-    }
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
     return true;
   }
@@ -2037,7 +2059,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   viewportSnapshot(): { topName: string | null; ratio: number } {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
-      : this.listViewportElement;
+      : this.listViewport?.nativeElement;
     if (!viewport) return { topName: null, ratio: 0 };
 
     const max = Math.max(1, viewport.scrollHeight - viewport.clientHeight);
@@ -2060,7 +2082,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   syncViewportToPeer(snapshot: { topName: string | null; ratio: number }): void {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
-      : this.listViewportElement;
+      : this.listViewport?.nativeElement;
     if (!viewport) return;
 
     if (snapshot.topName) {
@@ -2188,54 +2210,16 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     return resolved ?? null;
   }
 
-  private renderedEntryPresentation(entry: FileInfo): {
-    color: string | null;
-    icon: string;
-    kind: string;
-  } {
-    if (this.renderedEntryPresentationRef !== this.renderedEntries) {
-      this.renderedEntryPresentationRef = this.renderedEntries;
-      this.renderedEntryPresentationCache = new Map();
-    }
-
-    const cached = this.renderedEntryPresentationCache.get(entry.path);
-    if (cached) {
-      return cached;
-    }
-
-    let presentation: {
-      color: string | null;
-      icon: string;
-      kind: string;
-    };
-
-    if (entry.type === FileType.DIRECTORY) {
-      presentation = { color: null, icon: '\u{1F4C1}', kind: 'Folder' };
-    } else if (entry.type === FileType.ARCHIVE) {
-      presentation = { color: null, icon: '\u{1F5DC}\uFE0F', kind: 'Archive' };
-    } else {
-      const category = this.entryCategory(entry);
-      presentation = {
-        color: category?.color || null,
-        icon: category?.icon || '\u{1F4C4}',
-        kind: category?.category || 'File',
-      };
-    }
-
-    this.renderedEntryPresentationCache.set(entry.path, presentation);
-    return presentation;
-  }
-
-  entryDisplayColor(entry: FileInfo): string | null {
-    return this.renderedEntryPresentation(entry).color;
-  }
-
   entryDisplayIcon(entry: FileInfo): string {
-    return this.renderedEntryPresentation(entry).icon;
+    if (entry.type === FileType.DIRECTORY) return '\u{1F4C1}';
+    if (entry.type === FileType.ARCHIVE) return '\u{1F5DC}\uFE0F';
+    return this.entryCategory(entry)?.icon || '\u{1F4C4}';
   }
 
   entryDisplayKind(entry: FileInfo): string {
-    return this.renderedEntryPresentation(entry).kind;
+    if (entry.type === FileType.DIRECTORY) return 'Folder';
+    if (entry.type === FileType.ARCHIVE) return 'Archive';
+    return this.entryCategory(entry)?.category || 'File';
   }
 
   get activeSurfaceId(): string {
@@ -2454,7 +2438,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get activePanelPresentation(): PanelPresentationContribution | null {
-    if (PERF_ISOLATION_MODE) return null;
     if (this.viewMode !== 'list' && this.viewMode !== 'details') return null;
     return this.pluginManager.resolvePanelPresentation({
       ...this.panelColumnContext,
@@ -2501,7 +2484,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get pluginPanelColumns(): PanelColumnContribution[] {
-    if (PERF_ISOLATION_MODE) return [];
     if (this.viewMode !== 'details') return [];
     return this.pluginManager.resolvePanelColumns(this.panelColumnContext);
   }
@@ -2737,10 +2719,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntries(): FileInfo[] {
-    if (PERF_ISOLATION_MODE) {
-      return this.withPresentationParent(this.entries);
-    }
-
     if (this.backendPresentationActive) {
       return this.withPresentationParent(this.entries);
     }
@@ -2788,11 +2766,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const columns = grid
       ? this.estimatedGridColumns()
       : 1;
-    const overscanRows = grid
-      ? this.gridOverscanRows
-      : (this.viewMode === 'details'
-        ? this.detailsOverscanRows
-        : this.listOverscanRows);
 
     return calculateVirtualWindow({
       itemCount: this.visibleEntryCount,
@@ -2800,8 +2773,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       viewportHeight: this.virtualViewportHeight,
       itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
       columns,
-      overscanRows,
-      threshold: PERF_ISOLATION_MODE ? Number.MAX_SAFE_INTEGER : this.virtualThreshold,
+      overscanRows: grid ? 8 : 48,
+      threshold: this.virtualThreshold,
     });
   }
 
@@ -2842,7 +2815,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       viewportHeight: this.virtualViewportHeight,
       itemExtent: this.treeRowExtent,
       overscanRows: 12,
-      threshold: PERF_ISOLATION_MODE ? Number.MAX_SAFE_INTEGER : this.virtualThreshold,
+      threshold: this.virtualThreshold,
     });
   }
 
@@ -2855,7 +2828,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   private estimatedGridColumns(): number {
     const width =
-      this.listViewportElement?.clientWidth ||
+      this.listViewport?.nativeElement.clientWidth ||
       this.virtualViewportWidth ||
       800;
 
@@ -2868,7 +2841,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       target ??
       (this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewportElement);
+        : this.listViewport?.nativeElement);
 
     if (!viewport) return;
 
@@ -4835,7 +4808,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewportElement;
+        : this.listViewport?.nativeElement;
 
     const rowHeight = this.viewMode === 'grid' ? 110 : 28;
     const pageSize = Math.max(
@@ -4987,10 +4960,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (nextIndex < 0 || nextIndex >= entries.length) return;
 
     this.cursorPath = entries[nextIndex].path;
-    if (!PERF_ISOLATION_MODE) {
-      this.ensureCursorVisible();
-      this.syncActiveDirSessionState();
-    }
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
   }
 
   selectPaths(paths: readonly string[]): void {
@@ -5681,13 +5652,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const sourcePaths = entries.map(entry => entry.path);
 
     try {
-      const selectableBeforeMove = this.selectableEntries();
-      const cursorIndexBeforeMove = this.cursorPath
-        ? selectableBeforeMove.findIndex(entry => entry.path === this.cursorPath)
-        : selectableBeforeMove.findIndex(entry =>
-            this.selectedPaths.has(entry.path),
-          );
-
       const folderPath = await this.api.joinPaths([
         this.path,
         folderName,
@@ -5751,13 +5715,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
 
       this.lastAction = `move to folder: ${folderName}`;
-      const folderEntry = await this.api.getFileInfo(folderPath);
-      this.applyOptimisticMoveToFolder(
-        sourcePaths,
-        folderEntry,
-        cursorIndexBeforeMove,
-      );
-      this.focusContent();
+      await this.refresh();
+      this.selectPath(folderPath);
     } catch (error) {
       await this.showOperationError(
         'Move Selection to New Folder',
@@ -6126,6 +6085,46 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
+  reconcileAddedEntries(entries: readonly FileInfo[]): void {
+    if (entries.length === 0) return;
+
+    const existing = new Map(
+      this.entries.map(entry => [entry.path.toLocaleLowerCase(), entry] as const),
+    );
+    let changed = false;
+
+    for (const incoming of entries) {
+      const key = incoming.path.toLocaleLowerCase();
+      const current = existing.get(key);
+      if (current) {
+        Object.assign(current, incoming);
+        continue;
+      }
+      this.entries.push(incoming);
+      existing.set(key, incoming);
+      changed = true;
+    }
+
+    if (changed) {
+      this.invalidateProjection();
+      this.invalidateTreeRows();
+    }
+
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  reconcileRemovedPaths(paths: readonly string[]): void {
+    if (paths.length === 0) return;
+
+    const selectable = this.selectableEntries();
+    const preferredIndex = this.cursorPath
+      ? selectable.findIndex(entry => this.samePath(entry.path, this.cursorPath!))
+      : selectable.findIndex(entry => this.selectedPaths.has(entry.path));
+
+    this.applyOptimisticDeletedPaths(paths, preferredIndex);
+  }
+
   private applyOptimisticDeletedPaths(
     deletedPaths: readonly string[],
     preferredCursorIndex: number,
@@ -6201,33 +6200,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
-  }
-
-  private applyOptimisticMoveToFolder(
-    movedPaths: readonly string[],
-    folderEntry: FileInfo,
-    preferredCursorIndex: number,
-  ): void {
-    this.applyOptimisticDeletedPaths(
-      movedPaths,
-      preferredCursorIndex,
-    );
-
-    const existingIndex = this.entries.findIndex(entry =>
-      this.samePath(entry.path, folderEntry.path),
-    );
-
-    if (existingIndex >= 0) {
-      this.entries = this.entries.map((entry, index) =>
-        index === existingIndex ? folderEntry : entry,
-      );
-    } else {
-      this.entries = [...this.entries, folderEntry];
-    }
-
-    this.invalidateTreeRows();
-    this.syncActiveDirSessionState();
-    this.selectPath(folderEntry.path);
   }
 
   async deleteSelected(forcePermanent = false): Promise<void> {
@@ -7811,7 +7783,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewportElement;
+        : this.listViewport?.nativeElement;
     return Math.max(0, viewport?.scrollTop ?? 0);
   }
 
@@ -7884,7 +7856,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private syncActiveDirSessionState(
     persist = true,
   ): Extract<Tab, { kind: 'dir' }> | null {
-    if (PERF_DISABLE_SESSION_SYNC) return null;
     const active = this.activeTab;
     if (!active || active.kind !== 'dir') return null;
 
@@ -8131,7 +8102,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewportElement;
+        : this.listViewport?.nativeElement;
     if (!viewport) return;
 
     viewport.scrollTop = Math.max(0, scrollTop);
@@ -8890,8 +8861,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   private backendWindowRangeFor(start: number, end: number): { offset: number; limit: number } {
     const visibleSpan = Math.max(1, end - start);
-    const minimumLimit = this.viewMode === 'grid' ? 768 : 256;
-    const limit = Math.max(minimumLimit, visibleSpan * 2);
+    const minimumLimit = this.viewMode === 'grid' ? 768 : 1024;
+    const limit = Math.max(minimumLimit, visibleSpan * 4);
     const offset = Math.max(
       0,
       start - Math.floor((limit - visibleSpan) / 2),
@@ -9128,10 +9099,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const entry = visible[nextIndex];
     this.setSingleSelection(entry);
     this.lastAction = delta < 0 ? 'cursor up' : 'cursor down';
-    if (!PERF_ISOLATION_MODE) {
-      this.ensureCursorVisible();
-      this.syncActiveDirSessionState();
-    }
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -9194,10 +9163,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.lastAction = delta > 0 ? 'filter next' : 'filter previous';
-    if (!PERF_ISOLATION_MODE) {
-      this.ensureCursorVisible();
-      this.syncActiveDirSessionState();
-    }
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -9207,7 +9174,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewportElement;
+        : this.listViewport?.nativeElement;
 
     if (viewport) {
       const index =
@@ -9252,7 +9219,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       const host =
         this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
-          : this.listViewportElement;
+          : this.listViewport?.nativeElement;
 
       const cursorElement = host
         ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`);
@@ -9267,8 +9234,3 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     });
   }
 }
-
-
-
-
-

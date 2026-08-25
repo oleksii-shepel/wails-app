@@ -835,6 +835,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tab {
       display: grid;
+      transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
       width: min(180px, 34vw);

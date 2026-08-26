@@ -528,7 +528,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
       </div>
 
-      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
+      <div class="pane-slot left-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
         <app-pane-host
           #leftPane
           paneId="left"
@@ -566,7 +566,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="divider-grip" aria-hidden="true"></span>
       </div>
 
-      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
+      <div class="pane-slot right-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
         <app-pane-host
           #rightPane
           paneId="right"
@@ -638,7 +638,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .manager {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
       width: 100%;
       height: 100%;
       min-width: 0;
@@ -667,7 +667,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       min-height:26px;
       gap:6px;
       padding:2px 6px;
-      border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));
+      grid-row:2;
+      border-top:1px solid var(--vsc-border-subtle,var(--vsc-border));
       background:var(--vsc-sideBar-background,var(--vsc-panel-background));
       color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
       font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif);
@@ -736,7 +737,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .pane-intelligence-menu{
       position:absolute;
       z-index:120;
-      top:calc(100% + 2px);
+      bottom:calc(100% + 2px);
       right:5px;
       width:220px;
       padding:5px;
@@ -788,7 +789,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       display: flex;
 
-      grid-row: 3;
+      grid-row: 1;
 
       min-width: 0;
 
@@ -818,7 +819,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
 
     .divider {
-      grid-row: 3;
+      grid-row: 1;
       position: relative;
       touch-action: none;
       cursor: col-resize;
@@ -852,15 +853,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     @media (max-width: 820px) {
       .manager {
         grid-template-columns: 1fr !important;
-        grid-template-rows: auto auto minmax(0, 1fr) 5px minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr) auto;
       }
 
-      .pane-slot {
-        grid-row: auto;
-      }
+      .left-pane-slot { grid-row: 1; }
+      .divider { grid-row: 2; }
+      .right-pane-slot { grid-row: 3; }
+      .pane-intelligence { grid-row: 4; }
 
       .divider {
-        grid-row: auto;
         cursor: default;
         background:
           linear-gradient(

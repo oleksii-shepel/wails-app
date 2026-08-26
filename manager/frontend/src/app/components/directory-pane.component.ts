@@ -17,7 +17,7 @@ import { PanelSourceRegistryService } from '../services/panel-source-registry.se
 import type { ResolvedPanelSource } from '../services/panel-source';
 import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
-import { WorkspaceService } from '../services/workspace.service';
+import { WorkspaceService, type ArchiveExitViewState } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
 import { OperationHistoryService } from '../services/operation-history.service';
@@ -2560,6 +2560,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   readonly archiveStack: ArchiveFrame[] = [];
   private archiveExitPath = '';
+  private archiveExitViewState: ArchiveExitViewState | null = null;
 
   dragOverPath: string | null = null;
   private dragSpringTimer: ReturnType<typeof setTimeout> | null = null;
@@ -7123,15 +7124,29 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       const exitPath =
         this.archiveExitPath ||
         this.directorySource.getParentPath(archivePath);
+      const exitViewState = this.archiveExitViewState;
+
+      // Seed virtualization before the directory reload. Large directories may
+      // fetch only the window around virtualScrollTop, so restoring this only
+      // after load would briefly fetch/render the wrong part of the directory.
+      if (exitViewState && this.samePath(exitViewState.path, exitPath)) {
+        this.virtualScrollTop = exitViewState.scrollTop;
+      }
 
       this.clearArchiveRuntime();
       this.lastAction = 'leave archive';
-      await this.load(exitPath, {
+      const loaded = await this.load(exitPath, {
         history: 'record',
         preserveCursor: false,
       });
 
-      this.selectPath(archivePath);
+      if (!loaded) return;
+
+      if (exitViewState && this.samePath(exitViewState.path, exitPath)) {
+        this.restoreArchiveExitViewState(exitViewState);
+      } else {
+        this.selectPath(archivePath);
+      }
     } catch (error) {
       this.error =
         error instanceof Error ? error.message : String(error);
@@ -7168,6 +7183,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private clearArchiveRuntime(): void {
     this.archiveStack.splice(0, this.archiveStack.length);
     this.archiveExitPath = '';
+    this.archiveExitViewState = null;
   }
 
   private async renderArchiveFrame(
@@ -7333,9 +7349,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       );
       if (generation !== this.loadGeneration) return false;
 
+      const exitPath = this.directorySource.getParentPath(parsed.fsPath);
+      const exitViewState = this.samePath(this.path, exitPath)
+        ? this.captureArchiveExitViewState()
+        : null;
+
       this.clearArchiveRuntime();
-      this.archiveExitPath =
-        this.directorySource.getParentPath(parsed.fsPath);
+      this.archiveExitPath = exitPath;
+      this.archiveExitViewState = exitViewState;
       this.archiveStack.push(rootFrame);
 
       let frame = rootFrame;
@@ -7799,6 +7820,12 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         archiveStack: this.archiveStack,
         fsDirPath: this.archiveStack[0]?.fsPath ?? frame.fsPath,
         fsParentDir: this.archiveExitPath,
+        exitViewState: this.archiveExitViewState
+          ? {
+              ...this.archiveExitViewState,
+              selectedPaths: [...this.archiveExitViewState.selectedPaths],
+            }
+          : undefined,
       },
     );
   }
@@ -7849,8 +7876,40 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.archiveExitPath =
       state.fsParentDir ||
       this.directorySource.getParentPath(parsed.fsPath);
+    this.archiveExitViewState = state.exitViewState
+      ? {
+          ...state.exitViewState,
+          selectedPaths: [...state.exitViewState.selectedPaths],
+        }
+      : null;
 
     return true;
+  }
+
+  private captureArchiveExitViewState(): ArchiveExitViewState {
+    return {
+      path: this.path,
+      scrollTop: this.currentScrollTop(),
+      selectedPaths: Array.from(this.selectedPaths),
+      cursorPath: this.cursorPath,
+      anchorPath: this.anchorPath,
+    };
+  }
+
+  private restoreArchiveExitViewState(state: ArchiveExitViewState): void {
+    this.selectedPaths = new Set(state.selectedPaths);
+    this.cursorPath = state.cursorPath;
+    this.anchorPath = state.anchorPath;
+    this.reconcileRestoredSelection();
+    this.virtualScrollTop = Math.max(0, state.scrollTop);
+
+    queueMicrotask(() => {
+      this.restoreScrollTop(state.scrollTop);
+      this.updateVirtualViewport();
+      this.queueBackendWindowForViewport();
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+    });
   }
 
   private syncActiveDirSessionState(

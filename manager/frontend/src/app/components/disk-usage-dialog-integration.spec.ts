@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const dualPane = readFileSync(new URL('./dual-pane.component.ts', import.meta.url), 'utf8');
+const app = readFileSync(new URL('../app.component.ts', import.meta.url), 'utf8');
 const dialog = readFileSync(new URL('./disk-usage-dialog.component.ts', import.meta.url), 'utf8');
 
 describe('Disk Usage dialog integration', () => {
@@ -17,6 +18,7 @@ describe('Disk Usage dialog integration', () => {
 
   it('destroys the utility context when the modal closes', () => {
     expect(dialog).toContain('this.ctx = null;');
-    expect(dualPane).toContain('(closed)="closeDiskUsageDialog()"');
+    expect(app).toContain('(closed)="closeDiskUsageDialog()"');
+    expect(dualPane).not.toContain('<app-disk-usage-dialog');
   });
 });

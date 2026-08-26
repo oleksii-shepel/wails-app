@@ -43,22 +43,9 @@ import {
 } from '../services/batch-rename-dialog.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { PaneHostComponent } from './pane-host.component';
-import { WorkspaceSwitcherComponent } from './workspace-switcher.component';
-import { PathHistoryComponent } from './path-history.component';
-import { QuickAccessComponent, type QuickAccessTarget } from './quick-access.component';
-import { RemoteConnectionsComponent } from './remote-connections.component';
-import { OperationSurfaceComponent } from './operation-surface.component';
-import { SelectionBasketComponent } from './selection-basket.component';
-import { ToolsCenterComponent } from './tools-center.component';
-import { DiskUsageDialogComponent } from './disk-usage-dialog.component';
-import {
-  GlobalSearchComponent,
-  type SearchResultsPanelRequest,
-} from './global-search.component';
-import {
-  CommandPaletteComponent,
-  type PaletteCommand,
-} from './command-palette.component';
+import type { QuickAccessTarget } from './quick-access.component';
+import type { SearchResultsPanelRequest } from './global-search.component';
+import type { PaletteCommand } from './command-palette.component';
 import {
   ContextMenuComponent,
   type ContextMenuItem,
@@ -89,10 +76,7 @@ import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './pane-link-policy';
 import type { PanePresentation } from './pane-component.contract';
 import { FILE_MANAGER_COMMANDS } from './command-registry';
-import { InputCenterComponent } from './input-center.component';
-import { KeyboardHelpComponent } from './keyboard-help.component';
-import { OperationJournalComponent } from './operation-journal.component';
-import { ClosedTabsComponent } from './closed-tabs.component';
+import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
 import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { PowerFileOperationsService } from '../services/power-file-operations.service';
@@ -398,21 +382,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     CommonModule,
     PaneHostComponent,
     ContextMenuComponent,
-    InputCenterComponent,
-    KeyboardHelpComponent,
-    WorkspaceSwitcherComponent,
-    PathHistoryComponent,
-    QuickAccessComponent,
-    RemoteConnectionsComponent,
-    OperationSurfaceComponent,
-    SelectionBasketComponent,
-    ToolsCenterComponent,
-    DiskUsageDialogComponent,
-    GlobalSearchComponent,
     ToolWorkspaceHostComponent,
 
-    CommandPaletteComponent,    OperationJournalComponent,
-    ClosedTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -437,63 +408,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (pin)="pinToolWorkspace()"
         (surfaceAction)="handleWorkspaceSurfaceAction($event)">
       </app-tool-workspace-host>
-
-      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
-        <app-pane-host
-          #leftPane
-          paneId="left"
-          [active]="activePaneId === 'left'"
-          [showHidden]="showHidden"
-          [comparisonStatuses]="leftComparisonStatuses"
-          (activateRequested)="activate('left')"
-          (locationChange)="onLinkedPaneLocationChange('left', $event)"
-          (cursorChange)="onLinkedPaneCursorChange('left', $event)"
-          (presentationChange)="onPanePresentationChange('left', $event)"
-          (viewportChange)="onPaneViewportChange('left', $event)"
-          (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
-          (backgroundContextMenu)="openBackgroundMenu('left', $event)"
-          (copyToOther)="activate('left'); copyToOther()"
-          (moveToOther)="activate('left'); moveToOther()">
-        </app-pane-host>
-      </div>
-
-      <div
-        *ngIf="workspacePresentation?.kind !== 'tool'"
-        class="divider"
-        role="separator"
-        tabindex="0"
-        aria-label="Resize file panes"
-        aria-orientation="vertical"
-        [attr.aria-valuenow]="leftPanePercent | number:'1.0-0'"
-        [attr.aria-valuemin]="MIN_PANE_PERCENT"
-        [attr.aria-valuemax]="MAX_PANE_PERCENT"
-        title="Drag to resize · Alt+Shift+Left/Right · Alt+Shift+0 reset"
-        (pointerdown)="beginResize($event)"
-        (pointermove)="resizeFromPointer($event)"
-        (pointerup)="endResize($event)"
-        (pointercancel)="endResize($event)"
-        (dblclick)="resetSplit()">
-        <span class="divider-grip" aria-hidden="true"></span>
-      </div>
-
-      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
-        <app-pane-host
-          #rightPane
-          paneId="right"
-          [active]="activePaneId === 'right'"
-          [showHidden]="showHidden"
-          [comparisonStatuses]="rightComparisonStatuses"
-          (activateRequested)="activate('right')"
-          (locationChange)="onLinkedPaneLocationChange('right', $event)"
-          (cursorChange)="onLinkedPaneCursorChange('right', $event)"
-          (presentationChange)="onPanePresentationChange('right', $event)"
-          (viewportChange)="onPaneViewportChange('right', $event)"
-          (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
-          (backgroundContextMenu)="openBackgroundMenu('right', $event)"
-          (copyToOther)="activate('right'); copyToOther()"
-          (moveToOther)="activate('right'); moveToOther()">
-        </app-pane-host>
-      </div>
 
       <div
         class="pane-intelligence"
@@ -613,71 +527,83 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
       </div>
 
-      <app-command-palette
-        #commandPalette
-        [commands]="commandPaletteCommands">
-      </app-command-palette>
+      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
+        <app-pane-host
+          #leftPane
+          paneId="left"
+          [active]="activePaneId === 'left'"
+          [showHidden]="showHidden"
+          [comparisonStatuses]="leftComparisonStatuses"
+          (activateRequested)="activate('left')"
+          (locationChange)="onLinkedPaneLocationChange('left', $event)"
+          (cursorChange)="onLinkedPaneCursorChange('left', $event)"
+          (presentationChange)="onPanePresentationChange('left', $event)"
+          (viewportChange)="onPaneViewportChange('left', $event)"
+          (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
+          (backgroundContextMenu)="openBackgroundMenu('left', $event)"
+          (copyToOther)="activate('left'); copyToOther()"
+          (moveToOther)="activate('left'); moveToOther()">
+        </app-pane-host>
+      </div>
 
-      <app-global-search
-        #globalSearch
-        (openResult)="openSearchResult($event)"
-        (openContainingFolder)="openSearchContainingFolder($event)"
-        (openAsPanel)="openSearchResultsPanel($event)"
-        (openAsWorkspace)="openSearchWorkspace($event)"
-        (openPanelPath)="openDiscoveryPanelPath($event)">
-      </app-global-search>
+      <div
+        *ngIf="workspacePresentation?.kind !== 'tool'"
+        class="divider"
+        role="separator"
+        tabindex="0"
+        aria-label="Resize file panes"
+        aria-orientation="vertical"
+        [attr.aria-valuenow]="leftPanePercent | number:'1.0-0'"
+        [attr.aria-valuemin]="MIN_PANE_PERCENT"
+        [attr.aria-valuemax]="MAX_PANE_PERCENT"
+        title="Drag to resize · Alt+Shift+Left/Right · Alt+Shift+0 reset"
+        (pointerdown)="beginResize($event)"
+        (pointermove)="resizeFromPointer($event)"
+        (pointerup)="endResize($event)"
+        (pointercancel)="endResize($event)"
+        (dblclick)="resetSplit()">
+        <span class="divider-grip" aria-hidden="true"></span>
+      </div>
 
-      <app-tools-center
-        #toolsCenter
-        (changed)="refreshBothPanes()"
-        (navigateTo)="navigateFromTools($event)"
-        (openBasketRequested)="selectionBasket?.show()">
-      </app-tools-center>
+      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
+        <app-pane-host
+          #rightPane
+          paneId="right"
+          [active]="activePaneId === 'right'"
+          [showHidden]="showHidden"
+          [comparisonStatuses]="rightComparisonStatuses"
+          (activateRequested)="activate('right')"
+          (locationChange)="onLinkedPaneLocationChange('right', $event)"
+          (cursorChange)="onLinkedPaneCursorChange('right', $event)"
+          (presentationChange)="onPanePresentationChange('right', $event)"
+          (viewportChange)="onPaneViewportChange('right', $event)"
+          (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
+          (backgroundContextMenu)="openBackgroundMenu('right', $event)"
+          (copyToOther)="activate('right'); copyToOther()"
+          (moveToOther)="activate('right'); moveToOther()">
+        </app-pane-host>
+      </div>
 
-      <app-disk-usage-dialog
-        [visible]="diskUsageDialogVisible"
-        [rootPath]="diskUsageDialogPath"
-        (closed)="closeDiskUsageDialog()">
-      </app-disk-usage-dialog>
+      
 
-      <app-selection-basket
-        #selectionBasket
-        (copyTo)="copyBasketTo($event)"
-        (moveTo)="moveBasketTo($event)"
-        (deleteRequested)="deleteBasket()">
-      </app-selection-basket>
+      
 
-      <app-workspace-switcher
-        #workspaceSwitcher
-        (workspaceActivated)="applyActiveWorkspace()"
-        (toolWorkspaceActivated)="activateToolWorkspace($event)">
-      </app-workspace-switcher>
+      
 
-      <app-path-history
-        #pathHistory
-        [paneId]="activePaneId"
-        [currentPath]="activePane?.contextState.path ?? ''"
-        (navigate)="navigateFromHistory($event)">
-      </app-path-history>
+      
 
-      <app-quick-access
-        #quickAccess
-        [paneId]="activePaneId"
-        [currentPath]="activePane?.contextState.path ?? ''"
-        [currentSurfaceId]="activePane?.contextState.activeSurfaceId || 'dir'"
-        (navigate)="navigateFromQuickAccess($event)"
-        (openTarget)="openQuickAccessTarget($event)">
-      </app-quick-access>
+      
+
+      
+
+      
+
+      
 
 
-      <app-remote-connections
-        #remoteConnections
-        (navigate)="navigateFromRemoteConnections($event)">
-      </app-remote-connections>
+      
 
-      <app-operation-surface
-        (openDetails)="openTools('operations')">
-      </app-operation-surface>
+      
 
       <app-context-menu
         [state]="contextMenu"
@@ -685,25 +611,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (closed)="closeContextMenu()">
       </app-context-menu>
 
-      <app-closed-tabs
-        [visible]="closedTabsVisible"
-        (closed)="closedTabsVisible = false"
-        (reopenRequested)="reopenClosedTabEntry($event)">
-      </app-closed-tabs>
+      
 
-      <app-operation-journal
-        [visible]="operationJournalVisible"
-        (closed)="operationJournalVisible = false"
-        (undoRequested)="undoLastOperation()"
-        (redoRequested)="redoLastOperation()">
-      </app-operation-journal>
+      
 
-      <app-keyboard-help #keyboardHelp></app-keyboard-help>
+      
 
-      <app-input-center
-        [visible]="shortcutHelpVisible"
-        (closed)="shortcutHelpVisible = false">
-      </app-input-center>
+      
     </section>
   `,
   styles: [`
@@ -723,7 +637,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .manager {
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr);
       width: 100%;
       height: 100%;
       min-width: 0;
@@ -747,13 +661,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .pane-intelligence{
       position:relative;
       grid-column:1 / -1;
-      grid-row:2;
       display:flex;
       align-items:center;
       min-height:26px;
       gap:6px;
       padding:2px 6px;
-      border-top:1px solid var(--vsc-border-subtle,var(--vsc-border));
+      border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));
       background:var(--vsc-sideBar-background,var(--vsc-panel-background));
       color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
       font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif);
@@ -822,7 +735,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .pane-intelligence-menu{
       position:absolute;
       z-index:120;
-      bottom:calc(100% + 2px);
+      top:calc(100% + 2px);
       right:5px;
       width:220px;
       padding:5px;
@@ -874,7 +787,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       display: flex;
 
-      grid-row: 1;
+      grid-row: 3;
 
       min-width: 0;
 
@@ -904,7 +817,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
 
     .divider {
-      grid-row: 1;
+      grid-row: 3;
       position: relative;
       touch-action: none;
       cursor: col-resize;
@@ -938,14 +851,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     @media (max-width: 820px) {
       .manager {
         grid-template-columns: 1fr !important;
-        grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr) auto;
+        grid-template-rows: auto auto minmax(0, 1fr) 5px minmax(0, 1fr);
       }
 
       .pane-slot {
-        grid-row: auto;
-      }
-
-      .pane-intelligence {
         grid-row: auto;
       }
 
@@ -977,31 +886,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `],
 })
 export class DualPaneComponent implements OnInit, OnDestroy {
-  diskUsageDialogVisible = false;
-  diskUsageDialogPath = '';
 
   @ViewChild('managerRoot') managerRoot?: ElementRef<HTMLElement>;
   @ViewChild('paneIntelligenceMore') paneIntelligenceMore?: ElementRef<HTMLButtonElement>;
   @ViewChild('paneIntelligenceMenu') paneIntelligenceMenu?: ElementRef<HTMLElement>;
-  @ViewChild('workspaceSwitcher')
-  workspaceSwitcher?: WorkspaceSwitcherComponent;
-  @ViewChild('selectionBasket')
-  selectionBasket?: SelectionBasketComponent;
-  @ViewChild('toolsCenter')
-  toolsCenter?: ToolsCenterComponent;
-  @ViewChild('commandPalette')
-  commandPalette?: CommandPaletteComponent;
-  @ViewChild('keyboardHelp')
-  keyboardHelp?: KeyboardHelpComponent;
-@ViewChild('globalSearch')
-  globalSearchOverlay?: GlobalSearchComponent;
-  @ViewChild('pathHistory')
-  pathHistory?: PathHistoryComponent;
-  @ViewChild('quickAccess')
-  quickAccess?: QuickAccessComponent;
   @ViewChild('leftPane') leftPane?: PaneHostComponent;
   @ViewChild('rightPane') rightPane?: PaneHostComponent;
-  @ViewChild('remoteConnections') remoteConnections?: RemoteConnectionsComponent;
 
   activePaneId: PaneId = 'left';
   readonly MIN_PANE_PERCENT = 20;
@@ -1011,9 +901,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   resizing = false;
   private workspaceApplyGeneration = 0;
   showHidden = false;
-  shortcutHelpVisible = false;
-  operationJournalVisible = false;
-  closedTabsVisible = false;
   workspacePresentation: WorkspacePresentation | null = null;
 
   commandPaletteCommands: PaletteCommand[] = [];
@@ -1083,6 +970,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     private readonly settings: SettingsService,
     private readonly paneIntelligence: PaneIntelligenceService,
     private readonly surfaceRegistry: SurfaceRegistryService,
+    private readonly overlays: ApplicationOverlayHostService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -2516,17 +2404,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   showShortcutReference(): void {
-    const help = this.keyboardHelp;
-    if (!help) {
-      console.warn('[shortcuts] KeyboardHelpComponent is not mounted.');
-      return;
-    }
-    help.show();
+    this.overlays.showKeyboardHelp();
   }
 
   toggleShortcutHelp(): void {
-    this.shortcutHelpVisible = !this.shortcutHelpVisible;
-    this.cdr.markForCheck();
+    this.overlays.toggleInputCenter();
   }
 
   switchPane(): void {
@@ -2551,17 +2433,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ? this.otherPane.contextState.path
         : '';
     if (!root) return;
-    this.globalSearchOverlay?.open(root);
+    this.overlays.openGlobalSearch(root);
   }
 
   openHistoryFor(paneId: PaneId, mode: 'pane' | 'all' | 'frequent' = 'pane'): void {
     this.activate(paneId);
-    this.pathHistory?.open(mode);
+    this.overlays.openPathHistory(mode);
   }
 
   openQuickAccessFor(paneId: PaneId, sectionId?: string): void {
     this.activate(paneId);
-    void this.quickAccess?.open(sectionId);
+    this.overlays.openQuickAccess(sectionId);
   }
 
   async quickPathJump(): Promise<void> {
@@ -2667,7 +2549,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
 
   openRemoteConnections(): void {
-    this.remoteConnections?.open();
+    this.overlays.openRemoteConnections();
   }
 
   navigateFromRemoteConnections(path: string): void {
@@ -2753,7 +2635,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       });
     }
 
-    this.globalSearchOverlay?.close();
+    this.overlays.closeGlobalSearch();
     this.cdr.markForCheck();
   }
 
@@ -2789,7 +2671,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       ),
     );
 
-    this.globalSearchOverlay?.close();
+    this.overlays.closeGlobalSearch();
     this.cdr.markForCheck();
   }
 
@@ -3336,17 +3218,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const path = pane?.contextState.path?.trim() ?? '';
     if (!path) return;
-
-    this.diskUsageDialogPath = path;
-    this.diskUsageDialogVisible = true;
-    this.cdr.markForCheck();
+    this.overlays.openDiskUsage(path);
   }
 
-  closeDiskUsageDialog(): void {
-    this.diskUsageDialogVisible = false;
-    this.diskUsageDialogPath = '';
-    this.cdr.markForCheck();
-  }
 
   openTools(page: 'operations' | 'disk' | 'duplicates'): void {
     const rootPath = this.activePane?.contextState.isDirectoryTab
@@ -3355,7 +3229,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ? this.otherPane.contextState.path
         : '';
 
-    this.toolsCenter?.open(page, rootPath);
+    this.overlays.openTools(page, rootPath);
   }
 
   async batchRenameActiveSelection(): Promise<void> {
@@ -3446,7 +3320,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     await pane.tabCommands?.reloadWorkspaceTabs(restored.tab.id);
     pane.navigation?.focusContent();
-    this.closedTabsVisible = false;
+    this.overlays.closeClosedTabs();
     this.cdr.markForCheck();
   }
 
@@ -3468,7 +3342,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     await pane.tabCommands?.reloadWorkspaceTabs(restored.tab.id);
     pane.navigation?.focusContent();
-    this.closedTabsVisible = false;
+    this.overlays.closeClosedTabs();
     this.cdr.markForCheck();
   }
 
@@ -4051,7 +3925,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       Array.from(paths),
       `comparison:${side}`,
     );
-    this.selectionBasket?.show();
+    this.overlays.showSelectionBasket();
     this.cdr.markForCheck();
   }
 
@@ -5359,13 +5233,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   private openCommandPaletteSurface(): void {
-    const palette = this.commandPalette as (CommandPaletteComponent & { show?: () => void; open?: () => void }) | undefined;
-    if (!palette) return;
-    if (typeof palette.show === 'function') {
-      palette.show();
-      return;
-    }
-    palette.open?.();
+    this.overlays.openCommandPalette(this.commandPaletteCommands);
   }
 
   private registerCommands(): void {
@@ -5636,7 +5504,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     );
     descriptor(COMMAND.undo, 'Undo', 'Edit', () => this.undoLastOperation(), () => this.operationHistory.canUndo);
     descriptor(COMMAND.redo, 'Redo', 'Edit', () => this.redoLastOperation(), () => this.operationHistory.canRedo);
-    descriptor(COMMAND.operationHistory, 'Operation History', 'Edit', () => { this.operationJournalVisible = true; this.cdr.markForCheck(); });
+    descriptor(COMMAND.operationHistory, 'Operation History', 'Edit', () => this.overlays.showOperationJournal());
     descriptor(
       COMMAND.createArchive,
       'Create ZIP Archive',
@@ -5707,8 +5575,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Show Recently Closed Tabs',
       'Tab Management',
       () => {
-        this.closedTabsVisible = true;
-        this.cdr.markForCheck();
+        this.overlays.showClosedTabs();
       },
       () => this.workspaceService.canReopenClosedTab(),
     );
@@ -5746,7 +5613,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
     descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.navigation?.focusFilter(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
-    descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.workspaceSwitcher?.open());
+    descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.overlays.openWorkspaceSwitcher());
     descriptor(
       COMMAND.previousWorkspace,
       'Previous Workspace',
@@ -5761,7 +5628,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       () => this.cycleWorkspace(1),
       () => this.workspaceCycleCount > 1,
     );
-    descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.workspaceSwitcher?.createWorkspace());
+    descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.overlays.createWorkspace());
     descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.openHistoryFor(this.activePaneId));
     descriptor(COMMAND.showQuickAccess, 'Open Quick Access', 'Navigation', () => this.openQuickAccessFor(this.activePaneId));
     descriptor(
@@ -5893,7 +5760,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.cursorPageUp, 'Page Up', 'Navigation', () => this.activePane?.selection?.moveCursorPage(-1), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.cursorPageDown, 'Page Down', 'Navigation', () => this.activePane?.selection?.moveCursorPage(1), () => !!this.activePane?.contextState.isDirectoryTab);
 
-    descriptor(COMMAND.openBasket, 'Open Selection Basket', 'Tools', () => this.selectionBasket?.show());
+    descriptor(COMMAND.openBasket, 'Open Selection Basket', 'Tools', () => this.overlays.showSelectionBasket());
     descriptor(COMMAND.addToBasket, 'Add to Selection Basket', 'Selection', () => this.addActiveSelectionToBasket(), () => !!this.activePane?.contextState.isDirectoryTab && (!!this.activePane?.mutationState.hasSelection || !!this.activePane?.selection.cursorPath));
     descriptor(COMMAND.clearBasket, 'Clear Selection Basket', 'Tools', () => this.selectionBasketService.clear(), () => this.selectionBasketService.snapshot.length > 0);
 

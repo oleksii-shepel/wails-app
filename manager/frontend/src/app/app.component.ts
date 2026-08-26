@@ -35,6 +35,25 @@ import { PaneRecursiveCompareDialogComponent } from './components/pane-recursive
 import { PaneSyncReviewComponent } from './components/pane-sync-review.component';
 import { ArchiveFilesDialogComponent } from './components/archive-files-dialog.component';
 import { ArchiveFilesDialogService } from './services/archive-files-dialog.service';
+import { CommandPaletteComponent, type PaletteCommand } from './components/command-palette.component';
+import { GlobalSearchComponent } from './components/global-search.component';
+import { ToolsCenterComponent } from './components/tools-center.component';
+import { DiskUsageDialogComponent } from './components/disk-usage-dialog.component';
+import { SelectionBasketComponent } from './components/selection-basket.component';
+import { WorkspaceSwitcherComponent } from './components/workspace-switcher.component';
+import { PathHistoryComponent } from './components/path-history.component';
+import { QuickAccessComponent } from './components/quick-access.component';
+import { RemoteConnectionsComponent } from './components/remote-connections.component';
+import { ClosedTabsComponent } from './components/closed-tabs.component';
+import { OperationJournalComponent } from './components/operation-journal.component';
+import { KeyboardHelpComponent } from './components/keyboard-help.component';
+import { InputCenterComponent } from './components/input-center.component';
+import {
+  ApplicationOverlayHostService,
+  type ApplicationOverlayHost,
+  type AppOverlayHistoryMode,
+  type AppOverlayToolsPage,
+} from './services/application-overlay-host.service';
 
 @Component({
   selector: 'app-root',
@@ -56,6 +75,19 @@ import { ArchiveFilesDialogService } from './services/archive-files-dialog.servi
     PaneSyncReviewComponent,
     ArchiveFilesDialogComponent,
     RegistryPluginHostComponent,
+    CommandPaletteComponent,
+    GlobalSearchComponent,
+    ToolsCenterComponent,
+    DiskUsageDialogComponent,
+    SelectionBasketComponent,
+    WorkspaceSwitcherComponent,
+    PathHistoryComponent,
+    QuickAccessComponent,
+    RemoteConnectionsComponent,
+    ClosedTabsComponent,
+    OperationJournalComponent,
+    KeyboardHelpComponent,
+    InputCenterComponent,
   ],
   template: `
     <main class="app-shell">
@@ -77,6 +109,72 @@ import { ArchiveFilesDialogService } from './services/archive-files-dialog.servi
       <app-pane-recursive-compare-dialog *ngIf="paneRecursiveCompareMounted$ | async"></app-pane-recursive-compare-dialog>
       <app-pane-sync-review *ngIf="paneSyncReviewMounted$ | async"></app-pane-sync-review>
       <app-archive-files-dialog *ngIf="archiveFilesMounted$ | async"></app-archive-files-dialog>
+
+      <app-command-palette #commandPalette [commands]="commandPaletteCommands"></app-command-palette>
+      <app-global-search
+        #globalSearch
+        (openResult)="managerRef?.openSearchResult($event)"
+        (openContainingFolder)="managerRef?.openSearchContainingFolder($event)"
+        (openAsPanel)="managerRef?.openSearchResultsPanel($event)"
+        (openAsWorkspace)="managerRef?.openSearchWorkspace($event)"
+        (openPanelPath)="managerRef?.openDiscoveryPanelPath($event)">
+      </app-global-search>
+      <app-tools-center
+        #toolsCenter
+        (changed)="managerRef?.refreshBothPanes()"
+        (navigateTo)="managerRef?.navigateFromTools($event)"
+        (openBasketRequested)="selectionBasket?.show()">
+      </app-tools-center>
+      <app-disk-usage-dialog
+        [visible]="diskUsageDialogVisible"
+        [rootPath]="diskUsageDialogPath"
+        (closed)="closeDiskUsageDialog()">
+      </app-disk-usage-dialog>
+      <app-selection-basket
+        #selectionBasket
+        (copyTo)="managerRef?.copyBasketTo($event)"
+        (moveTo)="managerRef?.moveBasketTo($event)"
+        (deleteRequested)="managerRef?.deleteBasket()">
+      </app-selection-basket>
+      <app-workspace-switcher
+        #workspaceSwitcher
+        (workspaceActivated)="managerRef?.applyActiveWorkspace()"
+        (toolWorkspaceActivated)="managerRef?.activateToolWorkspace($event)">
+      </app-workspace-switcher>
+      <app-path-history
+        #pathHistory
+        [paneId]="managerRef?.activePaneId ?? 'left'"
+        [currentPath]="managerRef?.activePane?.contextState?.path ?? ''"
+        (navigate)="managerRef?.navigateFromHistory($event)">
+      </app-path-history>
+      <app-quick-access
+        #quickAccess
+        [paneId]="managerRef?.activePaneId ?? 'left'"
+        [currentPath]="managerRef?.activePane?.contextState?.path ?? ''"
+        [currentSurfaceId]="managerRef?.activePane?.contextState?.activeSurfaceId || 'dir'"
+        (navigate)="managerRef?.navigateFromQuickAccess($event)"
+        (openTarget)="managerRef?.openQuickAccessTarget($event)">
+      </app-quick-access>
+      <app-remote-connections
+        #remoteConnections
+        (navigate)="managerRef?.navigateFromRemoteConnections($event)">
+      </app-remote-connections>
+      <app-closed-tabs
+        [visible]="closedTabsVisible"
+        (closed)="closedTabsVisible = false"
+        (reopenRequested)="managerRef?.reopenClosedTabEntry($event)">
+      </app-closed-tabs>
+      <app-operation-journal
+        [visible]="operationJournalVisible"
+        (closed)="operationJournalVisible = false"
+        (undoRequested)="managerRef?.undoLastOperation()"
+        (redoRequested)="managerRef?.redoLastOperation()">
+      </app-operation-journal>
+      <app-keyboard-help #keyboardHelp></app-keyboard-help>
+      <app-input-center
+        [visible]="inputCenterVisible"
+        (closed)="inputCenterVisible = false">
+      </app-input-center>
       <app-perf-overlay></app-perf-overlay>
       <reassembly-registry-plugin-host></reassembly-registry-plugin-host>
     </main>
@@ -120,7 +218,7 @@ import { ArchiveFilesDialogService } from './services/archive-files-dialog.servi
     }
   `],
 })
-export class AppComponent implements OnInit, OnDestroy {
+export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
   readonly batchRenameMounted$ = this.batchRenameDialog.mountedRequest$;
   readonly remoteConnectMounted$ = this.remoteConnectDialog.mountedRequest$;
   readonly settingsMounted$ = this.settingsService.getMountedRequest$();
@@ -131,8 +229,27 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly paneSyncReviewMounted$ = this.paneSyncReviewDialog.mountedRequest$;
   readonly archiveFilesMounted$ = this.archiveFilesDialog.mountedRequest$;
 
+  commandPaletteCommands: PaletteCommand[] = [];
+  inputCenterVisible = false;
+  operationJournalVisible = false;
+  closedTabsVisible = false;
+  diskUsageDialogVisible = false;
+  diskUsageDialogPath = '';
+  managerRef: DualPaneComponent | undefined;
+
+  @ViewChild('commandPalette') commandPalette?: CommandPaletteComponent;
+  @ViewChild('globalSearch') globalSearch?: GlobalSearchComponent;
+  @ViewChild('toolsCenter') toolsCenter?: ToolsCenterComponent;
+  @ViewChild('selectionBasket') selectionBasket?: SelectionBasketComponent;
+  @ViewChild('workspaceSwitcher') workspaceSwitcher?: WorkspaceSwitcherComponent;
+  @ViewChild('pathHistory') pathHistory?: PathHistoryComponent;
+  @ViewChild('quickAccess') quickAccess?: QuickAccessComponent;
+  @ViewChild('remoteConnections') remoteConnections?: RemoteConnectionsComponent;
+  @ViewChild('keyboardHelp') keyboardHelp?: KeyboardHelpComponent;
+
   @ViewChild('manager')
   set manager(value: DualPaneComponent | undefined) {
+    this.managerRef = value;
     if (!value) return;
     this.pluginBootstrap.bindSelectionProvider(
       () => value.pluginSelectionPaths() ?? [],
@@ -156,6 +273,7 @@ export class AppComponent implements OnInit, OnDestroy {
     private readonly paneRecursiveCompareDialog: PaneRecursiveCompareDialogService,
     private readonly paneSyncReviewDialog: PaneSyncReviewDialogService,
     private readonly archiveFilesDialog: ArchiveFilesDialogService,
+    private readonly overlays: ApplicationOverlayHostService,
   ) {}
 
   @HostListener('document:keydown.escape', ['$event'])
@@ -169,11 +287,48 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.overlays.bind(this);
     void this.bootstrapPlugins();
   }
 
   ngOnDestroy(): void {
+    this.overlays.unbind(this);
     void this.pluginBootstrap.shutdown();
+  }
+
+  openCommandPalette(commands: readonly unknown[]): void {
+    this.commandPaletteCommands = commands as PaletteCommand[];
+    this.cdr.markForCheck();
+    queueMicrotask(() => {
+      const palette = this.commandPalette as (CommandPaletteComponent & { show?: () => void; open?: () => void }) | undefined;
+      if (typeof palette?.show === 'function') palette.show();
+      else if (typeof palette?.open === 'function') palette.open();
+    });
+  }
+
+  openGlobalSearch(rootPath: string): void { this.globalSearch?.open(rootPath); }
+  closeGlobalSearch(): void { this.globalSearch?.close(); }
+  openTools(page: AppOverlayToolsPage, rootPath: string): void { this.toolsCenter?.open(page, rootPath); }
+  showSelectionBasket(): void { this.selectionBasket?.show(); }
+  openWorkspaceSwitcher(): void { this.workspaceSwitcher?.open(); }
+  createWorkspace(): void { this.workspaceSwitcher?.createWorkspace(); }
+  openPathHistory(mode: AppOverlayHistoryMode): void { this.pathHistory?.open(mode); }
+  openQuickAccess(sectionId?: string): void { void this.quickAccess?.open(sectionId); }
+  openRemoteConnections(): void { this.remoteConnections?.open(); }
+  showKeyboardHelp(): void { this.keyboardHelp?.show(); }
+  toggleInputCenter(): void { this.inputCenterVisible = !this.inputCenterVisible; this.cdr.markForCheck(); }
+  showOperationJournal(): void { this.operationJournalVisible = true; this.cdr.markForCheck(); }
+  showClosedTabs(): void { this.closedTabsVisible = true; this.cdr.markForCheck(); }
+  closeClosedTabs(): void { this.closedTabsVisible = false; this.cdr.markForCheck(); }
+  openDiskUsage(rootPath: string): void {
+    this.diskUsageDialogPath = rootPath;
+    this.diskUsageDialogVisible = true;
+    this.cdr.markForCheck();
+  }
+  closeDiskUsageDialog(): void {
+    this.diskUsageDialogVisible = false;
+    this.diskUsageDialogPath = '';
+    this.cdr.markForCheck();
   }
 
   private async bootstrapPlugins(): Promise<void> {

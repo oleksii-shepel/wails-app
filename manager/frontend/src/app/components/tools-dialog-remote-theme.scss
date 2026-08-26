@@ -12,7 +12,8 @@
 .du-backdrop.du-backdrop,
 .br-overlay.br-overlay,
 .dialog-backdrop.dialog-backdrop,
-.review-backdrop.review-backdrop {
+.review-backdrop.review-backdrop,
+.remote-connect-overlay.remote-connect-overlay {
   position: fixed;
   inset: 0;
   box-sizing: border-box;
@@ -22,6 +23,8 @@
   align-items: start;
   padding: min(12vh, 110px) 12px 20px;
   background: var(--vsc-scrim-soft);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Side-drawer basket becomes a normal Tools dialog. */
@@ -80,6 +83,10 @@
 .review.review {
   width: min(1040px, calc(100vw - 24px));
   height: min(720px, calc(100vh - min(12vh, 110px) - 32px));
+}
+.remote-connect-panel.remote-connect-panel {
+  width: min(820px, calc(100vw - 24px));
+  max-height: min(760px, calc(100vh - min(12vh, 110px) - 32px));
 }
 .dialog.dialog {
   width: min(900px, calc(100vw - 24px));
@@ -149,6 +156,7 @@
 .br-panel button,
 .dialog-panel button,
 .review button,
+.remote-connect-panel button,
 .dialog button {
   border: 1px solid transparent;
   border-radius: 4px;
@@ -164,6 +172,7 @@
 .br-panel button:hover:not(:disabled),
 .dialog-panel button:hover:not(:disabled),
 .review button:hover:not(:disabled),
+.remote-connect-panel button:hover:not(:disabled),
 .dialog button:hover:not(:disabled) {
   border-color: var(--vsc-border);
   background: var(--vsc-list-hover-background);
@@ -175,6 +184,7 @@
 .br-panel button:disabled,
 .dialog-panel button:disabled,
 .review button:disabled,
+.remote-connect-panel button:disabled,
 .dialog button:disabled {
   opacity: .35;
   cursor: default;
@@ -186,6 +196,7 @@
 .br-panel .br-btn,
 .dialog-panel .close,
 .review .close,
+.remote-connect-panel .dialog-close-btn,
 .dialog > header > button {
   min-height: 28px;
   padding: 4px 8px;
@@ -264,21 +275,23 @@
 }
 
 /* ── Animation family ───────────────────────────────────────────────────── */
-.backdrop,
-.br-overlay,
-.dialog-backdrop,
-.review-backdrop {
+.backdrop:not(.dialog-group),
+.br-overlay:not(.dialog-group),
+.dialog-backdrop:not(.dialog-group),
+.review-backdrop:not(.dialog-group),
+.remote-connect-overlay:not(.dialog-group) {
   animation: toolsDialogFadeIn .2s ease;
 }
 
-.tools,
-.journal,
-.basket-panel,
-.du-dialog,
-.br-panel,
-.dialog-panel,
-.review,
-.dialog {
+.tools:not(.dialog-surface),
+.journal:not(.dialog-surface),
+.basket-panel:not(.dialog-surface),
+.du-dialog:not(.dialog-surface),
+.br-panel:not(.dialog-surface),
+.dialog-panel:not(.dialog-surface),
+.review:not(.dialog-surface),
+.remote-connect-panel:not(.dialog-surface),
+.dialog:not(.dialog-surface) {
   animation: toolsDialogSlideDown .28s cubic-bezier(.16, 1, .3, 1);
 }
 
@@ -299,7 +312,8 @@
   .du-backdrop.du-backdrop,
   .br-overlay.br-overlay,
   .dialog-backdrop.dialog-backdrop,
-  .review-backdrop.review-backdrop {
+  .review-backdrop.review-backdrop,
+  .remote-connect-overlay.remote-connect-overlay {
     padding: 8px;
     place-items: start center;
   }
@@ -311,6 +325,7 @@
   .br-panel.br-panel,
   .dialog-panel.dialog-panel,
   .review.review,
+  .remote-connect-panel.remote-connect-panel,
   .dialog.dialog {
     width: calc(100vw - 16px);
     max-width: none;

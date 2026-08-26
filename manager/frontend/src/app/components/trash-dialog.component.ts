@@ -116,7 +116,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
   `,
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
-    .backdrop { z-index: 1200; place-items: start center; }
+    .backdrop { z-index: 1200; place-items: center; }
     .backdrop--closing { pointer-events: none; }
 
     .dialog {

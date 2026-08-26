@@ -19,8 +19,8 @@ type Filter = 'different' | PaneComparisonStatus;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container *ngIf="activeRequest as request">
-    <div class="review-backdrop" [class.review-backdrop--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
-      <div class="review" role="dialog" aria-modal="true" aria-label="Synchronization review" (click)="$event.stopPropagation()">
+    <div class="review-backdrop dialog-group" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
+      <div class="review dialog-surface" role="dialog" aria-modal="true" aria-label="Synchronization review" (click)="$event.stopPropagation()">
       <div class="header">
         <div class="title">
           <strong>Synchronization Review</strong>
@@ -32,7 +32,7 @@ type Filter = 'different' | PaneComparisonStatus;
           <button type="button" (click)="applyPreset('right-to-left')">Right → Left</button>
           <button type="button" (click)="applyPreset('bidirectional')">Bidirectional</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
-          <button type="button" class="close" (click)="dialogs.close()" title="Close review">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="dialogs.close()">×</button>
         </div>
       </div>
 
@@ -73,8 +73,6 @@ type Filter = 'different' | PaneComparisonStatus;
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host { position: fixed; inset: 0; z-index: 30012; }
-    .review-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--vsc-scrim); backdrop-filter: blur(2px); padding: 24px; animation: fadeIn 0.2s ease; }
-    .review-backdrop--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
     .review {
       width: min(1100px, calc(100vw - 48px));
       max-height: min(720px, calc(100vh - 48px));
@@ -86,20 +84,15 @@ type Filter = 'different' | PaneComparisonStatus;
       background: var(--vsc-editor-background);
       box-shadow: var(--vsc-widget-shadow), 0 32px 64px var(--vsc-scrim-soft), 0 0 0 1px var(--vsc-neutral-overlay-subtle) inset;
       font-size: 12px;
-      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+     
     }
-    .review-backdrop--closing .review { animation: slideUp 0.2s ease forwards; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-    @keyframes slideDown { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-16px); opacity: 0; } }
     .header, .filters, .columns, .row { display: grid; align-items: center; }
     .header { grid-template-columns: minmax(0,1fr) auto; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: var(--vsc-titlebar-background); }
     .title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
     .title strong { color: var(--vsc-foreground-bright); font-size: 14px; font-weight: 600; }
     .title span { color: var(--vsc-foreground-dim); }
     .header-actions, .filters, .decision { display: flex; gap: 6px; align-items: center; }
-    button {
+    button:not(.dialog-close-btn) {
       border: 1px solid transparent;
       background: var(--vsc-button-secondary, transparent);
       color: inherit;
@@ -110,14 +103,12 @@ type Filter = 'different' | PaneComparisonStatus;
       cursor: pointer;
       transition: background-color var(--vsc-transition-fast), border-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
     }
-    button:hover:not(:disabled), button.active { background: var(--vsc-button-secondary-hover, color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent)); }
-    button.primary { background: var(--vsc-button-background, var(--vsc-accent-blue)); color: var(--vsc-button-foreground, var(--vsc-on-accent)); border-color: transparent; }
-    button:disabled { opacity: .38; cursor: default; }
-    button:focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
-    .close { width: 28px; padding-inline: 0; font-size: 16px; background: transparent; color: var(--vsc-foreground-dim); }
-    .close:hover { background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent); color: var(--vsc-foreground-bright); }
+    button:not(.dialog-close-btn):hover:not(:disabled), button:not(.dialog-close-btn).active { background: var(--vsc-button-secondary-hover, color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent)); }
+    button:not(.dialog-close-btn).primary { background: var(--vsc-button-background, var(--vsc-accent-blue)); color: var(--vsc-button-foreground, var(--vsc-on-accent)); border-color: transparent; }
+    button:not(.dialog-close-btn):disabled { opacity: .38; cursor: default; }
+    button:not(.dialog-close-btn):focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
     .filters { padding: 8px 16px; overflow-x: auto; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: color-mix(in srgb, var(--vsc-foreground) 2%, var(--vsc-editor-background)); }
-    .filters button { white-space: nowrap; }
+    .filters button:not(.dialog-close-btn) { white-space: nowrap; }
     .filters span { opacity: .65; margin-left: 3px; }
     .columns, .row { grid-template-columns: minmax(180px, 1fr) 150px minmax(270px, auto); gap: 10px; padding: 7px 16px; }
     .columns { color: var(--vsc-foreground-dim); text-transform: uppercase; font-size: 10px; letter-spacing: .08em; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: color-mix(in srgb, var(--vsc-sidebar-background) 30%, var(--vsc-editor-background)); }

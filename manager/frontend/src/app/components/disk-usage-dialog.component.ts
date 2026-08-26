@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   EventEmitter,
   HostListener,
@@ -20,8 +21,10 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      *ngIf="visible && ctx"
+      *ngIf="renderVisible && ctx"
       class="du-backdrop palette-dialog-backdrop dialog-group"
+      [class.dialog-group--closing]="isClosing"
+      (animationend)="onAnimationEnd($event)"
       role="presentation"
       (mousedown)="onBackdropMouseDown($event)">
       <section
@@ -30,10 +33,6 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
         aria-modal="true"
         aria-label="Disk Usage"
         (mousedown)="$event.stopPropagation()">
-        <header class="palette-dialog-header du-header">
-          <div class="palette-dialog-title"><strong>Disk Usage</strong><span class="palette-dialog-subtitle">{{ rootPath }}</span></div>
-          <button type="button" class="dialog-close-btn" aria-label="Close Disk Usage" title="Close (Esc)" (click)="close()">×</button>
-        </header>
         <app-size-manager-surface [ctx]="ctx"></app-size-manager-surface>
       </section>
     </div>
@@ -91,15 +90,21 @@ export class DiskUsageDialogComponent implements OnChanges {
   @Output() closed = new EventEmitter<void>();
 
   ctx: SizeManagerSurfaceContext | null = null;
+  renderVisible = false;
+  isClosing = false;
+  private emitClosedOnFinish = false;
+
+  constructor(private readonly cdr: ChangeDetectorRef) {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['visible'] || changes['rootPath']) {
       if (this.visible && this.rootPath.trim()) {
         this.ctx = this.createContext(this.rootPath.trim());
-      } else if (!this.visible) {
-        // Destroy the scanner surface when the dialog closes so its OnDestroy
-        // cleanup runs immediately and no scan remains attached to the shell.
-        this.ctx = null;
+        this.renderVisible = true;
+        this.isClosing = false;
+        this.emitClosedOnFinish = false;
+      } else if (!this.visible && this.renderVisible && !this.isClosing) {
+        this.isClosing = true;
       }
     }
   }
@@ -117,9 +122,21 @@ export class DiskUsageDialogComponent implements OnChanges {
   }
 
   close(): void {
-    if (!this.visible) return;
+    if (!this.renderVisible || this.isClosing) return;
+    this.isClosing = true;
+    this.emitClosedOnFinish = true;
+    this.cdr.markForCheck();
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.renderVisible = false;
+    this.isClosing = false;
     this.ctx = null;
-    this.closed.emit();
+    const emit = this.emitClosedOnFinish;
+    this.emitClosedOnFinish = false;
+    if (emit) this.closed.emit();
+    this.cdr.markForCheck();
   }
 
   private createContext(path: string): SizeManagerSurfaceContext {

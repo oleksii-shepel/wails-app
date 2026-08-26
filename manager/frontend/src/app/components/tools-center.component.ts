@@ -70,7 +70,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="tools palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="File manager tools"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
@@ -321,6 +321,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   @Output() openBasketRequested = new EventEmitter<void>();
 
   visible = false;
+  renderVisible = false;
+  isClosing = false;
   page: ToolPage = 'operations';
   rootPath = '';
 
@@ -460,6 +462,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     const rootChanged = this.rootPath !== rootPath;
     this.page = page;
     this.rootPath = rootPath;
+    this.isClosing = false;
+    this.renderVisible = true;
     this.visible = true;
 
     if (rootChanged) {
@@ -480,9 +484,17 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     }
   }
 
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.renderVisible = false;
+    this.isClosing = false;
+    this.cdr.markForCheck();
+  }
+
   close(): void {
-    if (!this.visible) return;
+    if (!this.renderVisible || this.isClosing) return;
     this.visible = false;
+    this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
     
     

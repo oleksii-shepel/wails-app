@@ -13,8 +13,8 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container *ngIf="activeRequest as request">
-      <div class="dialog-backdrop palette-dialog-backdrop dialog-group" [class.dialog-backdrop--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
-        <section class="dialog-panel palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Recursive compare" (click)="$event.stopPropagation()">
+      <div class="dialog-backdrop dialog-group" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
+        <section class="dialog-panel dialog-surface" role="dialog" aria-modal="true" aria-label="Recursive compare" (click)="$event.stopPropagation()">
           <header class="dialog-header">
             <div>
               <h2>Recursive Compare</h2>
@@ -22,7 +22,7 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
                 {{ request.viewModel.getLeftPath() }} ↔ {{ request.viewModel.getRightPath() }}
               </p>
             </div>
-            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="dialogs.close()">×</button>
+            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="dialogs.close()">×</button>
           </header>
 
           <div class="dialog-body">
@@ -65,14 +65,7 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host { position: fixed; inset: 0; z-index: 30011; }
-    .dialog-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--vsc-scrim); backdrop-filter: blur(2px); animation: fadeIn 0.2s ease; }
-    .dialog-backdrop--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
-    .dialog-panel { width: min(920px, calc(100vw - 48px)); overflow: hidden; background: var(--vsc-editor-background); color: var(--vsc-foreground); border: 1px solid var(--vsc-border-bright); border-radius: var(--vsc-border-radius-lg, 8px); box-shadow: var(--vsc-widget-shadow), 0 32px 64px var(--vsc-scrim-soft), 0 0 0 1px var(--vsc-neutral-overlay-subtle) inset; animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
-    .dialog-backdrop--closing .dialog-panel { animation: slideUp 0.2s ease forwards; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-    @keyframes slideDown { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-16px); opacity: 0; } }
+    .dialog-panel { width: min(920px, calc(100vw - 48px)); overflow: hidden; background: var(--vsc-editor-background); color: var(--vsc-foreground); border: 1px solid var(--vsc-border-bright); border-radius: var(--vsc-border-radius-lg, 8px); box-shadow: var(--vsc-widget-shadow), 0 32px 64px var(--vsc-scrim-soft), 0 0 0 1px var(--vsc-neutral-overlay-subtle) inset; }
     .dialog-header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:12px 16px; border-bottom:1px solid var(--vsc-border-subtle); background: var(--vsc-titlebar-background); }
     .dialog-header h2, .dialog-header p { margin:0; }
     .dialog-header h2 { color: var(--vsc-foreground-bright); font-size: 14px; line-height: 1.15; font-weight: 600; }
@@ -83,11 +76,9 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
     .metric { display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border-radius:999px; font-size:11px; color: var(--vsc-foreground-dim); background: color-mix(in srgb, var(--vsc-foreground) 5%, transparent); }
     .only-left, .only-right, .different { font-weight:600; color: var(--vsc-foreground-bright); }
     .policy { display:flex; gap:6px; align-items:center; padding-right: 8px; color: var(--vsc-foreground-dim); }
-    button, select { border:1px solid transparent; background: var(--vsc-button-secondary, var(--vsc-control-background)); color:inherit; border-radius: var(--vsc-border-radius-sm, 4px); min-height:28px; padding:0 10px; font:inherit; transition: background-color var(--vsc-transition-fast), border-color var(--vsc-transition-fast), color var(--vsc-transition-fast); }
-    button:hover:not(:disabled), select:hover:not(:disabled) { background: var(--vsc-button-secondary-hover, var(--vsc-list-hover-background)); }
-    button:focus-visible, select:focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
-    .close { width:28px; padding:0; font-size:18px; background: transparent; color: var(--vsc-foreground-dim); }
-    .close:hover { background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent); color: var(--vsc-foreground-bright); }
+    button:not(.dialog-close-btn), select { border:1px solid transparent; background: var(--vsc-button-secondary, var(--vsc-control-background)); color:inherit; border-radius: var(--vsc-border-radius-sm, 4px); min-height:28px; padding:0 10px; font:inherit; transition: background-color var(--vsc-transition-fast), border-color var(--vsc-transition-fast), color var(--vsc-transition-fast); }
+    button:not(.dialog-close-btn):hover:not(:disabled), select:hover:not(:disabled) { background: var(--vsc-button-secondary-hover, var(--vsc-list-hover-background)); }
+    button:not(.dialog-close-btn):focus-visible, select:focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
   `],
 })
 export class PaneRecursiveCompareDialogComponent {

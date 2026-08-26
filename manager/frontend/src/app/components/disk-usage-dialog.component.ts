@@ -34,6 +34,7 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
       </section>
     </div>
   `,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host { display: contents; }
 

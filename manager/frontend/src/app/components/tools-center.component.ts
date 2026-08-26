@@ -291,6 +291,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </section>
     </div>
   `,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host{position:fixed;inset:0;z-index:9490;pointer-events:none}
     .backdrop{position:fixed;inset:0;background: var(--vsc-scrim-soft);display:grid;place-items:center;pointer-events:auto}

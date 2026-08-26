@@ -176,7 +176,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
   selector: 'app-remote-connect-dialog',
   standalone: true,
   imports: [CommonModule, FormsModule, InputHistoryDirective],
-  styleUrls: ['./remote-connect-dialog.component.scss'],
+  styleUrls: ['./remote-connect-dialog.component.scss', './tools-dialog-remote-theme.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
       <div class="remote-connect-overlay" [class.remote-connect-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">

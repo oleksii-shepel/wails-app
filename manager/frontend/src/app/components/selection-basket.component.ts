@@ -1,8 +1,8 @@
-import { CommonModule } from '@angular/common';
-import { Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
+import { ChangeDetectorRef, Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { FileType } from '../shared/protocol';
 import { SelectionBasketEntry, SelectionBasketService } from '../services/selection-basket.service';
+import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'app-selection-basket',
@@ -12,11 +12,11 @@ import { SelectionBasketEntry, SelectionBasketService } from '../services/select
     <div *ngIf="visible" class="basket-backdrop" (mousedown)="hide()">
       <aside class="basket-panel" role="dialog" aria-modal="true" aria-label="Selection Basket" (mousedown)="$event.stopPropagation()">
         <header class="basket-header">
-          <div>
-            <div class="eyebrow">Working set</div>
-            <h2>Selection Basket</h2>
+          <div class="basket-title">
+            <strong>Selection Basket</strong>
+            <span>{{ entries.length }} items</span>
           </div>
-          <button class="icon-button" type="button" title="Close" (click)="hide()">×</button>
+          <button class="icon-button" type="button" title="Close" aria-label="Close Selection Basket" (click)="hide()">×</button>
         </header>
 
         <div class="basket-summary">
@@ -63,35 +63,273 @@ import { SelectionBasketEntry, SelectionBasketService } from '../services/select
     </div>
   `,
   styles: [`
-    :host { position:relative; z-index:calc(var(--vsc-z-modal) + 3); }
-    .basket-backdrop { position:fixed; inset:0; z-index:calc(var(--vsc-z-modal) + 3); background: var(--vsc-scrim-soft); display:flex; justify-content:flex-end; }
-    .basket-panel { width:min(600px,94vw); height:100%; display:flex; flex-direction:column; background:var(--vsc-panel-background); color:var(--vsc-foreground); border-left:1px solid var(--vsc-border-bright); box-shadow:var(--vsc-widget-shadow); }
-    .basket-header { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 14px; border-bottom:1px solid var(--vsc-border); }
-    .basket-header h2 { margin:2px 0 0; font-size:20px; font-weight:600; }
-    .eyebrow { color:var(--vsc-foreground-dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
-    .icon-button,.remove-button { border:0; background:transparent; color:inherit; cursor:pointer; border-radius:4px; }
-    .icon-button { width:30px; height:30px; font-size:24px; }
-    .remove-button { width:26px; height:26px; font-size:20px; opacity:.7; }
-    .icon-button:hover,.remove-button:hover { background:var(--vsc-list-hover-background); opacity:1; }
-    .basket-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--vsc-border); border-bottom:1px solid var(--vsc-border); }
-    .basket-summary div { display:flex; flex-direction:column; padding:12px 16px; background:var(--vsc-editor-background); }
-    .basket-summary strong { font-size:18px; } .basket-summary span { color:var(--vsc-foreground-dim); font-size:11px; }
-    .basket-actions { display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px; border-bottom:1px solid var(--vsc-border); }
-    .basket-actions button,.basket-footer button { border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-button-secondary-foreground); padding:5px 9px; font:inherit; font-size:12px; cursor:pointer; }
-    .basket-actions button:hover:not(:disabled),.basket-footer button:hover:not(:disabled) { background:var(--vsc-button-secondary-hover); }
-    .basket-actions button.danger:hover:not(:disabled) { background:color-mix(in srgb,var(--vsc-error) 30%,var(--vsc-button-secondary)); border-color:var(--vsc-error); }
-    button:disabled { opacity:.42; cursor:default; }
-    .basket-list { flex:1; min-height:0; overflow:auto; }
-    .basket-row { display:grid; grid-template-columns:28px minmax(0,1fr) 28px; gap:10px; align-items:start; padding:12px 14px; border-bottom:1px solid var(--vsc-border); }
-    .basket-row:hover { background:var(--vsc-list-hover-background); }
-    .entry-icon { font-size:16px; padding-top:1px; opacity:.9; }
-    .entry-main { min-width:0; }
-    .entry-main strong { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .entry-path { margin-top:3px; color:var(--vsc-foreground-dim); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .entry-meta { display:flex; gap:5px 12px; flex-wrap:wrap; margin-top:5px; color:var(--vsc-foreground-dim); font-size:10px; }
-    .empty-state { height:100%; min-height:250px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--vsc-foreground-dim); text-align:center; padding:24px; }
-    .empty-state strong { color:var(--vsc-foreground); } .empty-state code { margin-top:5px; color:var(--vsc-accent-blue); }
-    .basket-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 14px; border-top:1px solid var(--vsc-border); color:var(--vsc-foreground-dim); font-size:10px; }
+    :host {
+      position: fixed;
+      inset: 0;
+      z-index: 9460;
+      pointer-events: none;
+    }
+
+    .basket-backdrop {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: start center;
+      padding-top: min(10vh, 90px);
+      background: var(--vsc-scrim-soft);
+      pointer-events: auto;
+      animation: fadeIn .2s ease;
+    }
+
+    .basket-panel {
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      width: min(720px, calc(100vw - 24px));
+      max-height: min(680px, calc(100vh - 40px));
+      overflow: hidden;
+      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border-radius: 8px;
+      background: var(--vsc-menu-background, var(--vsc-panel-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      box-shadow: 0 18px 60px var(--vsc-scrim);
+      font: 12px/1.4 var(--vsc-font-family, system-ui, sans-serif);
+      animation: slideDown .28s cubic-bezier(.16, 1, .3, 1);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slideDown {
+      from { transform: translateY(-18px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .basket-header,
+    .basket-footer {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 10px;
+    }
+
+    .basket-header {
+      justify-content: space-between;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+    }
+
+    .basket-title {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      min-width: 0;
+    }
+
+    .basket-title strong {
+      font-weight: 600;
+    }
+
+    .basket-title span,
+    .basket-footer > span,
+    .entry-path,
+    .entry-meta,
+    .basket-summary span {
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    }
+
+    .icon-button,
+    .remove-button,
+    .basket-actions button,
+    .basket-footer button {
+      min-height: 27px;
+      padding: 3px 8px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .icon-button {
+      width: 28px;
+      padding: 0;
+      font-size: 17px;
+      line-height: 1;
+    }
+
+    .remove-button {
+      width: 27px;
+      padding: 0;
+      font-size: 16px;
+      opacity: .7;
+    }
+
+    .icon-button:hover,
+    .remove-button:hover,
+    .basket-actions button:hover:not(:disabled),
+    .basket-footer button:hover:not(:disabled) {
+      border-color: var(--vsc-border, var(--vsc-border));
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      opacity: 1;
+    }
+
+    button:disabled {
+      opacity: .35;
+      cursor: default;
+    }
+
+    .basket-summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+    }
+
+    .basket-summary > div {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+      padding: 6px 10px;
+    }
+
+    .basket-summary > div + div {
+      border-left: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+    }
+
+    .basket-summary strong {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .basket-summary span {
+      font-size: 10px;
+    }
+
+    .basket-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px;
+      padding: 5px;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+    }
+
+    .basket-actions .danger {
+      color: var(--vsc-error-foreground, var(--vsc-error));
+    }
+
+    .basket-list {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 5px;
+    }
+
+    .basket-row {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) 27px;
+      gap: 8px;
+      align-items: center;
+      min-height: 52px;
+      padding: 5px 8px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+    }
+
+    .basket-row:hover {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+    }
+
+    .entry-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .entry-main {
+      min-width: 0;
+      display: grid;
+    }
+
+    .entry-main strong,
+    .entry-path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .entry-path {
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      font-size: 10px;
+    }
+
+    .entry-meta {
+      display: flex;
+      gap: 4px 10px;
+      margin-top: 2px;
+      font-size: 10px;
+    }
+
+    .empty-state {
+      padding: 38px;
+      text-align: center;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    }
+
+    .empty-state strong,
+    .empty-state span,
+    .empty-state code {
+      display: block;
+    }
+
+    .empty-state strong {
+      color: var(--vsc-foreground);
+    }
+
+    .empty-state span {
+      margin-top: 4px;
+    }
+
+    .empty-state code {
+      margin-top: 8px;
+      color: var(--vsc-accent-blue);
+    }
+
+    .basket-footer {
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      font-size: 10px;
+    }
+
+    .basket-footer button {
+      margin-left: auto;
+    }
+
+    @media (max-width: 760px), (max-height: 560px) {
+      .basket-backdrop {
+        padding: 8px;
+      }
+
+      .basket-panel {
+        width: calc(100vw - 16px);
+        max-height: calc(100vh - 16px);
+      }
+
+      .basket-summary {
+        grid-template-columns: 1fr;
+      }
+
+      .basket-summary > div + div {
+        border-left: 0;
+        border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      }
+
+      .basket-footer > span {
+        display: none;
+      }
+    }
   `],
 })
 export class SelectionBasketComponent implements OnInit, OnDestroy {
@@ -104,10 +342,14 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
 
   constructor(
     public readonly basket: SelectionBasketService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
-    this.basket.entries$.pipe(takeUntil(this.destroy$)).subscribe(entries => this.entries = entries);
+    this.basket.entries$.pipe(takeUntil(this.destroy$)).subscribe(entries => {
+      this.entries = entries;
+      this.cdr.markForCheck();
+    });
   }
 
   ngOnDestroy(): void {
@@ -115,9 +357,21 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  show(): void { this.visible = true; }
-  hide(): void { this.visible = false; }
-  toggle(): void { this.visible ? this.hide() : this.show(); }
+  show(): void {
+    if (this.visible) return;
+    this.visible = true;
+    this.cdr.markForCheck();
+  }
+
+  hide(): void {
+    if (!this.visible) return;
+    this.visible = false;
+    this.cdr.markForCheck();
+  }
+
+  toggle(): void {
+    this.visible ? this.hide() : this.show();
+  }
   remove(id: string): void { this.basket.remove(id); }
   clear(): void { this.basket.clear(); }
   trackEntry(_index: number, entry: SelectionBasketEntry): string { return entry.id; }

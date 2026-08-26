@@ -22,7 +22,7 @@ interface PreviewRow {
   selector: 'app-batch-rename-dialog',
   standalone: true,
   imports: [CommonModule, FormsModule],
-  styleUrls: ['./batch-rename-dialog.component.scss'],
+  styleUrls: ['./batch-rename-dialog.component.scss', './tools-dialog-remote-theme.scss'],
   template: `
     <ng-container *ngIf="request$ | async as request">
       <div class="br-overlay" [class.br-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">

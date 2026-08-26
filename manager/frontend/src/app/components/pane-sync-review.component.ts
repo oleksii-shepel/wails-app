@@ -70,6 +70,7 @@ type Filter = 'different' | PaneComparisonStatus;
     </div>
     </ng-container>
   `,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host { position: fixed; inset: 0; z-index: 30012; }
     .review-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--vsc-scrim); backdrop-filter: blur(2px); padding: 24px; animation: fadeIn 0.2s ease; }

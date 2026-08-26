@@ -110,6 +110,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       </section>
     </div>
   `,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     .backdrop {
       position: fixed;

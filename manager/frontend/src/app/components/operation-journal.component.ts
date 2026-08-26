@@ -32,6 +32,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
           <button class="close" (click)="close()">Close</button></div></footer>
       </section>
     </div>`,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host{position:fixed;inset:0;z-index:8700;pointer-events:none}.backdrop{position:absolute;inset:0;display:grid;place-items:center;padding:20px;background:var(--vsc-scrim);pointer-events:auto}
     .journal{display:grid;grid-template-rows:auto minmax(0,1fr) auto;width:min(780px,calc(100vw - 40px));height:min(680px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-foreground);box-shadow:0 14px 48px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif)}

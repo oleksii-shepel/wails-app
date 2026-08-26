@@ -61,6 +61,7 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
       </div>
     </ng-container>
   `,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host { position: fixed; inset: 0; z-index: 30010; }
     .dialog-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--vsc-scrim); backdrop-filter: blur(2px); animation: fadeIn 0.2s ease; }

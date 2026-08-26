@@ -202,3 +202,199 @@ func sameFilesystemPath(left, right string) bool {
 	right = filepath.Clean(right)
 	return left == right || strings.EqualFold(left, right)
 }
+
+// ArchiveImportEntries transactionally adds filesystem paths to a top-level ZIP.
+// Existing entries with the same archive paths are replaced; unrelated entries
+// are copied through without recompression.
+func (a *App) ArchiveImportEntries(req contracts.ArchiveImportRequest) (*contracts.ArchiveEntriesResult, error) {
+	if len(req.Sources) == 0 {
+		return &contracts.ArchiveEntriesResult{}, nil
+	}
+	if len(req.NestedChain) != 0 {
+		return nil, fmt.Errorf("archive import: nested archives are read-only")
+	}
+
+	resolvedArchive, err := a.State.Filesystem.RealPath(req.FsPath)
+	if err != nil {
+		return nil, fmt.Errorf("archive import: resolve archive: %w", err)
+	}
+	if !strings.EqualFold(filepath.Ext(resolvedArchive), ".zip") {
+		return nil, fmt.Errorf("archive import: only ZIP archives are writable")
+	}
+
+	archiveAbs, err := filepath.Abs(resolvedArchive)
+	if err != nil {
+		return nil, fmt.Errorf("archive import: archive path: %w", err)
+	}
+
+	type importRoot struct {
+		source string
+		root   string
+	}
+	roots := make([]importRoot, 0, len(req.Sources))
+	newNames := make(map[string]struct{})
+	destinationPrefix := normalizeZipImportPath(req.DestinationPath)
+
+	for _, publicSource := range req.Sources {
+		resolvedSource, err := a.State.Filesystem.RealPath(publicSource)
+		if err != nil {
+			return nil, fmt.Errorf("archive import: resolve %q: %w", publicSource, err)
+		}
+		sourceAbs, err := filepath.Abs(resolvedSource)
+		if err != nil {
+			return nil, fmt.Errorf("archive import: source path %q: %w", publicSource, err)
+		}
+		if sameFilesystemPath(sourceAbs, archiveAbs) {
+			return nil, fmt.Errorf("archive import: archive cannot also be a source")
+		}
+		rootName := filepath.Base(filepath.Clean(sourceAbs))
+		if rootName == "." || rootName == string(filepath.Separator) || rootName == "" {
+			rootName = "root"
+		}
+		archiveRoot := joinZipImportPath(destinationPrefix, rootName)
+		if err := collectZipTreeNames(sourceAbs, archiveRoot, newNames); err != nil {
+			return nil, err
+		}
+		roots = append(roots, importRoot{source: sourceAbs, root: archiveRoot})
+	}
+
+	reader, err := zip.OpenReader(resolvedArchive)
+	if err != nil {
+		return nil, fmt.Errorf("archive import: open ZIP: %w", err)
+	}
+	defer reader.Close()
+
+	tempFile, err := os.CreateTemp(filepath.Dir(resolvedArchive), ".archive-import-*.zip")
+	if err != nil {
+		return nil, fmt.Errorf("archive import: temp file: %w", err)
+	}
+	tmpPath := tempFile.Name()
+	committed := false
+	defer func() {
+		_ = tempFile.Close()
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	writer := zip.NewWriter(tempFile)
+	seen := make(map[string]struct{})
+	for _, existing := range reader.File {
+		name := normalizeZipImportPath(existing.Name)
+		if name == "" {
+			continue
+		}
+		lookup := name
+		if existing.FileInfo().IsDir() && !strings.HasSuffix(lookup, "/") {
+			lookup += "/"
+		}
+		if _, replaced := newNames[lookup]; replaced {
+			continue
+		}
+		if _, duplicate := seen[lookup]; duplicate {
+			continue
+		}
+		if err := writer.Copy(existing); err != nil {
+			_ = writer.Close()
+			return nil, fmt.Errorf("archive import: preserve %q: %w", existing.Name, err)
+		}
+		seen[lookup] = struct{}{}
+	}
+
+	for _, root := range roots {
+		if err := addZipTree(writer, root.source, root.root, archiveAbs, seen); err != nil {
+			_ = writer.Close()
+			return nil, fmt.Errorf("archive import: add %q: %w", root.source, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("archive import: finalize ZIP: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return nil, fmt.Errorf("archive import: close temp ZIP: %w", err)
+	}
+
+	backupFile, err := os.CreateTemp(filepath.Dir(resolvedArchive), ".archive-import-backup-*.zip")
+	if err != nil {
+		return nil, fmt.Errorf("archive import: reserve backup: %w", err)
+	}
+	backup := backupFile.Name()
+	_ = backupFile.Close()
+	_ = os.Remove(backup)
+
+	if err := os.Rename(resolvedArchive, backup); err != nil {
+		return nil, fmt.Errorf("archive import: stage original: %w", err)
+	}
+	if err := os.Rename(tmpPath, resolvedArchive); err != nil {
+		_ = os.Rename(backup, resolvedArchive)
+		return nil, fmt.Errorf("archive import: commit: %w", err)
+	}
+	committed = true
+	_ = os.Remove(backup)
+
+	return &contracts.ArchiveEntriesResult{
+		Total:     len(req.Sources),
+		Succeeded: len(req.Sources),
+	}, nil
+}
+
+func normalizeZipImportPath(value string) string {
+	value = strings.Trim(strings.ReplaceAll(value, "\\", "/"), "/")
+	parts := make([]string, 0)
+	for _, part := range strings.Split(value, "/") {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			if len(parts) > 0 {
+				parts = parts[:len(parts)-1]
+			}
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "/")
+}
+
+func joinZipImportPath(base, leaf string) string {
+	base = normalizeZipImportPath(base)
+	leaf = normalizeZipImportPath(leaf)
+	if base == "" {
+		return leaf
+	}
+	if leaf == "" {
+		return base
+	}
+	return base + "/" + leaf
+}
+
+func collectZipTreeNames(sourcePath, archiveRoot string, names map[string]struct{}) error {
+	info, err := os.Lstat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("archive import: stat %q: %w", sourcePath, err)
+	}
+	if !info.IsDir() {
+		names[normalizeZipImportPath(archiveRoot)] = struct{}{}
+		return nil
+	}
+
+	return filepath.Walk(sourcePath, func(path string, walkInfo os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(sourcePath, path)
+		if err != nil {
+			return err
+		}
+		name := archiveRoot
+		if rel != "." {
+			name = filepath.ToSlash(filepath.Join(archiveRoot, rel))
+		}
+		name = normalizeZipImportPath(name)
+		if walkInfo.IsDir() {
+			name += "/"
+		}
+		names[name] = struct{}{}
+		return nil
+	})
+}

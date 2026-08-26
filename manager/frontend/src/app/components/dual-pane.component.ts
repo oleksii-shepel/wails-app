@@ -77,6 +77,7 @@ import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from
 import type { PanePresentation } from './pane-component.contract';
 import { FILE_MANAGER_COMMANDS } from './command-registry';
 import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
+import { ArchiveService } from '../services/archive.service';
 import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { PowerFileOperationsService } from '../services/power-file-operations.service';
@@ -945,6 +946,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     private readonly input: InputEngineService,
     private readonly inputCustomization: InputCustomizationService,
     private readonly api: ApiService,
+    private readonly archiveService: ArchiveService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly workspaceService: WorkspaceService,
     private readonly workspaceSurfaces: WorkspaceSurfaceService,
@@ -5885,6 +5887,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     if (source.contextState.isInArchive) {
+      if (destination.contextState.isInArchive) return false;
       if (!destination.contextState.sourceCapabilities.create) return false;
       if (operation === 'copy') return true;
 
@@ -5919,6 +5922,57 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         selected,
         operation,
       );
+      return;
+    }
+
+    if (destination.contextState.isInArchive) {
+      if (!destination.contextState.sourceCapabilities.create) {
+        await this.confirmDialog.alert({
+          title: 'Archive Transfer',
+          message: 'This archive is read-only. Only top-level ZIP archives can receive files.',
+        });
+        return;
+      }
+
+      const frame = destination.contextState.currentArchiveFrame;
+      if (!frame) return;
+
+      if (source.contextState.isInArchive) {
+        await this.confirmDialog.alert({
+          title: 'Archive Transfer',
+          message: 'Archive-to-archive copy is not available yet. Copy the entries through a filesystem pane.',
+        });
+        return;
+      }
+
+      try {
+        const result = await this.archiveService.importPaths(frame, selected);
+        if (result.failed > 0) {
+          throw new Error(`${result.failed} item${result.failed === 1 ? '' : 's'} could not be added to the archive.`);
+        }
+
+        if (operation === 'move') {
+          const deletion = await this.api.batchDelete([...selected], true, false);
+          if (deletion.failed > 0 || deletion.skipped > 0) {
+            await this.confirmDialog.alert({
+              title: 'Archive Move Completed with Issues',
+              message: 'The files were added to the ZIP, but some source items could not be removed.',
+            });
+          }
+        }
+
+        this.lastTransfer = `archive import ${operation}: ${result.succeeded}/${result.total}`;
+        await Promise.all([
+          destination.navigation?.refresh(),
+          operation === 'move' ? source.navigation?.refresh() : Promise.resolve(),
+        ]);
+        this.cdr.markForCheck();
+      } catch (error) {
+        await this.confirmDialog.alert({
+          title: operation === 'copy' ? 'Copy to Archive Failed' : 'Move to Archive Failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
 

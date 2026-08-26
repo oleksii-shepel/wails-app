@@ -30,6 +30,14 @@ export interface ArchiveEntriesRequest {
   flattenPaths: boolean;
 }
 
+
+export interface ArchiveImportRequest {
+  fsPath: string;
+  nestedChain: string[];
+  destinationPath: string;
+  sources: string[];
+}
+
 export interface ArchiveEntriesResult {
   operationId: string;
   total: number;
@@ -441,6 +449,35 @@ export class ArchiveService {
   }
 
   /* ─────────────── OPERATIONS ─────────────── */
+
+  async importPaths(
+    frame: ArchiveFrame,
+    sources: string[],
+  ): Promise<ArchiveEntriesResult> {
+    if (frame.nestedChain.length > 0) {
+      throw new Error('Nested archives are read-only.');
+    }
+    if (!/\.zip$/i.test(frame.fsPath)) {
+      throw new Error('Only ZIP archives currently support adding files.');
+    }
+    const request: ArchiveImportRequest = {
+      fsPath: frame.fsPath,
+      nestedChain: [],
+      destinationPath: frame.innerPath || '',
+      sources: [...sources],
+    };
+    const app = window.go?.app?.App;
+    if (typeof app?.ArchiveImportEntries !== 'function') {
+      throw new Error('ArchiveImportEntries binding is unavailable. Run Wails binding generation.');
+    }
+    const result = await app.ArchiveImportEntries(request);
+    this.resourceMutations.publish({
+      kind: 'modify',
+      items: [{ source: frame.fsPath }],
+      origin: 'archive-import',
+    });
+    return result;
+  }
 
   async copy(
     frame: ArchiveFrame,

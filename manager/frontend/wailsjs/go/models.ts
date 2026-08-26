@@ -130,6 +130,24 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class ArchiveImportRequest {
+	    fsPath: string;
+	    nestedChain: string[];
+	    destinationPath?: string;
+	    sources: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ArchiveImportRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fsPath = source["fsPath"];
+	        this.nestedChain = source["nestedChain"];
+	        this.destinationPath = source["destinationPath"];
+	        this.sources = source["sources"];
+	    }
+	}
 	export class FileInfo {
 	    name: string;
 	    path: string;

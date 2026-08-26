@@ -17,3 +17,12 @@ type ArchiveEntriesResult struct {
 	SourceRemoved bool             `json:"sourceRemoved"`
 	Errors        []BatchItemError `json:"errors,omitempty"`
 }
+
+// ArchiveImportRequest adds filesystem paths to a writable archive folder.
+// FsPath identifies the physical archive; DestinationPath is archive-relative.
+type ArchiveImportRequest struct {
+	FsPath          string   `json:"fsPath"`
+	NestedChain     []string `json:"nestedChain"`
+	DestinationPath string   `json:"destinationPath,omitempty"`
+	Sources         []string `json:"sources"`
+}

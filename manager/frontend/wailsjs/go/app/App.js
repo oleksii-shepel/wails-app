@@ -22,6 +22,10 @@ export function ArchiveDeleteEntries(arg1) {
   return window['go']['app']['App']['ArchiveDeleteEntries'](arg1);
 }
 
+export function ArchiveImportEntries(arg1) {
+  return window['go']['app']['App']['ArchiveImportEntries'](arg1);
+}
+
 export function ArchiveMoveEntries(arg1) {
   return window['go']['app']['App']['ArchiveMoveEntries'](arg1);
 }

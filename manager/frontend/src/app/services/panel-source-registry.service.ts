@@ -112,8 +112,12 @@ class ArchivePanelSource extends BasePanelSource {
   }
 
   capabilities(context: PanelSourceContext): SourceCapabilities {
+    const writableZip =
+      !!context.archiveTopLevel &&
+      /\.zip(?:\/|$)/i.test(context.path);
     return {
       ...ARCHIVE_READ_ONLY,
+      create: writableZip,
       delete: !!context.archiveTopLevel,
     };
   }

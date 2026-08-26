@@ -22,6 +22,8 @@ export function ArchiveCopyEntries(arg1:contracts.ArchiveEntriesRequest):Promise
 
 export function ArchiveDeleteEntries(arg1:contracts.ArchiveEntriesRequest):Promise<contracts.ArchiveEntriesResult>;
 
+export function ArchiveImportEntries(arg1:contracts.ArchiveImportRequest):Promise<contracts.ArchiveEntriesResult>;
+
 export function ArchiveMoveEntries(arg1:contracts.ArchiveEntriesRequest):Promise<contracts.ArchiveEntriesResult>;
 
 export function ArchiveRead(arg1:string,arg2:Array<string>,arg3:string,arg4:string):Promise<contracts.FileContent>;

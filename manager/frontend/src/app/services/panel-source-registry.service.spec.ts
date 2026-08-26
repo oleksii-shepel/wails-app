@@ -84,7 +84,7 @@ describe('PanelSourceRegistryService', () => {
 
     expect(resolved.source.id).toBe('archive');
     expect(resolved.source.kind).toBe('archive');
-    expect(resolved.capabilities.create).toBe(false);
+    expect(resolved.capabilities.create).toBe(true);
     expect(resolved.capabilities.rename).toBe(false);
     expect(listing.location.sourceId).toBe('archive');
     expect(listing.entries).toEqual(entries);
@@ -106,8 +106,17 @@ describe('PanelSourceRegistryService', () => {
       archiveTopLevel: false,
     });
 
+    const tar = service.resolve({
+      path: 'filesystem://c/work/package.tar/docs',
+      inArchive: true,
+      archiveTopLevel: true,
+    });
+
+    expect(topLevel.capabilities.create).toBe(true);
     expect(topLevel.capabilities.delete).toBe(true);
+    expect(nested.capabilities.create).toBe(false);
     expect(nested.capabilities.delete).toBe(false);
+    expect(tar.capabilities.create).toBe(false);
   });
   it('resolves contributed panel sources before ordinary built-ins and removes them cleanly', () => {
     const { service } = createService();

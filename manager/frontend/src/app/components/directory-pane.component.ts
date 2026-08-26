@@ -8949,6 +8949,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.resultStreamAbort?.abort();
     this.resultStreamAbort = null;
     await this.dirStream.cancelActive();
+
+    // Cancelling a backend directory stream also ends backend-owned
+    // presentation. Archive navigation returns before the normal directory
+    // loader gets a chance to switch this flag off; leaving it true makes
+    // renderedEntries use the stale backend window/counts and can reduce a
+    // populated archive listing to an apparently empty pane.
+    this.backendPresentationActive = false;
     this.resetBackendWindowState();
   }
 

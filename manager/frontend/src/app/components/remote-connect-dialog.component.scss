@@ -65,32 +65,6 @@
   padding: 12px;
 }
 
-.remote-connect-form-section::-webkit-scrollbar,
-.remote-connect-side::-webkit-scrollbar {
-  width: var(--vsc-scrollbar-size);
-}
-.remote-connect-form-section::-webkit-scrollbar-track,
-.remote-connect-side::-webkit-scrollbar-track {
-  background: var(--vsc-scrollbar-track);
-}
-.remote-connect-form-section::-webkit-scrollbar-thumb,
-.remote-connect-side::-webkit-scrollbar-thumb {
-  background: var(--vsc-scrollbar-thumb);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-.remote-connect-form-section::-webkit-scrollbar-thumb:hover,
-.remote-connect-side::-webkit-scrollbar-thumb:hover {
-  background: var(--vsc-scrollbar-thumb-hover);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-.remote-connect-form-section::-webkit-scrollbar-thumb:active,
-.remote-connect-side::-webkit-scrollbar-thumb:active {
-  background: var(--vsc-scrollbar-thumb-active);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
 
 .remote-connect-form-section {
   background: transparent;

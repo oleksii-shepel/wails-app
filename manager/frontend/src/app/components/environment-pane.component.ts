@@ -784,7 +784,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       overflow-y: hidden;
       border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-      scrollbar-width: thin;
     
       overscroll-behavior-x: none;
       scroll-behavior: auto;

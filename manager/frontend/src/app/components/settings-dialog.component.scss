@@ -124,10 +124,6 @@
   gap: 2px;
 }
 
-.settings-sidebar::-webkit-scrollbar {
-  width: 0;
-}
-
 .settings-nav {
   display: flex;
   flex-direction: column;
@@ -236,31 +232,6 @@
   background: transparent;
 }
 
-.settings-content::-webkit-scrollbar {
-  width: var(--vsc-scrollbar-size);
-}
-
-.settings-content::-webkit-scrollbar-track {
-  background: var(--vsc-scrollbar-track);
-}
-
-.settings-content::-webkit-scrollbar-thumb {
-  background: var(--vsc-scrollbar-thumb);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-.settings-content::-webkit-scrollbar-thumb:hover {
-  background: var(--vsc-scrollbar-thumb-hover);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-.settings-content::-webkit-scrollbar-thumb:active {
-  background: var(--vsc-scrollbar-thumb-active);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
 
 .settings-section {
   max-width: 760px;

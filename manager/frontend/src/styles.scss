@@ -535,15 +535,15 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--vsc-foreground, var(--vsc-dialog-foreground));
   cursor: pointer;
-  font-size: 20px;
+  font-size: 24px;
   line-height: 1;
   transition:
     background-color var(--vsc-transition-fast, 0.1s ease),
@@ -556,15 +556,27 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
   color: var(--vsc-foreground-bright, var(--vsc-foreground));
 }
 
+/* Keep dialog chrome neutral when pressed. Component-level button themes must not
+ * turn the standard close control into an accent/primary button. */
 .dialog-close-btn:active,
 .close-button:active {
-  background: var(--vsc-list-hover-background, color-mix(in srgb, currentColor 10%, transparent));
-  color: var(--vsc-foreground-bright, var(--vsc-foreground));
+  background: var(--vsc-list-hover-background, color-mix(in srgb, currentColor 10%, transparent)) !important;
+  color: var(--vsc-foreground-bright, var(--vsc-foreground)) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .dialog-close-btn:focus:not(:focus-visible),
 .close-button:focus:not(:focus-visible) {
-  outline: none;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.dialog-close-btn:focus-visible,
+.close-button:focus-visible {
+  outline: 1px solid var(--vsc-focus-border, var(--vsc-input-focus-border));
+  outline-offset: 1px;
 }
 
 @keyframes dialog-backdrop-enter {

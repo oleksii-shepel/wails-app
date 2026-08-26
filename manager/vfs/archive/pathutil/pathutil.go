@@ -2,14 +2,32 @@ package pathutil
 
 import "strings"
 
+// NormalizePath converts backslashes to forward slashes and collapses the
+// path into clean "/"-joined segments, dropping empty segments (from
+// duplicate or leading/trailing slashes) and "." segments (from archives
+// whose entries are stored with a "./" prefix, e.g. those produced by
+// `zip -r out.zip .`). Without this, an entry like "./readme.txt" would
+// keep its "." as the first path segment, causing archive browsing to
+// collapse everything under a single synthetic "." folder instead of
+// listing the real contents.
 func NormalizePath(path string) string {
 	path = strings.ReplaceAll(path, "\\", "/")
-	return strings.Trim(path, "/")
+	segments := strings.Split(path, "/")
+	out := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		if seg == "" || seg == "." {
+			continue
+		}
+		out = append(out, seg)
+	}
+	return strings.Join(out, "/")
 }
 
+// NormalizeTarPath is now equivalent to NormalizePath since "./" prefixes
+// are stripped generically there. Kept as a thin wrapper so existing call
+// sites don't need to change.
 func NormalizeTarPath(path string) string {
-	path = NormalizePath(path)
-	return strings.TrimPrefix(path, "./")
+	return NormalizePath(path)
 }
 
 func ChildOf(entryPath, parent string) string {

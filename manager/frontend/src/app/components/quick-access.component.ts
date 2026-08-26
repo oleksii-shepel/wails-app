@@ -40,6 +40,17 @@ interface QuickSection {
 const CONTEXT_ID = QUICK_ACCESS_INPUT.context.id;
 const OWNER_ID = 'overlay.quickAccess';
 const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
+const DEFAULT_LOCATION_ICON = '\u{1F4C1}';
+const PINNED_LOCATION_ICON = '\u{1F4CC}';
+const SPECIAL_LOCATION_ICONS: Record<string, string> = {
+  home: '\u{1F3E0}',
+  desktop: '\u{1F5A5}\uFE0F',
+  documents: '\u{1F4C4}',
+  downloads: '\u{1F4E5}',
+  music: '\u{1F3B5}',
+  pictures: '\u{1F5BC}\uFE0F',
+  videos: '\u{1F3AC}',
+};
 
 @Component({
   selector: 'app-quick-access',
@@ -70,7 +81,7 @@ const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
             [attr.aria-selected]="i === itemIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="activeItems.length" (mouseenter)="itemIndex=i" (click)="openItem(item)">
             <span class="icon">
               <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
-              {{ item.icon }}
+              <span class="glyph">{{ item.icon }}</span>
             </span>
             <span class="details"><strong>{{ item.label }}</strong><small>{{ item.path }}</small></span>
             <span class="meta">{{ item.meta || item.kind }}</span>
@@ -102,8 +113,8 @@ const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
     .sections{display:flex;gap:2px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
     .sections button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}
     .sections button{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))} .sections button.active{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));color:var(--vsc-foreground,var(--vsc-foreground));border-color:var(--vsc-border,var(--vsc-border))} .sections span{margin-left:5px;opacity:.6;font-size:10px}
-    .items{min-height:0;overflow:auto;padding:5px}.item{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:46px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.item:hover,.item.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.item.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 50%,transparent)}
-    .icon{display:flex;gap:5px;align-items:center;justify-content:center;text-align:center;font-size:16px}.icon kbd{font:9px var(--vsc-font-family-mono,ui-monospace,monospace);opacity:.55}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{font-size:10px}.empty{padding:38px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .items{min-height:0;overflow:auto;padding:5px}.item{display:grid;grid-template-columns:40px minmax(0,1fr) max-content;gap:8px;align-items:center;width:100%;min-height:46px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.item:hover,.item.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.item.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 50%,transparent)}
+    .icon{min-width:0;overflow:hidden;display:flex;gap:5px;align-items:center;justify-content:center;text-align:center;font-size:16px}.icon kbd{flex:0 0 auto;font:9px var(--vsc-font-family-mono,ui-monospace,monospace);opacity:.55}.glyph{min-width:0;overflow:hidden;white-space:nowrap;line-height:1}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{font-size:10px;white-space:nowrap}.empty{padding:38px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))} footer button:hover:not(:disabled){background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));border-color:var(--vsc-border,var(--vsc-border))}footer button:disabled{opacity:.35;cursor:default}.keys{margin-left:auto;font-size:10px}
   `],
 })
@@ -298,7 +309,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
       id: `system:${folder.path}`,
       label: folder.name,
       path: folder.path,
-      icon: folder.icon || '📁',
+      icon: this.iconFor(folder.icon, DEFAULT_LOCATION_ICON),
       kind: 'system',
     }));
 
@@ -320,7 +331,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
       id: `pin:${pin.id}`,
       label: pin.label,
       path: pin.location,
-      icon: pin.icon || '📌',
+      icon: this.iconFor(pin.icon, PINNED_LOCATION_ICON),
       kind: 'pin',
       surfaceId: pin.surfaceId,
       meta:
@@ -334,7 +345,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
         id: `related-pin:${pin.id}`,
         label: pin.label,
         path: pin.location,
-        icon: pin.icon || '◆',
+        icon: this.iconFor(pin.icon, '◆'),
         meta: pin.surfaceId || pin.scheme,
         surfaceId: pin.surfaceId,
         kind: 'related' as const,
@@ -453,6 +464,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
 
   private moveItem(delta:-1|1):void{const count=this.activeItems.length;if(!count)return;this.itemIndex=(this.itemIndex+delta+count)%count;this.cdr.markForCheck()}
   private moveSection(delta:-1|1):void{const count=this.filteredSections.length;if(!count)return;this.sectionIndex=(this.sectionIndex+delta+count)%count;this.itemIndex=0;this.cdr.markForCheck()}
+  private iconFor(icon:string|undefined,fallback:string):string{const normalized=(icon||'').trim();if(!normalized)return fallback;return SPECIAL_LOCATION_ICONS[normalized.toLowerCase()]??normalized}
   private labelFor(path:string):string{const normalized=(path||'').replace(/\\/g,'/').replace(/\/+$/,'');const parts=normalized.split('/').filter(Boolean);return parts[parts.length-1]||normalized||path}
   onBackdropAnimationEnd(event: AnimationEvent): void {
     if (event.target !== event.currentTarget || !this.isClosing) return;

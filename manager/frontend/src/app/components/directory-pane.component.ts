@@ -532,27 +532,18 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
 
       <div
-        #listViewport
         class="list"
-        data-pane-content
         data-pane-details-root
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
-        tabindex="-1"
-        role="listbox"
-        [attr.aria-label]="'Files in ' + (path || 'location')"
         [class.view-list]="viewMode === 'list'"
         [class.view-grid]="viewMode === 'grid'"
         [class.view-details]="viewMode === 'details'"
         [attr.aria-busy]="loading"
-        (scroll)="onContentScroll($event)"
-        [class.background-drop-target]="backgroundDropActive"
-        (click)="onBackgroundClick($event)"        (contextmenu)="onBackgroundContextMenu($event)"
-        (dragover)="onBackgroundDragOver($event)"
-        (dragleave)="onBackgroundDragLeave($event)"
-        (drop)="onBackgroundDrop($event)">
+        [class.background-drop-target]="backgroundDropActive">
 
       <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
         <div
+          #detailsHeader
           class="details-header"
           [style.grid-template-columns]="detailsGridTemplate">
           <span></span>
@@ -565,6 +556,20 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           </span>
         </div>
       </div>
+
+      <div
+        #listViewport
+        class="list-viewport"
+        data-pane-content
+        tabindex="-1"
+        role="listbox"
+        [attr.aria-label]="'Files in ' + (path || 'location')"
+        (scroll)="onListViewportScroll($event)"
+        (click)="onBackgroundClick($event)"
+        (contextmenu)="onBackgroundContextMenu($event)"
+        (dragover)="onBackgroundDragOver($event)"
+        (dragleave)="onBackgroundDragLeave($event)"
+        (drop)="onBackgroundDrop($event)">
 
         <div
           *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
@@ -656,6 +661,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <span *ngIf="filterText">Clear the filter to see all items.</span>
           <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
         </div>
+      </div>
       </div>
 
       <div
@@ -1222,7 +1228,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       display: none;
     }
 
-    .list.view-grid {
+    .list.view-grid .list-viewport {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
       align-content: start;
@@ -1302,6 +1308,15 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .list {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      padding: 0;
+    }
+
+    .list-viewport {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
@@ -1772,8 +1787,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
      * that same extent, so cursor/selection never ends before nested or wider
      * rows. Grid tiles intentionally keep their normal tile width.
      */
-    .list.view-list,
-    .list.view-details,
+    .list.view-list .list-viewport,
+    .list.view-details .list-viewport,
     .tree-view {
       display: grid;
       grid-template-columns: minmax(100%, max-content);
@@ -1796,7 +1811,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
      * the spacing. Grid items use stretch rather than percentage widths so
      * max-content sizing cannot collapse a cursor against an indefinite track.
      */
-    .list.view-details {
+    .list.view-details .list-viewport {
       padding: 0;
     }
 
@@ -1825,16 +1840,16 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     /* Shared horizontal surface: rows fill the available viewport width and,
      * when columns overflow, expand with the complete scrollable track.
      * The 4px row inset is preserved on both sides. */
-    .list.view-list,
-    .list.view-details {
+    .list.view-list .list-viewport,
+    .list.view-details .list-viewport {
       display: grid;
       grid-template-columns: minmax(100%, max-content);
       align-content: start;
       padding: 0;
     }
 
-    .list.view-list > .entry,
-    .list.view-details > .entry {
+    .list.view-list .list-viewport > .entry,
+    .list.view-details .list-viewport > .entry {
       grid-column: 1;
       width: auto !important;
       min-width: 0 !important;
@@ -1843,8 +1858,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       margin-right: 4px;
     }
 
-    .list.view-list > .list-virtual-spacer,
-    .list.view-details > .list-virtual-spacer,
+    .list.view-list .list-viewport > .list-virtual-spacer,
+    .list.view-details .list-viewport > .list-virtual-spacer,
     .list.view-details > .details-header-viewport {
       grid-column: 1;
       width: auto !important;
@@ -1873,6 +1888,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
+  @ViewChild('detailsHeader') detailsHeader?: ElementRef<HTMLElement>;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -8295,6 +8311,15 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   private markUserInteraction(): void {
     this.interactionGeneration += 1;
+  }
+
+  onListViewportScroll(event: Event): void {
+    this.onContentScroll(event);
+    const header = this.detailsHeader?.nativeElement;
+    const target = event.currentTarget as HTMLElement | null;
+    if (header && target) {
+      header.style.transform = target.scrollLeft > 0 ? `translateX(${-target.scrollLeft}px)` : '';
+    }
   }
 
   onContentScroll(event: Event): void {

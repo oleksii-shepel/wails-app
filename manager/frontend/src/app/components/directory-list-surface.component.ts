@@ -1,8 +1,12 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
   Input,
+  OnChanges,
+  OnDestroy,
+  SimpleChanges,
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -45,28 +49,20 @@ export interface DirectoryListSurfaceHost {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      #listViewport
       class="list"
-      data-pane-content
       data-pane-details-root
-      tabindex="-1"
-      role="listbox"
-      [attr.aria-label]="'Files in ' + (path || 'location')"
       [class.view-list]="viewMode === 'list'"
       [class.view-grid]="viewMode === 'grid'"
       [class.view-details]="viewMode === 'details'"
       [class.active-pane]="active"
       [attr.aria-busy]="loading"
-      [class.background-drop-target]="backgroundDropActive"
-      (scroll)="host.onScroll($event)"
-      (click)="host.onBackgroundClick($event)"
-      (contextmenu)="host.onBackgroundContextMenu($event)"
-      (dragover)="host.onBackgroundDragOver($event)"
-      (dragleave)="host.onBackgroundDragLeave($event)"
-      (drop)="host.onBackgroundDrop($event)">
+      [class.background-drop-target]="backgroundDropActive">
 
       <div class="details-header-viewport" *ngIf="viewMode === 'details'">
-        <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
+        <div
+          #detailsHeader
+          class="details-header"
+          [style.grid-template-columns]="detailsGridTemplate">
           <span></span>
           <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
           <span>Type<i [paneDetailsResizeHandle]="'type'" [paneDetailsMinWidth]="72"></i></span>
@@ -79,95 +75,110 @@ export interface DirectoryListSurfaceHost {
       </div>
 
       <div
-        *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
-        class="virtual-spacer list-virtual-spacer"
-        [style.height.px]="listVirtualWindow.beforePx"
-        aria-hidden="true"></div>
-
-      <div
-        *ngFor="let entry of renderedEntries; let virtualIndex=index; trackBy: trackEntry"
-        class="entry"
+        #listViewport
+        class="list-viewport"
+        data-pane-content
         tabindex="-1"
-        role="option"
-        [attr.aria-posinset]="renderedEntryStart + virtualIndex + 1"
-        [attr.aria-setsize]="visibleEntryCount"
-        draggable="true"
-        [attr.data-file-entry]="entry.path"
-        [attr.aria-selected]="selectedPaths.has(entry.path)"
-        [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
-        [attr.aria-label]="entryAriaLabel(entry)"
-        [class.cursor]="entry.path === cursorPath"
-        [class.selected]="selectedPaths.has(entry.path)"
-        [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
-        [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
-        [class.compare-different]="isComparisonDifferent(entry.path)"
-        [class.drop-target]="dragOverPath === entry.path"
-        [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
-        [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
-        [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
-        [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null"
-        (click)="host.onSelect(entry, $event)"
-        (dblclick)="host.onOpen(entry)"
-        (contextmenu)="host.onContextMenu(entry, $event)"
-        (dragstart)="host.onDragStart(entry, $event)"
-        (dragend)="host.onDragEnd()"
-        (dragover)="host.onDragOver(entry, $event)"
-        (dragleave)="host.onDragLeave(entry)"
-        (drop)="host.onDrop(entry, $event)">
+        role="listbox"
+        [attr.aria-label]="'Files in ' + (path || 'location')"
+        (scroll)="onViewportScroll($event)"
+        (click)="host.onBackgroundClick($event)"
+        (contextmenu)="host.onBackgroundContextMenu($event)"
+        (dragover)="host.onBackgroundDragOver($event)"
+        (dragleave)="host.onBackgroundDragLeave($event)"
+        (drop)="host.onBackgroundDrop($event)">
 
-        <span class="icon" aria-hidden="true" [style.color]="entryDisplayColor(entry)">
-          {{ entryDisplayIcon(entry) }}
-        </span>
-        <ng-container *ngIf="renamingPath !== entry.path">
-          <app-file-entry-inline
-            *ngIf="!perfSimpleMode"
-            class="name entry-name"
-            [entry]="entry"
-            [showIcon]="false">
-          </app-file-entry-inline>
-          <span *ngIf="perfSimpleMode" class="name entry-name perf-name">{{ entry.name }}</span>
-        </ng-container>
-        <span
-          class="rename-editor"
-          *ngIf="renamingPath === entry.path"
-          (click)="$event.stopPropagation()"
-          (dblclick)="$event.stopPropagation()">
-          <input
-            class="rename-input"
-            [class.rename-input--invalid]="!!renameError"
-            [value]="renameValue"
-            [disabled]="renameBusy"
-            [attr.data-rename-input]="entry.path"
-            [attr.aria-invalid]="renameError ? 'true' : null"
-            [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
-            (input)="host.onRenameInput($event)"
-            (keydown)="host.onRenameKeyDown(entry, $event)"
-            (blur)="host.onRenameBlur(entry)" />
-          <span *ngIf="renameError" class="rename-error" [id]="'rename-error-' + paneId" role="alert">
-            {{ renameError }}
+        <div
+          *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
+          class="virtual-spacer list-virtual-spacer"
+          [style.height.px]="listVirtualWindow.beforePx"
+          aria-hidden="true"></div>
+
+        <div
+          *ngFor="let entry of renderedEntries; let virtualIndex=index; trackBy: trackEntry"
+          class="entry"
+          tabindex="-1"
+          role="option"
+          [attr.aria-posinset]="renderedEntryStart + virtualIndex + 1"
+          [attr.aria-setsize]="visibleEntryCount"
+          draggable="true"
+          [attr.data-file-entry]="entry.path"
+          [attr.aria-selected]="selectedPaths.has(entry.path)"
+          [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
+          [attr.aria-label]="entryAriaLabel(entry)"
+          [class.cursor]="entry.path === cursorPath"
+          [class.selected]="selectedPaths.has(entry.path)"
+          [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
+          [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
+          [class.compare-different]="isComparisonDifferent(entry.path)"
+          [class.drop-target]="dragOverPath === entry.path"
+          [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
+          [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
+          [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
+          [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null"
+          (click)="host.onSelect(entry, $event)"
+          (dblclick)="host.onOpen(entry)"
+          (contextmenu)="host.onContextMenu(entry, $event)"
+          (dragstart)="host.onDragStart(entry, $event)"
+          (dragend)="host.onDragEnd()"
+          (dragover)="host.onDragOver(entry, $event)"
+          (dragleave)="host.onDragLeave(entry)"
+          (drop)="host.onDrop(entry, $event)">
+
+          <span class="icon" aria-hidden="true" [style.color]="entryDisplayColor(entry)">
+            {{ entryDisplayIcon(entry) }}
           </span>
-        </span>
+          <ng-container *ngIf="renamingPath !== entry.path">
+            <app-file-entry-inline
+              *ngIf="!perfSimpleMode"
+              class="name entry-name"
+              [entry]="entry"
+              [showIcon]="false">
+            </app-file-entry-inline>
+            <span *ngIf="perfSimpleMode" class="name entry-name perf-name">{{ entry.name }}</span>
+          </ng-container>
+          <span
+            class="rename-editor"
+            *ngIf="renamingPath === entry.path"
+            (click)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()">
+            <input
+              class="rename-input"
+              [class.rename-input--invalid]="!!renameError"
+              [value]="renameValue"
+              [disabled]="renameBusy"
+              [attr.data-rename-input]="entry.path"
+              [attr.aria-invalid]="renameError ? 'true' : null"
+              [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
+              (input)="host.onRenameInput($event)"
+              (keydown)="host.onRenameKeyDown(entry, $event)"
+              (blur)="host.onRenameBlur(entry)" />
+            <span *ngIf="renameError" class="rename-error" [id]="'rename-error-' + paneId" role="alert">
+              {{ renameError }}
+            </span>
+          </span>
 
-        <div class="kind" [style.color]="entryDisplayColor(entry)">
-          {{ entryDisplayKind(entry) }}
+          <div class="kind" [style.color]="entryDisplayColor(entry)">
+            {{ entryDisplayKind(entry) }}
+          </div>
+          <div class="size">{{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}</div>
+          <div class="modified">{{ formatModified(entry.modified) }}</div>
+          <div class="plugin-column" *ngFor="let column of pluginPanelColumns">
+            {{ panelColumnValue(column, entry) }}
+          </div>
         </div>
-        <div class="size">{{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}</div>
-        <div class="modified">{{ formatModified(entry.modified) }}</div>
-        <div class="plugin-column" *ngFor="let column of pluginPanelColumns">
-          {{ panelColumnValue(column, entry) }}
+
+        <div
+          *ngIf="listVirtualWindow.enabled && listVirtualWindow.afterPx > 0"
+          class="virtual-spacer list-virtual-spacer"
+          [style.height.px]="listVirtualWindow.afterPx"
+          aria-hidden="true"></div>
+
+        <div class="empty" *ngIf="!loading && visibleEntryCount === 0" role="status">
+          <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
+          <span *ngIf="filterText">Clear the filter to see all items.</span>
+          <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
         </div>
-      </div>
-
-      <div
-        *ngIf="listVirtualWindow.enabled && listVirtualWindow.afterPx > 0"
-        class="virtual-spacer list-virtual-spacer"
-        [style.height.px]="listVirtualWindow.afterPx"
-        aria-hidden="true"></div>
-
-      <div class="empty" *ngIf="!loading && visibleEntryCount === 0" role="status">
-        <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
-        <span *ngIf="filterText">Clear the filter to see all items.</span>
-        <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
       </div>
     </div>
   `,
@@ -200,19 +211,27 @@ export interface DirectoryListSurfaceHost {
     }
 
     .list {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--vsc-editor-background);
+    }
+
+    .list-viewport {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
       padding: 0;
-      background: var(--vsc-editor-background);
       overscroll-behavior: none;
       scroll-behavior: auto;
       touch-action: pan-y;
     }
 
     .details-header-viewport {
-      position: sticky;
-      top: 0;
+      flex: 0 0 auto;
       z-index: 3;
       background: var(--vsc-editor-background);
     }
@@ -229,6 +248,7 @@ export interface DirectoryListSurfaceHost {
 
     .details-header {
       padding: 6px 10px;
+      padding-right: calc(10px + var(--details-scrollbar-gutter, 0px));
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       color: var(--vsc-foreground-dim);
       font-size: 11px;
@@ -271,6 +291,10 @@ export interface DirectoryListSurfaceHost {
     }
 
     .list.view-grid {
+      display: flex;
+    }
+
+    .list.view-grid .list-viewport {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
       gap: 5px;
@@ -413,8 +437,10 @@ export interface DirectoryListSurfaceHost {
     }
   `],
 })
-export class DirectoryListSurfaceComponent {
+export class DirectoryListSurfaceComponent implements AfterViewInit, OnChanges, OnDestroy {
   @ViewChild('listViewport') private viewportRef?: ElementRef<HTMLElement>;
+  @ViewChild('detailsHeader') private detailsHeaderRef?: ElementRef<HTMLElement>;
+  private viewportResizeObserver?: ResizeObserver;
   readonly FileType = FileType;
   readonly perfSimpleMode = typeof window !== 'undefined' && window.localStorage.getItem('afm-simple-list-surface') === '1';
 
@@ -456,6 +482,59 @@ export class DirectoryListSurfaceComponent {
 
   get viewportElement(): HTMLElement | null {
     return this.viewportRef?.nativeElement ?? null;
+  }
+
+  ngAfterViewInit(): void {
+    this.syncDetailsHeaderViewport();
+    this.attachViewportResizeObserver();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['viewMode'] || changes['detailsGridTemplate'] || changes['pluginPanelColumns']) {
+      queueMicrotask(() => this.syncDetailsHeaderViewport());
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.viewportResizeObserver?.disconnect();
+    this.viewportResizeObserver = undefined;
+  }
+
+  onViewportScroll(event: Event): void {
+    this.host.onScroll(event);
+
+    const header = this.detailsHeaderRef?.nativeElement;
+    const viewport = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    if (header && viewport) {
+      header.style.transform = viewport.scrollLeft > 0 ? `translateX(${-viewport.scrollLeft}px)` : '';
+    }
+    this.syncDetailsHeaderViewport(viewport);
+  }
+
+  private attachViewportResizeObserver(): void {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const viewport = this.viewportRef?.nativeElement;
+    if (!viewport) {
+      return;
+    }
+
+    this.viewportResizeObserver?.disconnect();
+    this.viewportResizeObserver = new ResizeObserver(() => this.syncDetailsHeaderViewport(viewport));
+    this.viewportResizeObserver.observe(viewport);
+  }
+
+  private syncDetailsHeaderViewport(viewport = this.viewportRef?.nativeElement): void {
+    const header = this.detailsHeaderRef?.nativeElement;
+    if (!header || !viewport || this.viewMode !== 'details') {
+      return;
+    }
+
+    const scrollbarGutter = Math.max(0, viewport.offsetWidth - viewport.clientWidth);
+    header.style.transform = viewport.scrollLeft > 0 ? `translateX(${-viewport.scrollLeft}px)` : '';
+    header.style.setProperty('--details-scrollbar-gutter', `${scrollbarGutter}px`);
   }
 }
 

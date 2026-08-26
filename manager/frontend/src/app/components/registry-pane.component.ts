@@ -488,27 +488,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
 
       <div
-        #listViewport
         class="list"
-        data-pane-content
         data-pane-details-root
         *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
-        tabindex="-1"
-        role="listbox"
-        [attr.aria-label]="'Registry entries in ' + (path || 'location')"
         [class.view-list]="viewMode === 'list'"
         [class.view-grid]="viewMode === 'grid'"
         [class.view-details]="viewMode === 'details'"
         [attr.aria-busy]="loading"
-        (scroll)="onContentScroll($event)"
-        [class.background-drop-target]="backgroundDropActive"
-        (click)="onBackgroundClick($event)"        (contextmenu)="onBackgroundContextMenu($event)"
-        (dragover)="onBackgroundDragOver($event)"
-        (dragleave)="onBackgroundDragLeave($event)"
-        (drop)="onBackgroundDrop($event)">
+        [class.background-drop-target]="backgroundDropActive">
 
       <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
-        <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
+        <div #detailsHeader class="details-header" [style.grid-template-columns]="detailsGridTemplate">
         <span></span>
         <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
         <span>Kind<i [paneDetailsResizeHandle]="'kind'" [paneDetailsMinWidth]="72"></i></span>
@@ -519,6 +509,20 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </span>
       </div>
       </div>
+
+      <div
+        #listViewport
+        class="list-viewport"
+        data-pane-content
+        tabindex="-1"
+        role="listbox"
+        [attr.aria-label]="'Registry entries in ' + (path || 'location')"
+        (scroll)="onListViewportScroll($event)"
+        (click)="onBackgroundClick($event)"
+        (contextmenu)="onBackgroundContextMenu($event)"
+        (dragover)="onBackgroundDragOver($event)"
+        (dragleave)="onBackgroundDragLeave($event)"
+        (drop)="onBackgroundDrop($event)">
 
         <div
           *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
@@ -611,6 +615,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
         </div>
       </div>
+        </div>
 
       <div
         class="drop-intent"
@@ -1750,6 +1755,65 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       width: 100%;
       min-width: 100%;
     }
+
+    /* Keep Details/List headers outside the scrollable row viewport. */
+    .list {
+      display: flex !important;
+      flex-direction: column;
+      overflow: hidden !important;
+      padding: 0 !important;
+    }
+
+    .list-viewport {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      padding: 4px;
+      overscroll-behavior: none;
+      scroll-behavior: auto;
+      touch-action: pan-y;
+    }
+
+    .list.view-grid .list-viewport {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+      align-content: start;
+      gap: 5px;
+      padding: 7px;
+    }
+
+    .list.view-list .list-viewport,
+    .list.view-details .list-viewport {
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+      padding: 0;
+    }
+
+    .list.view-list .list-viewport > .entry,
+    .list.view-details .list-viewport > .entry {
+      grid-column: 1;
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+      margin-left: 4px;
+      margin-right: 4px;
+    }
+
+    .list.view-list .list-viewport > .list-virtual-spacer,
+    .list.view-details .list-viewport > .list-virtual-spacer {
+      grid-column: 1;
+      width: auto !important;
+      min-width: 0 !important;
+      justify-self: stretch;
+    }
+
+    .list-viewport:focus,
+    .list-viewport:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
   `],
 })
 export class RegistryPaneComponent implements OnInit, OnDestroy {
@@ -1761,7 +1825,8 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
-  @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
+    @ViewChild('detailsHeader') detailsHeader?: ElementRef<HTMLElement>;
+@ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
@@ -7947,6 +8012,15 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
   private markUserInteraction(): void {
     this.interactionGeneration += 1;
+  }
+
+  onListViewportScroll(event: Event): void {
+    this.onContentScroll(event);
+    const header = this.detailsHeader?.nativeElement;
+    const target = event.currentTarget as HTMLElement | null;
+    if (header && target) {
+      header.style.transform = target.scrollLeft > 0 ? `translateX(${-target.scrollLeft}px)` : '';
+    }
   }
 
   onContentScroll(event: Event): void {

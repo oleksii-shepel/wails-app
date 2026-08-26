@@ -1,4 +1,5 @@
 import {
+  ChangeDetectorRef,
   Component,
   ElementRef,
   HostListener,
@@ -494,6 +495,7 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
     private readonly input: InputEngineService,
     private readonly element: ElementRef<HTMLElement>,
     private readonly windowState: WindowStateService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
@@ -530,7 +532,10 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
     if (!this.isEnabled(commandId)) return;
 
     this.openMenuIndex = null;
-    this.input.dispatchCommandById(commandId, { source: 'mouse' });
+    this.cdr.detectChanges();
+    queueMicrotask(() => {
+      this.input.dispatchCommandById(commandId, { source: 'mouse' });
+    });
   }
 
   isEnabled(commandId: string): boolean {

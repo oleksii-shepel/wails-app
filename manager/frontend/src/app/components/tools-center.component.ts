@@ -70,19 +70,19 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
-      <section class="tools" role="dialog" aria-modal="true" aria-label="File manager tools"
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+      <section class="tools palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="File manager tools"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
-        <header>
-          <div>
+        <header class="palette-dialog-header">
+          <div class="palette-dialog-title">
             <strong>Tools</strong>
-            <span class="root" [title]="rootPath">{{ rootPath }}</span>
+            <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ rootPath }}</span>
           </div>
-          <button type="button" class="close" (click)="close()">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
         </header>
 
-        <nav role="tablist" aria-label="Tool pages">
+        <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages">
           <button type="button" role="tab" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="page='operations'">
             Operations <span>{{ activeOperations.length }}</span>
           </button>
@@ -91,7 +91,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </nav>
 
         <div class="body" role="tabpanel" aria-label="Operations" *ngIf="page === 'operations'">
-          <div class="tool-actions operation-filters">
+          <div class="tool-actions operation-filters palette-dialog-toolbar">
             <label>
               Show
               <select [(ngModel)]="operationFilter">
@@ -161,7 +161,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <div class="body" role="tabpanel" aria-label="Disk Usage" *ngIf="page === 'disk'">
-          <div class="tool-actions">
+          <div class="tool-actions palette-dialog-toolbar">
             <button type="button" (click)="scanDisk()" [disabled]="diskScanning || !rootPath">
               {{ diskScanning ? 'Scanning…' : 'Scan current directory' }}
             </button>
@@ -204,7 +204,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <div class="body" role="tabpanel" aria-label="Duplicates" *ngIf="page === 'duplicates'">
-          <div class="tool-actions">
+          <div class="tool-actions palette-dialog-toolbar">
             <label>
               Min size
               <input type="number" min="0" [(ngModel)]="duplicateMinSize" [disabled]="duplicateScanning">
@@ -284,9 +284,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="error" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>
 
-        <footer class="tool-keys">
-          <span>1 Operations · 2 Disk · 3 Duplicates · R rescan · Esc close</span>
-          <span *ngIf="page === 'duplicates'">A select · U unselect · B basket · Delete remove</span>
+        <footer class="tool-keys palette-dialog-footer">
+          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · R rescan · Esc close</span>
+          <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete remove</span>
         </footer>
       </section>
     </div>
@@ -294,14 +294,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host{position:fixed;inset:0;z-index:9490;pointer-events:none}
-    .backdrop{position:fixed;inset:0;background: var(--vsc-scrim-soft);display:grid;place-items:center;pointer-events:auto}
-    .tools{width:min(900px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-panel-background,var(--vsc-editor-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 70px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
-    header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--vsc-border,var(--vsc-activitybar-background))}
-    header>div{min-width:0;display:flex;gap:10px;align-items:baseline}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
-    button,input,select{font:inherit}.close{border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer}
-    nav{display:flex;gap:2px;padding:5px;border-bottom:1px solid var(--vsc-border,var(--vsc-activitybar-background))}
-    nav button,.tool-actions button{border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer}
-    nav button.active,.tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));border-color:var(--vsc-border,var(--vsc-border))}
+    .tools{width:min(900px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column}
+    .root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    button,input,select{font:inherit}
+    .tool-actions button{border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer}
+    .tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));border-color:var(--vsc-border,var(--vsc-border))}
     nav span{opacity:.6;margin-left:4px}.body{flex:1;min-height:0;overflow:auto}.summary,.tool-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
     .tool-actions label{display:flex;align-items:center;gap:5px}.tool-actions input[type=number]{width:90px;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;border:1px solid var(--vsc-border,var(--vsc-border));padding:3px 5px}
     .danger{color:var(--vsc-error-foreground,var(--vsc-error))!important}.operation{padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}.row{display:flex;justify-content:space-between;gap:10px}.operation small{display:block;margin-top:4px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -314,7 +311,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .disk-row-button{border-left:0;border-right:0;background:transparent;color:inherit;text-align:left;width:100%}
     .disk-row-button.navigable{cursor:pointer}.disk-row-button.navigable:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.disk-row-button:disabled{opacity:1}
     .path-button{border:0;background:transparent;color:inherit;text-align:left;padding:2px 4px;border-radius:3px;cursor:pointer}.path-button:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
-    .tool-keys{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border-top:1px solid var(--vsc-border,var(--vsc-activitybar-background));color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
+    .tool-keys{display:flex;justify-content:space-between;gap:12px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
     .operation-filters{justify-content:flex-end}
   `],
 })

@@ -20,7 +20,7 @@ interface PluginPolicyDraft {
   template: `
     <section class="plugins-settings" aria-label="Plugins">
       <div class="plugins-header">
-        <div>
+        <div class="plugins-heading">
           <h3 class="section-title">Plugins</h3>
           <p class="section-desc">Manage discovered plugin packages, trust, availability, permissions and runtime health.</p>
         </div>
@@ -148,16 +148,18 @@ interface PluginPolicyDraft {
     :host { display: block; }
     .plugins-settings { display: flex; flex-direction: column; gap: 14px; }
     .plugins-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .plugins-header .section-title { margin: 0 0 4px; }
+    .plugins-heading { display: grid; gap: 4px; max-width: 62ch; }
+    .plugins-header .section-title { margin: 0; }
     .plugins-header .section-desc { margin: 0; opacity: .72; }
     .plugins-header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .plugins-directory { font-family: var(--font-mono, monospace); font-size: 11px; opacity: .7; overflow-wrap: anywhere; }
+    .plugins-directory { padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--vsc-border-bright) 50%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--vsc-foreground) 3%, transparent); font-family: var(--font-mono, monospace); font-size: 11px; opacity: .78; overflow-wrap: anywhere; }
     .plugins-banner, .plugin-reason, .plugin-messages { border-radius: 5px; padding: 8px 10px; font-size: 12px; }
     .plugins-banner.error, .plugin-messages.error { background: color-mix(in srgb, var(--vsc-error) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vsc-error) 35%, transparent); }
     .plugin-messages.warning { background: color-mix(in srgb, var(--vsc-warning) 10%, transparent); border: 1px solid color-mix(in srgb, var(--vsc-warning) 30%, transparent); }
     .plugin-messages ul { margin: 5px 0 0 18px; padding: 0; }
-    .plugins-empty { min-height: 150px; border: 1px dashed var(--border-color, var(--vsc-neutral-overlay-strong)); border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; opacity: .75; text-align: center; }
-    .plugin-card { border: 1px solid var(--border-color, var(--vsc-neutral-overlay-medium)); border-radius: 7px; padding: 14px; background: var(--panel-bg, var(--vsc-neutral-overlay-subtle)); display: flex; flex-direction: column; gap: 12px; }
+    .plugins-empty { min-height: 160px; border: 1px dashed color-mix(in srgb, var(--vsc-border-bright) 60%, transparent); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; opacity: .78; text-align: center; background: color-mix(in srgb, var(--vsc-foreground) 2%, transparent); }
+    .plugin-card { border: 1px solid color-mix(in srgb, var(--vsc-border-bright) 64%, transparent); border-radius: 10px; padding: 16px; background: linear-gradient(180deg, color-mix(in srgb, var(--vsc-foreground) 4%, var(--vsc-editor-background)) 0%, color-mix(in srgb, var(--vsc-foreground) 2%, var(--vsc-editor-background)) 100%); display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 28px color-mix(in srgb, var(--vsc-scrim) 12%, transparent); transition: transform var(--vsc-transition-fast), border-color var(--vsc-transition-fast), box-shadow var(--vsc-transition-fast); }
+    .plugin-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--vsc-accent-blue) 38%, var(--vsc-border-subtle)); box-shadow: 0 18px 36px color-mix(in srgb, var(--vsc-scrim) 16%, transparent); }
     .plugin-card.invalid { border-color: color-mix(in srgb, var(--vsc-error) 45%, transparent); }
     .plugin-card.quarantined { border-color: color-mix(in srgb, var(--vsc-warning) 45%, transparent); }
     .plugin-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
@@ -166,13 +168,13 @@ interface PluginPolicyDraft {
     .plugin-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .plugin-version, .plugin-id { font-family: var(--font-mono, monospace); font-size: 11px; opacity: .66; }
     .plugin-description { margin: 7px 0 0; font-size: 12px; opacity: .8; }
-    .plugin-status { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: var(--vsc-neutral-overlay-soft); }
+    .plugin-status { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 3px 7px; border-radius: 999px; background: var(--vsc-neutral-overlay-soft); }
     .plugin-status[data-status="active"] { background: color-mix(in srgb, var(--vsc-success) 18%, transparent); }
     .plugin-status[data-status="failed"], .plugin-status[data-status="invalid"] { background: color-mix(in srgb, var(--vsc-error) 18%, transparent); }
     .plugin-status[data-status="quarantined"], .plugin-status[data-status="permissions-required"] { background: color-mix(in srgb, var(--vsc-warning) 18%, transparent); }
-    .plugin-reason { background: var(--vsc-neutral-overlay-subtle); }
+    .plugin-reason { background: color-mix(in srgb, var(--vsc-foreground) 4%, transparent); border: 1px solid color-mix(in srgb, var(--vsc-border-subtle) 80%, transparent); }
     .plugin-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-    .plugin-block { border: 1px solid var(--border-color, var(--vsc-neutral-overlay-soft)); border-radius: 5px; padding: 10px; min-width: 0; }
+    .plugin-block { border: 1px solid color-mix(in srgb, var(--vsc-border-bright) 48%, transparent); border-radius: 8px; padding: 12px; min-width: 0; background: color-mix(in srgb, var(--vsc-foreground) 2%, transparent); }
     .plugin-block p { margin: 7px 0 10px; font-size: 11px; opacity: .72; }
     .plugin-block-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
     .state-good { color: var(--vsc-success); font-size: 10px; }

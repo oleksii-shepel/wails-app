@@ -32,21 +32,24 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
   imports: [CommonModule,FormsModule],
   changeDetection:ChangeDetectionStrategy.OnPush,
   template:`
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
-      <section class="history" role="dialog" aria-modal="true" aria-label="Location history"
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+      <section class="history palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Location history"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
-        <header>
-          <div>
+        <header class="palette-dialog-header">
+          <div class="palette-dialog-title">
             <strong>Location History</strong>
-            <span>{{ filteredEntries.length }} / {{ modeEntries.length }}</span>
+            <span class="palette-dialog-subtitle">{{ filteredEntries.length }} / {{ modeEntries.length }}</span>
           </div>
-          <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
-            placeholder="Filter history" autocomplete="off" spellcheck="false"
-            aria-label="Filter location history" aria-controls="history-list" />
+          <div class="header-actions">
+            <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
+              placeholder="Filter history" autocomplete="off" spellcheck="false"
+              aria-label="Filter location history" aria-controls="history-list" />
+            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
+          </div>
         </header>
 
-        <nav class="modes" aria-label="History views">
+        <nav class="modes palette-dialog-tabbar" aria-label="History views">
           <button type="button" [class.active]="mode==='pane'" (click)="setMode('pane')">
             This Pane
           </button>
@@ -58,9 +61,9 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
           </button>
         </nav>
 
-        <div id="history-list" class="list" role="listbox" aria-label="Location history">
+        <div id="history-list" class="list palette-dialog-body palette-dialog-list" role="listbox" aria-label="Location history">
           <button *ngFor="let entry of filteredEntries; let i=index; trackBy:trackEntry"
-            type="button" class="entry" [class.selected]="i===selectedIndex"
+            type="button" class="entry palette-dialog-item" [class.selected]="i===selectedIndex" [class.is-selected]="i===selectedIndex"
             role="option" [attr.aria-selected]="i===selectedIndex"
             [attr.aria-posinset]="i + 1" [attr.aria-setsize]="filteredEntries.length"
             (mouseenter)="selectedIndex=i" (click)="openEntry(entry)">
@@ -75,31 +78,31 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
               <span>{{ formatTime(entry.timestamp) }}</span>
             </span>
           </button>
-          <div class="empty" *ngIf="filteredEntries.length===0">
+          <div class="empty palette-dialog-empty" *ngIf="filteredEntries.length===0">
             {{ entries.length===0 ? 'No path history yet.' : 'No matching locations.' }}
           </div>
         </div>
 
-        <footer>
-          <button type="button" [disabled]="!selectedEntry" (click)="removeSelected()">Remove</button>
-          <button type="button" [disabled]="entries.length===0" (click)="copyJson()">Copy JSON</button>
-          <button type="button" class="danger" [disabled]="entries.length===0" (click)="clearAll()">Clear all</button>
-          <span class="keys">Ctrl+PgUp/PgDn views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete · Esc</span>
+        <footer class="palette-dialog-footer">
+          <div class="palette-dialog-footer-actions">
+            <button type="button" class="palette-dialog-button" [disabled]="!selectedEntry" (click)="removeSelected()">Remove</button>
+            <button type="button" class="palette-dialog-button" [disabled]="entries.length===0" (click)="copyJson()">Copy JSON</button>
+            <button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="entries.length===0" (click)="clearAll()">Clear all</button>
+          </div>
+          <span class="keys palette-dialog-footnote">Ctrl+PgUp/PgDn views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete · Esc</span>
         </footer>
       </section>
     </div>
   `,
   styles:[`
     :host{position:fixed;inset:0;z-index:9450;pointer-events:none}
-    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(11vh,100px);background: var(--vsc-scrim-soft);pointer-events:auto}
-    .history{box-sizing:border-box;display:flex;flex-direction:column;width:min(780px,calc(100vw - 24px));max-height:min(700px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
-    header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px}header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}header>div{display:flex;gap:8px;align-items:baseline}
-    header span,.meta,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .history{box-sizing:border-box;display:flex;flex-direction:column;width:min(780px,calc(100vw - 24px));max-height:min(700px,calc(100vh - 40px))}
+    .header-actions{display:flex;align-items:center;gap:8px}
+    .meta,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}
-    .modes{display:flex;gap:3px;padding:5px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}.modes button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}.modes button.active{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));border-color:var(--vsc-border,var(--vsc-border))}
-    .list{min-height:0;overflow:auto;padding:5px}.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.entry:hover,.entry.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.entry.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 52%,transparent)}
+    .list{min-height:0;overflow:auto}.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:45px;padding:5px 8px}.entry:hover,.entry.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.entry.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 52%,transparent)}
     .main{min-width:0;display:grid}.main strong,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.path{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{display:flex;gap:8px;align-items:center;font-size:10px}.empty{padding:34px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));text-align:center}
-    footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}footer button:hover:not(:disabled){background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));border-color:var(--vsc-border,var(--vsc-border))}footer button:disabled{opacity:.35;cursor:default}footer .danger:not(:disabled){color:var(--vsc-error-foreground,var(--vsc-error))}.keys{margin-left:auto;font-size:10px}
+    .keys{margin-left:auto;font-size:10px}
   `],
 })
 export class PathHistoryComponent implements OnInit, OnDestroy {

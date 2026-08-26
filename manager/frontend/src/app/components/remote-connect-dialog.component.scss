@@ -1,17 +1,17 @@
-.remote-connect-overlay {
+:host {
   position: fixed;
   inset: 0;
-  z-index: var(--vsc-z-modal);
-  display: grid;
+  z-index: 9560;
+  pointer-events: none;
+}
+
+.remote-connect-overlay {
+  pointer-events: auto;
   place-items: start center;
   padding: min(10vh, 90px) 20px 24px;
-  background: var(--vsc-scrim-soft);
-  backdrop-filter: blur(6px);
-  animation: dialog-backdrop-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
 }
 
 .remote-connect-overlay--closing {
-  animation: dialog-backdrop-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
   pointer-events: none;
 }
 
@@ -22,59 +22,36 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--vsc-border);
-  border-radius: 10px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 94%, white 6%) 0%,
-      var(--vsc-menu-background, var(--vsc-panel-background)) 22%,
-      color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 96%, black 4%) 100%
-    );
-  color: var(--vsc-foreground);
-  box-shadow: 0 18px 60px var(--vsc-scrim), 0 0 0 1px color-mix(in srgb, var(--vsc-border) 68%, transparent);
-  transform-origin: center top;
-  animation: dialog-surface-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
-}
-
-.remote-connect-overlay--closing .remote-connect-panel {
-  animation: dialog-surface-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
 }
 
 .remote-connect-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--vsc-border) 78%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 84%, white 16%) 0%,
-    color-mix(in srgb, var(--vsc-menu-background, var(--vsc-panel-background)) 98%, transparent) 100%
-  );
+  align-items: center;
 }
 
-.remote-connect-header h2 {
+.remote-connect-header .palette-dialog-title {
+  min-width: 0;
+}
+
+.remote-connect-header .palette-dialog-title strong {
   margin: 0;
-  color: var(--vsc-foreground-bright);
-  font-size: 15px;
-  line-height: 1.15;
-  font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
-.remote-connect-header p {
-  margin: 4px 0 0;
-  max-width: 56ch;
-  color: var(--vsc-foreground-dim);
-  font-size: 12px;
-  line-height: 1.45;
+.remote-connect-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.dialog-close-btn {
-  width: 28px;
-  height: 28px;
+.remote-connect-panel .dialog-close-btn {
+  margin-left: 8px;
+  min-height: 0;
+  padding: 0;
+}
+
+.remote-connect-intro {
+  margin: 0;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--vsc-border) 70%, transparent);
 }
 
 .remote-connect-body {
@@ -331,107 +308,23 @@
 }
 
 .actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid color-mix(in srgb, var(--vsc-border) 74%, transparent);
 }
 
-.btn,
-.icon-btn,
-.link-btn {
-  font: inherit;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 80px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background-color var(--vsc-transition-fast),
-    border-color var(--vsc-transition-fast),
-    color var(--vsc-transition-fast);
-}
-
-.btn.secondary {
-  border-color: transparent;
-  background: var(--vsc-button-secondary);
-  color: var(--vsc-button-secondary-foreground);
-}
-
-.btn.secondary:hover:not(:disabled) {
-  background: var(--vsc-button-secondary-hover);
-}
-
-.btn-utility {
+.remote-connect-utility-button {
   min-width: 0;
   height: 28px;
   padding: 0 8px;
   font-size: 11px;
 }
 
-.btn:disabled,
-.icon-btn:disabled,
-.link-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.btn-primary {
-  background: var(--vsc-button-background);
-  color: var(--vsc-button-foreground);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--vsc-button-hover);
-}
-
-.btn-secondary,
-.icon-btn {
-  border-color: transparent;
-  background: var(--vsc-button-secondary);
-  color: var(--vsc-button-secondary-foreground);
-}
-
-.btn-secondary:hover:not(:disabled),
-.icon-btn:hover:not(:disabled) {
-  background: var(--vsc-button-secondary-hover);
-}
-
-.btn-small {
+.oauth-panel .palette-dialog-button {
   min-width: 0;
   height: 28px;
   padding: 0 10px;
   font-size: 11px;
-}
-
-.icon-btn,
-.link-btn {
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
-}
-
-.link-btn {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--vsc-text-link);
-  cursor: pointer;
-}
-
-.link-btn:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--vsc-text-link) 24%, transparent);
-  background: color-mix(in srgb, var(--vsc-text-link) 10%, transparent);
 }
 
 .empty-state {
@@ -568,6 +461,10 @@
     padding: 16px;
   }
 
+  .remote-connect-intro {
+    padding: 0 16px 12px;
+  }
+
   .remote-grid {
     grid-template-columns: 1fr;
   }
@@ -597,7 +494,7 @@
     flex-wrap: wrap;
   }
 
-  .actions .btn {
+  .actions .palette-dialog-button {
     flex: 1 1 140px;
   }
 

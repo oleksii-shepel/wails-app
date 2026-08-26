@@ -83,24 +83,27 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
-      <section class="search" role="dialog" aria-modal="true" aria-label="Global search"
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+      <section class="search palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Global search"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
-        <header>
-          <div>
+        <header class="palette-dialog-header">
+          <div class="palette-dialog-title">
             <strong>Discover</strong>
-            <span class="root" [title]="rootPath">{{ mode === 'search' ? rootPath : modeLabel }}</span>
+            <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ mode === 'search' ? rootPath : modeLabel }}</span>
           </div>
-          <span class="count">
+          <div class="header-meta">
+          <span class="count palette-dialog-meta">
             {{ searching ? 'searching…' : resultCount + ' results' }}
             <ng-container *ngIf="!searching && resultCount">
               · {{ folderCount }} folders · {{ fileCount }} files
             </ng-container>
           </span>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
+          </div>
         </header>
 
-        <nav class="modes" aria-label="Discovery source">
+        <nav class="modes palette-dialog-tabbar" aria-label="Discovery source">
           <button type="button" [class.active]="mode === 'search'" (click)="setMode('search')">Search</button>
           <button type="button" [class.active]="mode === 'recent'" (click)="setMode('recent')">Recent</button>
           <button type="button" [class.active]="mode === 'collections'" (click)="setMode('collections')">Collections</button>
@@ -161,14 +164,15 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
           </div>
         </div>
 
-        <div id="global-search-results" class="results" role="listbox" aria-label="Search results" [attr.aria-busy]="searching">
+        <div id="global-search-results" class="results palette-dialog-body palette-dialog-list" role="listbox" aria-label="Search results" [attr.aria-busy]="searching">
           <ng-container *ngIf="mode !== 'collections'; else collectionsList">
             <button
               *ngFor="let entry of renderedSearchResults; let i=index; trackBy:trackResult"
               type="button"
-              class="result"
+              class="result palette-dialog-item"
               role="option"
               [class.selected]="searchWindowStart + i === selectedIndex"
+              [class.is-selected]="searchWindowStart + i === selectedIndex"
               [attr.aria-selected]="searchWindowStart + i === selectedIndex"
               [attr.aria-posinset]="searchWindowStart + i + 1"
               [attr.aria-setsize]="resultCount"
@@ -182,7 +186,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               <span class="kind">{{ kind(entry) }}</span>
             </button>
 
-            <div class="empty" *ngIf="!searching && resultCount === 0">
+            <div class="empty palette-dialog-empty" *ngIf="!searching && resultCount === 0">
               {{ mode === 'recent'
                 ? 'No recent files match.'
                 : queryText.trim()
@@ -195,9 +199,10 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
             <button
               *ngFor="let panel of visibleCollections; let i=index; trackBy:trackPanel"
               type="button"
-              class="result collection"
+              class="result collection palette-dialog-item"
               role="option"
               [class.selected]="i === selectedIndex"
+              [class.is-selected]="i === selectedIndex"
               [attr.aria-selected]="i === selectedIndex"
               (mouseenter)="selectedIndex=i"
               (click)="openCollection(panel)">
@@ -208,11 +213,11 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               </span>
               <span class="kind">{{ panel.metadata.resultCount ?? panel.entries.length }} items</span>
             </button>
-            <div class="empty" *ngIf="visibleCollections.length === 0">No matching collections.</div>
+            <div class="empty palette-dialog-empty" *ngIf="visibleCollections.length === 0">No matching collections.</div>
           </ng-template>
         </div>
 
-        <footer>
+        <footer class="palette-dialog-footer">
           <span *ngIf="error" class="error" role="alert">{{ error }}</span>
           <span *ngIf="!error && searchProgress" class="progress">{{ searchProgress }}</span>
           <span *ngIf="searchWarnings.length" class="warning" [title]="searchWarnings.join('\n')">
@@ -221,7 +226,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
           <button
             *ngIf="mode !== 'collections'"
             type="button"
-            class="open-panel"
+            class="open-panel palette-dialog-button"
             [disabled]="searching || resultCount === 0"
             (click)="openAsResultsPanel()">
             Open as Panel
@@ -229,40 +234,39 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
           <button
             *ngIf="mode === 'collections' && selectedCollection"
             type="button"
-            class="open-panel"
+            class="open-panel palette-dialog-button"
             (click)="toggleSelectedCollectionPinned()">
             {{ selectedCollection.pinned ? 'Unpin' : 'Pin' }}
           </button>
           <button
             *ngIf="mode === 'search'"
             type="button"
-            class="open-panel"
+            class="open-panel palette-dialog-button"
             [disabled]="searching || resultCount === 0"
             (click)="openAsResultsWorkspace()">
             Open Workspace
           </button>
-          <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort · Esc</span>
+          <span class="keys palette-dialog-footnote">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort · Esc</span>
         </footer>
       </section>
     </div>
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:9480;pointer-events:none}
-    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
-    .search{box-sizing:border-box;display:flex;flex-direction:column;width:min(820px,calc(100vw - 24px));height:min(660px,calc(100vh - 36px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
-    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}header{justify-content:space-between}header>div{display:flex;align-items:baseline;gap:8px;min-width:0}.root,.count,small,.kind,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
+    .search{box-sizing:border-box;display:flex;flex-direction:column;width:min(820px,calc(100vw - 24px));height:min(660px,calc(100vh - 36px))}
+    .header-meta{display:flex;align-items:center;gap:10px}
+    .root,.count,small,.kind,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     
-    .modes{display:flex;gap:3px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
-    .modes button,.save-search{min-height:24px;padding:2px 8px;border:1px solid transparent;border-radius:3px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+    .save-search{min-height:24px;padding:2px 8px;border:1px solid transparent;border-radius:3px;background:transparent;color:inherit;font:inherit;cursor:pointer}
     .modes button.active{border-color:var(--vsc-focus-border,var(--vsc-accent-blue));background:color-mix(in srgb,var(--vsc-accent-blue) 10%,transparent)}
-    .modes button:hover,.save-search:hover{background:var(--vsc-list-hover-background)}
+    .save-search:hover{background:var(--vsc-list-hover-background)}
     .discovery-shortcuts{display:grid;gap:3px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));color:var(--vsc-description-foreground)}
     .discovery-shortcuts>div{display:flex;align-items:center;gap:5px;overflow:hidden}.discovery-shortcuts button{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border);border-radius:10px;background:transparent;color:inherit;font:10px var(--vsc-font-family);cursor:pointer}
     .collection .details small{opacity:.8}
 .query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}.query select{height:28px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}
     .recent-queries{display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));overflow:hidden;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.recent-queries button{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:10px;background:transparent;color:inherit;cursor:pointer;font:10px var(--vsc-font-family,system-ui,sans-serif)}.recent-queries button:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
-    .results{flex:1;min-height:0;overflow:auto;padding:5px}.result{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.result:hover,.result.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.result.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}.icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.kind{font-size:10px}.empty{padding:40px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}.keys{margin-left:auto}.progress{color:var(--vsc-description-foreground)}.warning{color:var(--vsc-warning)}.error{color:var(--vsc-error-foreground,var(--vsc-error));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-panel{height:26px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-button-secondary-background,var(--vsc-control-background));color:inherit;cursor:pointer;font:inherit}.open-panel:disabled{opacity:.45;cursor:default}
+    .results{flex:1;min-height:0;overflow:auto}.result{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:45px;padding:5px 8px}.result:hover,.result.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.result.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}.icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.kind{font-size:10px}.empty{padding:40px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .keys{margin-left:auto}.progress{color:var(--vsc-description-foreground)}.warning{color:var(--vsc-warning)}.error{color:var(--vsc-error-foreground,var(--vsc-error));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-panel:disabled{opacity:.45;cursor:default}
   `],
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {

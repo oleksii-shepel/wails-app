@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, ElementRef, ViewChild } from '@angular/core';
+import { Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { InputHistoryDirective } from '../directives/input-history.directive';
@@ -21,6 +21,30 @@ interface SettingsDialogRequest {
   initialTab?: SettingsTab;
 }
 
+const SETTINGS_DIALOG_CONTEXT = 'dialog.settings';
+const SETTINGS_DIALOG_OWNER = 'dialog.settings';
+const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
+  {
+    id: 'dialog.settings.close.escape',
+    commandId: 'dialog.settings.close',
+    contextId: SETTINGS_DIALOG_CONTEXT,
+    source: 'default',
+    description: 'Close settings dialog',
+    category: 'Navigation',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: 'escape' }] } },
+  },
+  {
+    id: 'dialog.settings.close.escape.typing',
+    commandId: 'dialog.settings.close',
+    contextId: SETTINGS_DIALOG_CONTEXT,
+    source: 'default',
+    description: 'Close settings dialog while typing',
+    category: 'Navigation',
+    when: 'typing',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: 'escape' }] } },
+  },
+];
+
 @Component({
   selector: 'app-settings-dialog',
   standalone: true,
@@ -28,10 +52,10 @@ interface SettingsDialogRequest {
   styleUrls: ['./settings-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
-      <div class="settings-overlay" [class.settings-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
+      <div class="settings-overlay dialog-group" [class.settings-overlay--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
         <div
           #dialogPanel
-          class="settings-panel"
+          class="settings-panel dialog-surface"
           role="dialog"
           aria-modal="true"
           aria-label="Project Settings"
@@ -1085,25 +1109,53 @@ export class SettingsDialogComponent {
 
   private originalSettings: ProjectSettings = this.settingsService.getSettings();
   private pluginHasChanges = false;
+  private isOpen = false;
   private releaseDialogContext: (() => void) | null = null;
   private readonly destroy$ = createSubject<void>();
+  private readonly captureEscapeListener = (event: KeyboardEvent) => {
+    if (!this.isOpen || event.key !== 'Escape') {
+      return;
+    }
+
+    event.preventDefault();
+    this.ngZone.run(() => {
+      if (this.recordingBindingId) {
+        this.cancelRecording();
+        return;
+      }
+      this.onCancel();
+    });
+  };
 
   constructor(
     private readonly settingsService: SettingsService,
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
     private readonly keybindingStorage: KeybindingStorageService,
+    private readonly ngZone: NgZone,
   ) {}
 
   ngOnInit(): void {
+    window.addEventListener('keydown', this.captureEscapeListener, { capture: true });
+    this.inputEngine.registerContext({
+      id: SETTINGS_DIALOG_CONTEXT,
+      kind: 'overlay',
+      priority: 420,
+      exclusive: true,
+      parentId: 'global',
+      description: 'Project settings dialog',
+    });
     this.inputEngine.registerCommand('dialog.settings.save', () => {
       if (this.hasChanges) {
         void this.onSave();
       }
-    });
-    this.inputEngine.registerCommand('dialog.settings.close', () => this.onCancel());
-    this.inputEngine.registerCommand('dialog.settings.focusNext', () => this.moveDialogFocus(1));
-    this.inputEngine.registerCommand('dialog.settings.focusPrev', () => this.moveDialogFocus(-1));
+    }, SETTINGS_DIALOG_OWNER);
+    this.inputEngine.registerCommand('dialog.settings.close', () => this.onCancel(), SETTINGS_DIALOG_OWNER);
+    this.inputEngine.registerCommand('dialog.settings.focusNext', () => this.moveDialogFocus(1), SETTINGS_DIALOG_OWNER);
+    this.inputEngine.registerCommand('dialog.settings.focusPrev', () => this.moveDialogFocus(-1), SETTINGS_DIALOG_OWNER);
+    for (const binding of SETTINGS_DIALOG_BINDINGS) {
+      this.inputEngine.registerBinding(binding, SETTINGS_DIALOG_OWNER);
+    }
 
     this.settingsService
       .getMountedRequest$()
@@ -1116,8 +1168,10 @@ export class SettingsDialogComponent {
           this.pluginHasChanges = false;
           this.hasChanges = false;
           this.saving = false;
-          this.releaseDialogContext ??= this.inputContexts.acquire('dialog.settings');
+          this.isOpen = true;
+          this.releaseDialogContext ??= this.inputContexts.acquire(SETTINGS_DIALOG_CONTEXT);
         } else {
+          this.isOpen = false;
           this.releaseDialogContext?.();
           this.releaseDialogContext = null;
         }
@@ -1125,12 +1179,16 @@ export class SettingsDialogComponent {
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('keydown', this.captureEscapeListener, { capture: true });
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
-    this.inputEngine.unregisterCommand('dialog.settings.save');
-    this.inputEngine.unregisterCommand('dialog.settings.close');
-    this.inputEngine.unregisterCommand('dialog.settings.focusNext');
-    this.inputEngine.unregisterCommand('dialog.settings.focusPrev');
+    for (const binding of SETTINGS_DIALOG_BINDINGS) {
+      this.inputEngine.unregisterBinding(binding.id, SETTINGS_DIALOG_OWNER);
+    }
+    this.inputEngine.unregisterCommand('dialog.settings.save', SETTINGS_DIALOG_OWNER);
+    this.inputEngine.unregisterCommand('dialog.settings.close', SETTINGS_DIALOG_OWNER);
+    this.inputEngine.unregisterCommand('dialog.settings.focusNext', SETTINGS_DIALOG_OWNER);
+    this.inputEngine.unregisterCommand('dialog.settings.focusPrev', SETTINGS_DIALOG_OWNER);
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -1466,6 +1524,7 @@ export class SettingsDialogComponent {
   onCancel(): void {
     if (this.saving) return;
 
+    this.isOpen = false;
     this.pluginSettingsPanel?.discard();
     this.pluginHasChanges = false;
     this.recomputeHasChanges();
@@ -1492,6 +1551,7 @@ export class SettingsDialogComponent {
 
       this.originalSettings = JSON.parse(JSON.stringify(this.draft));
       this.recomputeHasChanges();
+      this.isOpen = false;
       this.settingsService.closeSettings(true);
     } finally {
       this.saving = false;

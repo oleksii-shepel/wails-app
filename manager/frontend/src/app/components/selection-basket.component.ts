@@ -1,5 +1,5 @@
-import { ChangeDetectorRef, Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, HostListener, OnDestroy, OnInit, Output } from '@angular/core';
 import { FileType } from '../shared/protocol';
 import { SelectionBasketEntry, SelectionBasketService } from '../services/selection-basket.service';
 import { CommonModule } from '@angular/common';
@@ -8,15 +8,16 @@ import { CommonModule } from '@angular/common';
   selector: 'app-selection-basket',
   standalone: true,
   imports: [CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div *ngIf="visible" class="basket-backdrop" (mousedown)="hide()">
-      <aside class="basket-panel" role="dialog" aria-modal="true" aria-label="Selection Basket" (mousedown)="$event.stopPropagation()">
-        <header class="basket-header">
-          <div class="basket-title">
+    <div *ngIf="visible" class="basket-backdrop palette-dialog-backdrop dialog-group" (mousedown)="hide()">
+      <aside class="basket-panel palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Selection Basket" (mousedown)="$event.stopPropagation()">
+        <header class="basket-header palette-dialog-header">
+          <div class="basket-title palette-dialog-title">
             <strong>Selection Basket</strong>
-            <span>{{ entries.length }} items</span>
+            <span class="palette-dialog-subtitle">{{ entries.length }} items</span>
           </div>
-          <button class="icon-button" type="button" title="Close" aria-label="Close Selection Basket" (click)="hide()">×</button>
+          <button class="dialog-close-btn" type="button" title="Close" aria-label="Close Selection Basket" (click)="hide()">×</button>
         </header>
 
         <div class="basket-summary">
@@ -26,15 +27,15 @@ import { CommonModule } from '@angular/common';
         </div>
 
         <div class="basket-actions">
-          <button type="button" [disabled]="!entries.length" (click)="copyTo.emit('left')">Copy → Left</button>
-          <button type="button" [disabled]="!entries.length" (click)="copyTo.emit('right')">Copy → Right</button>
-          <button type="button" [disabled]="!entries.length" (click)="moveTo.emit('left')">Move → Left</button>
-          <button type="button" [disabled]="!entries.length" (click)="moveTo.emit('right')">Move → Right</button>
-          <button class="danger" type="button" [disabled]="!entries.length" (click)="deleteRequested.emit()">Delete</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="copyTo.emit('left')">Copy → Left</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="copyTo.emit('right')">Copy → Right</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="moveTo.emit('left')">Move → Left</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="moveTo.emit('right')">Move → Right</button>
+          <button class="palette-dialog-button palette-dialog-button--danger" type="button" [disabled]="!entries.length" (click)="deleteRequested.emit()">Delete</button>
         </div>
 
-        <div class="basket-list">
-          <div *ngIf="entries.length === 0" class="empty-state">
+        <div class="basket-list palette-dialog-body">
+          <div *ngIf="entries.length === 0" class="empty-state palette-dialog-empty">
             <strong>The basket is empty</strong>
             <span>Add selections from panes, searches, duplicate results, or commands.</span>
             <code>basket.add</code>
@@ -57,7 +58,7 @@ import { CommonModule } from '@angular/common';
 
         <footer class="basket-footer">
           <span>Kept for this app session, across navigation and surfaces.</span>
-          <button type="button" [disabled]="!entries.length" (click)="clear()">Clear Basket</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="clear()">Clear Basket</button>
         </footer>
       </aside>
     </div>
@@ -68,17 +69,6 @@ import { CommonModule } from '@angular/common';
       inset: 0;
       z-index: 9460;
       pointer-events: none;
-    }
-
-    .basket-backdrop {
-      position: fixed;
-      inset: 0;
-      display: grid;
-      place-items: start center;
-      padding-top: min(10vh, 90px);
-      background: var(--vsc-scrim-soft);
-      pointer-events: auto;
-      animation: fadeIn .2s ease;
     }
 
     .basket-panel {
@@ -94,17 +84,6 @@ import { CommonModule } from '@angular/common';
       color: var(--vsc-foreground, var(--vsc-foreground));
       box-shadow: 0 18px 60px var(--vsc-scrim);
       font: 12px/1.4 var(--vsc-font-family, system-ui, sans-serif);
-      animation: slideDown .28s cubic-bezier(.16, 1, .3, 1);
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    @keyframes slideDown {
-      from { transform: translateY(-18px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
     }
 
     .basket-header,
@@ -139,7 +118,6 @@ import { CommonModule } from '@angular/common';
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
-    .icon-button,
     .remove-button,
     .basket-actions button,
     .basket-footer button {
@@ -153,13 +131,6 @@ import { CommonModule } from '@angular/common';
       font: inherit;
     }
 
-    .icon-button {
-      width: 28px;
-      padding: 0;
-      font-size: 17px;
-      line-height: 1;
-    }
-
     .remove-button {
       width: 27px;
       padding: 0;
@@ -167,7 +138,6 @@ import { CommonModule } from '@angular/common';
       opacity: .7;
     }
 
-    .icon-button:hover,
     .remove-button:hover,
     .basket-actions button:hover:not(:disabled),
     .basket-footer button:hover:not(:disabled) {
@@ -308,10 +278,6 @@ import { CommonModule } from '@angular/common';
     }
 
     @media (max-width: 760px), (max-height: 560px) {
-      .basket-backdrop {
-        padding: 8px;
-      }
-
       .basket-panel {
         width: calc(100vw - 16px);
         max-height: calc(100vh - 16px);
@@ -405,5 +371,13 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
     if (delta < 60_000) return 'just added';
     if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
     return new Date(addedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    if (!this.visible || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.hide();
   }
 }

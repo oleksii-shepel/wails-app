@@ -3,6 +3,7 @@ import {
   ChangeDetectorRef,
   Component,
   ElementRef,
+  HostListener,
   Input,
   OnDestroy,
   OnInit,
@@ -47,13 +48,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
-      <section class="palette" role="dialog" aria-modal="true" aria-label="Command palette"
+    <div class="backdrop dialog-group" *ngIf="visible || isClosing" [class.backdrop-closing]="isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()"
+      (animationend)="onAnimationEnd($event)">
+      <section class="palette dialog-surface" role="dialog" aria-modal="true" aria-label="Command palette"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
         <header>
-          <strong>Command Palette</strong>
-          <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
+          <div class="title-block">
+            <strong>Command Palette</strong>
+            <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
+          </div>
+          <button type="button" class="dialog-close-btn" aria-label="Close Command Palette" title="Close (Esc)" (click)="close()">×</button>
         </header>
 
         <div class="query">
@@ -96,9 +101,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   styles: [`
     :host{position:fixed;inset:0;z-index:9520;pointer-events:none}
     .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
+    .backdrop-closing{pointer-events:none}
     .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 62px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
-    header{justify-content:space-between}header span,footer,.command small,.state{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    header{justify-content:space-between}
+    .title-block{display:flex;align-items:baseline;gap:8px;min-width:0}
+    header span,footer,.command small,.state{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .query{font-size:18px}.query input{flex:1;height:34px;border:0;outline:0;background:transparent;color:inherit;font:13px var(--vsc-font-family,system-ui,sans-serif)}
     .commands{flex:1;min-height:0;overflow:auto;padding:5px}
     .command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 9px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}
@@ -109,6 +117,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     kbd{padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-neutral-overlay-subtle);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
     .state{font-size:10px}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}
+    .dialog-close-btn{margin-left:8px}
   `],
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {
@@ -116,6 +125,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   @Input() commands: readonly PaletteCommand[] = [];
 
   visible = false;
+  isClosing = false;
   query = '';
   selectedIndex = 0;
 
@@ -184,21 +194,18 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   open(): void {
-    
     this.query = '';
     this.selectedIndex = 0;
+    this.isClosing = false;
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
-    
     this.cdr.markForCheck();
   }
 
   close(): void {
-    if (!this.visible) return;
-    this.visible = false;
+    if (!this.visible || this.isClosing) return;
+    this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
-    
-    
     this.cdr.markForCheck();
   }
 
@@ -233,6 +240,21 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         return;
       }
     }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    if (!this.visible || this.isClosing || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.close();
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.visible = false;
+    this.isClosing = false;
+    this.cdr.markForCheck();
   }
 
 }

@@ -328,6 +328,208 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
   color: var(--vsc-menu-foreground);
 }
 
+.palette-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: min(8vh, 72px) 12px 12px;
+  background: var(--vsc-scrim-soft);
+  pointer-events: auto;
+}
+
+.palette-dialog-surface {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--vsc-border, var(--vsc-border));
+  border-radius: 8px;
+  background: var(--vsc-menu-background, var(--vsc-panel-background));
+  color: var(--vsc-foreground, var(--vsc-foreground));
+  box-shadow: 0 18px 62px var(--vsc-scrim-strong);
+  font: 12px/1.4 var(--vsc-font-family, system-ui, sans-serif);
+}
+
+.palette-dialog-header,
+.palette-dialog-footer,
+.palette-dialog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+}
+
+.palette-dialog-header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+}
+
+.palette-dialog-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.palette-dialog-title > strong,
+.palette-dialog-title > h2 {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.palette-dialog-subtitle,
+.palette-dialog-meta,
+.palette-dialog-footnote {
+  color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+}
+
+.palette-dialog-mono {
+  font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+}
+
+.palette-dialog-toolbar {
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+}
+
+.palette-dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.palette-dialog-footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+}
+
+.palette-dialog-footer-actions,
+.palette-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.palette-dialog-button {
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--vsc-border, var(--vsc-border));
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.palette-dialog-button:hover:not(:disabled),
+.palette-dialog-button:focus-visible:not(:disabled) {
+  background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+  outline: 0;
+}
+
+.palette-dialog-button:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
+.palette-dialog-button--primary {
+  border-color: color-mix(in srgb, var(--vsc-accent-blue) 55%, transparent);
+  background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+  color: var(--vsc-foreground-bright, var(--vsc-foreground));
+}
+
+.palette-dialog-button--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vsc-list-hover-background) 82%, var(--vsc-accent-blue) 18%);
+}
+
+.palette-dialog-button--danger {
+  color: var(--vsc-error-foreground, var(--vsc-error));
+}
+
+.palette-dialog-tabbar {
+  display: flex;
+  gap: 3px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+}
+
+.palette-dialog-tabbar button {
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.palette-dialog-tabbar button:hover:not(:disabled) {
+  background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+}
+
+.palette-dialog-tabbar button.active,
+.palette-dialog-tabbar button[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--vsc-accent-blue) 55%, transparent);
+  background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+}
+
+.palette-dialog-list {
+  padding: 5px;
+}
+
+.palette-dialog-item {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+
+.palette-dialog-item:hover,
+.palette-dialog-item:focus-visible,
+.palette-dialog-item.is-selected {
+  background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+}
+
+.palette-dialog-item.is-selected {
+  border-color: color-mix(in srgb, var(--vsc-accent-blue) 55%, transparent);
+}
+
+.palette-dialog-empty {
+  padding: 42px;
+  text-align: center;
+  color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+}
+
+.dialog-group {
+  animation: dialog-backdrop-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
+}
+
+.dialog-group--closing {
+  animation: dialog-backdrop-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
+  pointer-events: none;
+}
+
+.dialog-surface {
+  transform-origin: center top;
+  animation: dialog-surface-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
+}
+
+.dialog-group--closing .dialog-surface {
+  animation: dialog-surface-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
+}
+
 .dialog-close-btn,
 .close-button {
   display: flex;

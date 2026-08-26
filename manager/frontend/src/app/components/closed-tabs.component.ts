@@ -18,26 +18,26 @@ import {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
       <section
-        class="panel"
+        class="panel palette-dialog-surface dialog-surface"
         role="dialog"
         aria-modal="true"
         aria-label="Recently Closed Tabs"
         (mousedown)="$event.stopPropagation()">
-        <header>
-          <div>
+        <header class="palette-dialog-header">
+          <div class="palette-dialog-title">
             <strong>Recently Closed Tabs</strong>
-            <span>{{ entries.length }} recoverable tabs</span>
+            <span class="palette-dialog-subtitle">{{ entries.length }} recoverable tabs</span>
           </div>
-          <button type="button" class="close" (click)="close()">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
         </header>
 
-        <div class="tabs">
+        <div class="tabs palette-dialog-body palette-dialog-list">
           <button
             *ngFor="let entry of entries; trackBy: trackEntry"
             type="button"
-            class="closed-tab"
+            class="closed-tab palette-dialog-item"
             (click)="reopen(entry)">
             <span class="icon">{{ icon(entry) }}</span>
             <span class="main">
@@ -49,32 +49,32 @@ import {
             </span>
           </button>
 
-          <div class="empty" *ngIf="entries.length === 0">
+          <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">
             No recently closed tabs in this workspace.
           </div>
         </div>
 
-        <footer>
-          <button type="button" [disabled]="entries.length === 0" (click)="clear()">
-            Clear
-          </button>
-          <button type="button" class="close" (click)="close()">Close</button>
+        <footer class="palette-dialog-footer">
+          <div class="palette-dialog-footer-actions">
+            <button type="button" class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">
+              Clear
+            </button>
+          </div>
+          <div class="palette-dialog-footer-actions">
+            <button type="button" class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button>
+          </div>
         </footer>
       </section>
     </div>
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:8750;pointer-events:none}
-    .backdrop{position:absolute;inset:0;display:grid;place-items:center;padding:20px;background:var(--vsc-scrim);pointer-events:auto}
     .panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;width:min(720px,calc(100vw - 40px));height:min(600px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-foreground);box-shadow:0 14px 48px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif)}
-    header,footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-color:var(--vsc-border-subtle,var(--vsc-border))}
-    header{border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}header>div{display:grid}header span{color:var(--vsc-description-foreground)}
-    footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border))}
-    button{font:inherit;color:inherit}.tabs{min-height:0;overflow:auto;padding:4px}
+    .panel{width:min(720px,calc(100vw - 24px));height:min(600px,calc(100vh - 40px));font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    .tabs{min-height:0;overflow:auto}
     .closed-tab{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;text-align:left;cursor:pointer}
     .closed-tab:hover,.closed-tab:focus-visible{background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
     .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small,.meta{color:var(--vsc-description-foreground)}.meta{font-size:10px}
-    footer button,header button{min-height:24px;padding:2px 8px;border:1px solid var(--vsc-border);border-radius:3px;background:var(--vsc-button-secondary-background,var(--vsc-control-background));cursor:pointer}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground)}
   `],
 })
 export class ClosedTabsComponent {

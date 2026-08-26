@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, ElementRef, ViewChild } from '@angular/core';
+import { Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { BrowserOpenURL } from 'wailsjs/runtime';
@@ -176,28 +176,40 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
   selector: 'app-remote-connect-dialog',
   standalone: true,
   imports: [CommonModule, FormsModule, InputHistoryDirective],
-  styleUrls: ['./remote-connect-dialog.component.scss', './tools-dialog-remote-theme.scss'],
+  styleUrls: ['./tools-dialog-remote-theme.scss', './remote-connect-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
-      <div class="remote-connect-overlay" [class.remote-connect-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
-        <div
+      <div
+        class="remote-connect-overlay palette-dialog-backdrop dialog-group"
+        [class.remote-connect-overlay--closing]="isClosing"
+        [class.dialog-group--closing]="isClosing"
+        (click)="onCancel()"
+        (animationend)="onAnimationEnd($event)"
+      >
+        <section
           #dialogPanel
-          class="remote-connect-panel"
+          class="remote-connect-panel palette-dialog-surface dialog-surface"
           role="dialog"
           aria-modal="true"
           aria-label="Connect remote storage"
           tabindex="-1"
           (click)="$event.stopPropagation()"
         >
-          <header class="remote-connect-header">
-            <div>
-              <h2>Remote Storage Mount</h2>
-              <p>Create a session-only mount and open it in the active pane.</p>
+          <header class="remote-connect-header palette-dialog-header">
+            <div class="palette-dialog-title">
+              <strong>Connect Remote</strong>
+              <span class="palette-dialog-subtitle">{{ selectedProtocol.label }}</span>
             </div>
-            <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">×</button>
+            <div class="remote-connect-header-actions">
+              <span class="palette-dialog-meta">Esc to close</span>
+              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close (Esc)">×</button>
+            </div>
           </header>
+          <p class="remote-connect-intro palette-dialog-footnote">
+            Create a session-only mount and open it in the active pane.
+          </p>
 
-          <div class="remote-connect-body">
+          <div class="remote-connect-body palette-dialog-body">
             <section class="remote-connect-form-section">
               <div class="section-heading">
                 <h3>Connection</h3>
@@ -358,7 +370,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                           <strong>{{ oauthActionTitle }}</strong>
                           <small>Opens your default browser and waits for the provider to redirect back to a temporary localhost callback.</small>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-small" [disabled]="isAuthorizing" (click)="authorizeInBrowser()">
+                        <button
+                          type="button"
+                          class="palette-dialog-button"
+                          [disabled]="isAuthorizing"
+                          (click)="authorizeInBrowser()"
+                        >
                           {{ isAuthorizing ? 'Waiting...' : oauthActionButton }}
                         </button>
                       </div>
@@ -405,9 +422,14 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
 
               <p *ngIf="errorMessage" class="error-banner">{{ errorMessage }}</p>
 
-              <div class="actions">
-                <button type="button" class="btn secondary" (click)="onCancel()">Cancel</button>
-                <button type="button" class="btn" [disabled]="isConnecting || isAuthorizing" (click)="onSubmit()">
+              <div class="actions palette-dialog-actions">
+                <button type="button" class="palette-dialog-button" (click)="onCancel()">Cancel</button>
+                <button
+                  type="button"
+                  class="palette-dialog-button palette-dialog-button--primary"
+                  [disabled]="isConnecting || isAuthorizing"
+                  (click)="onSubmit()"
+                >
                   {{ isConnecting ? 'Connecting...' : 'Connect' }}
                 </button>
               </div>
@@ -416,7 +438,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
             <aside class="remote-connect-side">
               <div class="section-heading">
                 <h3>Active Remote Mounts</h3>
-                <button type="button" class="btn secondary btn-utility" [disabled]="isRefreshing" (click)="refreshConnections()">
+                <button type="button" class="palette-dialog-button remote-connect-utility-button" [disabled]="isRefreshing" (click)="refreshConnections()">
                   {{ isRefreshing ? '...' : 'Refresh' }}
                 </button>
               </div>
@@ -444,7 +466,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     <span *ngIf="mount.readOnly" class="read-only-badge">Read only</span>
                     <button
                       type="button"
-                      class="btn secondary btn-utility"
+                      class="palette-dialog-button remote-connect-utility-button"
                       [disabled]="disconnectingMounts.has(mount.mountPoint)"
                       (click)="disconnectMount(mount, $event)"
                     >
@@ -455,7 +477,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
               </div>
             </aside>
           </div>
-        </div>
+        </section>
       </div>
     </ng-container>
   `,
@@ -480,18 +502,29 @@ export class RemoteConnectDialogComponent {
   oauthAccountLabel = '';
 
   private readonly destroy$ = createSubject<void>();
+  private isOpen = false;
   private releaseDialogContext: (() => void) | null = null;
   private oauthPollTimer: number | null = null;
   private oauthSessionConnected = false;
+  private readonly captureEscapeListener = (event: KeyboardEvent) => {
+    if (!this.isOpen || event.key !== 'Escape') {
+      return;
+    }
+
+    event.preventDefault();
+    this.ngZone.run(() => this.onCancel());
+  };
 
   constructor(
     private readonly apiService: ApiService,
     private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
+    private readonly ngZone: NgZone,
   ) {}
 
   ngOnInit(): void {
+    window.addEventListener('keydown', this.captureEscapeListener, { capture: true });
     this.inputEngine.registerCommand('dialog.remoteConnect.submit', () => {
       void this.onSubmit();
     });
@@ -515,6 +548,7 @@ export class RemoteConnectDialogComponent {
           this.connections = [];
           this.errorMessage = '';
           this.isConnecting = false;
+          this.isOpen = true;
           this.disconnectingMounts.clear();
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.remoteConnect');
           void this.refreshConnections();
@@ -530,6 +564,7 @@ export class RemoteConnectDialogComponent {
         this.oauthSessionConnected = false;
         this.errorMessage = '';
         this.isConnecting = false;
+        this.isOpen = false;
         this.connections = [];
         this.disconnectingMounts.clear();
         this.releaseDialogContext?.();
@@ -538,6 +573,7 @@ export class RemoteConnectDialogComponent {
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('keydown', this.captureEscapeListener, { capture: true });
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.remoteConnect.submit');

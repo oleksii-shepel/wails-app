@@ -41,11 +41,11 @@ import type {
         aria-label="Keyboard and Mouse Bindings"
         (mousedown)="$event.stopPropagation()">
         <header>
-          <div>
+          <div class="title-block">
             <h2>Input & Shortcuts</h2>
             <p>Rebind keyboard, chords, mouse gestures, and plugin commands live.</p>
           </div>
-          <button type="button" class="close" title="Close (Esc)" (click)="requestClose()">×</button>
+          <button type="button" class="dialog-close-btn" title="Close (Esc)" aria-label="Close Input & Shortcuts" (click)="requestClose()">×</button>
         </header>
 
         <div class="toolbar">
@@ -161,17 +161,18 @@ import type {
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:8600;pointer-events:none}
-    .backdrop{position:absolute;inset:0;box-sizing:border-box;display:grid;place-items:center;padding:20px;background:var(--vsc-scrim);pointer-events:auto;overflow:hidden}
-    .panel{box-sizing:border-box;display:flex;flex-direction:column;width:min(980px,calc(100vw - 40px));height:min(760px,calc(100dvh - 40px));max-height:calc(100dvh - 40px);min-height:0;overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-dialog-foreground,var(--vsc-foreground));box-shadow:0 14px 48px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif)}
+    .backdrop{position:absolute;inset:0;box-sizing:border-box;display:grid;place-items:start center;padding-top:min(8vh,72px);background:var(--vsc-scrim-soft);pointer-events:auto;overflow:hidden;animation:dialog-backdrop-enter var(--dialog-enter-duration) var(--dialog-enter-ease)}
+    .panel{box-sizing:border-box;display:flex;flex-direction:column;width:min(980px,calc(100vw - 40px));height:min(760px,calc(100dvh - 40px));max-height:calc(100dvh - 40px);min-height:0;overflow:hidden;border:1px solid var(--vsc-border);border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-dialog-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif);transform-origin:center top;animation:dialog-surface-enter var(--dialog-enter-duration) var(--dialog-enter-ease)}
     header,footer,.toolbar,.capture-banner{display:flex;align-items:center;gap:8px;padding:8px 10px;border-color:var(--vsc-border-subtle,var(--vsc-border))}
     header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
+    .title-block{min-width:0}
     header h2{margin:0;font-size:14px} header p{margin:2px 0 0;color:var(--vsc-description-foreground)}
     button,select,input{font:inherit}
     button,select{min-height:24px;border:1px solid var(--vsc-border);border-radius:3px;background:var(--vsc-button-secondary-background,var(--vsc-control-background));color:var(--vsc-foreground)}
     button{padding:2px 8px;cursor:pointer} button:disabled{opacity:.4;cursor:default}
     button:hover:not(:disabled){background:var(--vsc-list-hover-background)}
     button:focus-visible,input:focus-visible,select:focus-visible{outline:1px solid var(--vsc-focus-border);outline-offset:1px}
-    .close{width:28px;padding:0;font-size:17px;background:transparent;border-color:transparent}
+    .dialog-close-btn{margin-left:8px}
     .toolbar{border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));flex-wrap:wrap}
     .search{flex:1;min-width:240px;height:26px;padding:3px 7px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:3px;background:var(--vsc-input-background);color:var(--vsc-input-foreground)}
     .check{display:flex;align-items:center;gap:4px}.summary{margin-left:auto;color:var(--vsc-description-foreground)}
@@ -311,7 +312,16 @@ export class InputCenterComponent implements OnChanges, OnDestroy {
   @HostListener('document:keydown', ['$event'])
   captureKeyboard(event: KeyboardEvent): void {
     const binding = this.editingBinding;
-    if (!binding || binding.trigger.device !== 'keyboard') return;
+    if (!this.visible) return;
+    if (!binding) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.requestClose();
+      }
+      return;
+    }
+    if (binding.trigger.device !== 'keyboard') return;
 
     event.preventDefault();
     event.stopPropagation();

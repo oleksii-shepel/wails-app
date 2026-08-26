@@ -27,47 +27,50 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
   template: `
     <div
       *ngIf="request$ | async"
-      class="backdrop"
+      class="backdrop palette-dialog-backdrop dialog-group"
       [class.backdrop--closing]="isClosing"
+      [class.dialog-group--closing]="isClosing"
       (mousedown)="onBackdrop($event)"
       (animationend)="onAnimationEnd($event)">
       <section
         #dialogPanel
-        class="dialog"
+        class="dialog palette-dialog-surface dialog-surface"
         role="dialog"
         aria-modal="true"
         aria-label="Trash / Recycle Bin"
         tabindex="-1"
         (keydown.tab)="onTabKey($event)"
         >
-        <header>
-          <div>
+        <header class="palette-dialog-header">
+          <div class="palette-dialog-title">
             <h2>Trash / Recycle Bin</h2>
-            <p>{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</p>
+            <p class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</p>
           </div>
           <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
         </header>
 
-        <div class="toolbar">
+        <div class="toolbar palette-dialog-toolbar">
           <button
             type="button"
+            class="palette-dialog-button"
             [disabled]="loading || !canRestoreSelection"
             (click)="restoreSelected()">
             Restore
           </button>
           <button
             type="button"
+            class="palette-dialog-button"
             [disabled]="loading || selectedIds.size === 0"
             (click)="deleteSelected()">
             Delete permanently
           </button>
           <span class="spacer"></span>
-          <button type="button" [disabled]="loading" (click)="reload()">
+          <button type="button" class="palette-dialog-button" [disabled]="loading" (click)="reload()">
             Refresh
           </button>
           <button
             type="button"
-            class="danger"
+            class="palette-dialog-button palette-dialog-button--danger"
             [disabled]="loading || entries.length === 0"
             (click)="emptyTrash()">
             Empty Trash
@@ -75,15 +78,16 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
         </div>
 
         <div
-          class="trash-list"
+          class="trash-list palette-dialog-body palette-dialog-list"
           tabindex="0"
           role="listbox"
           aria-label="Trash contents">
           <button
             *ngFor="let entry of entries; trackBy: trackById"
             type="button"
-            class="trash-row"
+            class="trash-row palette-dialog-item"
             [class.selected]="selectedIds.has(entry.id)"
+            [class.is-selected]="selectedIds.has(entry.id)"
             [attr.aria-selected]="selectedIds.has(entry.id)"
             (click)="toggle(entry, $event)"
             (dblclick)="openSelection()">
@@ -95,16 +99,16 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
             <span class="date">{{ formatDeleted(entry.deletedAt) }}</span>
           </button>
 
-          <div *ngIf="!loading && entries.length === 0" class="empty">
+          <div *ngIf="!loading && entries.length === 0" class="empty palette-dialog-empty">
             Trash is empty.
           </div>
 
-          <div *ngIf="loading" class="empty">
+          <div *ngIf="loading" class="empty palette-dialog-empty">
             Loading…
           </div>
         </div>
 
-        <footer *ngIf="error" role="alert">
+        <footer *ngIf="error" class="palette-dialog-footer" role="alert">
           {{ error }}
         </footer>
       </section>
@@ -112,35 +116,18 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
   `,
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
-    .backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 1200;
-      display: grid;
-      place-items: center;
-      background: var(--vsc-scrim);
-      animation: fadeIn 0.2s ease;
-    }
-    .backdrop--closing { animation: fadeOut 0.2s ease forwards; pointer-events: none; }
+    .backdrop { z-index: 1200; place-items: start center; }
+    .backdrop--closing { pointer-events: none; }
 
     .dialog {
       width: min(900px, calc(100vw - 48px));
-      height: min(680px, calc(100vh - 48px));
+      height: min(680px, calc(100vh - 96px));
       min-width: 0;
       min-height: 0;
       display: flex;
       flex-direction: column;
-      background: var(--vsc-editor-background, var(--vsc-editor-background));
-      color: var(--vsc-foreground, var(--vsc-foreground));
-      border: 1px solid var(--vsc-panel-border, var(--vsc-control-background));
-      box-shadow: 0 18px 60px var(--vsc-scrim);
-      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      background: var(--vsc-menu-background, var(--vsc-panel-background));
     }
-    .backdrop--closing .dialog { animation: slideUp 0.2s ease forwards; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-    @keyframes slideDown { from { transform: translateY(-16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    @keyframes slideUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-16px); opacity: 0; } }
 
     header,
     .toolbar,
@@ -173,21 +160,6 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       font-size: 12px;
     }
 
-    button {
-      color: inherit;
-      background: var(--vsc-button-secondaryBackground, var(--vsc-control-background));
-      border: 1px solid var(--vsc-panel-border, var(--vsc-border));
-      min-height: 28px;
-    }
-
-    button:disabled {
-      opacity: .45;
-    }
-
-    button.danger {
-      color: var(--vsc-errorForeground, var(--vsc-error));
-    }
-
     .spacer {
       flex: 1;
     }
@@ -208,8 +180,6 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       gap: 8px;
       padding: 7px 8px;
       text-align: left;
-      background: transparent;
-      border: 0;
     }
 
     .trash-row:hover {

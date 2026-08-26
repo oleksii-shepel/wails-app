@@ -21,7 +21,7 @@ import { WorkspaceService } from '../../services/workspace.service';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
-import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
+import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 import { SegmentVideoLoader } from './segment-video-loader';
 import type { FileProbe } from '../../shared/protocol';
 
@@ -50,23 +50,6 @@ interface VideoNavItem {
     </app-viewer-surface>
 
     <div *ngIf="!useLegacySurface" class="viewer-surface">
-      <div class="viewer-header">
-        <div class="header-main">
-          <span class="file-icon">🎬</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Preview' }}</div>
-            <div class="path" [title]="targetPath">{{ targetPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-        <div class="header-meta">
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="fileSize > 0">{{ formatSize(fileSize) }}</span>
-          <span class="badge seek-badge">{{ playbackMode }}</span>
-          <span class="badge codec-badge" *ngIf="videoCodecInfo">{{ videoCodecInfo }}</span>
-          <span class="badge resolution-badge" *ngIf="videoResolution">{{ videoResolution }}</span>
-        </div>
-      </div>
-
       <div class="viewer-body" appVscodeScrollbar>
         <div *ngIf="loading" class="state-container">
           <div class="spinner"></div>
@@ -204,7 +187,7 @@ interface VideoNavItem {
       </div>
     </div>
   `,
-  styles: [`
+  styles: [VIEWER_BASE_STYLES, `
     :host {
       display: flex;
       flex-direction: column;

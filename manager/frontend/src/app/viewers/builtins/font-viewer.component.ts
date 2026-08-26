@@ -19,6 +19,7 @@ type SampleMode = 'sentence' | 'alphabet' | 'symbols';
 
 const PREVIEW_SIZES = [40, 72, 120] as const;
 const FONT_EXTENSIONS = new Set(['ttf', 'ttc', 'otf', 'otc', 'woff', 'woff2', 'eot']);
+const SYMBOL_FONT_HINTS = ['wingdings', 'webdings', 'marlett', 'symbol', 'segoe fluent icons', 'segmdl2'];
 const GLYPH_ROWS = [
   'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
   'abcdefghijklmnopqrstuvwxyz',
@@ -35,23 +36,6 @@ const GLYPH_ROWS = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="viewer-header">
-        <div class="header-main">
-          <span class="file-icon" aria-hidden="true">🔤</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Font Preview' }}</div>
-            <div class="path" [title]="displayPath">{{ displayPath || 'Select a font to preview' }}</div>
-          </div>
-        </div>
-
-        <div class="header-meta" *ngIf="info && kind !== 'empty' && kind !== 'loading'">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Loaded from archive">📦 archive</span>
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info.size > 0">{{ formatSize(info.size) }}</span>
-          <span class="badge meta-badge" *ngIf="mimeLabel">{{ mimeLabel }}</span>
-        </div>
-      </div>
-
       <div class="viewer-toolbar" *ngIf="kind === 'ready'">
         <button
           *ngFor="let size of previewSizes"
@@ -99,16 +83,11 @@ const GLYPH_ROWS = [
         </div>
 
         <div *ngIf="kind === 'ready'" class="font-layout">
-          <section class="font-hero panel" [style.font-family]="fontStack">
-            <div class="hero-kicker">Font Preview</div>
-            <div class="hero-sample" [style.font-size.px]="previewSize">{{ activeSample }}</div>
-            <div class="hero-caption">{{ subtitleSample }}</div>
-          </section>
-
           <section class="font-sheet panel" [style.font-family]="fontStack">
             <div class="sheet-header">
-              <div class="sheet-title">Character Sheet</div>
-              <div class="sheet-sub">Use this to quickly check coverage and rendering quality.</div>
+              <div class="sheet-title">Preview</div>
+              <div class="sheet-sub">{{ subtitleSample }}</div>
+              <div class="sheet-sample" [style.font-size.px]="previewSize">{{ activeSample }}</div>
             </div>
 
             <div class="glyph-grid">
@@ -158,7 +137,7 @@ const GLYPH_ROWS = [
 
     .font-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.8fr);
+      grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
       gap: 16px;
       padding: 18px;
       min-height: 100%;
@@ -174,15 +153,6 @@ const GLYPH_ROWS = [
       overflow: hidden;
     }
 
-    .font-hero {
-      grid-column: 1 / -1;
-      padding: 20px 22px 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .hero-kicker,
     .sheet-title {
       font-size: 10px;
       font-weight: 700;
@@ -192,14 +162,6 @@ const GLYPH_ROWS = [
       opacity: 0.72;
     }
 
-    .hero-sample {
-      line-height: 1.08;
-      letter-spacing: -0.03em;
-      word-break: break-word;
-      color: var(--vsc-foreground, var(--vsc-foreground));
-    }
-
-    .hero-caption,
     .sheet-sub {
       font-size: 12px;
       line-height: 1.5;
@@ -213,6 +175,15 @@ const GLYPH_ROWS = [
 
     .sheet-header {
       margin-bottom: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .sheet-sample {
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+      word-break: break-word;
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .glyph-grid {
@@ -278,10 +249,6 @@ const GLYPH_ROWS = [
       .font-layout {
         grid-template-columns: 1fr;
       }
-
-      .font-hero {
-        grid-column: auto;
-      }
     }
   `, VIEWER_PRODUCTION_CHROME_STYLES],
 })
@@ -301,6 +268,7 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
   sampleMode: SampleMode = 'sentence';
   fontStack = "var(--vsc-font-family, 'Segoe UI', sans-serif)";
   mimeLabel = '';
+  symbolFont = false;
 
   private loadId = 0;
   private destroyed = false;
@@ -341,6 +309,9 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
       case 'symbols':
         return '0123456789 !@#$%^&*() []{} <>?/\\ +-=_';
       default:
+        if (this.symbolFont) {
+          return 'ABCDEFGHIJKLM NOPQRSTUVWXYZ 0123456789';
+        }
         return 'The quick brown fox jumps over the lazy dog';
     }
   }
@@ -352,6 +323,9 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
       case 'symbols':
         return 'Digits and punctuation sample';
       default:
+        if (this.symbolFont) {
+          return 'Symbol fonts look better with glyph-oriented samples.';
+        }
         return 'Слава Україні • Ґґ Єє Її Іі • 1234567890';
     }
   }
@@ -389,6 +363,7 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
     this.error = '';
     this.info = null;
     this.mimeLabel = '';
+    this.symbolFont = false;
 
     if (!path && !this.archiveContext) {
       this.kind = 'empty';
@@ -462,6 +437,9 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
     }
 
     const ext = extractExt(sourceName);
+    if (ext === 'fon' || ext === 'fnt') {
+      throw new Error('Bitmap .fon/.fnt fonts are not previewable here. Use a TrueType/OpenType font like .ttf or .otf.');
+    }
     if (ext && !FONT_EXTENSIONS.has(ext) && !this.mimeLabel.startsWith('font/')) {
       throw new Error('This file does not look like a supported font format.');
     }
@@ -479,6 +457,10 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
     this.getDocumentFonts().add(fontFace);
     this.activeFontFace = fontFace;
     this.fontStack = `'${family}', var(--vsc-font-family, 'Segoe UI', sans-serif)`;
+    this.symbolFont = this.detectSymbolFont(sourceName);
+    if (this.symbolFont && this.sampleMode === 'sentence') {
+      this.sampleMode = 'symbols';
+    }
     this.kind = 'ready';
     this.cdr.markForCheck();
   }
@@ -497,5 +479,10 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
 
   private normalizeMime(mime: string | null | undefined): string {
     return (mime ?? '').split(';', 1)[0].trim().toLowerCase();
+  }
+
+  private detectSymbolFont(sourceName: string): boolean {
+    const normalized = sourceName.trim().toLowerCase();
+    return SYMBOL_FONT_HINTS.some(hint => normalized.includes(hint));
   }
 }

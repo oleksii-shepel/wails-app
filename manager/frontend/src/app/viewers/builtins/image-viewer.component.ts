@@ -13,7 +13,7 @@ import { ApiService } from '../../services/api.service';
 import { ArchiveEntry, FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
-import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
+import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
 
@@ -50,24 +50,6 @@ interface CarouselVirtualFrame {
          #viewerSurface
          tabindex="0"
          (pointerdown)="focusViewerSurface()">
-      <div class="viewer-header">
-        <div class="header-main">
-          <span class="file-icon" aria-hidden="true">🖼️</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Image Preview' }}</div>
-            <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-        <div class="header-meta" *ngIf="info && kind !== 'empty' && kind !== 'loading'">
-          <span class="badge archive-badge" *ngIf="activeContext" title="Extracted from archive into memory">
-            &#x1F4E6; archive
-          </span>
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info.size > 0">{{ formatSize(info.size) }}</span>
-          <span class="badge dim-badge" *ngIf="imageMeta">{{ imageMeta.width }}&#xD7;{{ imageMeta.height }}</span>
-        </div>
-      </div>
-
       <div class="viewer-toolbar" *ngIf="kind === 'image' || kind === 'svg' || hasCarousel">
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
           <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
@@ -173,7 +155,7 @@ interface CarouselVirtualFrame {
       </div>
     </div>
   `,
-  styles: [`
+  styles: [VIEWER_BASE_STYLES, `
     :host {
       display: flex;
       flex-direction: column;

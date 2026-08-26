@@ -240,6 +240,9 @@ export const VIEWER_BASE_STYLES = `
 export const VIEWER_PRODUCTION_CHROME_STYLES = `
   .viewer-header {
     box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
     min-height: 32px;
     height: 32px;
     padding: 0 8px;
@@ -251,6 +254,7 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
 
   .header-main {
     gap: 6px;
+    flex: 1 1 0%;
     min-width: 0;
     overflow: hidden;
   }
@@ -267,17 +271,20 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
   }
 
   .header-text {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    flex: 1 1 0%;
     align-items: baseline;
     gap: 7px;
+    width: 100%;
     min-width: 0;
     overflow: hidden;
   }
 
   .title {
-    flex: 0 1 auto;
-    min-width: 40px;
-    max-width: min(280px, 34vw);
+    flex: none;
+    min-width: 0;
+    max-width: none;
     margin: 0;
     color: var(--vsc-foreground);
     font-size: 12px;
@@ -292,7 +299,7 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
   }
 
   .path {
-    flex: 1 1 auto;
+    flex: none;
     min-width: 0;
     margin: 0;
     color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
@@ -308,9 +315,13 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
   .header-meta {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 4px;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     min-width: 0;
+    max-width: 42%;
+    overflow: hidden;
+    white-space: nowrap;
   }
 
   .badge,
@@ -330,6 +341,7 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
     letter-spacing: 0;
     text-transform: none;
     white-space: nowrap;
+    flex: 0 0 auto;
   }
 
   .size-badge,
@@ -355,9 +367,12 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
     box-sizing: border-box;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
     gap: 2px;
     min-height: 28px;
     height: 28px;
+    min-width: 0;
     padding: 2px 6px;
     border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
     background: var(--vsc-editor-background);
@@ -365,10 +380,15 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
+    white-space: nowrap;
   }
 
   .viewer-toolbar::-webkit-scrollbar {
     display: none;
+  }
+
+  .viewer-toolbar > * {
+    flex: 0 0 auto;
   }
 
   .tool-btn {
@@ -409,6 +429,7 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
   }
 
   .zoom-label {
+    flex: 0 0 auto;
     min-width: 40px;
     font-size: 10px;
     color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
@@ -438,9 +459,7 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
       display: none;
     }
 
-    .path {
-      max-width: 34vw;
-    }
+    .path { display: none; }
   }
 `;
 

@@ -12,7 +12,7 @@ import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../.
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
 import { SegmentVideoLoader } from '../../viewers/builtins/segment-video-loader';
-import { VIEWER_PRODUCTION_CHROME_STYLES } from '../../viewers/builtins/builtin-viewer.shared';
+import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from '../../viewers/builtins/builtin-viewer.shared';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -56,26 +56,6 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <!-- Header -->
-      <div class="viewer-header" *ngIf="!hideHeader">
-        <div class="header-main">
-          <span class="file-icon">{{ fileIcon }}</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Preview' }}</div>
-            <div class="path" [title]="targetPath">{{ targetPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-        <div class="header-meta" *ngIf="info && kind !== 'empty' && kind !== 'loading'">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Extracted from archive into memory">
-            &#x1F4E6; archive
-          </span>
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info.size > 0">{{ formatSize(info.size) }}</span>
-          <span class="badge dim-badge" *ngIf="imageMeta">{{ imageMeta.width }}&#xD7;{{ imageMeta.height }}</span>
-          <span class="badge line-badge" *ngIf="lineCount !== null">{{ lineCount }} lines</span>
-        </div>
-      </div>
-
       <!-- Toolbar -->
       <div class="viewer-toolbar" *ngIf="hasToolbar">
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
@@ -337,7 +317,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       </div>
     </div>
   `,
-  styles: [`
+  styles: [VIEWER_BASE_STYLES, `
     :host {
       display: flex;
       flex-direction: column;

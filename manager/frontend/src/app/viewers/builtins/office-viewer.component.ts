@@ -12,7 +12,7 @@ import { ApiService } from '../../services/api.service';
 import type { FileProbe } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
-import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
+import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 import { PdfViewerComponent } from './pdf-viewer.component';
 
 type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 'unsupported';
@@ -24,23 +24,6 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="viewer-header">
-        <div class="header-main">
-          <span class="file-icon">📄</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Preview' }}</div>
-            <div class="path" [title]="targetPath">{{ targetPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-        <div class="header-meta" *ngIf="kind !== 'empty'">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Extracted from archive into memory">
-            📦 archive
-          </span>
-          <span class="badge type-badge">{{ fileTypeLabel }}</span>
-          <span class="badge format-badge" *ngIf="kind === 'pdf'">PDF preview</span>
-        </div>
-      </div>
-
       <div class="conversion-status" *ngIf="kind === 'loading'">
         <span class="conversion-status-activity" aria-hidden="true">
           <span class="conversion-status-activity-dot"></span>
@@ -96,7 +79,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       </div>
     </div>
   `,
-  styles: [`
+  styles: [VIEWER_BASE_STYLES, `
     :host { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0; overflow: hidden; }
     .viewer-surface { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0; overflow: hidden; }
     .viewer-header {

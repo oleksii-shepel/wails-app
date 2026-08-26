@@ -53,25 +53,6 @@ interface AudioTagRow {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-
-      <!-- ── HEADER ─────────────────────────────────────── -->
-      <div class="viewer-header">
-        <div class="header-main">
-            <div class="hdr-icon" aria-hidden="true">🎵</div>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Audio Preview' }}</div>
-            <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-
-        <div class="header-meta" *ngIf="kind !== 'empty' && kind !== 'loading' && info">
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info.size > 0">{{ formatBytes(info.size) }}</span>
-          <span class="badge mime-badge" *ngIf="mimeLabel">{{ mimeLabel }}</span>
-          <span class="badge dur-badge" *ngIf="duration > 0">{{ formatTime(duration) }}</span>
-        </div>
-      </div>
-
       <!-- ── BODY ───────────────────────────────────────── -->
       <div class="viewer-body" appVscodeScrollbar>
 

@@ -38,7 +38,7 @@ import { EditorSettings, SettingsService } from '../../services/settings.service
 import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
-import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
+import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 
 type TextViewerKind = 'empty' | 'loading' | 'editor' | 'directory' | 'unsupported' | 'error';
 
@@ -211,24 +211,6 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="viewer-header">
-        <div class="header-main">
-          <span class="file-icon">&lt;/&gt;</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Code Preview' }}</div>
-            <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-        <div class="header-meta" *ngIf="kind === 'editor' || kind === 'directory'">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Loaded from archive">
-            &#x1F4E6; archive
-          </span>
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info?.size">{{ formatSize(info.size) }}</span>
-          <span class="badge line-badge" *ngIf="lineCount !== null">{{ lineCount }} lines</span>
-        </div>
-      </div>
-
       <div class="viewer-toolbar" *ngIf="kind === 'editor'">
         <button class="tool-btn" type="button" (click)="toggleWordWrap()" [class.active]="wordWrap">
           Wrap
@@ -283,7 +265,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       </div>
     </div>
   `,
-  styles: [`
+  styles: [VIEWER_BASE_STYLES, `
     :host {
       display: flex;
       flex-direction: column;

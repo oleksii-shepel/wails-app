@@ -30,17 +30,20 @@ function extLower(path: string): string {
   template: `
     <div class="viewer-host">
       <header class="viewer-chrome" *ngIf="targetPath; else noTarget">
-        <div class="viewer-identity">
+        <div class="viewer-main">
           <span class="viewer-file-icon" aria-hidden="true">{{ fileIcon }}</span>
-          <span class="viewer-title" [title]="displayName">{{ displayName }}</span>
-          <span class="viewer-metadata" [title]="displayPath">
-            <span *ngIf="probe?.mimeType">{{ probe.mimeType }}</span>
-            <span *ngIf="fileInfo?.size">{{ formatSize(fileInfo.size || 0) }}</span>
-            <span *ngIf="archiveContext">Archive</span>
-            <span class="viewer-path">{{ displayPath }}</span>
-          </span>
-          <span class="viewer-state" *ngIf="resolving">Loading…</span>
-          <span class="viewer-mode" *ngIf="autoFollow" title="Preview follows source-pane selection">AUTO</span>
+          <div class="viewer-text">
+            <span class="viewer-title" [title]="displayName">{{ displayName }}</span>
+            <span class="viewer-path" [title]="displayPath">{{ displayPath }}</span>
+          </div>
+        </div>
+
+        <div class="viewer-meta">
+          <span class="viewer-chip viewer-chip--dim" *ngIf="probe?.mimeType">{{ probe.mimeType }}</span>
+          <span class="viewer-chip viewer-chip--dim" *ngIf="fileInfo?.size">{{ formatSize(fileInfo.size || 0) }}</span>
+          <span class="viewer-chip viewer-chip--accent" *ngIf="archiveContext">Archive</span>
+          <span class="viewer-chip viewer-chip--dim" *ngIf="resolving">Loading…</span>
+          <span class="viewer-chip viewer-chip--accent" *ngIf="autoFollow" title="Preview follows source-pane selection">AUTO</span>
         </div>
 
         <div class="viewer-actions">
@@ -125,21 +128,21 @@ function extLower(path: string): string {
     .viewer-chrome {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       min-height: 32px;
-      padding: 3px 6px 3px 8px;
+      padding: 0 6px 0 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       flex: 0 0 auto;
       min-width: 0;
     }
 
-    .viewer-identity {
+    .viewer-main {
       display: flex;
       align-items: center;
       gap: 6px;
       min-width: 0;
-      flex: 1 1 auto;
+      flex: 1 1 0%;
       overflow: hidden;
     }
 
@@ -154,71 +157,76 @@ function extLower(path: string): string {
       line-height: 1;
     }
 
-    .viewer-context {
-      flex: 0 0 auto;
-      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
-      font-size: 10px;
-      font-weight: 600;
+    .viewer-text {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: baseline;
+      gap: 7px;
+      min-width: 0;
+      flex: 1 1 0%;
+      width: 100%;
+      overflow: hidden;
     }
 
     .viewer-title {
-      min-width: 48px;
-      max-width: min(260px, 28vw);
+      min-width: 0;
+      max-width: none;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 12px;
       font-weight: 600;
-      flex: 0 1 auto;
-    }
-
-    .viewer-kind,
-    .viewer-state {
-      flex: 0 0 auto;
-      padding: 0 5px;
-      border-radius: 3px;
-      font-size: 9px;
-      line-height: 16px;
-      text-transform: uppercase;
-      letter-spacing: .25px;
-    }
-
-    .viewer-kind {
-      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 35%, transparent);
-      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 10%, transparent);
-    }
-
-    .viewer-state {
-      color: var(--vsc-description-foreground);
-      background: color-mix(in srgb, var(--vsc-foreground) 7%, transparent);
-    }
-
-    .viewer-metadata {
-      display: flex;
-      align-items: center;
-      gap: 0;
-      min-width: 0;
-      flex: 1 1 auto;
-      overflow: hidden;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 10px;
-      line-height: 18px;
-      white-space: nowrap;
-    }
-
-    .viewer-metadata > span:not(:first-child)::before {
-      content: '·';
-      margin: 0 6px;
-      opacity: .55;
+      flex: none;
     }
 
     .viewer-path {
+      display: block;
       min-width: 0;
+      flex: none;
       overflow: hidden;
       text-overflow: ellipsis;
+      white-space: nowrap;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      font-size: 10px;
       opacity: .72;
+    }
+
+    .viewer-meta {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      flex: 0 1 auto;
+      max-width: 42%;
+      overflow: hidden;
+    }
+
+    .viewer-chip {
+      box-sizing: border-box;
+      flex: 0 0 auto;
+      min-height: 18px;
+      max-width: min(220px, 22vw);
+      padding: 0 5px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 9px;
+      font-weight: 500;
+      line-height: 16px;
+      letter-spacing: .2px;
+    }
+
+    .viewer-chip--accent {
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 28%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 8%, transparent);
+    }
+
+    .viewer-chip--dim {
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      background: transparent;
     }
 
     .viewer-actions {
@@ -364,13 +372,10 @@ function extLower(path: string): string {
       box-sizing: border-box;
       min-height: 32px;
       height: 32px;
-      gap: 6px;
-      padding: 0 6px 0 8px;
-      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       box-shadow: none;
     }
 
-    .viewer-identity { gap: 6px; }
+    .viewer-main { gap: 6px; }
 
     .viewer-file-icon {
       width: 18px;
@@ -381,43 +386,13 @@ function extLower(path: string): string {
     }
 
     .viewer-title {
-      min-width: 40px;
-      max-width: min(260px, 26vw);
+      min-width: 0;
+      max-width: none;
       font-size: 12px;
       font-weight: 600;
     }
 
-    .viewer-metadata {
-      font-size: 10px;
-      line-height: 20px;
-    }
-
     .viewer-path { opacity: .62; }
-
-    .viewer-state,
-    .viewer-mode {
-      box-sizing: border-box;
-      flex: 0 0 auto;
-      min-height: 18px;
-      padding: 0 5px;
-      border: 1px solid transparent;
-      border-radius: 3px;
-      font-size: 9px;
-      font-weight: 500;
-      line-height: 16px;
-      letter-spacing: .2px;
-    }
-
-    .viewer-mode {
-      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 28%, transparent);
-      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 8%, transparent);
-    }
-
-    .viewer-state {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      background: transparent;
-    }
 
     .viewer-actions { gap: 1px; }
 
@@ -443,8 +418,12 @@ function extLower(path: string): string {
     }
 
     @media (max-width: 720px) {
-      .viewer-metadata > span:not(.viewer-path) { display: none; }
-      .viewer-path { max-width: 34vw; }
+      .viewer-chip--dim:first-child,
+      .viewer-chip--dim:nth-child(2) {
+        display: none;
+      }
+
+      .viewer-path { display: none; }
     }
   `],
 })

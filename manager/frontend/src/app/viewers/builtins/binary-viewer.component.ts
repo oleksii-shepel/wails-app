@@ -14,7 +14,7 @@ import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.dire
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
-import { VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
+import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 
 type BinaryViewerKind = 'empty' | 'loading' | 'grid' | 'directory' | 'error';
 type OffsetFormat = 'hex' | 'dec';
@@ -35,26 +35,6 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-
-      <!-- в”Ђв”Ђ header в”Ђв”Ђ -->
-      <div class="viewer-header">
-        <div class="header-main">
-          <span class="file-icon">01</span>
-          <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Binary Preview' }}</div>
-            <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
-          </div>
-        </div>
-        <div class="header-meta" *ngIf="kind === 'grid' || kind === 'directory'">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Loaded from archive">
-            &#x1F4E6; archive
-          </span>
-          <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info?.size">{{ formatSize(info.size) }}</span>
-        </div>
-      </div>
-
-      <!-- в”Ђв”Ђ toolbar в”Ђв”Ђ -->
       <div class="viewer-toolbar" *ngIf="kind === 'grid'">
         <button class="tool-btn" type="button" (click)="copyPath()" [class.active]="copiedPath">
           {{ copiedPath ? 'Copied' : 'Copy path' }}
@@ -146,7 +126,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       </div>
     </div>
   `,
-  styles: [`
+  styles: [VIEWER_BASE_STYLES, `
     :host {
       display: flex;
       flex-direction: column;

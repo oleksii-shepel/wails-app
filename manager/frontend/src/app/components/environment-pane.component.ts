@@ -674,54 +674,22 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <ng-template #viewerSurface>
         <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
-          <div class="viewer-toolbar">
-            <span class="viewer-label">{{ viewerTab.autoFollow ? 'Preview' : 'Viewer' }}</span>
-            <span class="viewer-kind">{{ viewerTab.viewerId || 'Auto' }}</span>
-            <span class="viewer-path" [title]="viewerTab.archiveContext?.entryPath || viewerTab.targetPath">
-              {{ viewerTab.archiveContext?.entryPath || viewerTab.targetPath }}
-            </span>
-
-            <button
-              type="button"
-              *ngIf="viewerTab.sourceTabId || viewerTab.sourceDir"
-              (click)="returnToViewerSource()"
-              title="Return to source folder">
-              Folder
-            </button>
-
-            <span class="viewer-separator"></span>
-
-            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">&#x2039;</button>
-            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">&#x203A;</button>
-            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">&#x2212;</button>
-            <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
-            <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
-            <button type="button" [disabled]="!viewerSupports('zoom100')" (click)="viewerInvoke('zoom100')" title="Actual size (Ctrl+1)">1:1</button>
-
-            <span class="viewer-separator"></span>
-
-            <button
-              type="button"
-              [disabled]="!!viewerTab.archiveContext"
-              (click)="openActiveViewerExternally()"
-              title="Open with external application">
-              External
-            </button>
-            <button
-              type="button"
-              [disabled]="viewerTab.isPinned || !viewerTab.isClosable"
-              (click)="closeActiveTab()"
-              title="Close viewer (Ctrl+W)">
-              &#x00D7;
-            </button>
-          </div>
-
           <app-viewer-host-surface
             #viewerHost
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
             [archiveContext]="viewerTab.archiveContext"
-            [viewerId]="viewerTab.viewerId">
+            [viewerId]="viewerTab.viewerId"
+            [viewerState]="{
+              autoFollow: viewerTab.autoFollow,
+              sourceTabId: viewerTab.sourceTabId,
+              sourceDir: viewerTab.sourceDir,
+              isClosable: viewerTab.isClosable,
+              isPinned: viewerTab.isPinned
+            }"
+            (returnSource)="returnToViewerSource()"
+            (external)="openActiveViewerExternally()"
+            (close)="closeActiveTab()">
           </app-viewer-host-surface>
         </div>
       </ng-template>
@@ -1451,64 +1419,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-width: 0;
       overflow: hidden;
       background: var(--vsc-editor-background, var(--vsc-editor-background));
-    }
-
-    .viewer-toolbar {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) 28px;
-      align-items: center;
-      gap: 8px;
-      min-height: 32px;
-      padding: 0 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
-      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-      font-size: 11px;
-    }
-
-    .viewer-label {
-      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
-      font-weight: 600;
-    }
-
-    .viewer-kind {
-      flex: 0 0 auto;
-      padding: 1px 5px;
-      border: 1px solid var(--vsc-border, var(--vsc-border));
-      border-radius: 3px;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 9px;
-      text-transform: uppercase;
-    }
-
-    .viewer-separator {
-      width: 1px;
-      height: 18px;
-      background: var(--vsc-border, var(--vsc-border));
-      flex: 0 0 auto;
-    }
-
-    .viewer-path {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-    }
-
-    .viewer-toolbar button {
-      width: 24px;
-      height: 24px;
-      border: 0;
-      border-radius: 3px;
-      background: transparent;
-      color: inherit;
-      cursor: pointer;
-      font-size: 17px;
-    }
-
-    .viewer-toolbar button:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     app-viewer-host-surface {

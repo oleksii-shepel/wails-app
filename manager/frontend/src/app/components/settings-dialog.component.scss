@@ -13,22 +13,12 @@
   padding: 24px;
   background: var(--vsc-scrim);
   backdrop-filter: blur(2px);
-  animation: fadeIn 0.2s ease;
+  animation: dialog-backdrop-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
 }
 
 .settings-overlay--closing {
-  animation: fadeOut 0.2s ease forwards;
+  animation: dialog-backdrop-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
   pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes fadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
 }
 
 .settings-panel {
@@ -46,21 +36,12 @@
     var(--vsc-widget-shadow),
     0 32px 64px var(--vsc-scrim-soft),
     0 0 0 1px var(--vsc-neutral-overlay-subtle) inset;
-  animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center top;
+  animation: dialog-surface-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
 }
 
 .settings-overlay--closing .settings-panel {
-  animation: slideUp 0.2s ease forwards;
-}
-
-@keyframes slideDown {
-  from { transform: translateY(-18px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-@keyframes slideUp {
-  from { transform: translateY(0); opacity: 1; }
-  to { transform: translateY(-18px); opacity: 0; }
+  animation: dialog-surface-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
 }
 
 /* === Header === */
@@ -111,26 +92,7 @@
 }
 
 .dialog-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
   margin-left: 8px;
-  border: none;
-  background: transparent;
-  color: var(--vsc-foreground-dim);
-  border-radius: var(--vsc-border-radius-sm);
-  cursor: pointer;
-  transition:
-    background-color var(--vsc-transition-fast),
-    color var(--vsc-transition-fast);
-}
-
-.dialog-close-btn:hover {
-  background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
-  color: var(--vsc-foreground-bright);
 }
 
 /* === Body Layout === */

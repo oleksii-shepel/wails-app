@@ -21,6 +21,12 @@
   --vsc-bg: var(--vsc-editor-background);
   --vsc-fg: var(--vsc-foreground);
   --vsc-button-bg: var(--vsc-button-background);
+  --dialog-enter-duration: 0.28s;
+  --dialog-exit-duration: 0.2s;
+  --dialog-enter-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dialog-exit-ease: ease;
+  --dialog-enter-distance: 18px;
+  --dialog-enter-scale: 0.985;
 }
 
 html, body {
@@ -320,4 +326,86 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
 
 .theme-menu, [role="menu"] {
   color: var(--vsc-menu-foreground);
+}
+
+.dialog-close-btn,
+.close-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vsc-foreground, var(--vsc-dialog-foreground));
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  transition:
+    background-color var(--vsc-transition-fast, 0.1s ease),
+    color var(--vsc-transition-fast, 0.1s ease);
+}
+
+.dialog-close-btn:hover,
+.close-button:hover {
+  background: var(--vsc-list-hover-background, color-mix(in srgb, currentColor 10%, transparent));
+  color: var(--vsc-foreground-bright, var(--vsc-foreground));
+}
+
+@keyframes dialog-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-backdrop-exit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes dialog-surface-enter {
+  from {
+    opacity: 0;
+    transform:
+      translateY(calc(var(--dialog-enter-distance) * -1))
+      scale(var(--dialog-enter-scale));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dialog-surface-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform:
+      translateY(calc(var(--dialog-enter-distance) * -1))
+      scale(var(--dialog-enter-scale));
+  }
+}
+
+@keyframes menu-surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dialog-enter-duration: 0.01ms;
+    --dialog-exit-duration: 0.01ms;
+    --dialog-enter-distance: 0px;
+    --dialog-enter-scale: 1;
+  }
 }

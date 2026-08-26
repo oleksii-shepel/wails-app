@@ -25,7 +25,7 @@ import {
               <h2>{{ request.title }}</h2>
               <p>{{ request.message }}</p>
             </div>
-            <button type="button" class="close" (click)="dialogs.close()">×</button>
+            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="dialogs.close()">×</button>
           </header>
 
           <div class="dialog-body">
@@ -117,8 +117,6 @@ import {
       color: var(--vsc-button-foreground, var(--vsc-on-accent, #fff));
       border-color: transparent;
     }
-    .close { width: 28px; padding: 0; font-size: 18px; background: transparent; color: var(--vsc-foreground-dim); }
-    .close:hover { background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent); color: var(--vsc-foreground-bright); }
   `],
 })
 export class ArchiveFilesDialogComponent {

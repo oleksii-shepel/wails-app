@@ -354,6 +354,8 @@ const MENUS: readonly ApplicationMenu[] = [
       color: var(--vsc-menu-foreground, var(--vsc-foreground));
       box-shadow: 0 8px 24px var(--vsc-scrim-soft, rgba(0, 0, 0, .28));
       z-index: 10000;
+      transform-origin: top left;
+      animation: menu-surface-enter 0.18s var(--dialog-enter-ease, cubic-bezier(0.16, 1, 0.3, 1));
     }
 
     .menu-item {

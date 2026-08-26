@@ -24,6 +24,8 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
 
   isVisible = false;
+  renderVisible = false;
+  isClosing = false;
   categories: BindingCategory[] = [];
   searchText = '';
   filteredCategories: BindingCategory[] = [];
@@ -98,6 +100,8 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
    */
   show(): void {
     this.isVisible = true;
+    this.renderVisible = true;
+    this.isClosing = false;
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.keyboardHelp');
     this.overlayFreeze.acquire('dialog.keyboardHelp');
     this.searchText = '';
@@ -110,10 +114,23 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
    * Hide help modal
    */
   hide(): void {
+    if (!this.renderVisible || this.isClosing) {
+      return;
+    }
     this.isVisible = false;
+    this.isClosing = true;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.overlayFreeze.release('dialog.keyboardHelp');
+    this.cdr.detectChanges();
+  }
+
+  onBackdropAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) {
+      return;
+    }
+    this.renderVisible = false;
+    this.isClosing = false;
     this.cdr.detectChanges();
   }
 

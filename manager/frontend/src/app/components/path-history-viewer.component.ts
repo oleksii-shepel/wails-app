@@ -23,9 +23,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             <h2>Location History</h2>
             <p>Recently visited locations. Click to navigate.</p>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close (Esc)">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 7.293l3.536-3.536.707.707L8.707 8l3.536 3.536-.707.707L8 8.707l-3.536 3.536-.707-.707L7.293 8 3.757 4.464l.707-.707L8 7.293z"/></svg>
-          </button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close (Esc)">×</button>
         </div>
 
         <!-- Stats -->
@@ -187,28 +185,6 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       color: var(--vsc-foreground-dim);
       font-size: 12px;
       line-height: 1.45;
-    }
-
-    .dialog-close-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      flex-shrink: 0;
-      margin-top: -2px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      color: var(--vsc-foreground-dim);
-      border-radius: var(--vsc-border-radius-sm);
-      cursor: pointer;
-      transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
-    }
-
-    .dialog-close-btn:hover {
-      background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
-      color: var(--vsc-foreground-bright);
     }
 
     .dialog-close-btn:focus-visible {

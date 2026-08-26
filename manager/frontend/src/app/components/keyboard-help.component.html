@@ -1,4 +1,9 @@
-<div class="shortcut-reference-backdrop" *ngIf="isVisible" (click)="hide()">
+<div
+  class="shortcut-reference-backdrop"
+  *ngIf="renderVisible"
+  [class.shortcut-reference-backdrop--closing]="isClosing"
+  (click)="hide()"
+  (animationend)="onBackdropAnimationEnd($event)">
   <section
     #dialogPanel
     class="shortcut-reference"

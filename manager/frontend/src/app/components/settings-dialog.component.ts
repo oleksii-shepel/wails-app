@@ -65,11 +65,7 @@ interface SettingsDialogRequest {
               >
                 Reset All
               </button>
-              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 7.293l3.536-3.536.707.707L8.707 8l3.536 3.536-.707.707L8 8.707l-3.536 3.536-.707-.707L7.293 8 3.757 4.464l.707-.707L8 7.293z"/>
-                </svg>
-              </button>
+              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">×</button>
             </div>
           </header>
 

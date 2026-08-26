@@ -45,7 +45,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
             <h2>Trash / Recycle Bin</h2>
             <p>{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</p>
           </div>
-          <button type="button" (click)="close()" title="Close">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
         </header>
 
         <div class="toolbar">
@@ -155,6 +155,10 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
 
     header {
       justify-content: space-between;
+    }
+
+    .dialog-close-btn {
+      flex-shrink: 0;
     }
 
     header h2 {

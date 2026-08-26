@@ -25,20 +25,18 @@ import {
 /**
  * Archive tab state - stores the complete archive navigation state
  */
-export interface ArchiveExitViewState {
-  path: string;
-  scrollTop: number;
-  selectedPaths: string[];
-  cursorPath: string | null;
-  anchorPath: string | null;
-}
-
 export interface ArchiveTabState {
   path: string;
   archiveStack: ArchiveFrame[];
   fsDirPath: string;
   fsParentDir: string;
-  exitViewState?: ArchiveExitViewState;
+  exitViewState?: {
+    path: string;
+    scrollTop: number;
+    selectedPaths: string[];
+    cursorPath: string | null;
+    anchorPath: string | null;
+  };
 }
 
 interface PersistedTabViewStateEnvelope {
@@ -1612,6 +1610,9 @@ export class WorkspaceService {
   private cloneArchiveState(state: ArchiveTabState): ArchiveTabState {
     return {
       ...state,
+      exitViewState: state.exitViewState
+        ? { ...state.exitViewState, selectedPaths: [...state.exitViewState.selectedPaths] }
+        : undefined,
       archiveStack: state.archiveStack.map(frame => ({
         ...frame,
         listing: {
@@ -1622,12 +1623,6 @@ export class WorkspaceService {
         },
         nestedChain: [...frame.nestedChain],
       })),
-      exitViewState: state.exitViewState
-        ? {
-            ...state.exitViewState,
-            selectedPaths: [...state.exitViewState.selectedPaths],
-          }
-        : undefined,
     };
   }
 

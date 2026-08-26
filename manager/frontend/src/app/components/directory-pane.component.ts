@@ -17,7 +17,7 @@ import { PanelSourceRegistryService } from '../services/panel-source-registry.se
 import type { ResolvedPanelSource } from '../services/panel-source';
 import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
-import { WorkspaceService, type ArchiveExitViewState } from '../services/workspace.service';
+import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
 import { OperationHistoryService } from '../services/operation-history.service';
@@ -166,6 +166,31 @@ interface DirTabSession {
   entries: FileInfo[];
   navigationEntries: string[];
   navigationIndex: number;
+}
+
+interface SuspendedDirectoryPresentation {
+  path: string;
+  entries: FileInfo[];
+  viewMode: DirectoryView;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  directoriesFirst: boolean;
+  filterText: string;
+  filterVisible: boolean;
+  selectedPaths: string[];
+  cursorPath: string | null;
+  anchorPath: string | null;
+  expandedPaths: string[];
+  treeChildren: Array<[string, FileInfo[]]>;
+  backendPresentationActive: boolean;
+  backendSessionId: string | null;
+  backendVisibleCount: number;
+  backendSourceCount: number;
+  backendWindowOffset: number;
+  backendWindowLimit: number;
+  virtualScrollTop: number;
+  virtualViewportHeight: number;
+  virtualViewportWidth: number;
 }
 
 const REASSEMBLY_DIR_TAB_SESSION_VERSION = 4;
@@ -2560,7 +2585,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   readonly archiveStack: ArchiveFrame[] = [];
   private archiveExitPath = '';
-  private archiveExitViewState: ArchiveExitViewState | null = null;
+  private readonly suspendedDirectoryPresentations = new Map<string, SuspendedDirectoryPresentation>();
 
   dragOverPath: string | null = null;
   private dragSpringTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3324,6 +3349,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         this.paneId,
         tabId,
       );
+      this.suspendedDirectoryPresentations.delete(tabId);
     }
 
     this.tabs = this.tabs.filter(tab => tab.id !== tabId);
@@ -7120,33 +7146,25 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const archivePath = frame.fsPath;
-      const exitPath =
-        this.archiveExitPath ||
-        this.directorySource.getParentPath(archivePath);
-      const exitViewState = this.archiveExitViewState;
+      const restored = this.restoreSuspendedDirectoryPresentation();
+      if (!restored) {
+        const archivePath = frame.fsPath;
+        const exitPath =
+          this.archiveExitPath ||
+          this.directorySource.getParentPath(archivePath);
 
-      // Seed virtualization before the directory reload. Large directories may
-      // fetch only the window around virtualScrollTop, so restoring this only
-      // after load would briefly fetch/render the wrong part of the directory.
-      if (exitViewState && this.samePath(exitViewState.path, exitPath)) {
-        this.virtualScrollTop = exitViewState.scrollTop;
+        this.clearArchiveRuntime();
+        this.lastAction = 'leave archive';
+        await this.load(exitPath, {
+          history: 'record',
+          preserveCursor: false,
+        });
+        this.selectPath(archivePath);
+        return;
       }
 
       this.clearArchiveRuntime();
       this.lastAction = 'leave archive';
-      const loaded = await this.load(exitPath, {
-        history: 'record',
-        preserveCursor: false,
-      });
-
-      if (!loaded) return;
-
-      if (exitViewState && this.samePath(exitViewState.path, exitPath)) {
-        this.restoreArchiveExitViewState(exitViewState);
-      } else {
-        this.selectPath(archivePath);
-      }
     } catch (error) {
       this.error =
         error instanceof Error ? error.message : String(error);
@@ -7180,10 +7198,155 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  private suspendDirectoryPresentation(): void {
+    const tabId = this.activeTabId;
+    const active = this.activeTab;
+    if (!tabId || !active || active.kind !== 'dir' || this.isInArchive) return;
+    if (this.suspendedDirectoryPresentations.has(tabId)) return;
+
+    this.suspendedDirectoryPresentations.set(tabId, {
+      path: this.path,
+      entries: this.entries,
+      viewMode: this.viewMode,
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+      filterText: this.filterText,
+      filterVisible: this.filterVisible,
+      selectedPaths: Array.from(this.selectedPaths),
+      cursorPath: this.cursorPath,
+      anchorPath: this.anchorPath,
+      expandedPaths: Array.from(this.treeExpandedPaths),
+      treeChildren: Array.from(this.treeChildren.entries()),
+      backendPresentationActive: this.backendPresentationActive && !this.streamRenderActive,
+      backendSessionId: this.backendPresentationActive && !this.streamRenderActive
+        ? this.backendSessionId
+        : null,
+      backendVisibleCount: this.backendVisibleCount,
+      backendSourceCount: this.backendSourceCount,
+      backendWindowOffset: this.backendWindowOffset,
+      backendWindowLimit: this.backendWindowLimit,
+      virtualScrollTop: this.currentScrollTop(),
+      virtualViewportHeight: this.virtualViewportHeight,
+      virtualViewportWidth: this.virtualViewportWidth,
+    });
+  }
+
+  private discardSuspendedDirectoryPresentation(tabId = this.activeTabId): void {
+    if (tabId) this.suspendedDirectoryPresentations.delete(tabId);
+  }
+
+  private restoreSuspendedDirectoryPresentation(): boolean {
+    const tabId = this.activeTabId;
+    if (!tabId) return false;
+
+    const suspended = this.suspendedDirectoryPresentations.get(tabId);
+    if (!suspended) return false;
+
+    // Invalidate any archive-side/backend work before reinstating the exact
+    // directory window that was visible when the archive was entered.
+    this.backendWindowRequestToken += 1;
+    this.backendWindowFetchPromise = null;
+    this.backendWindowQueuedRange = null;
+    if (this.backendProgressRefreshTimer !== null) {
+      clearTimeout(this.backendProgressRefreshTimer);
+      this.backendProgressRefreshTimer = null;
+    }
+
+    this.path = suspended.path;
+    this.entries = suspended.entries;
+    this.viewMode = suspended.viewMode;
+    this.sortField = suspended.sortField;
+    this.sortDirection = suspended.sortDirection;
+    this.directoriesFirst = suspended.directoriesFirst;
+    this.filterText = suspended.filterText;
+    this.filterVisible = suspended.filterVisible;
+    this.selectedPaths = new Set(suspended.selectedPaths);
+    this.cursorPath = suspended.cursorPath;
+    this.anchorPath = suspended.anchorPath;
+
+    this.treeExpandedPaths.clear();
+    for (const path of suspended.expandedPaths) this.treeExpandedPaths.add(path);
+    this.treeChildren.clear();
+    for (const [path, children] of suspended.treeChildren) {
+      this.treeChildren.set(path, children);
+    }
+    this.treeLoadingPaths.clear();
+
+    this.backendPresentationActive = suspended.backendPresentationActive;
+    this.backendSessionId = suspended.backendSessionId;
+    this.backendVisibleCount = suspended.backendVisibleCount;
+    this.backendSourceCount = suspended.backendSourceCount;
+    this.backendWindowOffset = suspended.backendWindowOffset;
+    this.backendWindowLimit = suspended.backendWindowLimit;
+    this.streamRenderActive = false;
+
+    this.virtualScrollTop = suspended.virtualScrollTop;
+    this.virtualViewportHeight = suspended.virtualViewportHeight;
+    this.virtualViewportWidth = suspended.virtualViewportWidth;
+
+    this.invalidateProjection();
+    this.navigation.record(suspended.path);
+
+    const active = this.activeTab;
+    if (active?.kind === 'dir') {
+      const updated: Extract<Tab, { kind: 'dir' }> = {
+        ...active,
+        path: suspended.path,
+        title: this.tabTitle(suspended.path),
+        viewMode: suspended.viewMode,
+        sortField: suspended.sortField,
+        sortDirection: suspended.sortDirection,
+        directoriesFirst: suspended.directoriesFirst,
+        expandedPaths: [...suspended.expandedPaths],
+        filterText: suspended.filterText,
+        filterVisible: suspended.filterVisible,
+        selectedPaths: [...suspended.selectedPaths],
+        cursorPath: suspended.cursorPath,
+        anchorPath: suspended.anchorPath,
+        scrollTop: suspended.virtualScrollTop,
+        entries: this.tabEntryCache(suspended.entries),
+        navigationEntries: [...this.navigation.snapshotState().entries],
+        navigationIndex: this.navigation.snapshotState().index,
+      };
+      this.tabs = this.tabs.map(tab => tab.id === tabId ? updated : tab);
+      this.persistDirTabSession(updated);
+      this.workspaceService.updateTabPathAndTitle(
+        this.paneId,
+        tabId,
+        suspended.path,
+        this.tabTitle(suspended.path),
+      );
+      this.workspaceService.clearArchiveState(this.paneId, tabId);
+    }
+
+    this.pathHistory.addLocation(suspended.path, this.paneId);
+    this.suspendedDirectoryPresentations.delete(tabId);
+    this.error = null;
+    this.cdr.markForCheck();
+
+    const restoreScroll = () => {
+      const viewport =
+        this.viewMode === 'tree'
+          ? this.treeViewport?.nativeElement
+          : this.listViewport?.nativeElement;
+      if (!viewport) return;
+      viewport.scrollTop = suspended.virtualScrollTop;
+      this.updateVirtualViewport(viewport);
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(restoreScroll);
+    } else {
+      queueMicrotask(restoreScroll);
+    }
+
+    return true;
+  }
+
   private clearArchiveRuntime(): void {
     this.archiveStack.splice(0, this.archiveStack.length);
     this.archiveExitPath = '';
-    this.archiveExitViewState = null;
   }
 
   private async renderArchiveFrame(
@@ -7214,6 +7377,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       archiveTopLevel: frame.nestedChain.length === 0,
     }, this.showHidden);
 
+    this.virtualScrollTop = 0;
     this.path = listing.location.path;
     this.entries = [...listing.entries];
 
@@ -7349,14 +7513,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       );
       if (generation !== this.loadGeneration) return false;
 
-      const exitPath = this.directorySource.getParentPath(parsed.fsPath);
-      const exitViewState = this.samePath(this.path, exitPath)
-        ? this.captureArchiveExitViewState()
-        : null;
-
       this.clearArchiveRuntime();
-      this.archiveExitPath = exitPath;
-      this.archiveExitViewState = exitViewState;
+      this.archiveExitPath =
+        this.directorySource.getParentPath(parsed.fsPath);
       this.archiveStack.push(rootFrame);
 
       let frame = rootFrame;
@@ -7391,8 +7550,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       return true;
     } catch (error) {
       if (generation !== this.loadGeneration) return false;
-      this.error =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      this.clearArchiveRuntime();
+      if (this.restoreSuspendedDirectoryPresentation()) {
+        this.error = message;
+      } else {
+        this.error = message;
+      }
       return false;
     } finally {
       if (generation === this.loadGeneration) {
@@ -7820,12 +7984,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         archiveStack: this.archiveStack,
         fsDirPath: this.archiveStack[0]?.fsPath ?? frame.fsPath,
         fsParentDir: this.archiveExitPath,
-        exitViewState: this.archiveExitViewState
-          ? {
-              ...this.archiveExitViewState,
-              selectedPaths: [...this.archiveExitViewState.selectedPaths],
-            }
-          : undefined,
       },
     );
   }
@@ -7876,40 +8034,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.archiveExitPath =
       state.fsParentDir ||
       this.directorySource.getParentPath(parsed.fsPath);
-    this.archiveExitViewState = state.exitViewState
-      ? {
-          ...state.exitViewState,
-          selectedPaths: [...state.exitViewState.selectedPaths],
-        }
-      : null;
 
     return true;
-  }
-
-  private captureArchiveExitViewState(): ArchiveExitViewState {
-    return {
-      path: this.path,
-      scrollTop: this.currentScrollTop(),
-      selectedPaths: Array.from(this.selectedPaths),
-      cursorPath: this.cursorPath,
-      anchorPath: this.anchorPath,
-    };
-  }
-
-  private restoreArchiveExitViewState(state: ArchiveExitViewState): void {
-    this.selectedPaths = new Set(state.selectedPaths);
-    this.cursorPath = state.cursorPath;
-    this.anchorPath = state.anchorPath;
-    this.reconcileRestoredSelection();
-    this.virtualScrollTop = Math.max(0, state.scrollTop);
-
-    queueMicrotask(() => {
-      this.restoreScrollTop(state.scrollTop);
-      this.updateVirtualViewport();
-      this.queueBackendWindowForViewport();
-      this.syncActiveDirSessionState();
-      this.cdr.markForCheck();
-    });
   }
 
   private syncActiveDirSessionState(
@@ -8390,14 +8516,20 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       restoreSession?: boolean;
     } = {},
   ): Promise<boolean> {
+    const archiveRequested = this.directorySource.isPathInsideArchive(requestedPath);
+    if (archiveRequested && !this.isInArchive) {
+      this.suspendDirectoryPresentation();
+    }
+
     await this.cancelActiveStreams();
 
-    if (this.directorySource.isPathInsideArchive(requestedPath)) {
+    if (archiveRequested) {
       return this.loadArchivePath(requestedPath, options);
     }
 
     if (this.isInArchive) {
       this.clearArchiveRuntime();
+      this.discardSuspendedDirectoryPresentation();
     }
 
     const generation = ++this.loadGeneration;
@@ -9008,12 +9140,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.resultStreamAbort?.abort();
     this.resultStreamAbort = null;
     await this.dirStream.cancelActive();
-
-    // Cancelling a backend directory stream also ends backend-owned
-    // presentation. Archive navigation returns before the normal directory
-    // loader gets a chance to switch this flag off; leaving it true makes
-    // renderedEntries use the stale backend window/counts and can reduce a
-    // populated archive listing to an apparently empty pane.
     this.backendPresentationActive = false;
     this.resetBackendWindowState();
   }

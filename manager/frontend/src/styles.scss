@@ -130,56 +130,92 @@ a:hover {
   text-decoration: underline;
 }
 
-/* === Buttons (VS Code Style) === */
-button, .btn {
+/* === Buttons ==============================================================
+ *
+ * Aether does not have one global "VS Code button" appearance. Toolbars,
+ * dialogs, panes and utility surfaces each own their control chrome. Keep the
+ * native element reset deliberately small so a bare <button> cannot become a
+ * primary blue action merely because it exists.
+ *
+ * Use .btn / .btn-secondary for the shared neutral action style and
+ * .btn-primary only where primary intent is explicit.
+ */
+button {
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+.btn,
+.btn-secondary,
+button.secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--vsc-padding-sm);
+  min-height: 28px;
   padding: var(--vsc-padding-sm) var(--vsc-padding-md);
-  background: var(--vsc-button-background);
-  color: var(--vsc-button-foreground);
-  border: 1px solid transparent;
+  border: 1px solid var(--vsc-border, transparent);
   border-radius: var(--vsc-border-radius-sm);
-  font-family: var(--vsc-font-family);
-  font-size: var(--vsc-font-size);
+  background: var(--vsc-button-secondary, var(--vsc-control-background));
+  color: var(--vsc-button-secondary-foreground, var(--vsc-foreground));
   line-height: 1;
-  cursor: pointer;
-  transition: background var(--vsc-transition-fast);
-  
-  &:hover:not(:disabled) {
-    background: var(--vsc-button-hover);
-  }
-  
-  &:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-  
-  &:disabled {
-    background: var(--vsc-button-disabled-background);
-    color: var(--vsc-button-disabled-foreground);
-    border-color: var(--vsc-border-subtle);
-    opacity: 1;
-    cursor: not-allowed;
-  }
-  
-  &.secondary {
-    background: var(--vsc-button-secondary);
-    color: var(--vsc-button-secondary-foreground);
-    
-    &:hover:not(:disabled) {
-      background: var(--vsc-button-secondary-hover);
-    }
-  }
-  
-  &.icon-only {
-    padding: var(--vsc-padding-sm);
-    width: 28px;
-    height: 28px;
-  }
+  transition:
+    background-color var(--vsc-transition-fast),
+    border-color var(--vsc-transition-fast),
+    color var(--vsc-transition-fast);
 }
 
-/* === Input Fields (VS Code Style) === */
+.btn:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+button.secondary:hover:not(:disabled) {
+  background: var(--vsc-button-secondary-hover, var(--vsc-list-hover-background));
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vsc-padding-sm);
+  min-height: 28px;
+  padding: var(--vsc-padding-sm) var(--vsc-padding-md);
+  border: 1px solid transparent;
+  border-radius: var(--vsc-border-radius-sm);
+  background: var(--vsc-button-background);
+  color: var(--vsc-button-foreground);
+  line-height: 1;
+  transition: background-color var(--vsc-transition-fast);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--vsc-button-hover);
+}
+
+.btn:disabled,
+.btn-secondary:disabled,
+.btn-primary:disabled,
+button.secondary:disabled {
+  opacity: .45;
+}
+
+.btn.icon-only,
+.btn-secondary.icon-only,
+.btn-primary.icon-only {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: var(--vsc-padding-sm);
+}
+
+/* === Shared input defaults === */
 input[type="text"],
 input[type="search"],
 input[type="number"],
@@ -267,8 +303,9 @@ kbd {
 }
 
 /* === Compact Mode Adjustments === */
-.compact-mode button,
-.compact-mode .btn {
+.compact-mode .btn,
+.compact-mode .btn-primary,
+.compact-mode .btn-secondary {
   padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
   font-size: var(--vsc-font-size-small);
 }
@@ -530,26 +567,38 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
   animation: dialog-surface-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
 }
 
+/* Dialog chrome is not an application action button. Keep this definition
+ * independent from .btn/.btn-primary and from component-specific button skins. */
+button.dialog-close-btn,
+button.close-button,
 .dialog-close-btn,
 .close-button {
-  display: flex;
+  appearance: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 32px;
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0;
   padding: 0;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--vsc-foreground, var(--vsc-dialog-foreground));
+  box-shadow: none;
   cursor: pointer;
-  font-size: 24px;
-  line-height: 1;
+  font: 400 24px/1 var(--vsc-font-family, system-ui, sans-serif);
+  transform: none;
   transition:
     background-color var(--vsc-transition-fast, 0.1s ease),
     color var(--vsc-transition-fast, 0.1s ease);
 }
 
+button.dialog-close-btn:hover,
+button.close-button:hover,
 .dialog-close-btn:hover,
 .close-button:hover {
   background: var(--vsc-list-hover-background, color-mix(in srgb, currentColor 10%, transparent));
@@ -558,6 +607,8 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
 
 /* Keep dialog chrome neutral when pressed. Component-level button themes must not
  * turn the standard close control into an accent/primary button. */
+button.dialog-close-btn:active,
+button.close-button:active,
 .dialog-close-btn:active,
 .close-button:active {
   background: var(--vsc-list-hover-background, color-mix(in srgb, currentColor 10%, transparent)) !important;

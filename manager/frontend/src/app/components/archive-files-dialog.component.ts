@@ -13,9 +13,9 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container *ngIf="activeRequest as request">
-      <div class="dialog-backdrop" [class.dialog-backdrop--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
+      <div class="dialog-backdrop palette-dialog-backdrop dialog-group" [class.dialog-backdrop--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
         <section
-          class="dialog-panel"
+          class="dialog-panel palette-dialog-surface dialog-surface"
           role="dialog"
           aria-modal="true"
           [attr.aria-label]="request.title"
@@ -25,7 +25,7 @@ import {
               <h2>{{ request.title }}</h2>
               <p>{{ request.message }}</p>
             </div>
-            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="dialogs.close()">×</button>
+            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="dialogs.close()">×</button>
           </header>
 
           <div class="dialog-body">

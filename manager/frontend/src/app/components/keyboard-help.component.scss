@@ -7,17 +7,12 @@
   inset: 0;
   z-index: 10000;
   display: grid;
-  place-items: center;
-  padding: 24px;
-  background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 54%, transparent);
-  backdrop-filter: blur(4px);
-  animation: dialog-backdrop-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
+  place-items: start center;
+  padding-top: min(8vh, 72px);
+  background: var(--vsc-scrim-soft);
+  pointer-events: auto;
 }
 
-.shortcut-reference-backdrop--closing {
-  animation: dialog-backdrop-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
-  pointer-events: none;
-}
 
 .shortcut-reference {
   box-sizing: border-box;
@@ -32,13 +27,8 @@
   color: var(--vsc-foreground, #cccccc);
   box-shadow: 0 18px 60px rgba(0, 0, 0, .42);
   outline: none;
-  transform-origin: center top;
-  animation: dialog-surface-enter var(--dialog-enter-duration) var(--dialog-enter-ease);
 }
 
-.shortcut-reference-backdrop--closing .shortcut-reference {
-  animation: dialog-surface-exit var(--dialog-exit-duration) var(--dialog-exit-ease) forwards;
-}
 
 .reference-header {
   display: flex;
@@ -67,13 +57,7 @@
   gap: 10px;
 }
 
-.close-hint {
-  color: var(--vsc-description-foreground, #999);
-  font-size: 11px;
-  white-space: nowrap;
-}
 
-.close-button,
 .clear-button {
   border: 0;
   background: transparent;
@@ -81,15 +65,7 @@
   cursor: pointer;
 }
 
-.close-button {
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
-  font-size: 20px;
-  line-height: 1;
-}
 
-.close-button:hover,
 .clear-button:hover {
   background: var(--vsc-list-hover-background, #2a2d2e);
 }
@@ -225,7 +201,7 @@ kbd {
 
 @media (max-width: 720px) {
   .shortcut-reference-backdrop {
-    padding: 12px;
+    padding-top: 12px;
   }
 
   .shortcut-reference {

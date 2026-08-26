@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { OperationHistoryService, type OperationJournalEntry } from '../services/operation-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
@@ -8,11 +8,11 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="journal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Operation History"
         (mousedown)="$event.stopPropagation()">
         <header class="palette-dialog-header"><div class="palette-dialog-title"><strong>Operation History</strong><span class="palette-dialog-subtitle">{{ entries.length }} recent operations</span></div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button></header>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button></header>
         <div class="entries palette-dialog-body">
           <article *ngFor="let entry of entries; trackBy: trackEntry">
             <span class="state">{{ stateIcon(entry) }}</span>
@@ -39,14 +39,43 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     .entries{min-height:0;overflow:auto}.entries article{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;padding:8px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}.state{font-size:14px;text-align:center}.main{display:grid;min-width:0;gap:2px}.main small,.main>span{color:var(--vsc-description-foreground)}.main .error{color:var(--vsc-error)}details code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground)}
   `]
 })
-export class OperationJournalComponent {
+export class OperationJournalComponent implements OnChanges {
   @Input() visible=false;
+  renderVisible=false;
+  isClosing=false;
+  private emitClosedOnFinish=false;
   @Output() closed=new EventEmitter<void>();
   @Output() undoRequested=new EventEmitter<void>();
   @Output() redoRequested=new EventEmitter<void>();
   constructor(readonly history:OperationHistoryService, private readonly dialogs:ConfirmDialogService, private readonly cdr:ChangeDetectorRef){}
   get entries():readonly OperationJournalEntry[]{return this.history.recentOperations();}
-  close():void{this.closed.emit();}
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!changes['visible']) return;
+    if (this.visible) {
+      this.renderVisible = true;
+      this.isClosing = false;
+      this.emitClosedOnFinish = false;
+      this.cdr.markForCheck();
+    } else if (this.renderVisible && !this.isClosing) {
+      this.isClosing = true;
+      this.cdr.markForCheck();
+    }
+  }
+  close():void{
+    if (!this.renderVisible || this.isClosing) return;
+    this.isClosing=true;
+    this.emitClosedOnFinish=true;
+    this.cdr.markForCheck();
+  }
+  onAnimationEnd(event: AnimationEvent):void{
+    if(event.target!==event.currentTarget||!this.isClosing)return;
+    this.renderVisible=false;
+    this.isClosing=false;
+    const emit=this.emitClosedOnFinish;
+    this.emitClosedOnFinish=false;
+    if(emit)this.closed.emit();
+    this.cdr.markForCheck();
+  }
   undo():void{this.undoRequested.emit();this.cdr.markForCheck();}
   redo():void{this.redoRequested.emit();this.cdr.markForCheck();}
   async clear():Promise<void>{const ok=await this.dialogs.confirm({title:'Clear Operation History',message:'Clear the visible operation journal? Undo/redo stacks are left unchanged.',confirmText:'Clear',danger:true});if(!ok)return;this.history.clearJournal();this.cdr.markForCheck();}

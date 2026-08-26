@@ -30,7 +30,7 @@ import {
             <strong>Recently Closed Tabs</strong>
             <span class="palette-dialog-subtitle">{{ entries.length }} recoverable tabs</span>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
         </header>
 
         <div class="tabs palette-dialog-body palette-dialog-list">

@@ -13,8 +13,8 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container *ngIf="activeRequest as request">
-      <div class="dialog-backdrop" [class.dialog-backdrop--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
-        <section class="dialog-panel" role="dialog" aria-modal="true" aria-label="Compare panes" (click)="$event.stopPropagation()">
+      <div class="dialog-backdrop palette-dialog-backdrop dialog-group" [class.dialog-backdrop--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
+        <section class="dialog-panel palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Compare panes" (click)="$event.stopPropagation()">
           <header class="dialog-header">
             <div>
               <h2>Compare Panes</h2>
@@ -22,7 +22,7 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
                 {{ request.viewModel.getLeftPath() }} ↔ {{ request.viewModel.getRightPath() }}
               </p>
             </div>
-            <button type="button" class="close" (click)="dialogs.close()">×</button>
+            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="dialogs.close()">×</button>
           </header>
 
           <div class="dialog-body">

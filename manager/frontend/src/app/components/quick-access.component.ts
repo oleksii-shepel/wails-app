@@ -47,13 +47,14 @@ const COMMAND = QUICK_ACCESS_INPUT_COMMANDS;
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop" *ngIf="renderVisible" [class.backdrop--closing]="isClosing" (mousedown)="close()" (animationend)="onBackdropAnimationEnd($event)">
-      <section class="quick" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.backdrop--closing]="isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onBackdropAnimationEnd($event)">
+      <section class="quick palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
         tabindex="-1">
-        <header>
+        <header class="palette-dialog-header">
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
           <input [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
+          <button type="button" class="dialog-close-btn" aria-label="Close Quick Access" title="Close (Esc)" (click)="close()">×</button>
         </header>
 
         <nav class="sections" *ngIf="filteredSections.length > 1" aria-label="Quick Access sections">

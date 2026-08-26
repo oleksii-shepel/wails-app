@@ -58,7 +58,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <strong>Command Palette</strong>
             <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close Command Palette" title="Close (Esc)" (click)="close()">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close Command Palette" title="Close" (click)="close()">×</button>
         </header>
 
         <div class="query">
@@ -92,7 +92,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <footer>
-          <span>↑ ↓ navigate · Enter run · Esc close</span>
+          <span>↑ ↓ navigate · Enter run</span>
           <span>Ctrl+Shift+P</span>
         </footer>
       </section>

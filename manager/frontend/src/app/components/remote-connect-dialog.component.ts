@@ -201,8 +201,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
               <span class="palette-dialog-subtitle">{{ selectedProtocol.label }}</span>
             </div>
             <div class="remote-connect-header-actions">
-              <span class="palette-dialog-meta">Esc to close</span>
-              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close (Esc)">×</button>
+                            <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">×</button>
             </div>
           </header>
           <p class="remote-connect-intro palette-dialog-footnote">
@@ -506,6 +505,7 @@ export class RemoteConnectDialogComponent {
   private releaseDialogContext: (() => void) | null = null;
   private oauthPollTimer: number | null = null;
   private oauthSessionConnected = false;
+  private connectAttemptGeneration = 0;
   private readonly captureEscapeListener = (event: KeyboardEvent) => {
     if (!this.isOpen || event.key !== 'Escape') {
       return;
@@ -659,9 +659,14 @@ export class RemoteConnectDialogComponent {
   }
 
   onCancel(): void {
-    if (this.isConnecting) {
+    if (!this.isOpen || this.isClosing) {
       return;
     }
+
+    // Closing must never be blocked by a slow or hung remote-connect request.
+    // Invalidate the current attempt so a late completion cannot update or
+    // re-resolve a dialog the user has already dismissed.
+    this.connectAttemptGeneration += 1;
     this.remoteConnectDialog.resolveActive(null);
   }
 
@@ -704,6 +709,7 @@ export class RemoteConnectDialogComponent {
       return;
     }
 
+    const attemptGeneration = ++this.connectAttemptGeneration;
     this.isConnecting = true;
     this.errorMessage = '';
 
@@ -733,11 +739,27 @@ export class RemoteConnectDialogComponent {
           accessToken: !this.isS3Protocol ? this.normalizeOptionalField(this.form.accessToken) : undefined,
         }));
       }
+
+      if (attemptGeneration !== this.connectAttemptGeneration || !this.isOpen) {
+        // The user dismissed the dialog while the backend was still working.
+        // Do not leak a late-created mount into the session.
+        try {
+          await this.apiService.remoteDisconnect(mount.mountPoint);
+        } catch {
+          // Best-effort rollback; the dialog must remain dismissed either way.
+        }
+        return;
+      }
+
       this.remoteConnectDialog.resolveActive(mount);
     } catch (error) {
-      this.errorMessage = error instanceof Error ? error.message : String(error);
+      if (attemptGeneration === this.connectAttemptGeneration && this.isOpen) {
+        this.errorMessage = error instanceof Error ? error.message : String(error);
+      }
     } finally {
-      this.isConnecting = false;
+      if (attemptGeneration === this.connectAttemptGeneration) {
+        this.isConnecting = false;
+      }
     }
   }
 

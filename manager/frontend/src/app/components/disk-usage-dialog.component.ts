@@ -21,15 +21,19 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
   template: `
     <div
       *ngIf="visible && ctx"
-      class="du-backdrop"
+      class="du-backdrop palette-dialog-backdrop dialog-group"
       role="presentation"
       (mousedown)="onBackdropMouseDown($event)">
       <section
-        class="du-dialog"
+        class="du-dialog palette-dialog-surface dialog-surface"
         role="dialog"
         aria-modal="true"
         aria-label="Disk Usage"
         (mousedown)="$event.stopPropagation()">
+        <header class="palette-dialog-header du-header">
+          <div class="palette-dialog-title"><strong>Disk Usage</strong><span class="palette-dialog-subtitle">{{ rootPath }}</span></div>
+          <button type="button" class="dialog-close-btn" aria-label="Close Disk Usage" title="Close (Esc)" (click)="close()">×</button>
+        </header>
         <app-size-manager-surface [ctx]="ctx"></app-size-manager-surface>
       </section>
     </div>

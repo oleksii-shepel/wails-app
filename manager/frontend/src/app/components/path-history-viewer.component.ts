@@ -23,7 +23,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             <h2>Location History</h2>
             <p>Recently visited locations. Click to navigate.</p>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close (Esc)">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close">×</button>
         </div>
 
         <!-- Stats -->

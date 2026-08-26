@@ -45,7 +45,7 @@ import type {
             <h2>Input & Shortcuts</h2>
             <p>Rebind keyboard, chords, mouse gestures, and plugin commands live.</p>
           </div>
-          <button type="button" class="dialog-close-btn" title="Close (Esc)" aria-label="Close Input & Shortcuts" (click)="requestClose()">×</button>
+          <button type="button" class="dialog-close-btn" title="Close" aria-label="Close Input & Shortcuts" (click)="requestClose()">×</button>
         </header>
 
         <div class="toolbar">

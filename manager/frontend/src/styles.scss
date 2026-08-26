@@ -556,6 +556,17 @@ button.danger:hover:not(:disabled), .btn.danger:hover:not(:disabled), .danger-bu
   color: var(--vsc-foreground-bright, var(--vsc-foreground));
 }
 
+.dialog-close-btn:active,
+.close-button:active {
+  background: var(--vsc-list-hover-background, color-mix(in srgb, currentColor 10%, transparent));
+  color: var(--vsc-foreground-bright, var(--vsc-foreground));
+}
+
+.dialog-close-btn:focus:not(:focus-visible),
+.close-button:focus:not(:focus-visible) {
+  outline: none;
+}
+
 @keyframes dialog-backdrop-enter {
   from { opacity: 0; }
   to { opacity: 1; }

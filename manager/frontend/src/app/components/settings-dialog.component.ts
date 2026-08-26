@@ -52,10 +52,10 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
   styleUrls: ['./settings-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
-      <div class="settings-overlay dialog-group" [class.settings-overlay--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
+      <div class="settings-overlay palette-dialog-backdrop dialog-group" [class.settings-overlay--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
         <div
           #dialogPanel
-          class="settings-panel dialog-surface"
+          class="settings-panel palette-dialog-surface dialog-surface"
           role="dialog"
           aria-modal="true"
           aria-label="Project Settings"
@@ -89,7 +89,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
               >
                 Reset All
               </button>
-              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">×</button>
+              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close (Esc)">×</button>
             </div>
           </header>
 

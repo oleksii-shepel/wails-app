@@ -7,8 +7,8 @@
 
 .remote-connect-overlay {
   pointer-events: auto;
-  place-items: start center;
-  padding: min(10vh, 90px) 20px 24px;
+  place-items: center;
+  padding: 12px;
 }
 
 .remote-connect-overlay--closing {
@@ -16,9 +16,9 @@
 }
 
 .remote-connect-panel {
-  width: min(820px, calc(100vw - 40px));
+  width: min(900px, calc(100vw - 24px));
   height: auto;
-  max-height: min(78vh, 640px);
+  max-height: calc(100vh - 24px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -39,18 +39,13 @@
 .remote-connect-header-actions {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.remote-connect-panel .dialog-close-btn {
-  margin-left: 8px;
-  min-height: 0;
-  padding: 0;
-}
 
 .remote-connect-intro {
   margin: 0;
-  padding: 0 18px 12px;
+  padding: 0 12px 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--vsc-border) 70%, transparent);
 }
 
@@ -66,8 +61,8 @@
 .remote-connect-form-section,
 .remote-connect-side {
   min-height: 0;
-  overflow: auto;
-  padding: 16px 18px 18px;
+  overflow: visible;
+  padding: 12px;
 }
 
 .remote-connect-form-section::-webkit-scrollbar,
@@ -102,6 +97,7 @@
 }
 
 .remote-connect-side {
+  overflow-y: auto;
   border-left: 1px solid color-mix(in srgb, var(--vsc-border) 72%, transparent);
   background:
     linear-gradient(
@@ -116,7 +112,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .section-heading h3 {
@@ -221,8 +217,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
-  margin-top: 12px;
-  padding: 10px 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
   border: 1px solid var(--vsc-border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--vsc-editor-background) 28%, transparent);
@@ -308,8 +304,8 @@
 }
 
 .actions {
-  margin-top: 16px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, var(--vsc-border) 74%, transparent);
 }
 
@@ -431,7 +427,7 @@
 @media (max-width: 900px) {
   .remote-connect-panel {
     width: min(100vw - 24px, 780px);
-    max-height: min(82vh, 680px);
+    max-height: calc(100vh - 16px);
   }
 
   .remote-connect-body {
@@ -446,7 +442,7 @@
 
 @media (max-width: 640px) {
   .remote-connect-overlay {
-    padding: 28px 12px 12px;
+    padding: 12px;
   }
 
   .remote-connect-panel {

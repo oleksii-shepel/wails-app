@@ -83,13 +83,13 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible || isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="search palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Global search"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
-            <strong>Discover</strong>
+            <strong>Global Search</strong>
             <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ mode === 'search' ? rootPath : modeLabel }}</span>
           </div>
           <div class="header-meta">
@@ -99,7 +99,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               · {{ folderCount }} folders · {{ fileCount }} files
             </ng-container>
           </span>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
           </div>
         </header>
 
@@ -246,7 +246,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
             (click)="openAsResultsWorkspace()">
             Open Workspace
           </button>
-          <span class="keys palette-dialog-footnote">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort · Esc</span>
+          <span class="keys palette-dialog-footnote">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort</span>
         </footer>
       </section>
     </div>
@@ -289,6 +289,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   @Output() openPanelPath = new EventEmitter<string>();
 
   visible = false;
+  isClosing = false;
   rootPath = '';
   queryText = '';
   recursive = true;
@@ -451,6 +452,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.searchIndex.reset(this.sortMode);
     this.selectedIndex = 0;
     this.error = '';
+    this.isClosing = false;
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
     
@@ -458,8 +460,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   close(): void {
-    if (!this.visible) return;
-    this.visible = false;
+    if (!this.visible || this.isClosing) return;
+    this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
     this.searchGeneration += 1;
     this.searchAbort?.abort();
@@ -470,6 +472,13 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     }
     
     
+    this.cdr.markForCheck();
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.visible = false;
+    this.isClosing = false;
     this.cdr.markForCheck();
   }
 

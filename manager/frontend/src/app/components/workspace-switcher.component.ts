@@ -348,7 +348,7 @@ interface WorkspaceSwitcherItem {
           </ng-container>
 
           <span class="keys">
-            {{ edit ? 'Enter to save · Esc to cancel' : '1–9 switch · ↑ ↓ select · Enter open · Esc close' }}
+            {{ edit ? 'Enter to save · Esc to cancel' : '1–9 switch · ↑ ↓ select · Enter open' }}
           </span>
         </footer>
       </section>

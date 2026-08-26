@@ -32,7 +32,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
   imports: [CommonModule,FormsModule],
   changeDetection:ChangeDetectionStrategy.OnPush,
   template:`
-    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible || isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="history palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Location history"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1">
@@ -45,7 +45,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
             <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
               placeholder="Filter history" autocomplete="off" spellcheck="false"
               aria-label="Filter location history" aria-controls="history-list" />
-            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
+            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
           </div>
         </header>
 
@@ -89,7 +89,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
             <button type="button" class="palette-dialog-button" [disabled]="entries.length===0" (click)="copyJson()">Copy JSON</button>
             <button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="entries.length===0" (click)="clearAll()">Clear all</button>
           </div>
-          <span class="keys palette-dialog-footnote">Ctrl+PgUp/PgDn views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete · Esc</span>
+          <span class="keys palette-dialog-footnote">Ctrl+PgUp/PgDn views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete</span>
         </footer>
       </section>
     </div>
@@ -111,6 +111,7 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
   @Output() navigate=new EventEmitter<string>();
 
   visible=false;
+  isClosing=false;
   filterText='';
   entries:LocationHistoryEntry[]=[];
   selectedIndex=0;
@@ -190,17 +191,25 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     this.mode=mode;
     this.filterText='';
     this.selectedIndex=0;
+    this.isClosing=false;
     this.visible=true;
     this.input.activateContext(CONTEXT_ID);
     this.cdr.markForCheck();
   }
 
   close():void{
-    if(!this.visible)return;
-    this.visible=false;
+    if(!this.visible||this.isClosing)return;
+    this.isClosing=true;
     this.input.deactivateContext(CONTEXT_ID);
     
     
+    this.cdr.markForCheck();
+  }
+
+  onAnimationEnd(event:AnimationEvent):void{
+    if(event.target!==event.currentTarget||!this.isClosing)return;
+    this.visible=false;
+    this.isClosing=false;
     this.cdr.markForCheck();
   }
 

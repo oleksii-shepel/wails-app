@@ -10,7 +10,7 @@ import { CommonModule } from '@angular/common';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div *ngIf="visible" class="basket-backdrop palette-dialog-backdrop dialog-group" (mousedown)="hide()">
+    <div *ngIf="visible || isClosing" class="basket-backdrop palette-dialog-backdrop dialog-group" [class.dialog-group--closing]="isClosing" (mousedown)="hide()" (animationend)="onAnimationEnd($event)">
       <aside class="basket-panel palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Selection Basket" (mousedown)="$event.stopPropagation()">
         <header class="basket-header palette-dialog-header">
           <div class="basket-title palette-dialog-title">
@@ -300,6 +300,7 @@ import { CommonModule } from '@angular/common';
 })
 export class SelectionBasketComponent implements OnInit, OnDestroy {
   visible = false;
+  isClosing = false;
   entries: SelectionBasketEntry[] = [];
   private readonly destroy$ = createSubject<void>();
   @Output() copyTo = new EventEmitter<'left' | 'right'>();
@@ -325,13 +326,21 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
 
   show(): void {
     if (this.visible) return;
+    this.isClosing = false;
     this.visible = true;
     this.cdr.markForCheck();
   }
 
   hide(): void {
-    if (!this.visible) return;
+    if (!this.visible || this.isClosing) return;
+    this.isClosing = true;
+    this.cdr.markForCheck();
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
     this.visible = false;
+    this.isClosing = false;
     this.cdr.markForCheck();
   }
 

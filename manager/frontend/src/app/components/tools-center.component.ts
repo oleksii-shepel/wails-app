@@ -79,7 +79,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <strong>Tools</strong>
             <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ rootPath }}</span>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="close()">×</button>
+          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
         </header>
 
         <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages">
@@ -285,7 +285,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <footer class="tool-keys palette-dialog-footer">
-          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · R rescan · Esc close</span>
+          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · R rescan</span>
           <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete remove</span>
         </footer>
       </section>

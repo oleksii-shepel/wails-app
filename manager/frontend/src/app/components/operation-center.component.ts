@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { OperationHistoryEntry, OperationService, OperationState } from '../services/operation.service';
 
@@ -10,14 +10,14 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div *ngIf="visible" class="operation-center-backdrop" (mousedown)="hide()">
-      <aside class="operation-center" role="dialog" aria-modal="true" aria-label="Operations" (mousedown)="$event.stopPropagation()">
-        <header class="center-header">
+    <div *ngIf="renderVisible" class="operation-center-backdrop palette-dialog-backdrop dialog-group" [class.dialog-group--closing]="isClosing" (mousedown)="hide()" (animationend)="onAnimationEnd($event)">
+      <aside class="operation-center palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Operations" (mousedown)="$event.stopPropagation()">
+        <header class="center-header palette-dialog-header">
           <div>
             <div class="eyebrow">Activity</div>
             <h2>Operations</h2>
           </div>
-          <button class="icon-button" type="button" title="Close" (click)="hide()">×</button>
+          <button class="dialog-close-btn" type="button" aria-label="Close Operations" title="Close" (click)="hide()">×</button>
         </header>
 
         <div class="summary">
@@ -80,21 +80,19 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     </div>
   `,
   styles: [`
-    :host { position: relative; z-index: calc(var(--vsc-z-modal) + 2); }
+    :host { position: fixed; inset: 0; z-index: calc(var(--vsc-z-modal) + 2); pointer-events:none; }
     .operation-center-backdrop {
       position: fixed; inset: 0; z-index: calc(var(--vsc-z-modal) + 2);
-      background: var(--vsc-scrim-soft); display: flex; justify-content: flex-end;
+      background: var(--vsc-scrim-soft); display:grid; place-items:center; padding:20px; pointer-events:auto;
     }
     .operation-center {
-      width: min(560px, 92vw); height: 100%; display: flex; flex-direction: column;
+      width:min(720px,calc(100vw - 40px)); height:min(680px,calc(100vh - 40px)); display:flex; flex-direction:column;
       background: var(--vsc-panel-background); color: var(--vsc-foreground);
-      border-left: 1px solid var(--vsc-border-bright); box-shadow: var(--vsc-widget-shadow);
+      border:1px solid var(--vsc-border-bright); border-radius:8px; overflow:hidden; box-shadow:var(--vsc-widget-shadow);
     }
     .center-header { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 14px; border-bottom:1px solid var(--vsc-border); }
     .center-header h2 { margin:2px 0 0; font-size:20px; font-weight:600; }
     .eyebrow { color:var(--vsc-foreground-dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
-    .icon-button { width:30px; height:30px; border:0; background:transparent; color:inherit; font-size:24px; cursor:pointer; border-radius:4px; }
-    .icon-button:hover { background:var(--vsc-list-hover-background); }
     .summary { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--vsc-border); border-bottom:1px solid var(--vsc-border); }
     .summary div { display:flex; flex-direction:column; padding:12px 16px; background:var(--vsc-editor-background); }
     .summary strong { font-size:18px; } .summary span { color:var(--vsc-foreground-dim); font-size:11px; }
@@ -130,6 +128,8 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
 })
 export class OperationCenterComponent implements OnInit, OnDestroy {
   visible = false;
+  renderVisible = false;
+  isClosing = false;
   filter: OperationCenterFilter = 'all';
   active: OperationState[] = [];
   history: OperationHistoryEntry[] = [];
@@ -159,9 +159,22 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  show(): void { this.visible = true; }
-  hide(): void { this.visible = false; }
+  show(): void { this.isClosing=false; this.renderVisible=true; this.visible=true; }
+  hide(): void { if(!this.renderVisible||this.isClosing)return; this.visible=false; this.isClosing=true; }
   toggle(): void { this.visible ? this.hide() : this.show(); }
+  onAnimationEnd(event: AnimationEvent): void {
+    if(event.target!==event.currentTarget||!this.isClosing)return;
+    this.renderVisible=false;
+    this.isClosing=false;
+  }
+
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(event: KeyboardEvent): void {
+    if (!this.visible || this.isClosing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.hide();
+  }
 
   get entries(): Array<OperationState | OperationHistoryEntry> {
     const activeIds = new Set(this.active.map(op => op.id));

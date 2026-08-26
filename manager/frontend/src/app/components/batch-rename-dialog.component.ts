@@ -25,10 +25,10 @@ interface PreviewRow {
   styleUrls: ['./batch-rename-dialog.component.scss', './tools-dialog-remote-theme.scss'],
   template: `
     <ng-container *ngIf="request$ | async as request">
-      <div class="br-overlay" [class.br-overlay--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
+      <div class="br-overlay palette-dialog-backdrop dialog-group" [class.br-overlay--closing]="isClosing" [class.dialog-group--closing]="isClosing" (click)="onCancel()" (animationend)="onAnimationEnd($event)">
         <div
           #dialogPanel
-          class="br-panel"
+          class="br-panel palette-dialog-surface dialog-surface"
           role="dialog"
           aria-modal="true"
           aria-label="Batch Rename"
@@ -39,6 +39,7 @@ interface PreviewRow {
           <header class="br-header">
             <h2>Batch Rename</h2>
             <span class="br-subtitle">{{ request.items.length }} item(s) selected</span>
+            <button type="button" class="dialog-close-btn" aria-label="Close Batch Rename" title="Close (Esc)" (click)="onCancel()">×</button>
           </header>
 
           <div class="br-body">

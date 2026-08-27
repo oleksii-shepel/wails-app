@@ -106,7 +106,7 @@ import {
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
-              [cursor]="isCursor(entry)"
+              [cursor]="paneActive && isCursor(entry)"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
               [colorizeByMime]="colorizeByMime"
               [thumbnailSrc]="thumbnailFor(entry.path)"

@@ -147,7 +147,7 @@ interface DetailsRowVm {
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="row.selected"
-            [class.cursor]="row.cursor"
+            [class.cursor]="paneActive && row.cursor"
             [class.parent-dir]="row.parentDir"
             [class.drag-over]="row.dragOverInside"
             [class.drag-over-before]="row.dragOverBefore"

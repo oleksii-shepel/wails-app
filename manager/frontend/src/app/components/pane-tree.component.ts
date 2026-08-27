@@ -55,7 +55,7 @@ export interface DropTarget {
       class="file-tree-container"
       role="tree"
       tabindex="0"
-      [class.focused]="paneActive || isFocused"
+      [class.focused]="paneActive && isFocused"
       [class.dragging]="dragState.isDragging"
       (focus)="onFocus()"
       (blur)="onBlur()"

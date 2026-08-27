@@ -267,10 +267,13 @@ interface DetailsRowVm {
 
     .details-header {
       flex-shrink: 0;
-      background: var(--vsc-tabbar-background);
-      border-bottom: 1px solid var(--vsc-border);
-      padding-left: 4px;
-      padding-right: 4px;
+      min-height: 25px;
+      box-sizing: border-box;
+      padding: 0 4px;
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 10px;
     }
 
     :host-context(.pane:not(.active-pane)) .details-row.selected {
@@ -320,7 +323,8 @@ interface DetailsRowVm {
       position: relative;
       
       &.header-row {
-        height: 28px;
+        height: 25px;
+        min-height: 25px;
         font-weight: 600;
         color: var(--vsc-foreground-dim);
       }
@@ -415,7 +419,6 @@ interface DetailsRowVm {
       
       &.header-cell {
         position: relative;
-        font-size: 10px;
         line-height: normal;
         font-weight: 600;
         &.sortable {
@@ -464,8 +467,8 @@ interface DetailsRowVm {
       .header-label {
         overflow: hidden;
         text-overflow: ellipsis;
-        margin-left: var(--vsc-padding-lg);
-        margin-right: var(--vsc-padding-lg);
+        margin-left: 0;
+        margin-right: 0;
         white-space: nowrap;
       }
       

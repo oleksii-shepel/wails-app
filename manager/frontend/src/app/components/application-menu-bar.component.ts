@@ -291,7 +291,7 @@ const MENUS: readonly ApplicationMenu[] = [
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       background: var(--vsc-titlebar-background, var(--vsc-editor-background));
       color: var(--vsc-titlebar-foreground, var(--vsc-foreground));
-      font: 12px/1 var(--vsc-font-family, system-ui, sans-serif);
+      font: 12px/1.35 var(--vsc-font-family, system-ui, sans-serif);
       user-select: none;
       box-sizing: border-box;
       --wails-draggable: drag;
@@ -323,6 +323,9 @@ const MENUS: readonly ApplicationMenu[] = [
     }
 
     .menu-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       height: 26px;
       padding: 0 8px;
       border: 0;
@@ -389,12 +392,14 @@ const MENUS: readonly ApplicationMenu[] = [
 
     .menu-item-label {
       min-width: 0;
+      line-height: 1.35;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     .menu-item-shortcut {
+      line-height: 1.35;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       white-space: nowrap;
       font-size: 11px;

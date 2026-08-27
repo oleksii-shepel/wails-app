@@ -401,7 +401,7 @@ interface DetailsRowVm {
       &.header-cell {
         position: relative;
         font-size: 10px;
-        line-height: 1;
+        line-height: 1.35;
         font-weight: 600;
         &.sortable {
           cursor: pointer;
@@ -447,6 +447,10 @@ interface DetailsRowVm {
       }
       
       .header-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 14px;
+        line-height: 1.35;
         overflow: hidden;
         text-overflow: ellipsis;
         margin-left: var(--vsc-padding-lg);

@@ -1317,12 +1317,6 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   onRowClick(entry: FileInfo, event: MouseEvent): void {
-    // Pointer selection moves the cursor immediately. The parent receives the
-    // same selection during this event turn, so there is no intermediate frame
-    // where the pane activates with the previous cursor still painted.
-    this.cursorPath = entry.path;
-    this.rebuildVisibleRowVms();
-
     if (this.isParentEntry(entry)) {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);

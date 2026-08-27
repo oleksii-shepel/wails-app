@@ -4,7 +4,7 @@
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: var(--vsc-scrollbar-thumb) transparent;
+  scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);
 }
 
 *::-webkit-scrollbar {
@@ -13,7 +13,7 @@
 }
 
 *::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--vsc-scrollbar-track);
 }
 
 *::-webkit-scrollbar-corner {
@@ -22,10 +22,10 @@
 
 *::-webkit-scrollbar-thumb {
   min-height: 20px;
-  border: 3px solid transparent;
-  border-radius: 999px;
+  border: 0;
+  border-radius: 0;
   background: var(--vsc-scrollbar-thumb);
-  background-clip: padding-box;
+  background-clip: border-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
@@ -36,6 +36,24 @@
 *::-webkit-scrollbar-thumb:active {
   background: var(--vsc-scrollbar-thumb-active);
   background-clip: padding-box;
+}
+
+/* Inactive pane views preserve selection/cursor state, but do not paint it.
+   The active pane alone owns the visual cursor/selection highlight. */
+.pane:not(.active-pane) app-pane-list .file-entry.selected,
+.pane:not(.active-pane) app-pane-list .file-entry.cursor,
+.pane:not(.active-pane) app-pane-grid .grid-item.selected,
+.pane:not(.active-pane) app-pane-grid .grid-item.cursor,
+.pane:not(.active-pane) app-pane-tree .tree-row.selected,
+.pane:not(.active-pane) app-pane-tree .tree-row.cursor,
+.pane:not(.active-pane) app-pane-tree .tree-row.focused-node,
+.pane:not(.active-pane) app-pane-details .details-row.selected,
+.pane:not(.active-pane) app-pane-details .details-row.cursor {
+  background: transparent !important;
+  color: inherit !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 :root {

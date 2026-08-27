@@ -28,6 +28,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
       <div 
         *ngIf="isOpen" 
         class="dropdown-menu-wrapper"
+        [class.dropdown-menu-wrapper--no-animation]="!animate"
         appDropdownMenu
         tabindex="-1"
         (click)="$event.stopPropagation()">
@@ -58,6 +59,10 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
       animation: dropdown-appear 0.12s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    .dropdown-menu-wrapper--no-animation {
+      animation: none;
+    }
+
     @keyframes dropdown-appear {
       from { opacity: 0; transform: translateY(-6px) scale(0.98); }
       to   { opacity: 1; transform: translateY(0)   scale(1); }
@@ -67,6 +72,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
 export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() isOpen = false;
   @Input() backdrop = true;
+  @Input() animate = true;
   /** Fallback anchor for when the trigger element is outside the container (e.g. right-click menus). */
   @Input() anchorEl: HTMLElement | null = null;
   @Output() isOpenChange = new EventEmitter<boolean>();

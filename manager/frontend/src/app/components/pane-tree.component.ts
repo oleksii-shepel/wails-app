@@ -84,7 +84,7 @@ export interface DropTarget {
           <div
             class="tree-node"
             [class.selected]="isSelected(node)"
-            [class.focused-node]="isFocusedNode(node)"
+            [class.focused-node]="paneActive && isFocusedNode(node)"
             [class.dragging-node]="isDraggingNode(node)"
             [attr.role]="'treeitem'"
             [attr.aria-level]="node.level + 1"

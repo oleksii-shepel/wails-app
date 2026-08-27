@@ -83,7 +83,7 @@ import {
           [attr.data-path]="entry.path"
           [class.dragging-source]="draggingPaths.has(entry.path)"
           [class.selected]="isSelected(entry)"
-          [class.cursor]="isCursor(entry)"
+          [class.cursor]="paneActive && isCursor(entry)"
           [class.directory]="entry.type === FileType.DIRECTORY"
           [class.parent-dir]="isParentEntry(entry)"
           [class.drag-over]="isDragOverInside(entry)"

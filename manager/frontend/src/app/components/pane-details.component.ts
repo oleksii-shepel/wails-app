@@ -147,7 +147,7 @@ interface DetailsRowVm {
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="row.selected"
-            [class.cursor]="row.cursor"
+            [class.cursor]="paneActive && row.cursor"
             [class.parent-dir]="row.parentDir"
             [class.drag-over]="row.dragOverInside"
             [class.drag-over-before]="row.dragOverBefore"
@@ -282,14 +282,6 @@ interface DetailsRowVm {
         color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
       );
       color: var(--vsc-foreground);
-    }
-
-    :host-context(.pane:not(.active-pane)) .details-row.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
-        in srgb,
-        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
-        transparent
-      );
     }
 
     :host-context(.pane.active-pane) .details-row.cursor {

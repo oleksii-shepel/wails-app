@@ -80,7 +80,7 @@ type VisibleRowVm = {
           <app-file-entry
             [entry]="parentEntry"
             [selected]="isSelected(parentEntry)"
-            [cursor]="parentEntry.path === cursorPath"
+            [cursor]="paneActive && parentEntry.path === cursorPath"
             [directorySizePending]="isDirectorySizePending(parentEntry.path)"
             [colorizeByMime]="colorizeByMime"
             (select)="onSelect($event)"
@@ -117,7 +117,7 @@ type VisibleRowVm = {
             <app-file-entry
               [entry]="row.entry"
               [selected]="row.selected"
-              [cursor]="row.cursor"
+              [cursor]="paneActive && row.cursor"
               [displayNameOverride]="row.displayNameOverride"
               [directorySizePending]="row.directorySizePending"
               [colorizeByMime]="colorizeByMime"

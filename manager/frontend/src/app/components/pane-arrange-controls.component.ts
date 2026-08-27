@@ -25,7 +25,7 @@ export interface PaneSortChange {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-dropdown-container [(isOpen)]="menuOpen" [backdrop]="false">
+    <app-dropdown-container [(isOpen)]="menuOpen" [backdrop]="false" [animate]="false">
       <button
         appDropdownTrigger
         type="button"

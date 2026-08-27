@@ -16,13 +16,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
-  PaneTableBodyDirective,
-  PaneTableCellDirective,
-  PaneTableComponent,
-  PaneTableDividerDirective,
-  PaneTableHeaderDirective,
-  PaneTableHeaderRowDirective,
-  PaneTableRowDirective,
 } from '@reassembly/core/ui/panes';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
@@ -95,23 +88,16 @@ interface DetailsRowVm {
   imports: [
     CommonModule,
     FileEntryInlineComponent,
-    PaneTableComponent,
-    PaneTableHeaderDirective,
-    PaneTableHeaderRowDirective,
-    PaneTableBodyDirective,
-    PaneTableRowDirective,
-    PaneTableCellDirective,
-    PaneTableDividerDirective,
     PaneDetailsResizeHandleDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <reassembly-pane-table #detailsRoot class="file-details" role="table" data-pane-details-root>
-      <div class="details-header" reassemblyPaneTableHeader role="rowgroup">
-        <div class="details-row header-row" reassemblyPaneTableHeaderRow role="row">
+    <div #detailsRoot class="file-details" role="table" data-pane-details-root>
+      <div class="details-header" role="rowgroup">
+        <div class="details-row header-row" role="row">
           <div 
             *ngFor="let col of activeColumnVms; let i = index; trackBy: trackByColumnKey"
-            class="details-cell header-cell" reassemblyPaneTableCell
+            class="details-cell header-cell"
             [attr.data-col]="col.key"
             [class.sortable]="col.column.sortable"
             [style.width]="col.widthVar"
@@ -130,7 +116,7 @@ interface DetailsRowVm {
             </span>
             <div
               *ngIf="i < activeColumnVms.length - 1"
-              class="view-divider" reassemblyPaneTableDivider
+              class="view-divider"
               title="Resize column"
               [paneDetailsResizeHandle]="col.key"
               [paneDetailsMinWidth]="col.minWidth"
@@ -144,7 +130,6 @@ interface DetailsRowVm {
       <div
         #detailsBody
         class="details-body"
-        reassemblyPaneTableBody
         [class.drop-target-bg]="isBackgroundDropTarget"
         role="rowgroup"
         (mousedown)="onBodyMouseDown($event)"
@@ -160,7 +145,6 @@ interface DetailsRowVm {
           <div 
             *ngFor="let row of visibleRowVms; trackBy: trackByRowPath"
             class="details-row"
-            reassemblyPaneTableRow
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="row.selected"
@@ -186,7 +170,6 @@ interface DetailsRowVm {
             <div 
               *ngFor="let cell of row.cells; trackBy: trackByCellKey"
               class="details-cell"
-              reassemblyPaneTableCell
               [style.width]="cell.widthVar"
               [style.flex]="cell.flex"
               [attr.role]="'cell'">
@@ -238,7 +221,7 @@ interface DetailsRowVm {
           [style.height.px]="selectionRect.height">
         </div>
       </div>
-    </reassembly-pane-table>
+    </div>
   `,
   styles: [`
     .details-cell,
@@ -271,11 +254,17 @@ interface DetailsRowVm {
     }
 
     .file-details {
+      position: relative;
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
       min-height: 0;
       overflow: hidden;
+      contain: layout paint;
+      isolation: isolate;
       background: var(--vsc-editor-background);
     }
 
@@ -283,6 +272,32 @@ interface DetailsRowVm {
       flex-shrink: 0;
       background: var(--vsc-tabbar-background);
       border-bottom: 1px solid var(--vsc-border);
+    }
+
+    :host-context(.pane:not(.active-pane)) .details-row.selected {
+      background: var(
+        --vsc-list-inactive-selection,
+        color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
+      );
+      color: var(--vsc-foreground);
+    }
+
+    :host-context(.pane:not(.active-pane)) .details-row.cursor {
+      box-shadow: inset 2px 0 0 color-mix(
+        in srgb,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
+        transparent
+      );
+    }
+
+    :host-context(.pane.active-pane) .details-row.cursor {
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
     }
 
     .details-row {
@@ -377,6 +392,9 @@ interface DetailsRowVm {
       
       &.header-cell {
         position: relative;
+        font-size: 10px;
+        line-height: 1;
+        font-weight: 600;
         &.sortable {
           cursor: pointer;
           
@@ -446,10 +464,13 @@ interface DetailsRowVm {
     }
 
     .details-body {
-      flex: 1;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
       position: relative;
       overflow-y: auto;
       overflow-x: hidden;
+      contain: layout paint;
     }
     
     .virtual-spacer {

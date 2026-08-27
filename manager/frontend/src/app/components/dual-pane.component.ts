@@ -528,7 +528,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
       </div>
 
-      <div class="pane-slot left-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
+      <div class="pane-slot left-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (pointerdown)="activate('left')">
         <app-pane-host
           #leftPane
           paneId="left"
@@ -566,7 +566,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="divider-grip" aria-hidden="true"></span>
       </div>
 
-      <div class="pane-slot right-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
+      <div class="pane-slot right-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (pointerdown)="activate('right')">
         <app-pane-host
           #rightPane
           paneId="right"
@@ -782,21 +782,24 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .pane-slot {
-
+      position: relative;
       height: 100%;
-
       width: 100%;
-
-      display: flex;
-
-      grid-row: 1;
-
       min-width: 0;
-
       min-height: 0;
-
       overflow: hidden;
+      contain: layout paint;
+      isolation: isolate;
+    }
 
+    .left-pane-slot {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .right-pane-slot {
+      grid-column: 3;
+      grid-row: 1;
     }
 
     .pane-slot > app-pane-host {
@@ -819,6 +822,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
 
     .divider {
+      grid-column: 2;
       grid-row: 1;
       position: relative;
       touch-action: none;
@@ -856,9 +860,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr) auto;
       }
 
-      .left-pane-slot { grid-row: 1; }
-      .divider { grid-row: 2; }
-      .right-pane-slot { grid-row: 3; }
+      .left-pane-slot { grid-column: 1; grid-row: 1; }
+      .divider { grid-column: 1; grid-row: 2; }
+      .right-pane-slot { grid-column: 1; grid-row: 3; }
       .pane-intelligence { grid-row: 4; }
 
       .divider {

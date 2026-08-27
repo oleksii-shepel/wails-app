@@ -65,7 +65,7 @@ import type { DirectoryView, PanePresentation, SortDirection, SortField } from '
 import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
-import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
+import { PaneDetailsComponent, type PaneDetailsColumn } from './pane-details.component';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -190,7 +190,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
-    PaneDetailsResizeHandleDirective,
+    PaneDetailsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -487,28 +487,34 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </app-panel-presentation-outlet>
 
 
+      <app-pane-details
+        *ngIf="!activePanelPresentation && !error && viewMode === 'details'"
+        class="shared-details-view"
+        [entries]="visibleEntries"
+        [currentPath]="path"
+        [selectedFiles]="selectedPaths"
+        [cursorPath]="cursorPath"
+        [sortField]="sortField"
+        [sortDirection]="sortDirection"
+        [columns]="paneDetailsColumns"
+        [paneActive]="active"
+        (selectionChange)="onSharedDetailsSelectionChange($event)"
+        (navigate)="openEntry($event)"
+        (sort)="applyDetailsSort($event)"
+        (contextMenu)="onEntryContextMenu($event.entry, $event.event)"
+        (backgroundContextMenu)="onBackgroundContextMenu($event)"
+        (dragDrop)="onSharedDetailsDrop($event)"
+        (viewportChange)="onSharedDetailsViewportChange()">
+      </app-pane-details>
+
       <div
         class="list"
         data-pane-details-root
-        *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
+        *ngIf="!activePanelPresentation && !error && (viewMode === 'list' || viewMode === 'grid')"
         [class.view-list]="viewMode === 'list'"
         [class.view-grid]="viewMode === 'grid'"
-        [class.view-details]="viewMode === 'details'"
         [attr.aria-busy]="loading"
         [class.background-drop-target]="backgroundDropActive">
-
-      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
-        <div #detailsHeader class="details-header" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span>
-        <span>Name<i [paneDetailsResizeHandle]="'name'" [paneDetailsMinWidth]="120"></i></span>
-        <span>Kind<i [paneDetailsResizeHandle]="'kind'" [paneDetailsMinWidth]="72"></i></span>
-        <span>Type<i [paneDetailsResizeHandle]="'type'" [paneDetailsMinWidth]="72"></i></span>
-        <span>Value<i [paneDetailsResizeHandle]="'value'" [paneDetailsMinWidth]="100"></i></span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
-          {{ column.label }}<i [paneDetailsResizeHandle]="'plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
-        </span>
-      </div>
-      </div>
 
       <div
         #listViewport
@@ -558,8 +564,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [class.drop-target]="dragOverPath === entry.path"
           [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
-          [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
-          [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null">
+          [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'">
 
           <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
             {{ entryDisplayIcon(entry) }}
@@ -1734,8 +1739,8 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
-    @ViewChild('detailsHeader') detailsHeader?: ElementRef<HTMLElement>;
-@ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
+  @ViewChild(PaneDetailsComponent) detailsView?: PaneDetailsComponent;
+  @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
@@ -1855,6 +1860,8 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
         ? this.paneRoot?.nativeElement
         : this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
+          : this.viewMode === 'details'
+            ? this.paneRoot?.nativeElement
           : this.listViewport?.nativeElement;
 
     target?.focus({ preventScroll: true });
@@ -1944,6 +1951,16 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   viewportSnapshot(): { topName: string | null; ratio: number } {
+    if (this.viewMode === 'details') {
+      const metrics = this.detailsView?.getScrollMetrics();
+      if (!metrics) return { topName: null, ratio: 0 };
+      const max = Math.max(1, metrics.scrollHeight - metrics.clientHeight);
+      return {
+        topName: null,
+        ratio: Math.max(0, Math.min(1, metrics.scrollTop / max)),
+      };
+    }
+
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
       : this.listViewport?.nativeElement;
@@ -1967,6 +1984,28 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   }
 
   syncViewportToPeer(snapshot: { topName: string | null; ratio: number }): void {
+    if (this.viewMode === 'details') {
+      if (snapshot.topName) {
+        const folded = snapshot.topName.toLowerCase();
+        const entry = this.entries.find(candidate =>
+          candidate.path !== '__parent__' &&
+          candidate.name.toLowerCase() === folded
+        );
+        if (entry) {
+          this.detailsView?.scrollToPath(entry.path);
+          return;
+        }
+      }
+
+      const metrics = this.detailsView?.getScrollMetrics();
+      if (!metrics) return;
+      const max = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
+      this.detailsView?.setScrollTop(
+        Math.round(max * Math.max(0, Math.min(1, snapshot.ratio))),
+      );
+      return;
+    }
+
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
       : this.listViewport?.nativeElement;
@@ -7925,11 +7964,65 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
   onListViewportScroll(event: Event): void {
     this.onContentScroll(event);
-    const header = this.detailsHeader?.nativeElement;
-    const target = event.currentTarget as HTMLElement | null;
-    if (header && target) {
-      header.style.transform = target.scrollLeft > 0 ? `translateX(${-target.scrollLeft}px)` : '';
+  }
+
+  get paneDetailsColumns(): PaneDetailsColumn[] {
+    const columns: PaneDetailsColumn[] = [
+      { field: 'name', header: 'Name', flex: 1.7, sortable: true },
+      { field: 'registryKind', header: 'Kind', width: '110px', sortable: true, formatter: (_, entry) => this.entryDisplayKind(entry) },
+      { field: 'registryValueType', header: 'Type', width: '150px', sortable: true, formatter: (_, entry) => this.entryDisplayType(entry) },
+      { field: 'registryPreview', header: 'Value', flex: 2.3, sortable: true, formatter: (_, entry) => this.entryDisplayValue(entry) },
+    ];
+    for (const column of this.pluginPanelColumns) {
+      columns.push({
+        field: `plugin-${column.id}`,
+        header: column.label,
+        width: '160px',
+        sortable: false,
+        minWidth: 96,
+        formatter: (_, entry) => this.panelColumnValue(column, entry),
+      });
     }
+    return columns;
+  }
+
+  applyDetailsSort(change: { field: string; direction: 'asc' | 'desc' }): void {
+    this.sortField = change.field as SortField;
+    this.sortDirection = change.direction;
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  onSharedDetailsSelectionChange(entries: FileInfo[]): void {
+    this.selectedPaths = new Set(entries.map(entry => entry.path));
+    const cursor = entries[entries.length - 1] ?? null;
+    this.cursorPath = cursor?.path ?? null;
+    this.anchorPath = cursor?.path ?? null;
+    this.cursorChange.emit(cursor && cursor.path !== '__parent__' ? cursor : null);
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  onSharedDetailsDrop(event: { event: DragEvent; source: FileInfo[]; target: FileInfo }): void {
+    this.internalDrop.emit({
+      event: event.event,
+      targetPath: event.target.path,
+      targetEntry: event.target,
+    });
+  }
+
+  onSharedDetailsViewportChange(): void {
+    const active = this.activeTab;
+    const scrollTop = this.detailsView?.getScrollTop() ?? 0;
+    if (active && active.kind === 'dir') {
+      const updated: Extract<Tab, { kind: 'dir' }> = {
+        ...active,
+        scrollTop: Math.max(0, scrollTop),
+      };
+      this.tabs = this.tabs.map(tab => tab.id === updated.id ? updated : tab);
+    }
+    this.viewportChange.emit(this.viewportSnapshot());
+    this.cdr.markForCheck();
   }
 
   onContentScroll(event: Event): void {
@@ -8988,6 +9081,11 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
   private ensureCursorVisible(): void {
     if (!this.cursorPath || typeof document === 'undefined') return;
+
+    if (this.viewMode === 'details') {
+      this.detailsView?.scrollToPath(this.cursorPath);
+      return;
+    }
 
     const viewport =
       this.viewMode === 'tree'

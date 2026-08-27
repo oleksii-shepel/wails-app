@@ -64,6 +64,7 @@ import { ResponsiveToolbarComponent, type ResponsiveToolbarCommand } from './res
 import { PaneArrangeControlsComponent, type PaneSortChange } from './pane-arrange-controls.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
 import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
+import { BinGroupedViewComponent } from './bin-grouped-view.component';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -233,6 +234,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     ResponsiveToolbarComponent,
     PaneArrangeControlsComponent,
     PaneDetailsResizeHandleDirective,
+    BinGroupedViewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -552,12 +554,30 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
       </app-panel-presentation-outlet>
 
 
+      <app-bin-grouped-view
+        *ngIf="!activePanelPresentation && !error && isBinLocation && binDetailsMode === 'grouped'"
+        [entries]="renderedEntries"
+        [selectedPaths]="selectedPaths"
+        [cursorPath]="cursorPath"
+        [loading]="loading"
+        [beforePx]="listVirtualWindow.enabled ? listVirtualWindow.beforePx : 0"
+        [afterPx]="listVirtualWindow.enabled ? listVirtualWindow.afterPx : 0"
+        [expandedGroups]="binExpandedRevisionGroups"
+        (scroll)="onContentScroll($event)"
+        (backgroundClick)="onBackgroundClick($event)"
+        (backgroundContextMenu)="onBackgroundContextMenu($event)"
+        (entryClick)="onBinAwareEntryClick($event.entry, $event.event)"
+        (entryDoubleClick)="onBinAwareEntryDoubleClick($event.entry, $event.event)"
+        (entryContextMenu)="onBinAwareContextMenu($event.entry, $event.event)"
+        (toggleGroup)="toggleBinGroup($event.entry, $event.event)">
+      </app-bin-grouped-view>
+
       <div
         #listViewport
         class="list"
         data-pane-content
         data-pane-details-root
-        *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
+        *ngIf="!activePanelPresentation && !error && viewMode !== 'tree' && !(isBinLocation && binDetailsMode === 'grouped')"
         tabindex="-1"
         role="listbox"
         [attr.aria-label]="'Files in ' + (path || 'location')"
@@ -2121,6 +2141,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
+  @ViewChild(BinGroupedViewComponent) binGroupedView?: BinGroupedViewComponent;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -2236,6 +2257,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
   private readonly virtualThreshold = 300;
   private readonly listRowExtent = 30;
+  private readonly binGroupedRowExtent = 26;
   private readonly gridRowExtent = 109;
   private readonly treeRowExtent = 31;
 
@@ -2895,6 +2917,10 @@ export class BinPaneComponent implements OnInit, OnDestroy {
     return (entry as BinFileInfo).binRevisionLabel || '';
   }
 
+  get binExpandedRevisionGroups(): ReadonlySet<string> {
+    return this.expandedBinRevisionGroups;
+  }
+
   isBinGroupExpanded(entry: FileInfo): boolean {
     return this.expandedBinRevisionGroups.has(this.binGroupKeyForEntry(entry));
   }
@@ -3373,6 +3399,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
   get listVirtualWindow(): VirtualWindow {
     const grid = this.viewMode === 'grid';
+    const groupedBin = this.isBinLocation && this.binDetailsMode === 'grouped';
     const columns = grid
       ? this.estimatedGridColumns()
       : 1;
@@ -3381,9 +3408,11 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       itemCount: this.visibleEntryCount,
       scrollTop: this.virtualScrollTop,
       viewportHeight: this.virtualViewportHeight,
-      itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
+      itemExtent: grid
+        ? this.gridRowExtent
+        : (groupedBin ? this.binGroupedRowExtent : this.listRowExtent),
       columns,
-      overscanRows: grid ? 8 : 48,
+      overscanRows: grid ? 8 : (groupedBin ? 32 : 48),
       threshold: this.virtualThreshold,
     });
   }
@@ -3451,7 +3480,9 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       target ??
       (this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement);
+        : (this.isBinLocation && this.binDetailsMode === 'grouped'
+            ? this.binGroupedView?.viewportElement
+            : this.listViewport?.nativeElement));
 
     if (!viewport) return;
 
@@ -8651,6 +8682,11 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   private restoreScrollTop(scrollTop: number): void {
+    if (this.viewMode !== 'tree' && this.isBinLocation && this.binDetailsMode === 'grouped') {
+      this.binGroupedView?.setScrollTop(scrollTop);
+      return;
+    }
+
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement

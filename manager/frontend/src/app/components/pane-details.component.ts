@@ -309,6 +309,7 @@ interface DetailsRowVm {
       display: grid;
       align-items: center;
       grid-auto-flow: column;
+      column-gap: 6px;
       height: 30px;
       padding: 0;
       border-bottom: 0;
@@ -860,10 +861,12 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   getColumnWidthVar(col: PaneDetailsColumn): string | null {
     const key = this.getColumnKey(col);
-    if (this.columnWidths.has(key) || !!col.width) {
-      return `var(--details-column-${this.cssKey(key)}-width)`;
+    const configured = this.columnWidths.get(key);
+    if (configured !== undefined) {
+      return `${Math.max(1, configured)}px`;
     }
-    return null;
+    const fallback = this.pixelWidth(col.width);
+    return fallback !== null ? `${Math.max(1, fallback)}px` : null;
   }
 
   getColumnFlex(col: PaneDetailsColumn): string {
@@ -897,7 +900,10 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
         !!changes['columns'] ||
         !!changes['columnConfiguration'] ||
         !!changes['currentPath'];
-      if (columnsChanged) this.refreshColumnState();
+      if (columnsChanged) {
+        this.refreshColumnState();
+        this.rebuildColumnVms();
+      }
       const entriesChange = changes['entries'];
       if (entriesChange) {
         const prevLen = entriesChange.previousValue?.length || 0;

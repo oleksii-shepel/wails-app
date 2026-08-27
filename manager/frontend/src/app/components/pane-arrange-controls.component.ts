@@ -125,11 +125,11 @@ export interface PaneSortChange {
       display: flex;
       flex-direction: column;
       min-width: 192px;
-      padding: var(--vsc-padding-xs) 0;
-      border: 1px solid var(--vsc-border);
-      border-radius: var(--vsc-border-radius);
-      background: var(--vsc-menu-background, var(--vsc-input-background));
+      padding: 6px;
+      background: var(--vsc-menu-background, var(--vsc-panel-background));
       color: var(--vsc-menu-foreground, var(--vsc-foreground));
+      border: 1px solid var(--vsc-menu-border, var(--vsc-border));
+      border-radius: 6px;
       box-shadow: var(--vsc-widget-shadow);
     }
 

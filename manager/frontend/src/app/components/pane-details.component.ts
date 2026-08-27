@@ -269,6 +269,8 @@ interface DetailsRowVm {
       flex-shrink: 0;
       background: var(--vsc-tabbar-background);
       border-bottom: 1px solid var(--vsc-border);
+      padding-left: 4px;
+      padding-right: 4px;
     }
 
     :host-context(.pane:not(.active-pane)) .details-row.selected {
@@ -309,6 +311,7 @@ interface DetailsRowVm {
       display: grid;
       align-items: center;
       grid-auto-flow: column;
+      column-gap: 6px;
       height: 30px;
       padding: 0;
       border-bottom: 0;
@@ -370,6 +373,12 @@ interface DetailsRowVm {
           outline-offset: -1px;
         }
       }
+    }
+
+    .details-body .details-row {
+      width: auto;
+      margin-left: 4px;
+      margin-right: 4px;
     }
 
     .drop-indicator {
@@ -860,10 +869,12 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   getColumnWidthVar(col: PaneDetailsColumn): string | null {
     const key = this.getColumnKey(col);
-    if (this.columnWidths.has(key) || !!col.width) {
-      return `var(--details-column-${this.cssKey(key)}-width)`;
+    const configured = this.columnWidths.get(key);
+    if (configured !== undefined) {
+      return `${Math.max(1, configured)}px`;
     }
-    return null;
+    const fallback = this.pixelWidth(col.width);
+    return fallback !== null ? `${Math.max(1, fallback)}px` : null;
   }
 
   getColumnFlex(col: PaneDetailsColumn): string {
@@ -897,7 +908,10 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
         !!changes['columns'] ||
         !!changes['columnConfiguration'] ||
         !!changes['currentPath'];
-      if (columnsChanged) this.refreshColumnState();
+      if (columnsChanged) {
+        this.refreshColumnState();
+        this.rebuildColumnVms();
+      }
       const entriesChange = changes['entries'];
       if (entriesChange) {
         const prevLen = entriesChange.previousValue?.length || 0;

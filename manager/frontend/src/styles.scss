@@ -4,7 +4,7 @@
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);
+  scrollbar-color: var(--vsc-scrollbar-thumb) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -13,7 +13,7 @@
 }
 
 *::-webkit-scrollbar-track {
-  background: var(--vsc-scrollbar-track);
+  background: transparent;
 }
 
 *::-webkit-scrollbar-corner {
@@ -22,10 +22,10 @@
 
 *::-webkit-scrollbar-thumb {
   min-height: 20px;
-  border: 0;
-  border-radius: 0;
+  border: 3px solid transparent;
+  border-radius: 999px;
   background: var(--vsc-scrollbar-thumb);
-  background-clip: border-box;
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
@@ -38,27 +38,88 @@
   background-clip: padding-box;
 }
 
-/* Inactive panes preserve selection visually, but never paint a cursor/focus marker. */
-.pane:not(.active-pane) app-pane-list .file-entry.selected,
-.pane:not(.active-pane) app-pane-grid .grid-item.selected,
-.pane:not(.active-pane) app-pane-tree .tree-row.selected,
-.pane:not(.active-pane) app-pane-details .details-row.selected {
-  background: var(
-    --vsc-list-inactive-selection,
-    color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
-  ) !important;
-  color: var(--vsc-foreground) !important;
+
+/* === Pane view native scrollbars ============================================
+   List / Grid / Tree / Details intentionally use native scrolling. Keep their
+   scrollbar chrome VS Code-like and independent from generic app scrollbars:
+   transparent track, rectangular translucent thumb, no inset/pill border. */
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+) {
+  scrollbar-width: auto;
+  scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);
 }
 
-/* Cursor/focus belongs exclusively to the active pane. */
-.pane:not(.active-pane) app-pane-list .file-entry.cursor,
-.pane:not(.active-pane) app-pane-grid .grid-item.cursor,
-.pane:not(.active-pane) app-pane-tree .tree-row.cursor,
-.pane:not(.active-pane) app-pane-tree .tree-row.focused-node,
-.pane:not(.active-pane) app-pane-details .details-row.cursor {
-  box-shadow: none !important;
-  outline: none !important;
-  border-color: transparent !important;
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar {
+  width: var(--vsc-scrollbar-size);
+  height: var(--vsc-scrollbar-size);
+  background: transparent;
+}
+
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar-track,
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar-corner {
+  background: var(--vsc-scrollbar-track);
+}
+
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar-thumb {
+  min-width: 20px;
+  min-height: 20px;
+  border: 0;
+  border-radius: 0;
+  background: var(--vsc-scrollbar-thumb);
+  background-clip: border-box;
+}
+
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar-thumb:hover {
+  background: var(--vsc-scrollbar-thumb-hover);
+}
+
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar-thumb:active {
+  background: var(--vsc-scrollbar-thumb-active);
+}
+
+:is(
+  app-pane-list .pane-content,
+  app-pane-grid .file-grid,
+  app-pane-tree .file-tree-container,
+  app-pane-details .details-body
+)::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 :root {

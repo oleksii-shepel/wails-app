@@ -284,14 +284,6 @@ interface DetailsRowVm {
       color: var(--vsc-foreground);
     }
 
-    :host-context(.pane:not(.active-pane)) .details-row.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
-        in srgb,
-        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
-        transparent
-      );
-    }
-
     :host-context(.pane.active-pane) .details-row.cursor {
       box-shadow:
         inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),

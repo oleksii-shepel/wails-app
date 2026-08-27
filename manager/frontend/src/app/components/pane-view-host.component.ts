@@ -53,13 +53,13 @@ export interface PaneViewHostBrowserConfig {
   template: `
     <div class="view-container">
       <div
+        *ngIf="cachedShowBrowserPane"
         class="view-browser"
-        [class.view-browser--hidden]="!cachedShowBrowserPane"
         [style.flexBasis.%]="browserPaneSplit">
         <app-native-overlay
           [surfaceId]="surfaceId"
           [url]="cachedBrowserPath"
-          [active]="surfaceActive">
+          [active]="surfaceActive && cachedShowBrowserPane">
         </app-native-overlay>
       </div>
 
@@ -201,10 +201,6 @@ export interface PaneViewHostBrowserConfig {
       background: var(--vsc-editor-background);
       position: relative;
       z-index: 0;
-    }
-
-    .view-browser.view-browser--hidden {
-      display: none;
     }
 
     app-split-divider {
@@ -369,9 +365,11 @@ export class PaneViewHostComponent implements OnChanges, OnDestroy, AfterViewIni
       rename: this.rename,
       setSelectedPaths: (paths: string[]) => {
         thisRef.selectedFiles = new Set(paths);
+        thisRef.cdr.markForCheck();
       },
       setCursorPath: (path: string | null) => {
         thisRef.cursorPath = path;
+        thisRef.cdr.markForCheck();
       },
     };
   }

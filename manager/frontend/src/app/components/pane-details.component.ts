@@ -270,7 +270,6 @@ interface DetailsRowVm {
 
     .details-header {
       flex-shrink: 0;
-      padding: 0 var(--vsc-padding-sm);
       background: var(--vsc-tabbar-background);
       border-bottom: 1px solid var(--vsc-border);
     }
@@ -284,7 +283,7 @@ interface DetailsRowVm {
     }
 
     :host-context(.pane:not(.active-pane)) .details-row.cursor {
-      border-left-color: color-mix(
+      box-shadow: inset 2px 0 0 color-mix(
         in srgb,
         var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
@@ -292,61 +291,67 @@ interface DetailsRowVm {
     }
 
     :host-context(.pane.active-pane) .details-row.cursor {
-      border-left-color: var(--vsc-accent-blue, var(--vsc-focus-border));
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    :host-context(.pane.active-pane) .details-row.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
     }
 
     .details-row {
       display: flex;
       align-items: center;
-      min-height: 28px;
-      height: 28px;
+      height: 24px;
       padding: 0 var(--vsc-padding-md);
-      border: 0;
-      border-left: 3px solid transparent;
-      border-radius: var(--vsc-border-radius-sm);
+      border-bottom: 0;
       flex-shrink: 0;
       contain: layout style;
       position: relative;
-      transition:
-        background-color var(--vsc-transition-fast),
-        border-color var(--vsc-transition-fast),
-        color var(--vsc-transition-fast);
-
+      
       &.header-row {
-        min-height: 24px;
-        height: 24px;
-        border-left-color: transparent;
-        border-radius: 0;
+        height: 28px;
         font-weight: 600;
         color: var(--vsc-foreground-dim);
       }
-
+      
       &:not(.header-row) {
+        border-radius: 3px;
         cursor: pointer;
         user-select: none;
-
+        
         &:hover {
           background: var(--vsc-list-hover-background);
-          color: var(--vsc-foreground);
-          border-left-color: var(--vsc-border-bright);
         }
-
+        
         &.selected {
           background: var(--vsc-list-active-background);
-          color: var(--vsc-list-active-foreground);
-          border-left-color: var(--vsc-accent-blue);
+          color: var(--vsc-foreground-bright);
         }
-
+        
+        /* Same cursor language as List view: subtle hover fill + left accent. */
         &.cursor:not(.selected) {
-          background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
-          border-left-color: var(--vsc-accent-blue);
-          box-shadow: none;
+          background: color-mix(
+            in srgb,
+            var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+            transparent
+          );
+          box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
         }
-
+        
         &.cursor.selected {
           outline: none;
         }
-
+        
         &.parent-dir {
           opacity: 0.7;
           
@@ -396,12 +401,11 @@ interface DetailsRowVm {
       white-space: nowrap;
       text-overflow: ellipsis;
       font-size: var(--vsc-font-size);
-      line-height: 1.4;
       
       &.header-cell {
         position: relative;
         font-size: 10px;
-        line-height: 1.35;
+        line-height: 1;
         font-weight: 600;
         &.sortable {
           cursor: pointer;
@@ -447,10 +451,6 @@ interface DetailsRowVm {
       }
       
       .header-label {
-        display: inline-flex;
-        align-items: center;
-        min-height: 14px;
-        line-height: 1.35;
         overflow: hidden;
         text-overflow: ellipsis;
         margin-left: var(--vsc-padding-lg);
@@ -480,10 +480,10 @@ interface DetailsRowVm {
       min-width: 0;
       min-height: 0;
       position: relative;
+      padding: 0;
+      margin: 0;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: var(--vsc-padding-sm);
-      background: var(--vsc-editor-background);
       contain: layout paint;
     }
     
@@ -492,11 +492,18 @@ interface DetailsRowVm {
       pointer-events: none;
     }
     
+    .details-window {
+      margin: 0;
+      padding: 0;
+    }
+
     .details-window.virtual-window {
       position: absolute;
       left: 0;
       right: 0;
       top: 0;
+      margin: 0;
+      padding: 0;
       will-change: transform;
     }
 

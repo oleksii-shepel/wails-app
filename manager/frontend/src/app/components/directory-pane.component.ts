@@ -232,8 +232,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-label]="paneId === 'left' ? 'Left file pane' : 'Right file pane'"
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
-      (focusin)="activateRequested.emit()"
-      (mousedown)="activateRequested.emit()">
+      (focusin)="onPaneFocusIn()"
+      (mousedown)="onPanePointerDown()">
 
       <div
         #tabStrip
@@ -4430,6 +4430,26 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
+  private pointerActivationPending = false;
+
+  onPanePointerDown(): void {
+    // Browser focus follows mousedown. Suppress that focus-driven activation
+    // until the clicked entry has committed its new cursor/selection.
+    this.pointerActivationPending = true;
+  }
+
+  onPaneFocusIn(): void {
+    if (this.pointerActivationPending) return;
+    this.activateRequested.emit();
+  }
+
+  private activateAfterPointerSelection(): void {
+    this.pointerActivationPending = false;
+    if (!this.active) {
+      this.activateRequested.emit();
+    }
+  }
+
   onBackgroundClick(event: MouseEvent): void {
     if (event.defaultPrevented) return;
 
@@ -4443,6 +4463,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     // from the same item after switching between panes.
     this.markUserInteraction();
     this.lastAction = 'pane focused';
+    this.pointerActivationPending = false;
     this.activateRequested.emit();
 
     const current = event.currentTarget as HTMLElement | null;
@@ -4495,9 +4516,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.lastAction = `select: ${entry.name}`;
     this.cursorChange.emit(entry);
     this.syncActiveDirSessionState();
+    this.activateAfterPointerSelection();
 
-    // A pointer selection immediately hands keyboard ownership to the pane so
-    // Arrow/Home/End/Space continue from exactly what the user just clicked.
+    // Focus only after cursor/selection and pane ownership are committed.
     this.focusContent();
     this.cdr.markForCheck();
   }
@@ -8373,6 +8394,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.anchorPath = cursor?.path ?? null;
     this.cursorChange.emit(cursor && cursor.path !== '__parent__' ? cursor : null);
     this.syncActiveDirSessionState();
+    this.activateAfterPointerSelection();
     this.cdr.markForCheck();
   }
 

@@ -147,7 +147,7 @@ interface DetailsRowVm {
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="row.selected"
-            [class.cursor]="paneActive && row.cursor"
+            [class.cursor]="row.cursor"
             [class.parent-dir]="row.parentDir"
             [class.drag-over]="row.dragOverInside"
             [class.drag-over-before]="row.dragOverBefore"
@@ -282,6 +282,14 @@ interface DetailsRowVm {
         color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
       );
       color: var(--vsc-foreground);
+    }
+
+    :host-context(.pane:not(.active-pane)) .details-row.cursor {
+      box-shadow: inset 2px 0 0 color-mix(
+        in srgb,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
+        transparent
+      );
     }
 
     :host-context(.pane.active-pane) .details-row.cursor {
@@ -1309,6 +1317,12 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   onRowClick(entry: FileInfo, event: MouseEvent): void {
+    // Pointer selection moves the cursor immediately. The parent receives the
+    // same selection during this event turn, so there is no intermediate frame
+    // where the pane activates with the previous cursor still painted.
+    this.cursorPath = entry.path;
+    this.rebuildVisibleRowVms();
+
     if (this.isParentEntry(entry)) {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);

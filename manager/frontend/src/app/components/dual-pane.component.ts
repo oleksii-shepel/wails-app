@@ -528,7 +528,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
       </div>
 
-      <div class="pane-slot left-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (pointerdown)="activate('left')">
+      <div class="pane-slot left-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (click)="activate('left')">
         <app-pane-host
           #leftPane
           paneId="left"
@@ -566,7 +566,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="divider-grip" aria-hidden="true"></span>
       </div>
 
-      <div class="pane-slot right-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (pointerdown)="activate('right')">
+      <div class="pane-slot right-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (click)="activate('right')">
         <app-pane-host
           #rightPane
           paneId="right"

@@ -2745,73 +2745,90 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (!pane || !entry) return;
 
     try {
-      const info = pane.contextState.isInArchive
+      // The Details workspace is folder-centric: the tree selects a directory
+      // and the inspector describes that directory plus its immediate contents.
+      // Opening Details from a file therefore starts at its containing folder.
+      const folderPath = entry.type === FileType.DIRECTORY
+        ? entry.path
+        : this.parentLocation(entry.path);
+      if (!folderPath) return;
+
+      const folderInfo = pane.contextState.isInArchive
         ? entry
-        : await this.api.getFileInfo(entry.path);
-
-      const timestamp = (value: unknown): string => {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric) || numeric <= 0) return 'вЂ”';
-        return new Date(
-          numeric * (numeric < 10_000_000_000 ? 1000 : 1),
-        ).toLocaleString();
+        : await this.api.getFileInfo(folderPath);
+      const treeNode = {
+        path: folderPath,
+        name: folderInfo.name || folderPath,
+        expanded: true,
+        loaded: false,
+        loading: false,
+        children: [] as any[],
       };
-
-      const size =
-        !pane.contextState.isInArchive && info.type === FileType.DIRECTORY
-          ? await this.api.dirSizeRecursive(info.path)
-          : Number(info.size) || 0;
-
-      const type =
-        info.type === FileType.DIRECTORY
-          ? 'Directory'
-          : info.type === FileType.ARCHIVE
-            ? 'Archive'
-            : info.type === FileType.SYMLINK
-              ? 'Symbolic link'
-              : 'File';
+      const stamp = Date.now();
+      const sourceKind = pane.contextState.activePanelSource.source.kind;
 
       this.workspacePresentation = this.workspaceSurfaces.openToolWorkspace(
-        `Details: ${info.name}`,
-        surfaceLayout(
-          workspaceSurface(
-            `details:${Date.now()}`,
-            'details-workspace',
-            info.name,
-            'primary',
-            {
-              path: info.path,
-              sourceKind: pane.contextState.activePanelSource.source.kind,
-              inArchive: pane.contextState.isInArchive,
-              busy: false,
-              error: '',
-              refreshedAt: new Date().toLocaleTimeString(),
-              items: [
-                { label: 'Name', value: info.name },
-                { label: 'Type', value: type },
-                { label: 'Path', value: info.path },
-                { label: 'Size', value: `${size.toLocaleString()} bytes` },
-                { label: 'Modified', value: timestamp(info.modified) },
-                { label: 'Created', value: timestamp(info.created) },
-                { label: 'Accessed', value: timestamp(info.accessed) },
-                { label: 'Permissions', value: info.permissions || 'вЂ”' },
-                { label: 'Symbolic link', value: info.isSymlink ? 'Yes' : 'No' },
-                { label: 'Source', value: pane.contextState.activePanelSource.source.title },
-              ],
-            },
-            pane.contextState.isInArchive
-              ? [{ id: 'refresh', title: 'Refresh' }]
-              : [
-                  { id: 'refresh', title: 'Refresh' },
-                  { id: 'rename', title: 'Rename', intent: 'primary' },
-                  { id: 'modified-time', title: 'Modified Time' },
-                  { id: 'attributes', title: 'Attributes' },
-                  { id: 'reveal', title: 'Reveal' },
-                ],
+        `Details: ${folderInfo.name || folderPath}`,
+        splitLayout(
+          'horizontal',
+          surfaceLayout(
+            workspaceSurface(
+              `details-tree:${stamp}`,
+              'details-tree',
+              'Folders',
+              'support',
+              {
+                rootPath: folderPath,
+                selectedPath: folderPath,
+                sourceKind,
+                inArchive: pane.contextState.isInArchive,
+                contentMode: 'folders',
+                nodes: [treeNode],
+                busy: false,
+                error: '',
+              },
+            ),
           ),
+          surfaceLayout(
+            workspaceSurface(
+              `details:${stamp}`,
+              'details-workspace',
+              folderInfo.name || folderPath,
+              'primary',
+              {
+                path: folderPath,
+                sourceKind,
+                sourceTitle: pane.contextState.activePanelSource.source.title,
+                inArchive: pane.contextState.isInArchive,
+                busy: false,
+                error: '',
+                sections: [],
+                containment: [],
+                containmentSummary: {},
+              },
+              pane.contextState.isInArchive
+                ? [{ id: 'refresh', title: 'Refresh' }]
+                : [
+                    { id: 'refresh', title: 'Refresh' },
+                    { id: 'rename', title: 'Rename', intent: 'primary' },
+                    { id: 'modified-time', title: 'Modified Time' },
+                    { id: 'attributes', title: 'Attributes' },
+                    { id: 'reveal', title: 'Reveal' },
+                  ],
+            ),
+          ),
+          25,
         ),
       );
 
+      const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
+      const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
+      if (treeSurface && !pane.contextState.isInArchive) {
+        await this.loadDetailsTreeChildren(treeSurface, folderPath, true);
+      }
+      if (detailsSurface) {
+        await this.refreshDetailsWorkspaceSurface(detailsSurface);
+      }
       this.cdr.markForCheck();
     } catch (error) {
       await this.confirmDialog.alert({
@@ -2832,6 +2849,22 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (event.action === 'refresh') {
       await this.refreshWorkspaceSurface(event.surface);
       return;
+    }
+
+    if (event.surface.surfaceId === 'details-tree') {
+      const node = event.payload as { path?: string } | undefined;
+      const path = String(node?.path ?? '');
+      if (!path) return;
+
+      if (event.action === 'select-folder') {
+        await this.selectDetailsTreeFolder(event.surface, path);
+        return;
+      }
+
+      if (event.action === 'toggle-folder') {
+        await this.toggleDetailsTreeFolder(event.surface, path);
+        return;
+      }
     }
 
     const handled = await this.workspaceSurfaceActions.dispatch(
@@ -3025,10 +3058,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const inArchive = surface.state?.['inArchive'] === true;
     if (!path) return;
 
-    this.patchLiveSurface(surface.id, {
-      busy: true,
-      error: '',
-    });
+    this.patchLiveSurface(surface.id, { busy: true, error: '' });
 
     try {
       if (inArchive) {
@@ -3037,46 +3067,85 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         );
       }
 
-      const info = await this.api.getFileInfo(path);
-      const size =
-        info.type === FileType.DIRECTORY
-          ? await this.api.dirSizeRecursive(info.path)
-          : Number(info.size) || 0;
+      const [info, listing, attributes] = await Promise.all([
+        this.api.getFileInfo(path),
+        this.api.listDirectory(path, true),
+        this.api.getPathAttributes(path),
+      ]);
+      const totalSize = info.type === FileType.DIRECTORY
+        ? await this.api.dirSizeRecursive(info.path)
+        : Number(info.size) || 0;
+      const entries = (listing.entries ?? []).filter(entry => entry.name !== '..');
+      const folders = entries.filter(entry => entry.type === FileType.DIRECTORY);
+      const files = entries.filter(entry => entry.type !== FileType.DIRECTORY);
+      const directSize = files.reduce((sum, entry) => sum + (Number(entry.size) || 0), 0);
 
       const timestamp = (value: unknown): string => {
         const numeric = Number(value);
-        if (!Number.isFinite(numeric) || numeric <= 0) return 'вЂ”';
+        if (!Number.isFinite(numeric) || numeric <= 0) return '—';
         return new Date(
           numeric * (numeric < 10_000_000_000 ? 1000 : 1),
         ).toLocaleString();
       };
 
-      const type =
-        info.type === FileType.DIRECTORY
-          ? 'Directory'
-          : info.type === FileType.ARCHIVE
-            ? 'Archive'
-            : info.type === FileType.SYMLINK
-              ? 'Symbolic link'
-              : 'File';
+      const flags = [
+        attributes.readOnly ? 'Read-only' : '',
+        attributes.hidden ? 'Hidden' : '',
+        attributes.system ? 'System' : '',
+        attributes.archive ? 'Archive' : '',
+        info.isSymlink ? 'Symbolic link' : '',
+      ].filter(Boolean);
+
+      const sections = [
+        {
+          title: 'General',
+          items: [
+            { label: 'Name', value: info.name },
+            { label: 'Path', value: info.path },
+            { label: 'Type', value: 'Directory' },
+            { label: 'Total size', value: `${totalSize.toLocaleString()} bytes` },
+            { label: 'Direct file size', value: `${directSize.toLocaleString()} bytes` },
+            { label: 'Source', value: String(surface.state?.['sourceTitle'] ?? surface.state?.['sourceKind'] ?? 'filesystem') },
+          ],
+        },
+        {
+          title: 'Dates',
+          items: [
+            { label: 'Created', value: timestamp(info.created) },
+            { label: 'Modified', value: timestamp(info.modified) },
+            { label: 'Accessed', value: timestamp(info.accessed) },
+          ],
+        },
+        {
+          title: 'Attributes & permissions',
+          items: [
+            { label: 'Permissions', value: attributes.permissions || info.permissions || '—' },
+            { label: 'Unix mode', value: attributes.unixMode ? `0${Number(attributes.unixMode).toString(8)}` : '—' },
+            { label: 'Flags', value: flags.length ? flags.join(', ') : 'None' },
+          ],
+        },
+      ];
 
       this.patchLiveSurface(surface.id, {
         path: info.path,
-        items: [
-          { label: 'Name', value: info.name },
-          { label: 'Type', value: type },
-          { label: 'Path', value: info.path },
-          { label: 'Size', value: `${size.toLocaleString()} bytes` },
-          { label: 'Modified', value: timestamp(info.modified) },
-          { label: 'Created', value: timestamp(info.created) },
-          { label: 'Accessed', value: timestamp(info.accessed) },
-          { label: 'Permissions', value: info.permissions || 'вЂ”' },
-          { label: 'Symbolic link', value: info.isSymlink ? 'Yes' : 'No' },
-          {
-            label: 'Source',
-            value: String(surface.state?.['sourceKind'] ?? 'filesystem'),
-          },
-        ],
+        title: info.name,
+        sections,
+        containment: entries.map(entry => ({
+          name: entry.name,
+          path: entry.path,
+          type: entry.type === FileType.DIRECTORY ? 'Folder' : entry.type === FileType.SYMLINK ? 'Link' : 'File',
+          size: Number(entry.size) || 0,
+          modified: timestamp(entry.modified),
+          isDirectory: entry.type === FileType.DIRECTORY,
+          hidden: !!entry.isHidden,
+        })),
+        containmentSummary: {
+          folders: folders.length,
+          files: files.length,
+          items: entries.length,
+          directSize,
+          totalSize,
+        },
         busy: false,
         error: '',
         refreshedAt: new Date().toLocaleTimeString(),
@@ -3087,6 +3156,103 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private async selectDetailsTreeFolder(
+    treeSurface: WorkspaceSurface,
+    path: string,
+  ): Promise<void> {
+    this.patchLiveSurface(treeSurface.id, { selectedPath: path, error: '' });
+    const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
+    if (!detailsSurface) return;
+    this.patchLiveSurface(detailsSurface.id, { path, error: '' });
+    await this.refreshDetailsWorkspaceSurface(
+      this.findWorkspaceSurfaceByKind('details-workspace') ?? detailsSurface,
+    );
+  }
+
+  private async toggleDetailsTreeFolder(
+    treeSurface: WorkspaceSurface,
+    path: string,
+  ): Promise<void> {
+    const nodes = this.cloneDetailsTreeNodes(treeSurface.state?.['nodes']);
+    const node = this.findDetailsTreeNode(nodes, path);
+    if (!node) return;
+
+    node.expanded = !node.expanded;
+    this.patchLiveSurface(treeSurface.id, { nodes });
+    if (node.expanded && !node.loaded && !node.loading) {
+      await this.loadDetailsTreeChildren(
+        this.findWorkspaceSurfaceByKind('details-tree') ?? treeSurface,
+        path,
+        false,
+      );
+    }
+  }
+
+  private async loadDetailsTreeChildren(
+    treeSurface: WorkspaceSurface,
+    path: string,
+    keepExpanded: boolean,
+  ): Promise<void> {
+    let nodes = this.cloneDetailsTreeNodes(treeSurface.state?.['nodes']);
+    let node = this.findDetailsTreeNode(nodes, path);
+    if (!node) return;
+    node.loading = true;
+    if (keepExpanded) node.expanded = true;
+    this.patchLiveSurface(treeSurface.id, { nodes, busy: true, error: '' });
+
+    try {
+      const listing = await this.api.listDirectory(path, true);
+      const children = (listing.entries ?? [])
+        .filter(entry => entry.type === FileType.DIRECTORY && entry.name !== '..')
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        .map(entry => ({
+          path: entry.path,
+          name: entry.name,
+          expanded: false,
+          loaded: false,
+          loading: false,
+          children: [] as any[],
+        }));
+
+      const current = this.findWorkspaceSurfaceByKind('details-tree') ?? treeSurface;
+      nodes = this.cloneDetailsTreeNodes(current.state?.['nodes']);
+      node = this.findDetailsTreeNode(nodes, path);
+      if (!node) return;
+      node.children = children;
+      node.loaded = true;
+      node.loading = false;
+      if (keepExpanded) node.expanded = true;
+      this.patchLiveSurface(current.id, { nodes, busy: false, error: '' });
+    } catch (error) {
+      const current = this.findWorkspaceSurfaceByKind('details-tree') ?? treeSurface;
+      nodes = this.cloneDetailsTreeNodes(current.state?.['nodes']);
+      node = this.findDetailsTreeNode(nodes, path);
+      if (node) node.loading = false;
+      this.patchLiveSurface(current.id, {
+        nodes,
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private cloneDetailsTreeNodes(value: unknown): any[] {
+    if (!Array.isArray(value)) return [];
+    return value.map(node => ({
+      ...node,
+      children: this.cloneDetailsTreeNodes(node?.children),
+    }));
+  }
+
+  private findDetailsTreeNode(nodes: any[], path: string): any | null {
+    for (const node of nodes) {
+      if (node?.path === path) return node;
+      const nested = this.findDetailsTreeNode(Array.isArray(node?.children) ? node.children : [], path);
+      if (nested) return nested;
+    }
+    return null;
   }
 
   private patchLiveSurface(

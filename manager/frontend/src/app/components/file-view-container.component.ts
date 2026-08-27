@@ -1,6 +1,3 @@
-ypescript
-// file-view-container.component.ts
-
 import {
   Component, Input, Output, EventEmitter,
   ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges, AfterViewInit,

@@ -99,6 +99,7 @@ interface TreeRow {
   expandable: boolean;
 }
 
+type TreeContentMode = 'all' | 'folders';
 
 type Tab =
   | {
@@ -382,6 +383,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
           <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
         </div>
+        <div *ngIf="viewMode === 'tree'" class="tree-mode-switch" role="group" aria-label="Tree contents">
+          <button type="button" [class.active]="treeContentMode === 'all'" [attr.aria-pressed]="treeContentMode === 'all'" (click)="setTreeContentMode('all')">All</button>
+          <button type="button" [class.active]="treeContentMode === 'folders'" [attr.aria-pressed]="treeContentMode === 'folders'" (click)="setTreeContentMode('folders')">Folders</button>
+        </div>
 
         <span class="action-separator"></span>
 
@@ -465,7 +470,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [attr.aria-selected]="selectedPaths.has(row.entry.path)"
           [attr.aria-current]="cursorPath === row.entry.path ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(row.entry)"
-          [style.padding-left.px]="8 + row.depth * 18"
+          [style.padding-left.px]="6 + row.depth * 14"
           (click)="selectFromPointer(row.entry, $event)"
           (dblclick)="onTreeDoubleClick(row)"
           (contextmenu)="onEntryContextMenu(row.entry, $event)"
@@ -1046,6 +1051,25 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
+    .tree-mode-switch {
+      display: flex;
+      gap: 2px;
+      flex: 0 0 auto;
+      padding-left: 2px;
+      border-left: 1px solid var(--vsc-border, var(--vsc-control-background));
+    }
+
+    .tree-mode-switch button {
+      min-height: 22px;
+      padding: 1px 6px;
+      font-size: 10px;
+    }
+
+    .tree-mode-switch button.active {
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+    }
+
     .action-bar .danger:not(:disabled) {
       color: var(--vsc-error-foreground, var(--vsc-error));
     }
@@ -1059,7 +1083,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
-      padding: 4px 0;
+      padding: 4px;
       background: var(--vsc-editor-background, var(--vsc-editor-background));
     
       overscroll-behavior: none;
@@ -1092,15 +1116,17 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tree-row {
       display: grid;
-      grid-template-columns: 18px 24px minmax(0, 1fr) auto;
+      grid-template-columns: 16px 20px minmax(0, 1fr) auto;
 
       align-items: center;
+      box-sizing: border-box;
       width: 100%;
       min-height: 27px;
-      padding-top: 2px;
-      padding-right: 8px;
-      padding-bottom: 2px;
+      padding-top: 1px;
+      padding-right: 6px;
+      padding-bottom: 1px;
       border: 0;
+      border-radius: 3px;
       background: transparent;
       color: inherit;
       text-align: left;
@@ -1120,19 +1146,23 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .tree-row.cursor {
-      outline: 1px solid color-mix(
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+      background: color-mix(
         in srgb,
-        var(--vsc-focus-border, var(--vsc-accent-blue)) 60%,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
         transparent
       );
-      outline-offset: -1px;
+    }
+
+    .tree-row.cursor.selected {
+      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
     }
 
     .tree-expander {
       display: grid;
       place-items: center;
-      width: 18px;
-      height: 22px;
+      width: 16px;
+      height: 20px;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       cursor: pointer;
       user-select: none;
@@ -1404,9 +1434,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .pane:not(.active-pane) .tree-row.cursor {
-      outline-color: color-mix(
+      box-shadow: inset 2px 0 0 color-mix(
         in srgb,
-        var(--vsc-foreground-dim, var(--vsc-border-bright)) 48%,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
       );
     }
@@ -1430,9 +1460,21 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .pane.active-pane .tree-row.cursor {
-      outline: 1px solid var(--vsc-accent-blue, var(--vsc-focus-border));
-      outline-offset: -1px;
-      box-shadow: inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    .pane.active-pane .tree-row.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
     }
 
     .icon {
@@ -1849,6 +1891,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   driveFileSystem = '';
 
   viewMode: DirectoryView = 'list';
+  treeContentMode: TreeContentMode = 'all';
   sortField: SortField = 'name';
   sortDirection: SortDirection = 'asc';
   directoriesFirst = true;
@@ -2591,6 +2634,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     const append = (entries: FileInfo[], depth: number): void => {
       for (const entry of entries) {
+        if (this.treeContentMode === 'folders' && entry.type !== FileType.DIRECTORY) {
+          continue;
+        }
         const expandable = entry.type === FileType.DIRECTORY;
         const expanded = expandable && this.treeExpandedPaths.has(entry.path);
         rows.push({
@@ -3614,6 +3660,32 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  setTreeContentMode(mode: TreeContentMode): void {
+    if (this.treeContentMode === mode) return;
+    this.treeContentMode = mode;
+    this.treeExpandedPaths.clear();
+    this.treeChildren.clear();
+    this.treeLoadingPaths.clear();
+    this.invalidateTreeRows();
+
+    if (mode === 'folders') {
+      // Hidden selections must not remain active operation targets when their
+      // rows disappear from the tree. Keep the tree mode self-contained.
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+      const firstFolder = this.entriesWithoutPresentationParent(this.visibleEntries)
+        .find(entry => entry.type === FileType.DIRECTORY);
+      this.cursorPath = firstFolder?.path ?? null;
+      this.cursorChange.emit(firstFolder ?? null);
+    }
+
+    this.resetVirtualViewport();
+    this.syncActiveDirSessionState();
+    this.lastAction = `tree contents: ${mode}`;
+    queueMicrotask(() => this.ensureCursorVisible());
+    this.cdr.markForCheck();
+  }
+
   formatModified(value: unknown): string {
     const numeric = Number(value);
     if (!Number.isFinite(numeric) || numeric <= 0) return '';
@@ -3667,7 +3739,12 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         row.entry.path,
         this.showHidden,
       );
-      const children = this.sortEntries([...(listing.entries ?? [])]);
+      const loaded = [...(listing.entries ?? [])];
+      const children = this.sortEntries(
+        this.treeContentMode === 'folders'
+          ? loaded.filter(entry => entry.type === FileType.DIRECTORY)
+          : loaded,
+      );
       this.treeChildren.set(row.entry.path, children);
       this.invalidateTreeRows();
     } catch (error) {

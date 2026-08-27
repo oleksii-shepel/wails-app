@@ -1047,8 +1047,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tree-row {
       display: grid;
-      grid-template-columns: 18px 24px minmax(0, 1fr) auto;
-
       align-items: center;
       width: 100%;
       min-height: 27px;
@@ -1581,6 +1579,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       width: 100%;
       min-width: 100%;
     }
+
 
     /*
      * Details is one solid horizontal surface: the header and every row share

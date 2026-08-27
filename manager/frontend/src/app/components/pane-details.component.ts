@@ -309,7 +309,7 @@ interface DetailsRowVm {
       display: grid;
       align-items: center;
       grid-auto-flow: column;
-      height: 24px;
+      height: 44px;
       padding: 0 var(--vsc-padding-md);
       border-bottom: 0;
       flex-shrink: 0;
@@ -406,9 +406,8 @@ interface DetailsRowVm {
       
       &.header-cell {
         position: relative;
-        min-height: 28px;
         font-size: 10px;
-        line-height: 14px;
+        line-height: normal;
         font-weight: 600;
         &.sortable {
           cursor: pointer;
@@ -454,14 +453,10 @@ interface DetailsRowVm {
       }
       
       .header-label {
-        display: flex;
-        align-items: center;
-        min-width: 0;
-        height: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
-        margin-left: var(--vsc-padding-sm);
-        margin-right: var(--vsc-padding-sm);
+        margin-left: var(--vsc-padding-lg);
+        margin-right: var(--vsc-padding-lg);
         white-space: nowrap;
       }
       
@@ -639,8 +634,8 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Output() viewportChange = new EventEmitter<void>();
 
   private readonly VIRTUAL_THRESHOLD = 100;
-  private readonly DEFAULT_ROW_HEIGHT = 24;
-  rowHeight = 24;
+  private readonly DEFAULT_ROW_HEIGHT = 44;
+  rowHeight = 44;
   private readonly overscan = 64;
   private readonly windowGuardRows = 24;
   private scrollRAF: number | null = null;

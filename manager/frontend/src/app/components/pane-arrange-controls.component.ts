@@ -25,7 +25,7 @@ export interface PaneSortChange {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-dropdown-container [(isOpen)]="menuOpen">
+    <app-dropdown-container [(isOpen)]="menuOpen" [backdrop]="false">
       <button
         appDropdownTrigger
         type="button"
@@ -128,7 +128,8 @@ export interface PaneSortChange {
       padding: var(--vsc-padding-xs) 0;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
-      background: var(--vsc-input-background);
+      background: var(--vsc-menu-background, var(--vsc-input-background));
+      color: var(--vsc-menu-foreground, var(--vsc-foreground));
       box-shadow: var(--vsc-widget-shadow);
     }
 

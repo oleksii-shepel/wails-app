@@ -18,7 +18,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
 
       <!-- Backdrop - captures clicks outside the menu -->
       <div 
-        *ngIf="isOpen" 
+        *ngIf="isOpen && backdrop" 
         class="dropdown-backdrop" 
         (click)="onBackdropClick($event)"
         aria-hidden="true">
@@ -66,6 +66,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
 })
 export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() isOpen = false;
+  @Input() backdrop = true;
   /** Fallback anchor for when the trigger element is outside the container (e.g. right-click menus). */
   @Input() anchorEl: HTMLElement | null = null;
   @Output() isOpenChange = new EventEmitter<boolean>();
@@ -141,17 +142,52 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnD
     const menuH = wrapperEl.offsetHeight || 100;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    let left = rect.left;
-    let top  = rect.bottom + 4;
-    if (left + menuW > vw) left = Math.max(0, vw - menuW - 8);
-    if (top  + menuH > vh) top  = Math.max(0, rect.top - menuH - 4);
-    if (left < 0) left = 8;
+
+    // First solve placement in viewport coordinates.
+    let viewportLeft = rect.left;
+    let viewportTop  = rect.bottom + 4;
+    if (viewportLeft + menuW > vw) viewportLeft = Math.max(8, vw - menuW - 8);
+    if (viewportTop + menuH > vh) viewportTop = Math.max(8, rect.top - menuH - 4);
+
+    /*
+     * A fixed-position element can be captured by an ancestor containing block
+     * (e.g. contain: layout/paint or transform). In that case CSS left/top are
+     * local to that ancestor even though getBoundingClientRect() is viewport
+     * based. Convert viewport coordinates to the actual fixed containing block
+     * so right-pane dropdowns do not get the pane offset applied twice.
+     */
+    const containingBlock = this.fixedContainingBlock(wrapperEl);
+    const containingRect = containingBlock?.getBoundingClientRect();
+    const localLeft = viewportLeft - (containingRect?.left ?? 0);
+    const localTop = viewportTop - (containingRect?.top ?? 0);
+
     wrapperEl.style.position = 'fixed';
-    wrapperEl.style.left     = `${Math.round(left)}px`;
-    wrapperEl.style.top      = `${Math.round(top)}px`;
+    wrapperEl.style.left     = `${Math.round(localLeft)}px`;
+    wrapperEl.style.top      = `${Math.round(localTop)}px`;
     wrapperEl.style.zIndex   = getComputedStyle(document.documentElement)
       .getPropertyValue('--vsc-z-dropdown')
       .trim() || '1000';
+  }
+
+  private fixedContainingBlock(element: HTMLElement): HTMLElement | null {
+    let parent = element.parentElement;
+    while (parent && parent !== document.documentElement) {
+      const style = getComputedStyle(parent);
+      const contain = style.contain || '';
+      const hasFixedContainingBlock =
+        style.transform !== 'none' ||
+        style.perspective !== 'none' ||
+        style.filter !== 'none' ||
+        style.backdropFilter !== 'none' ||
+        contain.includes('layout') ||
+        contain.includes('paint') ||
+        contain.includes('strict') ||
+        contain.includes('content');
+
+      if (hasFixedContainingBlock) return parent;
+      parent = parent.parentElement;
+    }
+    return null;
   }
 
   private syncOverlayFreeze(): void {

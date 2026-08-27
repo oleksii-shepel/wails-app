@@ -614,7 +614,6 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     prefetchGuardRatio: 0.20,
   });
   private visibleEntriesCache: FileInfo[] = [];
-  private pathToEntryIndex = new Map<string, number>();
   activeColumnVms: DetailsColumnVm[] = [];
   visibleRowVms: DetailsRowVm[] = [];
   private resolvedActiveColumns: PaneDetailsColumn[] = [];
@@ -676,7 +675,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const host = this.detailsBodyRef?.nativeElement;
     if (!host) return;
     if (this.virtualEnabled) {
-      const idx = this.pathToEntryIndex.get(path) ?? -1;
+      const idx = this.findEntryIndex(path);
       if (idx >= 0) {
         const itemTop = idx * this.rowHeight;
         const itemBottom = itemTop + this.rowHeight;
@@ -735,7 +734,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const host = this.detailsBodyRef?.nativeElement;
     if (host) {
       if (this.virtualEnabled) {
-        const idx = this.pathToEntryIndex.get(path) ?? -1;
+        const idx = this.findEntryIndex(path);
         if (idx >= 0) {
           const targetTop = idx * this.rowHeight;
           const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
@@ -951,7 +950,6 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       columns: 1,
     });
     this.virtualCollection.setLogicalCount(this.entries.length);
-    this.virtualCollection.populate(0, this.entries, this.entries.length);
 
     const changed = this.virtualCollection.updateViewport({
       scrollTop,
@@ -964,6 +962,18 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.virtualEnd = window.end;
 
     if (changed || forceRebuild) {
+      // Critical: never populate VirtualCollection with the whole directory.
+      // populate() builds an identity index for every resident item, so doing
+      // that from the scroll path turned Details into O(total entries) work per
+      // window update and starved the sibling pane's input/rendering.
+      const resident = window.enabled
+        ? this.entries.slice(window.start, window.end)
+        : this.entries;
+      this.virtualCollection.populate(
+        window.enabled ? window.start : 0,
+        resident,
+        this.entries.length,
+      );
       this.rebuildVisibleEntries();
     }
     return changed || forceRebuild;
@@ -984,23 +994,25 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   private rebuildDerivedEntries(): void {
-    this.pathToEntryIndex.clear();
-    const pathSet = new Set<string>();
-    this.entries.forEach((entry, index) => {
-      this.pathToEntryIndex.set(entry.path, index);
-      pathSet.add(entry.path);
-    });
-    for (const key of this.rowVmCache.keys()) {
-      if (!pathSet.has(key)) {
-        this.rowVmCache.delete(key);
-      }
-    }
+    // Entries are immutable snapshots from the pane host. Avoid eagerly indexing
+    // the entire directory just to mount Details: large listings share the same
+    // renderer thread as the sibling pane.
+    //
+    // Row VMs are only meaningful for the currently materialized window, so a
+    // source refresh can cheaply discard them instead of scanning the full
+    // collection to prune individual stale keys.
+    this.rowVmCache.clear();
     this.rebuildVisibleEntries();
+  }
+
+  private findEntryIndex(path: string): number {
+    if (!path) return -1;
+    return this.entries.findIndex(entry => entry.path === path);
   }
 
   private rebuildVisibleEntries(): void {
     this.visibleEntriesCache = this.virtualEnabled
-      ? this.entries.slice(this.virtualStart, this.virtualEnd)
+      ? Array.from(this.virtualCollection.renderedItems())
       : this.entries;
     this.rebuildVisibleRowVms();
   }

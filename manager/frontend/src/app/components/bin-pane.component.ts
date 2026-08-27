@@ -2145,7 +2145,23 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
-  @Input() active = false;
+
+  private _active = false;
+
+  @Input()
+  set active(value: boolean) {
+    const next = !!value;
+    const wasActive = this._active;
+    this._active = next;
+
+    if (wasActive && !next) {
+      this.onPaneDeactivated();
+    }
+  }
+
+  get active(): boolean {
+    return this._active;
+  }
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
@@ -5085,6 +5101,18 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
     this.focusContent();
     this.entryContextMenu.emit({ event, entry });
+  }
+
+  private onPaneDeactivated(): void {
+    // A lone selected row is only the current cursor position. Keep cursorPath
+    // for navigation continuity, but only real multi-selection survives pane
+    // deactivation and is rendered with the inactive-selection color.
+    if (this.selectedPaths.size <= 1) {
+      this.selectedPaths = new Set<string>();
+      this.anchorPath = null;
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+    }
   }
 
   private pointerActivationPending = false;

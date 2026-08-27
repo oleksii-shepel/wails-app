@@ -38,6 +38,8 @@ export interface TreeNode extends FileInfo {
   editingName?: string;
 }
 
+export type TreeContentMode = 'all' | 'folders';
+
 export interface DropTarget {
   node: TreeNode;
   position: 'before' | 'after' | 'inside';
@@ -219,10 +221,14 @@ export interface DropTarget {
       will-change: transform;
     }
 
-    .file-tree-container.focused .tree-node.selected {
-      outline: none;
-      background-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 26%, var(--vsc-list-focus-background, var(--vsc-list-active-background)) 74%);
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+    .file-tree-container.focused .tree-node.focused-node {
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
     }
 
     .tree-node-wrapper { 
@@ -232,27 +238,42 @@ export interface DropTarget {
     .tree-node {
       display: flex;
       align-items: center;
-      height: 22px;
-      cursor: pointer;
+      min-height: 27px;
+      margin: 0 4px;
+      padding-right: 6px;
+      border-radius: 3px;
+      cursor: default;
       white-space: nowrap;
       position: relative;
       contain: layout style paint;
     }
 
     .tree-node.selected {
-      background-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 18%, var(--vsc-list-active-background) 82%);
-      color: var(--vsc-list-active-foreground, var(--vsc-foreground-bright));
-      box-shadow: inset 2px 0 0 color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 82%, white 18%);
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+    }
+
+    .tree-node.focused-node {
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+        transparent
+      );
+    }
+
+    .tree-node.focused-node.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
     }
 
     .tree-node:hover:not(.selected) {
       background-color: var(--vsc-list-hover-background);
     }
 
-    .tree-node.focused-node:not(.selected) {
-      outline: 1px dotted var(--vsc-focus-border);
-      outline-offset: -1px;
-    }
 
     .tree-node.dragging-node {
       opacity: 0.5;
@@ -291,8 +312,8 @@ export interface DropTarget {
     .indent-guide {
       display: inline-flex;
       flex-shrink: 0;
-      width: 20px;
-      height: 22px;
+      width: 16px;
+      height: 20px;
       position: relative;
     }
 
@@ -435,6 +456,7 @@ export interface DropTarget {
 })
 export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() nodes: TreeNode[] = [];
+  @Input() contentMode: TreeContentMode = 'all';
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() currentPath = '';
   @Input() paneActive = true;

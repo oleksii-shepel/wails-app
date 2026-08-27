@@ -1,3 +1,4 @@
+ypescript
 // file-view-container.component.ts
 
 import {
@@ -9,7 +10,7 @@ import { createSubject, fromPromise } from '@epikodelabs/streamix';
 import { mergeMap, takeUntil } from '@epikodelabs/streamix';
 import { PaneListComponent } from './pane-list.component';
 import { PaneGridComponent } from './pane-grid.component';
-import { PaneTreeComponent, TreeNode, DropTarget } from './pane-tree.component';
+import { PaneTreeComponent, TreeNode, DropTarget, type TreeContentMode } from './pane-tree.component';
 import {
   PaneDetailsComponent,
   type PaneDetailsColumnConfiguration,
@@ -113,6 +114,7 @@ export type ViewLayout = ViewMode;
           #fileTree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
+          [contentMode]="treeContentMode"
           [pendingDirectorySizePaths]="pendingDirectorySizePaths"
           [currentPath]="currentPath"
           [colorizeByMime]="colorizeByMime"
@@ -251,6 +253,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Input() cursorPath: string | null = null;
   @Input() error: string | null = null;
   @Input() currentView: ViewLayout = 'list';
+  @Input() treeContentMode: TreeContentMode = 'all';
   @Input() singleClickToOpen = false;
   @Input() sortField     = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
@@ -316,6 +319,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
       get currentPath() { return thisRef.currentPath; },
       get currentView() { return thisRef.currentView; },
       get showHidden() { return thisRef.showHidden; },
+      get treeContentMode() { return thisRef.treeContentMode; },
       get entries() { return thisRef.entries; },
       get treeNodes() { return thisRef.treeNodes; },
       set treeNodes(value: TreeNode[]) { thisRef.treeNodes = value; },
@@ -461,6 +465,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     }
     if (changes['entries']) {
       this.lastTreeRefreshPath = null;
+    }
+    if (changes['treeContentMode']) {
+      this.treeController.reset();
+      this.treeNodes = [];
     }
     this.lifecycleController.onChanges(this.lifecycleHost, changes);
   }

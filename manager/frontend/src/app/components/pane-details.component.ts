@@ -94,14 +94,12 @@ interface DetailsRowVm {
   template: `
     <div #detailsRoot class="file-details" role="table" data-pane-details-root>
       <div class="details-header" role="rowgroup">
-        <div class="details-row header-row" role="row">
+        <div class="details-row header-row" role="row" [style.grid-template-columns]="columnGridTemplate">
           <div 
             *ngFor="let col of activeColumnVms; let i = index; trackBy: trackByColumnKey"
             class="details-cell header-cell"
             [attr.data-col]="col.key"
             [class.sortable]="col.column.sortable"
-            [style.width]="col.widthVar"
-            [style.flex]="col.flex"
             [attr.role]="'columnheader'"
             [attr.aria-sort]="getSortState(col.column.field)"
             (click)="col.column.sortable && onSort(col.column.field)">
@@ -145,6 +143,7 @@ interface DetailsRowVm {
           <div 
             *ngFor="let row of visibleRowVms; trackBy: trackByRowPath"
             class="details-row"
+            [style.grid-template-columns]="columnGridTemplate"
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="row.selected"
@@ -170,8 +169,6 @@ interface DetailsRowVm {
             <div 
               *ngFor="let cell of row.cells; trackBy: trackByCellKey"
               class="details-cell"
-              [style.width]="cell.widthVar"
-              [style.flex]="cell.flex"
               [attr.role]="'cell'">
               
               <ng-container *ngIf="cell.isName">
@@ -270,7 +267,6 @@ interface DetailsRowVm {
 
     .details-header {
       flex-shrink: 0;
-      padding: 0 var(--vsc-padding-sm);
       background: var(--vsc-tabbar-background);
       border-bottom: 1px solid var(--vsc-border);
     }
@@ -284,7 +280,7 @@ interface DetailsRowVm {
     }
 
     :host-context(.pane:not(.active-pane)) .details-row.cursor {
-      border-left-color: color-mix(
+      box-shadow: inset 2px 0 0 color-mix(
         in srgb,
         var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
@@ -292,61 +288,68 @@ interface DetailsRowVm {
     }
 
     :host-context(.pane.active-pane) .details-row.cursor {
-      border-left-color: var(--vsc-accent-blue, var(--vsc-focus-border));
+      box-shadow:
+        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    :host-context(.pane.active-pane) .details-row.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
     }
 
     .details-row {
-      display: flex;
+      display: grid;
       align-items: center;
-      min-height: 28px;
-      height: 28px;
+      grid-auto-flow: column;
+      height: 24px;
       padding: 0 var(--vsc-padding-md);
-      border: 0;
-      border-left: 3px solid transparent;
-      border-radius: var(--vsc-border-radius-sm);
+      border-bottom: 0;
       flex-shrink: 0;
       contain: layout style;
       position: relative;
-      transition:
-        background-color var(--vsc-transition-fast),
-        border-color var(--vsc-transition-fast),
-        color var(--vsc-transition-fast);
-
+      
       &.header-row {
-        min-height: 24px;
-        height: 24px;
-        border-left-color: transparent;
-        border-radius: 0;
+        height: 28px;
         font-weight: 600;
         color: var(--vsc-foreground-dim);
       }
-
+      
       &:not(.header-row) {
+        border-radius: 3px;
         cursor: pointer;
         user-select: none;
-
+        
         &:hover {
           background: var(--vsc-list-hover-background);
-          color: var(--vsc-foreground);
-          border-left-color: var(--vsc-border-bright);
         }
-
+        
         &.selected {
           background: var(--vsc-list-active-background);
-          color: var(--vsc-list-active-foreground);
-          border-left-color: var(--vsc-accent-blue);
+          color: var(--vsc-foreground-bright);
         }
-
+        
+        /* Same cursor language as List view: subtle hover fill + left accent. */
         &.cursor:not(.selected) {
-          background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
-          border-left-color: var(--vsc-accent-blue);
-          box-shadow: none;
+          background: color-mix(
+            in srgb,
+            var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+            transparent
+          );
+          box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
         }
-
+        
         &.cursor.selected {
           outline: none;
         }
-
+        
         &.parent-dir {
           opacity: 0.7;
           
@@ -388,20 +391,24 @@ interface DetailsRowVm {
     }
 
     .details-cell {
+      box-sizing: border-box;
       display: flex;
       position: relative;
       align-items: center;
+      width: 100%;
+      min-width: 0;
+      height: 100%;
       padding: 0 var(--vsc-padding-sm);
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
       font-size: var(--vsc-font-size);
-      line-height: 1.4;
       
       &.header-cell {
         position: relative;
+        min-height: 28px;
         font-size: 10px;
-        line-height: 1.35;
+        line-height: 14px;
         font-weight: 600;
         &.sortable {
           cursor: pointer;
@@ -447,14 +454,15 @@ interface DetailsRowVm {
       }
       
       .header-label {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        min-height: 14px;
-        line-height: 1.35;
+        min-width: 0;
+        height: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
-        margin-left: var(--vsc-padding-lg);
-        margin-right: var(--vsc-padding-lg);
+        margin-left: var(--vsc-padding-sm);
+        margin-right: var(--vsc-padding-sm);
+        white-space: nowrap;
       }
       
       .sort-indicator {
@@ -480,10 +488,10 @@ interface DetailsRowVm {
       min-width: 0;
       min-height: 0;
       position: relative;
+      padding: 0;
+      margin: 0;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: var(--vsc-padding-sm);
-      background: var(--vsc-editor-background);
       contain: layout paint;
     }
     
@@ -492,11 +500,18 @@ interface DetailsRowVm {
       pointer-events: none;
     }
     
+    .details-window {
+      margin: 0;
+      padding: 0;
+    }
+
     .details-window.virtual-window {
       position: absolute;
       left: 0;
       right: 0;
       top: 0;
+      margin: 0;
+      padding: 0;
       will-change: transform;
     }
 
@@ -824,6 +839,24 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   get activeColumns(): PaneDetailsColumn[] {
     return this.resolvedActiveColumns;
+  }
+
+  /**
+   * Header and body rows must resolve from one grid definition. Flexbox can
+   * distribute mixed fixed/flexible cells differently once intrinsic content
+   * and padding are involved, which makes header dividers drift from body cells.
+   */
+  get columnGridTemplate(): string {
+    return this.activeColumnVms
+      .map(vm => {
+        if (vm.widthVar) {
+          return vm.widthVar;
+        }
+        const weight = Number(vm.column.flex);
+        const fr = Number.isFinite(weight) && weight > 0 ? weight : 1;
+        return `minmax(${Math.max(1, vm.minWidth)}px, ${fr}fr)`;
+      })
+      .join(' ');
   }
 
   getColumnKey(col: PaneDetailsColumn): string {

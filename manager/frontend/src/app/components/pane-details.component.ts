@@ -270,6 +270,7 @@ interface DetailsRowVm {
 
     .details-header {
       flex-shrink: 0;
+      padding: 0 var(--vsc-padding-sm);
       background: var(--vsc-tabbar-background);
       border-bottom: 1px solid var(--vsc-border);
     }
@@ -283,7 +284,7 @@ interface DetailsRowVm {
     }
 
     :host-context(.pane:not(.active-pane)) .details-row.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
+      border-left-color: color-mix(
         in srgb,
         var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
@@ -291,55 +292,61 @@ interface DetailsRowVm {
     }
 
     :host-context(.pane.active-pane) .details-row.cursor {
-      box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
-        inset 0 0 0 1px color-mix(
-          in srgb,
-          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
-          transparent
-        );
+      border-left-color: var(--vsc-accent-blue, var(--vsc-focus-border));
     }
 
     .details-row {
       display: flex;
       align-items: center;
-      height: 24px;
+      min-height: 28px;
+      height: 28px;
       padding: 0 var(--vsc-padding-md);
-      border-bottom: 1px solid transparent;
+      border: 0;
+      border-left: 3px solid transparent;
+      border-radius: var(--vsc-border-radius-sm);
       flex-shrink: 0;
       contain: layout style;
       position: relative;
-      
+      transition:
+        background-color var(--vsc-transition-fast),
+        border-color var(--vsc-transition-fast),
+        color var(--vsc-transition-fast);
+
       &.header-row {
-        height: 28px;
+        min-height: 24px;
+        height: 24px;
+        border-left-color: transparent;
+        border-radius: 0;
         font-weight: 600;
         color: var(--vsc-foreground-dim);
       }
-      
+
       &:not(.header-row) {
         cursor: pointer;
         user-select: none;
-        
+
         &:hover {
           background: var(--vsc-list-hover-background);
+          color: var(--vsc-foreground);
+          border-left-color: var(--vsc-border-bright);
         }
-        
+
         &.selected {
           background: var(--vsc-list-active-background);
-          color: var(--vsc-foreground-bright);
+          color: var(--vsc-list-active-foreground);
+          border-left-color: var(--vsc-accent-blue);
         }
-        
-        /* TC cursor indicator */
+
         &.cursor:not(.selected) {
           background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
-          /* Use inset shadow so cursor highlight never shifts layout. */
-          box-shadow: inset 2px 0 0 0 var(--vsc-accent-blue);
+          border-left-color: var(--vsc-accent-blue);
+          box-shadow: none;
         }
-        
+
         &.cursor.selected {
           outline: none;
         }
-        
+
         &.parent-dir {
           opacity: 0.7;
           
@@ -389,6 +396,7 @@ interface DetailsRowVm {
       white-space: nowrap;
       text-overflow: ellipsis;
       font-size: var(--vsc-font-size);
+      line-height: 1.4;
       
       &.header-cell {
         position: relative;
@@ -470,6 +478,8 @@ interface DetailsRowVm {
       position: relative;
       overflow-y: auto;
       overflow-x: hidden;
+      padding: var(--vsc-padding-sm);
+      background: var(--vsc-editor-background);
       contain: layout paint;
     }
     

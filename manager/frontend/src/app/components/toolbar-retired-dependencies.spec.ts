@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 
 const files = [
   './directory-pane.component.ts',
-  './dir-surface.component.ts',
-  './file-view-container.component.ts',
+  './pane-view-host.component.ts',
 ];
 
 describe('retired toolbar dependencies', () => {

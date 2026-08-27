@@ -3,7 +3,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
 import { parentPath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import type { TreeNode, DropTarget } from './pane-tree.component';
-import type { ViewLayout } from './file-view-container.component';
+import type { ViewLayout } from './pane-view-host.component';
 
 export interface FileViewInteractionHost {
   get paneId(): 'left' | 'right';

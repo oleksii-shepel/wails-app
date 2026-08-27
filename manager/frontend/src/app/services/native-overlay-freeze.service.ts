@@ -7,7 +7,7 @@ import { Injectable } from '@angular/core';
  * pane (dialogs, dropdowns, filter widgets, etc.) should acquire a freeze
  * before showing and release it on close.  While at least one freeze is
  * held the body gets a `native-overlay-frozen` class which tells
- * `FileViewContainerComponent` to replace the live overlay with a canvas
+ * `PaneViewHostComponent` to replace the live overlay with a canvas
  * screenshot.
  */
 @Injectable({ providedIn: 'root' })

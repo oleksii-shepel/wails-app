@@ -6,6 +6,8 @@ import {
   Output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { PaneViewHostComponent } from './pane-view-host.component';
+import type { FileInfo } from '../shared/protocol';
 
 import type {
   WorkspaceLayout,
@@ -17,7 +19,7 @@ import type {
 @Component({
   selector: 'app-tool-workspace-host',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, PaneViewHostComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -92,33 +94,6 @@ import type {
           </ng-container>
         </ng-template>
       </ng-template>
-    </ng-template>
-
-    <ng-template #detailsTreeNodes let-nodes="nodes" let-surface="surface" let-depth="depth">
-      <ng-container *ngFor="let node of nodes; trackBy: trackTreeNode">
-        <div
-          class="details-tree-row"
-          [class.cursor]="text(surface, 'selectedPath') === node.path"
-          [style.--tree-depth]="depth"
-          [attr.aria-current]="text(surface, 'selectedPath') === node.path ? 'true' : null"
-          (click)="emitNamedAction(surface, 'select-folder', node)">
-          <button
-            type="button"
-            class="tree-expander"
-            [class.placeholder]="node.loaded && (!node.children || node.children.length === 0)"
-            [attr.aria-label]="node.expanded ? 'Collapse folder' : 'Expand folder'"
-            (click)="emitNamedAction(surface, 'toggle-folder', node); $event.stopPropagation()">
-            {{ node.loading ? '…' : node.expanded ? '▾' : '▸' }}
-          </button>
-          <span class="tree-folder-icon">📁</span>
-          <span class="tree-folder-name" [title]="node.path">{{ node.name }}</span>
-        </div>
-        <ng-container *ngIf="node.expanded && node.children?.length">
-          <ng-container
-            *ngTemplateOutlet="detailsTreeNodes; context: { nodes: node.children, surface: surface, depth: depth + 1 }">
-          </ng-container>
-        </ng-container>
-      </ng-container>
     </ng-template>
 
     <ng-template #renderSurface let-surface>
@@ -229,55 +204,41 @@ import type {
             </div>
           </section>
 
-          <section *ngSwitchCase="'details-tree'" class="details-tree-surface">
-            <ng-container
-              *ngTemplateOutlet="detailsTreeNodes; context: { nodes: array(surface, 'nodes'), surface: surface, depth: 0 }">
-            </ng-container>
+          <section *ngSwitchCase="'details-tree'" class="details-tree-surface tree-view">
+            <app-pane-view-host
+              [surfaceId]="surface.id"
+              [surfaceActive]="true"
+              [paneId]="'left'"
+              [entries]="treeEntries(surface)"
+              [currentPath]="text(surface, 'currentPath') || text(surface, 'selectedPath') || text(surface, 'rootPath')"
+              [selectedFiles]="treeSelectedPathSet(surface)"
+              [cursorPath]="treeCursorPath(surface)"
+              [currentView]="'tree'"
+              [treeContentMode]="'folders'"
+              [paneActive]="true"
+              (selectionChange)="onTreeSelectionChange(surface, $event)"
+              (navigate)="emitNamedAction(surface, 'select-folder', $event)"
+              (nodeDoubleClick)="emitNamedAction(surface, 'select-folder', $event)">
+            </app-pane-view-host>
           </section>
 
-          <section *ngSwitchCase="'details-workspace'" class="details-surface details-inspector">
-            <div class="details-summary" *ngIf="object(surface, 'containmentSummary') as summary">
-              <div><strong>{{ summary.folders || 0 }}</strong><span>Folders</span></div>
-              <div><strong>{{ summary.files || 0 }}</strong><span>Files</span></div>
-              <div><strong>{{ formatSize(summary.totalSize) }}</strong><span>Total size</span></div>
-            </div>
-
-            <section class="details-section containment-section">
-              <div class="details-section-heading">
-                <div class="details-heading-copy">
-                  <h3>Selected folder contents</h3>
-                  <span class="details-current-path" [title]="text(surface, 'path')">
-                    {{ text(surface, 'path') }}
-                  </span>
-                </div>
-                <span>{{ array(surface, 'containment').length }} immediate items</span>
-              </div>
-              <div class="containment-table">
-                <div class="containment-row containment-header">
-                  <span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
-                </div>
-                <div class="containment-row" *ngFor="let entry of array(surface, 'containment'); trackBy: trackContainment">
-                  <span class="containment-name" [title]="entry.path">
-                    <span class="containment-icon">{{ entry.isDirectory ? '📁' : '📄' }}</span>{{ entry.name }}
-                  </span>
-                  <span>{{ entry.type }}</span>
-                  <span>{{ entry.isDirectory ? '—' : formatSize(entry.size) }}</span>
-                  <span>{{ entry.modified }}</span>
-                </div>
-                <div class="containment-empty" *ngIf="array(surface, 'containment').length === 0">Folder is empty.</div>
-              </div>
-            </section>
-
-            <section class="details-section" *ngFor="let section of array(surface, 'sections'); trackBy: trackDetailSection">
-              <h3>{{ section.title }}</h3>
-              <div class="detail-grid">
-                <div class="detail-row" *ngFor="let item of section.items; trackBy: trackDetail">
-                  <span>{{ item.label }}</span>
-                  <strong [title]="item.value">{{ item.value }}</strong>
-                </div>
-              </div>
-            </section>
-
+          <section *ngSwitchCase="'details-workspace'" class="details-surface details-inspector list view-details">
+            <app-pane-view-host
+              [surfaceId]="surface.id"
+              [surfaceActive]="true"
+              [paneId]="'right'"
+              [entries]="fileEntries(surface)"
+              [currentPath]="text(surface, 'path')"
+              [selectedFiles]="selectedPathSet(surface)"
+              [cursorPath]="selectedCursorPath(surface)"
+              [error]="text(surface, 'error') || null"
+              [currentView]="'details'"
+              [sortField]="text(surface, 'sortField') || 'name'"
+              [sortDirection]="sortDirection(surface)"
+              [paneActive]="true"
+              (selectionChange)="onDetailsSelectionChange(surface, $event)"
+              (navigate)="emitNamedAction(surface, 'open', $event)">
+            </app-pane-view-host>
           </section>
 
           <section *ngSwitchDefault class="unknown-surface">
@@ -572,218 +533,28 @@ import type {
     }
 
     .details-tree-surface {
-      padding: 4px;
-      overflow: auto;
-    }
-
-    .split.details-workspace-split .details-tree-surface {
-      padding: 4px 2px 4px 4px;
-    }
-
-    .details-tree-row {
-      display: grid;
-      grid-template-columns: 16px 18px minmax(0, 1fr);
-      align-items: center;
-      box-sizing: border-box;
-      min-height: 27px;
-      padding: 1px 6px 1px calc(4px + (var(--tree-depth) * 14px));
-      border-radius: 3px;
-      cursor: default;
-      user-select: none;
-    }
-
-    .details-tree-row:hover:not(.cursor) {
-      background: var(--vsc-list-hover-background);
-    }
-
-    .details-tree-row.cursor {
-      box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
-        inset 0 0 0 1px color-mix(
-          in srgb,
-          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
-          transparent
-        );
-      background: color-mix(
-        in srgb,
-        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
-        transparent
-      );
-    }
-
-    .tree-expander {
-      width: 16px;
-      height: 20px;
-      min-height: 20px;
+      display: flex;
       padding: 0;
-      border: 0;
-      background: transparent;
-      color: inherit;
-    }
-
-    .tree-folder-icon {
-      width: 18px;
-      text-align: center;
-    }
-
-    .tree-folder-name {
-      min-width: 0;
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
     }
 
-    .tree-expander.placeholder {
-      visibility: hidden;
-      pointer-events: none;
-    }
-
-    .tree-folder-icon {
-      font-size: 13px;
-      line-height: 1;
-    }
-
-    .tree-folder-name {
+    .details-tree-surface app-pane-view-host {
+      flex: 1 1 auto;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      min-height: 0;
     }
 
     .details-inspector {
-      padding: 0 12px 16px;
-    }
-
-    .split.details-workspace-split .details-inspector {
-      padding-right: 16px;
-    }
-
-    .details-summary {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 1px;
-      margin: 0 -12px 14px;
-      border-bottom: 1px solid var(--vsc-border-subtle);
-      background: var(--vsc-border-subtle);
-    }
-
-    .details-summary > div {
       display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding: 10px 12px;
-      background: var(--vsc-side-bar-background, var(--vsc-panel-background));
+      padding: 0;
+      overflow: hidden;
     }
 
-    .details-summary strong { font-size: 16px; font-weight: 600; }
-    .details-summary span,
-    .details-section-heading span {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 10px;
-    }
-
-    .details-section {
-      margin-top: 14px;
-    }
-
-    .details-section h3 {
-      margin: 0 0 6px;
-      color: var(--vsc-foreground-bright, var(--vsc-foreground));
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-
-    .details-section-heading {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .details-heading-copy {
-      display: flex;
-      flex-direction: column;
+    .details-inspector app-pane-view-host {
+      flex: 1 1 auto;
       min-width: 0;
-      gap: 3px;
+      min-height: 0;
     }
-
-    .details-current-path {
-      display: block;
-      min-width: 0;
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 11px;
-      text-transform: none;
-      letter-spacing: 0;
-    }
-
-    .detail-grid {
-      border: 1px solid var(--vsc-border-subtle, var(--vsc-control-background));
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .detail-row {
-      display: grid;
-      grid-template-columns: minmax(140px, 210px) minmax(0, 1fr);
-      gap: 12px;
-      min-height: 32px;
-      align-items: center;
-      padding: 4px 10px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-control-background));
-    }
-
-    .detail-row:last-child { border-bottom: 0; }
-
-    .detail-row > span {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-    }
-
-    .detail-row > strong {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 500;
-    }
-
-    .containment-table {
-      min-width: 620px;
-      border: 1px solid var(--vsc-border-subtle, var(--vsc-control-background));
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .containment-row {
-      display: grid;
-      grid-template-columns: minmax(180px, 1fr) 90px 100px 160px;
-      align-items: center;
-      min-height: 30px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-control-background));
-    }
-
-    .containment-row:last-child { border-bottom: 0; }
-    .containment-row > span { padding: 4px 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .containment-header {
-      position: sticky;
-      top: 0;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      background: var(--vsc-side-bar-background, var(--vsc-panel-background));
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-    .containment-name { display: flex; align-items: center; gap: 6px; }
-    .containment-icon { flex: 0 0 auto; font-size: 13px; }
-    .containment-empty { padding: 18px 10px; color: var(--vsc-description-foreground); text-align: center; }
 
     .unknown-surface {
       padding: 16px;
@@ -807,10 +578,6 @@ export class ToolWorkspaceHostComponent {
   trackEntry = (index: number, entry: any) => entry?.path ?? `${index}`;
   trackCompareRow = (index: number, row: any) => row?.key ?? `${index}`;
   trackSummary = (index: number, item: any) => item?.label ?? `${index}`;
-  trackDetail = (index: number, item: any) => item?.label ?? `${index}`;
-  trackDetailSection = (index: number, section: any) => section?.title ?? `${index}`;
-  trackContainment = (index: number, entry: any) => entry?.path ?? `${index}`;
-  trackTreeNode = (index: number, node: any) => node?.path ?? `${index}`;
 
   isDetailsWorkspaceSplit(layout: WorkspaceLayout): boolean {
     if (layout.kind !== 'split' || layout.direction !== 'horizontal') {
@@ -833,9 +600,12 @@ export class ToolWorkspaceHostComponent {
     return Array.isArray(value) ? value : [];
   }
 
-  object(surface: WorkspaceSurface, key: string): any {
-    const value = surface.state?.[key];
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  fileEntries(surface: WorkspaceSurface): FileInfo[] {
+    return this.array(surface, 'containment') as FileInfo[];
+  }
+
+  treeEntries(surface: WorkspaceSurface): FileInfo[] {
+    return this.array(surface, 'entries') as FileInfo[];
   }
 
   selected(surface: WorkspaceSurface): unknown {
@@ -854,6 +624,74 @@ export class ToolWorkspaceHostComponent {
       (selected.key && value?.key && selected.key === value.key) ||
       selected === value
     );
+  }
+
+  selectedPathSet(surface: WorkspaceSurface): Set<string> {
+    const selected = this.selected(surface);
+    if (Array.isArray(selected)) {
+      return new Set(
+        selected
+          .map(entry => String((entry as any)?.path ?? ''))
+          .filter(Boolean),
+      );
+    }
+
+    const path = String((selected as any)?.path ?? '');
+    return path ? new Set([path]) : new Set<string>();
+  }
+
+  selectedCursorPath(surface: WorkspaceSurface): string | null {
+    const selected = this.selected(surface);
+    if (Array.isArray(selected)) {
+      return selected.length > 0
+        ? String((selected[0] as any)?.path ?? '') || null
+        : null;
+    }
+
+    const path = String((selected as any)?.path ?? '');
+    return path || null;
+  }
+
+  sortDirection(surface: WorkspaceSurface): 'asc' | 'desc' {
+    return this.text(surface, 'sortDirection') === 'desc' ? 'desc' : 'asc';
+  }
+
+  treeSelectedPathSet(surface: WorkspaceSurface): Set<string> {
+    const current =
+      this.text(surface, 'selectedPath') ||
+      this.text(surface, 'currentPath');
+    return current ? new Set([current]) : new Set<string>();
+  }
+
+  treeCursorPath(surface: WorkspaceSurface): string | null {
+    const current =
+      this.text(surface, 'selectedPath') ||
+      this.text(surface, 'currentPath');
+    return current || null;
+  }
+
+  onDetailsSelectionChange(
+    surface: WorkspaceSurface,
+    entries: FileInfo[],
+  ): void {
+    if (entries.length <= 1) {
+      this.select(surface, entries[0] ?? null);
+      return;
+    }
+
+    this.select(surface, entries);
+  }
+
+  onTreeSelectionChange(
+    surface: WorkspaceSurface,
+    entries: FileInfo[],
+  ): void {
+    const entry = entries[0];
+    if (!entry?.path) {
+      return;
+    }
+
+    this.emitNamedAction(surface, 'select-folder', entry);
   }
 
   emitAction(

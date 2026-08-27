@@ -4,7 +4,7 @@ import type { FileViewDirectorySource } from '../services/directory-source.servi
 import { FileType, type FileInfo } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import type { TreeContentMode, TreeNode } from './pane-tree.component';
-import type { ViewLayout } from './file-view-container.component';
+import type { ViewLayout } from './pane-view-host.component';
 
 export interface FileViewTreeHost {
   get currentPath(): string;

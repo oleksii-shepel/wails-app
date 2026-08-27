@@ -1,6 +1,6 @@
 import type { PinnedLocation } from '../../components/address-bar.types';
 import type { FileInfo } from '../../shared/protocol';
-import type { ViewLayout } from '../../components/file-view-container.component';
+import type { ViewLayout } from '../../components/pane-view-host.component';
 import type { FindWidgetState } from '../../components/filter-widget.component';
 import type { ActionAvailability } from '../../services/action-availability';
 import type { PresentedCommand } from '../../components/presented-command';

@@ -1,21 +1,22 @@
 import { CommonModule } from '@angular/common';
 import { Component, Input, ViewChild, ChangeDetectionStrategy } from '@angular/core';
-import { DirSurfaceComponent } from '../components/dir-surface.component';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
+import { DirSurfaceTabComponent } from './builtins/dir-surface-tab.component';
 import { SurfaceContext } from './surface-context';
 
 @Component({
   selector: 'app-surface-host',
   standalone: true,
-  imports: [CommonModule, DirSurfaceComponent, ViewerHostSurfaceComponent],
+  imports: [CommonModule, DirSurfaceTabComponent, ViewerHostSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ng-container [ngSwitch]="ctx.kind">
-      <app-dir-surface
+      <app-dir-surface-tab
         #dirSurface
         *ngSwitchCase="'dir'"
-        [vm]="$any(ctx).dirVm">
-      </app-dir-surface>
+        [ctx]="$any(ctx)"
+        [active]="true">
+      </app-dir-surface-tab>
 
       <app-viewer-host-surface
         *ngSwitchCase="'viewer'"
@@ -29,7 +30,7 @@ import { SurfaceContext } from './surface-context';
 })
 export class SurfaceHostComponent {
   @Input({ required: true }) ctx!: SurfaceContext;
-  @ViewChild('dirSurface') dirSurface?: DirSurfaceComponent;
+  @ViewChild('dirSurface') dirSurface?: DirSurfaceTabComponent;
   @ViewChild(ViewerHostSurfaceComponent) viewerHost?: ViewerHostSurfaceComponent;
 
   // Convenience accessors for pane host.

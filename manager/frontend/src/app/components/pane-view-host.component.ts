@@ -29,8 +29,17 @@ import { SplitDividerComponent } from './split-divider.component';
 
 export type ViewLayout = ViewMode;
 
+export interface PaneViewHostBrowserConfig {
+  path?: string;
+  split?: number | null;
+  minSplit?: number;
+  maxSplit?: number;
+  defaultSplit?: number;
+  snapPoints?: number[];
+}
+
 @Component({
-  selector: 'app-file-view-container',
+  selector: 'app-pane-view-host',
   standalone: true,
   imports: [
     CommonModule,
@@ -58,10 +67,10 @@ export type ViewLayout = ViewMode;
         *ngIf="cachedShowBrowserPane"
         orientation="horizontal"
         [position]="browserPaneSplit"
-        [resetPosition]="defaultBrowserPaneSplit"
-        [min]="minBrowserPaneSplit"
-        [max]="maxBrowserPaneSplit"
-        [snapPoints]="browserPaneSnapPoints"
+        [resetPosition]="effectiveDefaultBrowserPaneSplit"
+        [min]="effectiveMinBrowserPaneSplit"
+        [max]="effectiveMaxBrowserPaneSplit"
+        [snapPoints]="effectiveBrowserPaneSnapPoints"
         (positionChange)="onBrowserPaneSplitChange($event)">
       </app-split-divider>
 
@@ -117,6 +126,8 @@ export type ViewLayout = ViewMode;
           [colorizeByMime]="colorizeByMime"
           [paneActive]="paneActive"
           [selectedFiles]="selectedFiles"
+          [loading]="loading"
+          [emptyMessage]="treeEmptyMessage"
           (selectionChange)="onTreeSelectionChange($event)"
           (inlineSize)="onTreeInlineSize($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
@@ -223,7 +234,7 @@ export type ViewLayout = ViewMode;
     }
   `]
 })
-export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterViewInit {
+export class PaneViewHostComponent implements OnChanges, OnDestroy, AfterViewInit {
   readonly minBrowserPaneSplit = 20;
   readonly maxBrowserPaneSplit = 72;
   readonly defaultBrowserPaneSplit = 42;
@@ -243,42 +254,45 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Input() browserPath = '';
   @Input() persistedBrowserPaneSplit: number | null = null;
   @Input() paneId: 'left' | 'right' = 'left';
-  @Input() showHidden    = false;
+  @Input() showHidden = false;
   @Input() entries: FileInfo[] = [];
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
+  @Input() loading = false;
   @Input() error: string | null = null;
   @Input() currentView: ViewLayout = 'list';
   @Input() treeContentMode: TreeContentMode = 'all';
+  @Input() treeEmptyMessage = 'No items';
   @Input() singleClickToOpen = false;
-  @Input() sortField     = 'name';
+  @Input() sortField = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() directoriesFirst = true;
   @Input() detailsColumns: PaneDetailsColumn[] | null = null;
   @Input() detailsColumnConfiguration: PaneDetailsColumnConfiguration | null = null;
   @Input() colorizeByMime = false;
   @Input() paneActive = true;
+  @Input() browserConfig: PaneViewHostBrowserConfig | null = null;
 
-  @Output() viewChange      = new EventEmitter<ViewLayout>();
+  @Output() viewChange = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
-  @Output() navigate        = new EventEmitter<FileInfo>();
-  @Output() openInNewTab    = new EventEmitter<FileInfo>();
-  @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
+  @Output() navigate = new EventEmitter<FileInfo>();
+  @Output() openInNewTab = new EventEmitter<FileInfo>();
+  @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() detailsColumnConfigurationChange = new EventEmitter<PaneDetailsColumnConfiguration>();
-  @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
-  @Output() dragStart       = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
-  @Output() dragDrop        = new EventEmitter<{ event: DragEvent; source: FileInfo[]; targetPath: string }>();
-  @Output() rename          = new EventEmitter<{ entry: FileInfo; newName: string }>();
+  @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
+  @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; targetPath: string }>();
+  @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
   @Output() browserPaneSplitChange = new EventEmitter<number>();
   @Output() viewportChange = new EventEmitter<void>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
   private loadRequest$ = createSubject<TreeNode>();
-  private destroy$     = createSubject<void>();
+  private destroy$ = createSubject<void>();
   pendingDirectorySizePaths: ReadonlySet<string> = new Set<string>();
   private lastTreeRefreshPath: string | null = null;
   private loadedBrowserPaneStorageKey: string | null = null;
@@ -288,6 +302,22 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   private readonly treeController = new FileViewTreeController();
   private readonly runtimeController = new FileViewRuntimeController();
   private readonly sortController = new FileViewSortController();
+
+  get effectiveMinBrowserPaneSplit(): number {
+    return this.browserConfig?.minSplit ?? this.minBrowserPaneSplit;
+  }
+
+  get effectiveMaxBrowserPaneSplit(): number {
+    return this.browserConfig?.maxSplit ?? this.maxBrowserPaneSplit;
+  }
+
+  get effectiveDefaultBrowserPaneSplit(): number {
+    return this.browserConfig?.defaultSplit ?? this.defaultBrowserPaneSplit;
+  }
+
+  get effectiveBrowserPaneSnapPoints(): number[] {
+    return this.browserConfig?.snapPoints ?? this.browserPaneSnapPoints;
+  }
 
   getSortedEntries(): FileInfo[] {
     return this.sortedEntries;
@@ -447,16 +477,21 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   ngOnChanges(changes: SimpleChanges): void {
     this.ensureBrowserPaneSplitLoaded();
-    if (changes['persistedBrowserPaneSplit']) {
-      const persisted = changes['persistedBrowserPaneSplit'].currentValue;
-      if (typeof persisted === 'number' && Number.isFinite(persisted)) {
-        this.browserPaneSplit = this.clampBrowserPaneSplit(persisted);
+    if (changes['persistedBrowserPaneSplit'] || changes['browserConfig']) {
+      const explicitSplit = this.browserConfig?.split;
+      if (typeof explicitSplit === 'number' && Number.isFinite(explicitSplit)) {
+        this.browserPaneSplit = this.clampBrowserPaneSplit(explicitSplit);
       } else {
-        this.browserPaneSplit = this.readBrowserPaneSplit(this.getBrowserPaneStorageKey());
+        const persisted = changes['persistedBrowserPaneSplit']?.currentValue;
+        if (typeof persisted === 'number' && Number.isFinite(persisted)) {
+          this.browserPaneSplit = this.clampBrowserPaneSplit(persisted);
+        } else {
+          this.browserPaneSplit = this.readBrowserPaneSplit(this.getBrowserPaneStorageKey());
+        }
       }
     }
 
-    if (changes['currentPath'] || changes['browserPath'] || changes['surfaceActive']) {
+    if (changes['currentPath'] || changes['browserPath'] || changes['surfaceActive'] || changes['browserConfig']) {
       this.cachedBrowserPath = this.resolveSurfaceBrowserPath();
       this.cachedShowBrowserPane = this.isWebBrowserPath(this.cachedBrowserPath);
     }
@@ -475,8 +510,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     this.destroy$.complete();
     this.treeController.reset();
   }
-
-  // ── Tree specific handlers ─────────────────────────────────
 
   onTreeSelectionChange(nodes: TreeNode[]): void {
     this.eventsController.onTreeSelectionChange(this.eventsHost, nodes);
@@ -522,7 +555,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     this.eventsController.onTreeRename(this.eventsHost, event);
   }
 
-  /** Trigger in-place rename for the currently selected item in the active view (eg. on F2). */
   startRenameSelected(): void {
     this.runtimeController.startRenameSelected(this.runtimeHost);
   }
@@ -559,7 +591,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     this.treeController.refreshTreeNode(this.treeHost, path);
   }
 
-  /** Scroll the active view to bring the given path into view. */
   scrollToCursorPath(path: string): void {
     this.runtimeController.scrollToCursorPath(this.runtimeHost, path);
   }
@@ -578,7 +609,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
         return 0;
     }
   }
-
 
   getScrollMetrics(): { scrollTop: number; scrollHeight: number; clientHeight: number } {
     switch (this.currentView) {
@@ -664,12 +694,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     }
   }
 
-  /** Approximate number of items per page in the active view. */
   getApproxPageSize(): number {
     return this.runtimeController.getApproxPageSize(this.runtimeHost);
   }
 
-  /** Number of columns in grid view (1 for all other views). */
   getGridColumns(): number {
     return this.runtimeController.getGridColumns(this.runtimeHost);
   }
@@ -678,13 +706,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     this.eventsController.onTreeOpenInNewTab(this.eventsHost, node);
   }
 
-  // ── Load children ──────────────────────────────────────────
-
   onLoadChildren(node: TreeNode): void {
     this.interactionController.onLoadChildren(this.interactionHost, node);
   }
-
-  // ── View / sort ────────────────────────────────────────────
 
   onViewChange(view: ViewLayout): void {
     this.interactionController.onViewChange(this.interactionHost, view);
@@ -693,14 +717,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
     this.sortField = sort.field;
     this.sortDirection = sort.direction;
-
-    // Sorting is source-owned. DirectoryPane/DirListStreamController will
-    // rebuild incremental sorted runs or request a new backend window. Do not
-    // perform a second O(n log n) client sort from the Details header.
     this.sortChange.emit(sort);
   }
-
-  // ── Event passthrough ──────────────────────────────────────
 
   onSelectionChange(entries: FileInfo[]): void {
     this.eventsController.onSelectionChange(this.eventsHost, entries);
@@ -725,8 +743,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   onTreeToggleExpand(_node: TreeNode): void {
     // Tree manages expansion state internally
   }
-
-  // ── Sorting ────────────────────────────────────────────────
 
   private sortTreeNodes(nodes: TreeNode[]): TreeNode[] {
     return this.sortController.sortTreeNodes(this.sortHost, nodes);
@@ -795,11 +811,12 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   private resolveSurfaceBrowserPath(): string {
+    const configuredPath = this.browserConfig?.path;
     if (this.surfaceActive) {
-      return this.currentPath || this.browserPath;
+      return this.currentPath || configuredPath || this.browserPath;
     }
 
-    return this.browserPath || this.currentPath;
+    return configuredPath || this.browserPath || this.currentPath;
   }
 
   getBrowserPath(): string {
@@ -840,17 +857,17 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) {
-        return this.defaultBrowserPaneSplit;
+        return this.effectiveDefaultBrowserPaneSplit;
       }
 
       const parsed = Number.parseFloat(raw);
       if (!Number.isFinite(parsed)) {
-        return this.defaultBrowserPaneSplit;
+        return this.effectiveDefaultBrowserPaneSplit;
       }
 
       return this.clampBrowserPaneSplit(parsed);
     } catch {
-      return this.defaultBrowserPaneSplit;
+      return this.effectiveDefaultBrowserPaneSplit;
     }
   }
 
@@ -863,6 +880,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   private clampBrowserPaneSplit(value: number): number {
-    return Math.max(this.minBrowserPaneSplit, Math.min(this.maxBrowserPaneSplit, value));
+    return Math.max(this.effectiveMinBrowserPaneSplit, Math.min(this.effectiveMaxBrowserPaneSplit, value));
   }
 }

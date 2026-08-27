@@ -2,7 +2,7 @@ import type { FileInfo } from '../../shared/protocol';
 import type { TreeNode } from '../../components/pane-tree.component';
 import type { DirSurfaceRuntime } from './dir-surface-runtime';
 
-type FileViewContainerLike = {
+type PaneViewHostLike = {
   getSelectableEntries(parentEntryPath: string, includeParent?: boolean): FileInfo[];
   getVisibleTreeNodes(): TreeNode[];
   focusTreeNode(path: string): void;
@@ -17,20 +17,20 @@ type FileViewContainerLike = {
  */
 export class FilePaneDirSurfaceRuntime implements DirSurfaceRuntime {
   constructor(
-    private readonly getFileViewContainer: () => FileViewContainerLike | undefined,
+    private readonly getPaneViewHost: () => PaneViewHostLike | undefined,
     private readonly parentEntryPath: string,
   ) {}
 
   getSelectableEntries(): FileInfo[] {
-    return this.getFileViewContainer()?.getSelectableEntries(this.parentEntryPath) ?? [];
+    return this.getPaneViewHost()?.getSelectableEntries(this.parentEntryPath) ?? [];
   }
 
   getCursorEntries(): FileInfo[] {
-    return this.getFileViewContainer()?.getSelectableEntries(this.parentEntryPath, true) ?? [];
+    return this.getPaneViewHost()?.getSelectableEntries(this.parentEntryPath, true) ?? [];
   }
 
   scrollToCursorPath(path: string): void {
     if (!path) return;
-    this.getFileViewContainer()?.scrollToCursorPath(path);
+    this.getPaneViewHost()?.scrollToCursorPath(path);
   }
 }

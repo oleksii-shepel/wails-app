@@ -1,5 +1,5 @@
 import type { ChangeDetectorRef, SimpleChanges } from '@angular/core';
-import type { ViewLayout } from './file-view-container.component';
+import type { ViewLayout } from './pane-view-host.component';
 
 export interface FileViewLifecycleHost {
   get currentView(): ViewLayout;

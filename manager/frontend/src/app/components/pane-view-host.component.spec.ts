@@ -1,18 +1,18 @@
 import '@angular/compiler';
 import { SimpleChange } from '@angular/core';
-import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
+import { fn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 
-import { FileViewContainerComponent } from './file-view-container.component';
+import { PaneViewHostComponent } from './pane-view-host.component';
 
-function createComponent(): FileViewContainerComponent {
-  return new FileViewContainerComponent(
+function createComponent(): PaneViewHostComponent {
+  return new PaneViewHostComponent(
     {} as any,
     {} as any,
     { markForCheck: fn() } as any,
   );
 }
 
-function applyPathChanges(component: FileViewContainerComponent): void {
+function applyPathChanges(component: PaneViewHostComponent): void {
   component.ngOnChanges({
     browserPath: new SimpleChange('', component.browserPath, true),
     currentPath: new SimpleChange('', component.currentPath, true),
@@ -36,7 +36,7 @@ function createLocalStorageMock(initial: Record<string, string> = {}) {
   };
 }
 
-describe('FileViewContainerComponent', () => {
+describe('PaneViewHostComponent', () => {
   afterEach(() => {
     restoreGlobals();
   });

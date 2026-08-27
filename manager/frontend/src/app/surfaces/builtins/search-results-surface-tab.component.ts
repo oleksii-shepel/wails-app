@@ -1,12 +1,12 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, ViewChild } from '@angular/core';
-import { DirSurfaceComponent } from '../../components/dir-surface.component';
+import { DirSurfaceTabComponent } from './dir-surface-tab.component';
 import { SearchResultsSurfaceContext } from '../surface-context';
 
 @Component({
   selector: 'app-search-results-surface-tab',
   standalone: true,
-  imports: [CommonModule, DirSurfaceComponent],
+  imports: [CommonModule, DirSurfaceTabComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="search-summary">
@@ -14,14 +14,11 @@ import { SearchResultsSurfaceContext } from '../surface-context';
       <span class="search-title">Search results</span>
       <span class="search-query" [title]="querySummary">{{ querySummary }}</span>
     </div>
-    <app-dir-surface
+    <app-dir-surface-tab
       #dir
-      [vm]="ctx.dirVm"
-      [surfaceId]="ctx.paneId + ':' + ctx.tab.id"
-      [pinSurfaceId]="'search-results'"
-      [surfaceActive]="active"
-      [surfacePath]="currentSurfacePath">
-    </app-dir-surface>
+      [ctx]="$any(ctx)"
+      [active]="active">
+    </app-dir-surface-tab>
   `,
   styles: [`
     :host {
@@ -58,7 +55,7 @@ import { SearchResultsSurfaceContext } from '../surface-context';
       opacity: .78;
     }
 
-    app-dir-surface {
+    app-dir-surface-tab {
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
@@ -71,7 +68,7 @@ import { SearchResultsSurfaceContext } from '../surface-context';
 export class SearchResultsSurfaceTabComponent {
   @Input({ required: true }) ctx!: SearchResultsSurfaceContext;
   @Input() active = false;
-  @ViewChild('dir') private dir?: DirSurfaceComponent;
+  @ViewChild('dir') private dir?: DirSurfaceTabComponent;
 
   get currentSurfacePath(): string {
     if (this.active) return this.ctx?.dirVm?.currentPath || this.ctx?.tab?.path || '';

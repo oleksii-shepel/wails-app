@@ -1,6 +1,6 @@
 import type { FileInfo } from '../shared/protocol';
 import type { TreeNode } from './pane-tree.component';
-import type { ViewLayout } from './file-view-container.component';
+import type { ViewLayout } from './pane-view-host.component';
 
 export interface FileViewRuntimeHost {
   get currentView(): ViewLayout;

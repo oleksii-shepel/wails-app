@@ -2779,11 +2779,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
               'support',
               {
                 rootPath: folderPath,
+                currentPath: folderPath,
                 selectedPath: folderPath,
                 sourceKind,
                 inArchive: pane.contextState.isInArchive,
-                contentMode: 'folders',
-                nodes: [treeNode],
+                entries: [],
                 busy: false,
                 error: '',
               },
@@ -2823,9 +2823,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
       const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
-      if (treeSurface && !pane.contextState.isInArchive) {
-        await this.loadDetailsTreeChildren(treeSurface, folderPath, true);
-      }
       if (detailsSurface) {
         await this.refreshDetailsWorkspaceSurface(detailsSurface);
       }
@@ -2860,11 +2857,31 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         await this.selectDetailsTreeFolder(event.surface, path);
         return;
       }
+    }
 
-      if (event.action === 'toggle-folder') {
-        await this.toggleDetailsTreeFolder(event.surface, path);
+    if (
+      event.surface.surfaceId === 'details-workspace' &&
+      event.action === 'open'
+    ) {
+      const entry = event.payload as FileInfo | undefined;
+      if (!entry?.path) return;
+
+      if (entry.type === FileType.DIRECTORY) {
+        const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
+        if (treeSurface) {
+          await this.selectDetailsTreeFolder(treeSurface, entry.path);
+        }
         return;
       }
+
+      try {
+        await this.api.openFile(entry.path);
+      } catch (error) {
+        this.patchLiveSurface(event.surface.id, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
     }
 
     const handled = await this.workspaceSurfaceActions.dispatch(
@@ -3067,89 +3084,32 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         );
       }
 
-      const [info, listing, attributes] = await Promise.all([
+      const [info, listing] = await Promise.all([
         this.api.getFileInfo(path),
         this.api.listDirectory(path, true),
-        this.api.getPathAttributes(path),
       ]);
-      const totalSize = info.type === FileType.DIRECTORY
-        ? await this.api.dirSizeRecursive(info.path)
-        : Number(info.size) || 0;
       const entries = (listing.entries ?? []).filter(entry => entry.name !== '..');
-      const folders = entries.filter(entry => entry.type === FileType.DIRECTORY);
-      const files = entries.filter(entry => entry.type !== FileType.DIRECTORY);
-      const directSize = files.reduce((sum, entry) => sum + (Number(entry.size) || 0), 0);
-
-      const timestamp = (value: unknown): string => {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric) || numeric <= 0) return '—';
-        return new Date(
-          numeric * (numeric < 10_000_000_000 ? 1000 : 1),
-        ).toLocaleString();
-      };
-
-      const flags = [
-        attributes.readOnly ? 'Read-only' : '',
-        attributes.hidden ? 'Hidden' : '',
-        attributes.system ? 'System' : '',
-        attributes.archive ? 'Archive' : '',
-        info.isSymlink ? 'Symbolic link' : '',
-      ].filter(Boolean);
-
-      const sections = [
-        {
-          title: 'General',
-          items: [
-            { label: 'Name', value: info.name },
-            { label: 'Path', value: info.path },
-            { label: 'Type', value: 'Directory' },
-            { label: 'Total size', value: `${totalSize.toLocaleString()} bytes` },
-            { label: 'Direct file size', value: `${directSize.toLocaleString()} bytes` },
-            { label: 'Source', value: String(surface.state?.['sourceTitle'] ?? surface.state?.['sourceKind'] ?? 'filesystem') },
-          ],
-        },
-        {
-          title: 'Dates',
-          items: [
-            { label: 'Created', value: timestamp(info.created) },
-            { label: 'Modified', value: timestamp(info.modified) },
-            { label: 'Accessed', value: timestamp(info.accessed) },
-          ],
-        },
-        {
-          title: 'Attributes & permissions',
-          items: [
-            { label: 'Permissions', value: attributes.permissions || info.permissions || '—' },
-            { label: 'Unix mode', value: attributes.unixMode ? `0${Number(attributes.unixMode).toString(8)}` : '—' },
-            { label: 'Flags', value: flags.length ? flags.join(', ') : 'None' },
-          ],
-        },
-      ];
 
       this.patchLiveSurface(surface.id, {
         path: info.path,
         title: info.name,
-        sections,
-        containment: entries.map(entry => ({
-          name: entry.name,
-          path: entry.path,
-          type: entry.type === FileType.DIRECTORY ? 'Folder' : entry.type === FileType.SYMLINK ? 'Link' : 'File',
-          size: Number(entry.size) || 0,
-          modified: timestamp(entry.modified),
-          isDirectory: entry.type === FileType.DIRECTORY,
-          hidden: !!entry.isHidden,
-        })),
-        containmentSummary: {
-          folders: folders.length,
-          files: files.length,
-          items: entries.length,
-          directSize,
-          totalSize,
-        },
+        containment: entries.map(entry => ({ ...entry })),
+        sections: [],
         busy: false,
         error: '',
         refreshedAt: new Date().toLocaleTimeString(),
       });
+
+      const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
+      if (treeSurface) {
+        this.patchLiveSurface(treeSurface.id, {
+          currentPath: info.path,
+          selectedPath: info.path,
+          entries: entries.map(entry => ({ ...entry })),
+          busy: false,
+          error: '',
+        });
+      }
     } catch (error) {
       this.patchLiveSurface(surface.id, {
         busy: false,
@@ -3162,7 +3122,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     treeSurface: WorkspaceSurface,
     path: string,
   ): Promise<void> {
-    this.patchLiveSurface(treeSurface.id, { selectedPath: path, error: '' });
+    this.patchLiveSurface(treeSurface.id, {
+      currentPath: path,
+      selectedPath: path,
+      error: '',
+    });
     const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
     if (!detailsSurface) return;
     this.patchLiveSurface(detailsSurface.id, { path, error: '' });
@@ -3171,89 +3135,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     );
   }
 
-  private async toggleDetailsTreeFolder(
-    treeSurface: WorkspaceSurface,
-    path: string,
-  ): Promise<void> {
-    const nodes = this.cloneDetailsTreeNodes(treeSurface.state?.['nodes']);
-    const node = this.findDetailsTreeNode(nodes, path);
-    if (!node) return;
-
-    node.expanded = !node.expanded;
-    this.patchLiveSurface(treeSurface.id, { nodes });
-    if (node.expanded && !node.loaded && !node.loading) {
-      await this.loadDetailsTreeChildren(
-        this.findWorkspaceSurfaceByKind('details-tree') ?? treeSurface,
-        path,
-        false,
-      );
-    }
-  }
-
-  private async loadDetailsTreeChildren(
-    treeSurface: WorkspaceSurface,
-    path: string,
-    keepExpanded: boolean,
-  ): Promise<void> {
-    let nodes = this.cloneDetailsTreeNodes(treeSurface.state?.['nodes']);
-    let node = this.findDetailsTreeNode(nodes, path);
-    if (!node) return;
-    node.loading = true;
-    if (keepExpanded) node.expanded = true;
-    this.patchLiveSurface(treeSurface.id, { nodes, busy: true, error: '' });
-
-    try {
-      const listing = await this.api.listDirectory(path, true);
-      const children = (listing.entries ?? [])
-        .filter(entry => entry.type === FileType.DIRECTORY && entry.name !== '..')
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-        .map(entry => ({
-          path: entry.path,
-          name: entry.name,
-          expanded: false,
-          loaded: false,
-          loading: false,
-          children: [] as any[],
-        }));
-
-      const current = this.findWorkspaceSurfaceByKind('details-tree') ?? treeSurface;
-      nodes = this.cloneDetailsTreeNodes(current.state?.['nodes']);
-      node = this.findDetailsTreeNode(nodes, path);
-      if (!node) return;
-      node.children = children;
-      node.loaded = true;
-      node.loading = false;
-      if (keepExpanded) node.expanded = true;
-      this.patchLiveSurface(current.id, { nodes, busy: false, error: '' });
-    } catch (error) {
-      const current = this.findWorkspaceSurfaceByKind('details-tree') ?? treeSurface;
-      nodes = this.cloneDetailsTreeNodes(current.state?.['nodes']);
-      node = this.findDetailsTreeNode(nodes, path);
-      if (node) node.loading = false;
-      this.patchLiveSurface(current.id, {
-        nodes,
-        busy: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private cloneDetailsTreeNodes(value: unknown): any[] {
-    if (!Array.isArray(value)) return [];
-    return value.map(node => ({
-      ...node,
-      children: this.cloneDetailsTreeNodes(node?.children),
-    }));
-  }
-
-  private findDetailsTreeNode(nodes: any[], path: string): any | null {
-    for (const node of nodes) {
-      if (node?.path === path) return node;
-      const nested = this.findDetailsTreeNode(Array.isArray(node?.children) ? node.children : [], path);
-      if (nested) return nested;
-    }
-    return null;
-  }
 
   private patchLiveSurface(
     surfaceId: string,

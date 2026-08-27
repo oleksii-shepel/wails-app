@@ -15,7 +15,6 @@ import { DEFAULT_FILE_CATEGORIES, getFileCategoriesForExtension, type FileCatego
 import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from '../../components/disk-usage-diagram.component';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { buildSegments, normalizePath, parentPath } from '../../components/address-bar.utils';
 
 // ── Pie nav frame ─────────────────────────────────────────────────────────────
@@ -67,7 +66,7 @@ const PIE_PREFETCH_LIMIT = 5;
 @Component({
   selector: 'app-size-manager-surface',
   standalone: true,
-  imports: [CommonModule, DiskPieChartComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, DiskPieChartComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- ── Header bar ─────────────────────────────────────── -->
@@ -104,7 +103,7 @@ const PIE_PREFETCH_LIMIT = 5;
     </div>
 
     <!-- ── Dashboard ──────────────────────────────────────── -->
-    <div class="sm-body" *ngIf="!error || isTraversing" appVscodeScrollbar>
+    <div class="sm-body" *ngIf="!error || isTraversing">
 
       <div class="sm-inline-status" *ngIf="isTraversing">
         <span

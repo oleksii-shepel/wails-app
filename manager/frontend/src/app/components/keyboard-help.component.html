@@ -38,7 +38,7 @@
       <button *ngIf="searchText" type="button" class="clear-button" (click)="clearSearch()" title="Clear search">×</button>
     </div>
 
-    <div class="reference-body" appVscodeScrollbar>
+    <div class="reference-body">
       <div *ngIf="filteredCategories.length === 0" class="no-results">
         No shortcuts found for "{{ searchText }}"
       </div>

@@ -21,7 +21,6 @@ import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { getPrimaryFileCategoryForExtension } from '../shared/file-categories';
 import { normalizePath as normalizePathReference } from './address-bar.utils';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 
 export interface TreeNode extends FileInfo {
@@ -48,13 +47,12 @@ export interface DropTarget {
 @Component({
   selector: 'app-pane-tree',
   standalone: true,
-  imports: [CommonModule, FormsModule, FileEntryInlineComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule, FileEntryInlineComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       #treeContainer
       class="file-tree-container"
-      appVscodeScrollbar
       role="tree"
       tabindex="0"
       [class.focused]="paneActive || isFocused"

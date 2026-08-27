@@ -4,7 +4,6 @@ import {
   ChangeDetectionStrategy, ChangeDetectorRef,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
@@ -52,7 +51,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 @Component({
   selector: 'app-viewer-surface',
   standalone: true,
-  imports: [CommonModule, VscodeScrollbarDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -82,7 +81,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       </div>
 
       <!-- Body -->
-      <div class="viewer-body" [class.viewer-body--json]="kind === 'json'" appVscodeScrollbar>
+      <div class="viewer-body" [class.viewer-body--json]="kind === 'json'">
 
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>
@@ -292,8 +291,6 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
         <!-- JSON -->
            <pre *ngIf="kind === 'json'"
              class="preview-text json-text"
-             appVscodeScrollbar
-             appVscodeScrollbarAnchor="self"
              [class.word-wrap]="wordWrap"><code [innerHTML]="highlightedJson"></code></pre>
 
         <!-- Markdown -->

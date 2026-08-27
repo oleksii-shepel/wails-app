@@ -10,7 +10,6 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import {
   CanvasVideoPlayer,
@@ -38,7 +37,7 @@ interface VideoNavItem {
 @Component({
   selector: 'app-video-viewer',
   standalone: true,
-  imports: [CommonModule, ViewerSurfaceComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, ViewerSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-viewer-surface
@@ -50,7 +49,7 @@ interface VideoNavItem {
     </app-viewer-surface>
 
     <div *ngIf="!useLegacySurface" class="viewer-surface">
-      <div class="viewer-body" appVscodeScrollbar>
+      <div class="viewer-body">
         <div *ngIf="loading" class="state-container">
           <div class="spinner"></div>
           <div class="state-label">Loading segmented preview...</div>

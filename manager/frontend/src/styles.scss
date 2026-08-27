@@ -84,62 +84,6 @@ code, pre {
   font-family: var(--vsc-font-family-mono);
 }
 
-/* VS Code-style pane scrollbars use an overlay thumb instead of the browser's
-   native scrollbar chrome. Apply through the shared directive so pane scroll
-   hosts stay DRY and visually consistent. */
-.vsc-scroll-host {
-  position: relative;
-  scrollbar-width: none !important;
-  -ms-overflow-style: none;
-}
-
-.vsc-scroll-anchor {
-  position: relative;
-}
-
-.vsc-scroll-host::-webkit-scrollbar {
-  width: 0 !important;
-  height: 0 !important;
-}
-
-.vsc-scrollbar {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: var(--vsc-scrollbar-size);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--vsc-transition-fast, 0.1s ease);
-  z-index: 3;
-}
-
-.vsc-scroll-anchor--hover > .vsc-scrollbar,
-.vsc-scroll-anchor--visible > .vsc-scrollbar,
-.vsc-scroll-anchor--dragging > .vsc-scrollbar {
-  opacity: 1;
-}
-
-.vsc-scrollbar-thumb {
-  position: absolute;
-  top: 0;
-  right: 2px;
-  width: calc(var(--vsc-scrollbar-size) - 4px);
-  min-height: 20px;
-  border-radius: 999px;
-  background: var(--vsc-scrollbar-thumb);
-  pointer-events: auto;
-  transition: background-color var(--vsc-transition-fast, 0.1s ease);
-}
-
-.vsc-scrollbar-thumb:hover {
-  background: var(--vsc-scrollbar-thumb-hover);
-}
-
-.vsc-scroll-anchor--dragging .vsc-scrollbar-thumb {
-  background: var(--vsc-scrollbar-thumb-active, var(--vsc-scrollbar-thumb-hover));
-}
-
 /* === Focus Outline === */
 :focus {
   outline: 1px solid var(--vsc-input-focus-border);

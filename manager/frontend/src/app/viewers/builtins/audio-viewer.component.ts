@@ -11,7 +11,6 @@ import {
   ViewChild,
 } from '@angular/core';
 import { parseBuffer, selectCover, type IPicture } from 'music-metadata';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
@@ -49,12 +48,12 @@ interface AudioTagRow {
 @Component({
   selector: 'app-audio-viewer',
   standalone: true,
-  imports: [CommonModule, VscodeScrollbarDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
       <!-- ── BODY ───────────────────────────────────────── -->
-      <div class="viewer-body" appVscodeScrollbar>
+      <div class="viewer-body">
 
         <!-- loading -->
         <div *ngIf="kind === 'loading'" class="state-container">

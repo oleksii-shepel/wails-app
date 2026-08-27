@@ -6,12 +6,11 @@ import { CommonModule } from '@angular/common';
 import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-bar.types';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-filter-dropdown',
   standalone: true,
-  imports: [CommonModule, VscodeScrollbarDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -53,7 +52,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       </div>
 
       <!-- ── Scrollable body ───────────────────────────────────── -->
-      <div class="fd-body" *ngIf="groups.length > 0" appVscodeScrollbar>
+      <div class="fd-body" *ngIf="groups.length > 0">
         <ng-container *ngFor="let group of groups">
           <ng-container *ngIf="group.presets.length > 0">
 

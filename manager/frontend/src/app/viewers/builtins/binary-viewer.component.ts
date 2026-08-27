@@ -10,7 +10,6 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
@@ -31,7 +30,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
 @Component({
   selector: 'app-binary-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -104,7 +103,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
             <div class="ascii-col">ASCII</div>
           </div>
           <!-- scrollable body -->
-          <div class="grid-body" #gridBody appVscodeScrollbar>
+          <div class="grid-body" #gridBody>
             <!-- spacer sets total scroll height -->
             <div class="grid-spacer" [style.height.px]="totalRows * ROW_HEIGHT">
               <!-- rendered window вЂ” translated to its position in the scroll space -->

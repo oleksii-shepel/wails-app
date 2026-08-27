@@ -21,7 +21,6 @@ import { FileEntryComponent, FileEntrySelectEvent } from './file-entry.component
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 import { VirtualCollection } from '../services/virtual-window';
 
@@ -40,13 +39,12 @@ type VisibleRowVm = {
 @Component({
   selector: 'app-pane-list',
   standalone: true,
-  imports: [CommonModule, FileEntryComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, FileEntryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       #paneContent
       class="pane-content"
-      appVscodeScrollbar
       [class.virtual]="virtualEnabled"
       [class.drop-target-bg]="isBackgroundDropTarget"
       (mousedown)="onListMouseDown($event)"

@@ -2,7 +2,6 @@ import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterVie
 import { CommonModule } from '@angular/common';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { DropdownContainerComponent } from './dropdown-container.component';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
@@ -15,7 +14,7 @@ import { InputEngineService } from '../services/input-engine.service';
 @Component({
   selector: 'app-workspace-selector',
   standalone: true,
-  imports: [CommonModule, DropdownTriggerDirective, DropdownMenuDirective, DropdownContainerComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, DropdownTriggerDirective, DropdownMenuDirective, DropdownContainerComponent],
   template: `
     <div #wsSelector appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
       <span class="ws-icon">{{ activeWorkspace?.icon || '📁' }}</span>
@@ -37,7 +36,7 @@ import { InputEngineService } from '../services/input-engine.service';
         </button>
       </div>
 
-      <div class="ws-list" appVscodeScrollbar>
+      <div class="ws-list">
         <div
           *ngFor="let workspace of workspaces; let i = index"
           class="ws-item"

@@ -8,12 +8,11 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { locationIcon, locationLabel } from '../services/location-reference';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-path-history-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="path-history-overlay" *ngIf="renderVisible" [class.path-history-overlay--closing]="isClosing" (click)="hide()" (animationend)="onOverlayAnimationEnd($event)">
       <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
@@ -55,7 +54,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
         </div>
 
         <!-- History List -->
-        <div class="history-list" appVscodeScrollbar>
+        <div class="history-list">
           <div *ngIf="filteredEntries.length === 0" class="empty-state">
             <span class="empty-icon">📭</span>
             <p>No history entries found</p>

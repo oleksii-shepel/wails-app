@@ -87,23 +87,6 @@
   flex-shrink: 0;
 }
 
-.dialog-close-btn {
-  margin-left: 4px;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--vsc-foreground);
-}
-
-.dialog-close-btn:hover:not(:disabled) {
-  background: var(--vsc-list-hover-background);
-  border-color: var(--vsc-border-subtle);
-}
-
 /* === Body Layout === */
 .settings-body {
   display: grid;

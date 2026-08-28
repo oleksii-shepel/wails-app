@@ -83,6 +83,11 @@
   --dialog-exit-ease: ease;
   --dialog-enter-distance: 18px;
   --dialog-enter-scale: 0.985;
+
+  /* Dialog chrome size contract. The shared close control (×) must never render
+     larger than the application sign (the About-card app icon). */
+  --app-sign-size: 36px;
+  --dialog-close-size: 32px;
 }
 
 html, body {
@@ -580,11 +585,11 @@ button.close-button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  flex: 0 0 var(--dialog-close-size, 32px);
+  width: var(--dialog-close-size, 32px);
+  height: var(--dialog-close-size, 32px);
+  min-width: var(--dialog-close-size, 32px);
+  min-height: var(--dialog-close-size, 32px);
   margin: 0;
   padding: 0;
   border: 0;

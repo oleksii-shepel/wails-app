@@ -1,7 +1,6 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
@@ -15,7 +14,7 @@ import { locationIcon, locationLabel } from '../services/location-reference';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="path-history-overlay" *ngIf="renderVisible" [class.path-history-overlay--closing]="isClosing" (click)="hide()" (animationend)="onOverlayAnimationEnd($event)">
-      <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
+      <div class="path-history-modal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
           <div>

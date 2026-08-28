@@ -91,7 +91,7 @@ const PIE_PREFETCH_LIMIT = 5;
         <button class="sm-btn sm-btn--icon" [disabled]="!canGoForward" (click)="goForward()" title="Forward" aria-label="Forward">→</button>
         <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
         <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
-        <button class="sm-btn sm-btn--close" (click)="close()" title="Close">✕</button>
+        <button type="button" class="dialog-close-btn" (click)="close()" title="Close" aria-label="Close">×</button>
       </div>
     </div>
 
@@ -326,7 +326,6 @@ const PIE_PREFETCH_LIMIT = 5;
     .sm-btn--primary { background: var(--_btn-bg); color: #fff; border-color: transparent; }
     .sm-btn--primary:hover:not(:disabled) { background: var(--_btn-hover); }
     .sm-btn--icon { width: 28px; padding-left: 0; padding-right: 0; text-align: center; }
-    .sm-btn--close { padding: 4px 8px; }
 
     .sm-loading { display: flex; align-items: center; gap: 10px; padding: 16px 14px; flex-shrink: 0; color: var(--_text-dim); }
     @keyframes sm-pulse-green {

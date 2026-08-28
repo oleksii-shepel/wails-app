@@ -35,7 +35,7 @@ import type {
     <div class="backdrop" *ngIf="visible" (mousedown)="requestClose()">
       <section
         #panel
-        class="panel"
+        class="panel palette-dialog-surface dialog-surface"
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard and Mouse Bindings"

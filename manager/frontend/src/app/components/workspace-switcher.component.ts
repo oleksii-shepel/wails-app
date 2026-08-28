@@ -216,7 +216,7 @@ interface WorkspaceSwitcherItem {
   template: `
     <div class="backdrop" *ngIf="renderVisible" [class.backdrop--closing]="isClosing" (mousedown)="close()" (animationend)="onBackdropAnimationEnd($event)">
       <section
-        class="switcher"
+        class="switcher palette-dialog-surface dialog-surface"
         role="dialog"
         aria-modal="true"
         aria-label="Workspace switcher"
@@ -237,6 +237,13 @@ interface WorkspaceSwitcherItem {
             (click)="createWorkspace()">
             + New
           </button>
+
+          <button
+            type="button"
+            class="dialog-close-btn"
+            aria-label="Close"
+            title="Close"
+            (click)="close()">×</button>
         </header>
 
         <div class="workspace-list" role="listbox" aria-label="Workspaces">
@@ -420,7 +427,7 @@ interface WorkspaceSwitcherItem {
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
-    button {
+    button:not(.dialog-close-btn) {
       border: 1px solid transparent;
       border-radius: 4px;
       background: transparent;
@@ -429,12 +436,12 @@ interface WorkspaceSwitcherItem {
       font: inherit;
     }
 
-    button:hover:not(:disabled) {
+    button:not(.dialog-close-btn):hover:not(:disabled) {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
       border-color: var(--vsc-border, var(--vsc-border));
     }
 
-    button:disabled {
+    button:not(.dialog-close-btn):disabled {
       opacity: .35;
       cursor: default;
     }

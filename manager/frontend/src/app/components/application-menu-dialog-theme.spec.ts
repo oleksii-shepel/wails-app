@@ -10,6 +10,12 @@ describe('application menu dialog theme convergence', () => {
     './path-history-viewer.component.ts',
   ];
 
+  // Disk Usage hosts its close control inside the Size Manager surface,
+  // so the standard-close-button check covers that surface file instead.
+  const closeButtonOwners = paletteStyled
+    .filter((file) => file !== './disk-usage-dialog.component.ts')
+    .concat(['./../surfaces/size-manager/size-manager-surface.component.ts']);
+
   it('uses the Command Palette surface contract for menu-openable dialogs', () => {
     for (const file of paletteStyled) {
       const source = read(file);
@@ -19,7 +25,7 @@ describe('application menu dialog theme convergence', () => {
   });
 
   it('uses the standard dialog close button wherever dialog chrome owns a close control', () => {
-    for (const file of paletteStyled) {
+    for (const file of closeButtonOwners) {
       const source = read(file);
       expect(source).withContext(file).toContain('dialog-close-btn');
     }

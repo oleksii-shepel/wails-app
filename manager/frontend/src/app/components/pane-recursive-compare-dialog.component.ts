@@ -14,7 +14,7 @@ import type { PaneComparisonPolicy } from '../services/pane-comparison.service';
   template: `
     <ng-container *ngIf="activeRequest as request">
       <div class="dialog-backdrop dialog-group" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
-        <section class="dialog-panel dialog-surface" role="dialog" aria-modal="true" aria-label="Recursive compare" (click)="$event.stopPropagation()">
+        <section class="dialog-panel palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Recursive compare" (click)="$event.stopPropagation()">
           <header class="dialog-header">
             <div>
               <h2>Recursive Compare</h2>

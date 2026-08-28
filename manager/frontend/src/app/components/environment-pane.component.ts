@@ -30,11 +30,8 @@ import { PluginManagerService } from '../services/plugin-manager.service';
 import type {
   PanelColumnContribution,
   PanelColumnContext,
-  PanelPresentationContribution,
-  PanelPresentationModel,
 } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
-import { PanelPresentationOutletComponent } from './panel-presentation-outlet.component';
 import {
   ArchiveService,
   type ArchiveFrame,
@@ -183,7 +180,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
   imports: [
     CommonModule,
     AddressBarComponent,
-    PanelPresentationOutletComponent,
     FilterComponent,
     FileEntryInlineComponent,
     ViewerHostSurfaceComponent,
@@ -478,18 +474,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </div>
       </div>
 
-      <app-panel-presentation-outlet
-        *ngIf="!error && activePanelPresentation as presentation"
-        [presentation]="presentation"
-        [model]="panelPresentationModel">
-      </app-panel-presentation-outlet>
-
-
       <div
         #listViewport
         class="list"
         data-pane-content
-        *ngIf="!activePanelPresentation && !error && viewMode !== 'tree'"
+        *ngIf="!error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
         [attr.aria-label]="'Environment variables in ' + (path || 'location')"
@@ -504,7 +493,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         (dragleave)="onBackgroundDragLeave($event)"
         (drop)="onBackgroundDrop($event)">
 
-      <div class="details-header-viewport" *ngIf="!activePanelPresentation && !error && viewMode === 'details'">
+      <div class="details-header-viewport" *ngIf="!error && viewMode === 'details'">
         <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
         <span></span><span>Name</span><span>Scope</span><span>Value</span><span>Type</span>
         <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
@@ -2252,52 +2241,6 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
       currentDirectory: this.path,
       sourceId: resolved.location.sourceId,
       sourceKind: resolved.source.kind,
-    };
-  }
-
-  get activePanelPresentation(): PanelPresentationContribution | null {
-    if (this.viewMode !== 'list' && this.viewMode !== 'details') return null;
-    return this.pluginManager.resolvePanelPresentation({
-      ...this.panelColumnContext,
-      viewMode: this.viewMode,
-    });
-  }
-
-  get panelPresentationModel(): PanelPresentationModel {
-    const window = this.listVirtualWindow;
-    return {
-      paneId: this.paneId,
-      path: this.path,
-      viewMode: this.viewMode,
-      entries: this.renderedEntries,
-      selectedPaths: this.selectedPaths,
-      cursorPath: this.cursorPath,
-      visibleEntryCount: this.visibleEntryCount,
-      renderedStart: this.renderedEntryStart,
-      virtualEnabled: window.enabled,
-      beforePx: window.beforePx,
-      afterPx: window.afterPx,
-      loading: this.loading,
-      filterText: this.filterText,
-      dragOverPath: this.dragOverPath,
-      dropIntent: this.dropIntent,
-      backgroundDropActive: this.backgroundDropActive,
-      host: {
-        scroll: event => this.onContentScroll(event),
-        backgroundClick: event => this.onBackgroundClick(event),
-        backgroundContextMenu: event => this.onBackgroundContextMenu(event),
-        backgroundDragOver: event => this.onBackgroundDragOver(event),
-        backgroundDragLeave: event => this.onBackgroundDragLeave(event),
-        backgroundDrop: event => this.onBackgroundDrop(event),
-        select: (entry, event) => this.selectFromPointer(entry, event),
-        open: entry => void this.openEntry(entry),
-        contextMenu: (entry, event) => this.onEntryContextMenu(entry, event),
-        dragStart: (entry, event) => this.onEntryDragStart(entry, event),
-        dragEnd: () => this.onDragEnd(),
-        dragOver: (entry, event) => this.onEntryDragOver(entry, event),
-        dragLeave: entry => this.onEntryDragLeave(entry),
-        drop: (entry, event) => this.onEntryDrop(entry, event),
-      },
     };
   }
 

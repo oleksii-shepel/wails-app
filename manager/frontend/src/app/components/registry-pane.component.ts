@@ -35,7 +35,6 @@ import type {
   PanelPresentationModel,
 } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
-import { PanelPresentationOutletComponent } from './panel-presentation-outlet.component';
 import {
   ArchiveService,
   type ArchiveFrame,
@@ -58,14 +57,14 @@ import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
-import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
+import { PaneViewHostComponent } from './pane-view-host.component';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent } from './responsive-toolbar.component';
 import { PaneClipboardController, type PaneClipboardHost } from './pane-clipboard.controller';
-import { PaneDetailsComponent, type PaneDetailsColumn } from './pane-details.component';
+import type { PaneDetailsColumn } from './pane-details.component';
 import {
   collapseNestedDragEntries,
   decideInternalDrop,
@@ -184,13 +183,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
   imports: [
     CommonModule,
     AddressBarComponent,
-    PanelPresentationOutletComponent,
     FilterComponent,
-    FileEntryInlineComponent,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
-    PaneDetailsComponent,
+    PaneViewHostComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -384,243 +381,36 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </div>
       </div>
 
-      <div
-        #treeViewport
-        class="tree-view"
-        data-pane-content
-        *ngIf="!error && viewMode === 'tree'"
-        tabindex="-1"
-        role="tree"
-        [attr.aria-label]="'Registry details of ' + (path || 'location')"
-        [attr.aria-busy]="loading"
-        (click)="onBackgroundClick($event)"
-        (contextmenu)="onBackgroundContextMenu($event)"        (scroll)="onContentScroll($event)">
-        <div
-          *ngIf="treeVirtualWindow.enabled && treeVirtualWindow.beforePx > 0"
-          class="virtual-spacer tree-virtual-spacer"
-          [style.height.px]="treeVirtualWindow.beforePx"
-          aria-hidden="true"></div>
-
-        <div
-          *ngFor="let row of renderedTreeRows; trackBy: trackTreeRow"
-          class="tree-row"
-          tabindex="-1"
-          [attr.data-file-entry]="row.entry.path"
-          role="treeitem"
-          [class.selected]="selectedPaths.has(row.entry.path)"
-          [class.cursor]="cursorPath === row.entry.path"
-          [class.compare-only]="comparisonStatus(row.entry.path)?.startsWith('only-')"
-          [class.compare-newer]="comparisonStatus(row.entry.path)?.endsWith('-newer')"
-          [class.compare-different]="isComparisonDifferent(row.entry.path)"
-          [class.drop-target]="dragOverPath === row.entry.path"
-          [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
-          [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
-          [class.drop-move]="dragOverPath === row.entry.path && dropIntent === 'move'"
-          [attr.aria-level]="row.depth + 1"
-          [attr.aria-expanded]="row.expandable ? row.expanded : null"
-          [attr.aria-selected]="selectedPaths.has(row.entry.path)"
-          [attr.aria-current]="cursorPath === row.entry.path ? 'true' : null"
-          [attr.aria-label]="entryAriaLabel(row.entry)"
-          [style.padding-left.px]="8 + row.depth * 18"
-          (click)="selectFromPointer(row.entry, $event)"
-          (dblclick)="onTreeDoubleClick(row)"
-          (contextmenu)="onEntryContextMenu(row.entry, $event)"
-          (dragstart)="onEntryDragStart(row.entry, $event)"
-          (dragend)="onDragEnd()"
-          draggable="true">
-          <span
-            class="tree-expander"
-            [class.placeholder]="!row.expandable"
-            (click)="toggleTreeRow(row, $event)">
-            {{ row.loading ? '\u2026' : (row.expandable ? (row.expanded ? '\u25BE' : '\u25B8') : '') }}
-          </span>
-          <span class="icon">{{ entryIcon(row.entry) }}</span>
-          <app-file-entry-inline
-            *ngIf="renamingPath !== row.entry.path"
-            class="name tree-name"
-            [entry]="row.entry"
-            [showIcon]="false">
-          </app-file-entry-inline>
-          <span
-            class="rename-editor"
-            *ngIf="renamingPath === row.entry.path"
-            (click)="$event.stopPropagation()"
-            (dblclick)="$event.stopPropagation()">
-            <input
-              class="rename-input"
-              [class.rename-input--invalid]="!!renameError"
-              [value]="renameValue"
-              [disabled]="renameBusy"
-              [attr.data-rename-input]="row.entry.path"
-              [attr.aria-invalid]="renameError ? 'true' : null"
-              [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
-              (input)="onRenameInput($event)"
-              (keydown)="onRenameKeyDown(row.entry, $event)"
-              (blur)="onRenameBlur(row.entry)" />
-            <span
-              *ngIf="renameError"
-              class="rename-error"
-              [id]="'rename-error-' + paneId"
-              role="alert">{{ renameError }}</span>
-          </span>
-          <span class="tree-meta" *ngIf="row.entry.type !== FileType.DIRECTORY && renamingPath !== row.entry.path">
-            {{ formatSize(row.entry.size) }}
-          </span>
-        </div>
-
-        <div
-          *ngIf="treeVirtualWindow.enabled && treeVirtualWindow.afterPx > 0"
-          class="virtual-spacer tree-virtual-spacer"
-          [style.height.px]="treeVirtualWindow.afterPx"
-          aria-hidden="true"></div>
-
-        <div class="empty" *ngIf="!loading && treeRows.length === 0" role="status">
-          <strong>This directory is empty.</strong>
-          <span *ngIf="canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
-        </div>
-      </div>
-
-      <app-panel-presentation-outlet
-        *ngIf="!error && activePanelPresentation as presentation"
-        [presentation]="presentation"
-        [model]="panelPresentationModel">
-      </app-panel-presentation-outlet>
-
-
-      <app-pane-details
-        *ngIf="!activePanelPresentation && !error && viewMode === 'details'"
-        class="shared-details-view"
+      <app-pane-view-host
+        *ngIf="!activePanelPresentation && !error"
+        #paneViewHost
+        class="directory-view-host"
+        [surfaceId]="paneId + ':' + activeTabId"
+        [surfaceActive]="active"
+        [browserPath]="path"
+        [paneId]="paneId"
         [entries]="visibleEntries"
         [currentPath]="path"
         [selectedFiles]="selectedPaths"
         [cursorPath]="cursorPath"
+        [loading]="loading"
+        [error]="error"
+        [currentView]="viewMode"
         [sortField]="sortField"
         [sortDirection]="sortDirection"
-        [columns]="paneDetailsColumns"
+        [directoriesFirst]="directoriesFirst"
+        [detailsColumns]="paneDetailsColumns"
         [paneActive]="active"
         (selectionChange)="onSharedDetailsSelectionChange($event)"
         (navigate)="openEntry($event)"
-        (sort)="applyDetailsSort($event)"
+        (nodeDoubleClick)="openEntry($event)"
+        (sortChange)="applyDetailsSort($event)"
         (contextMenu)="onEntryContextMenu($event.entry, $event.event)"
         (backgroundContextMenu)="onBackgroundContextMenu($event)"
-        (dragDrop)="onSharedDetailsDrop($event)"
+        (dragDrop)="onSharedPaneDrop($event)"
+        (rename)="renameEntry($event.entry, $event.newName)"
         (viewportChange)="onSharedDetailsViewportChange()">
-      </app-pane-details>
-
-      <div
-        class="list"
-        data-pane-details-root
-        *ngIf="!activePanelPresentation && !error && (viewMode === 'list' || viewMode === 'grid')"
-        [class.view-list]="viewMode === 'list'"
-        [class.view-grid]="viewMode === 'grid'"
-        [attr.aria-busy]="loading"
-        [class.background-drop-target]="backgroundDropActive">
-
-      <div
-        #listViewport
-        class="list-viewport"
-        data-pane-content
-        tabindex="-1"
-        role="listbox"
-        [attr.aria-label]="'Registry entries in ' + (path || 'location')"
-        (scroll)="onListViewportScroll($event)"
-        (click)="onBackgroundClick($event)"
-        (contextmenu)="onBackgroundContextMenu($event)"
-        (dragover)="onBackgroundDragOver($event)"
-        (dragleave)="onBackgroundDragLeave($event)"
-        (drop)="onBackgroundDrop($event)">
-
-        <div
-          *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
-          class="virtual-spacer list-virtual-spacer"
-          [style.height.px]="listVirtualWindow.beforePx"
-          aria-hidden="true"></div>
-
-        <div
-          *ngFor="let entry of renderedEntries; let virtualIndex=index; trackBy: trackEntry"
-          class="entry"
-          tabindex="-1"
-          role="option"
-          [attr.aria-posinset]="renderedEntryStart + virtualIndex + 1"
-          [attr.aria-setsize]="visibleEntryCount"
-          draggable="true"
-          [attr.data-file-entry]="entry.path"
-          [attr.aria-selected]="selectedPaths.has(entry.path)"
-          [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
-          [attr.aria-label]="entryAriaLabel(entry)"
-          [class.cursor]="entry.path === cursorPath"
-          [class.selected]="selectedPaths.has(entry.path)"
-          [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
-          [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
-          [class.compare-different]="isComparisonDifferent(entry.path)"
-          (click)="onRegistryEntryClick(entry, $event)"
-          (dblclick)="openEntry(entry)"
-          (contextmenu)="onEntryContextMenu(entry, $event)"
-          (dragstart)="onEntryDragStart(entry, $event)"
-          (dragend)="onDragEnd()"
-          (dragover)="onEntryDragOver(entry, $event)"
-          (dragleave)="onEntryDragLeave(entry)"
-          (drop)="onEntryDrop(entry, $event)"
-          [class.drop-target]="dragOverPath === entry.path"
-          [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
-          [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
-          [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'">
-
-          <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
-            {{ entryDisplayIcon(entry) }}
-          </span>
-
-          <app-file-entry-inline
-            *ngIf="renamingPath !== entry.path"
-            class="name entry-name"
-            [entry]="entry"
-            [showIcon]="false">
-          </app-file-entry-inline>
-          <span
-            class="rename-editor"
-            *ngIf="renamingPath === entry.path"
-            (click)="$event.stopPropagation()"
-            (dblclick)="$event.stopPropagation()">
-            <input
-              class="rename-input"
-              [class.rename-input--invalid]="!!renameError"
-              [value]="renameValue"
-              [disabled]="renameBusy"
-              [attr.data-rename-input]="entry.path"
-              [attr.aria-invalid]="renameError ? 'true' : null"
-              [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
-              (input)="onRenameInput($event)"
-              (keydown)="onRenameKeyDown(entry, $event)"
-              (blur)="onRenameBlur(entry)" />
-            <span
-              *ngIf="renameError"
-              class="rename-error"
-              [id]="'rename-error-' + paneId"
-              role="alert">{{ renameError }}</span>
-          </span>
-
-          <span class="kind" [style.color]="entryCategory(entry)?.color || null">
-            {{ entryDisplayKind(entry) }}
-          </span>
-
-          <span class="size">{{ entryDisplayType(entry) }}</span>
-          <span class="modified" [title]="entryDisplayType(entry) + (entryDisplayValue(entry) ? ' · ' + entryDisplayValue(entry) : '')">{{ entryDisplayValue(entry) }}</span>
-          <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
-        </div>
-
-        <div
-          *ngIf="listVirtualWindow.enabled && listVirtualWindow.afterPx > 0"
-          class="virtual-spacer list-virtual-spacer"
-          [style.height.px]="listVirtualWindow.afterPx"
-          aria-hidden="true"></div>
-
-        <div class="empty" *ngIf="!loading && visibleEntryCount === 0" role="status">
-          <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
-          <span *ngIf="filterText">Clear the filter to see all items.</span>
-          <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
-        </div>
-      </div>
-        </div>
+      </app-pane-view-host>
 
       <div
         class="drop-intent"
@@ -1737,9 +1527,9 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('viewerHost') viewerHost?: ViewerHostSurfaceComponent;
   @ViewChild('surfaceOutlet') surfaceOutlet?: SurfaceOutletComponent;
   @ViewChild('filterWidget') filterWidget?: FilterComponent;
+  @ViewChild(PaneViewHostComponent) paneViewHost?: PaneViewHostComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
-  @ViewChild(PaneDetailsComponent) detailsView?: PaneDetailsComponent;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -1968,7 +1758,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
 
   viewportSnapshot(): { topName: string | null; ratio: number } {
     if (this.viewMode === 'details') {
-      const metrics = this.detailsView?.getScrollMetrics();
+      const metrics = this.paneViewHost?.getScrollMetrics();
       if (!metrics) return { topName: null, ratio: 0 };
       const max = Math.max(1, metrics.scrollHeight - metrics.clientHeight);
       return {
@@ -2008,15 +1798,15 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
           candidate.name.toLowerCase() === folded
         );
         if (entry) {
-          this.detailsView?.scrollToPath(entry.path);
+          this.paneViewHost?.scrollToCursorPath(entry.path);
           return;
         }
       }
 
-      const metrics = this.detailsView?.getScrollMetrics();
+      const metrics = this.paneViewHost?.getScrollMetrics();
       if (!metrics) return;
       const max = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
-      this.detailsView?.setScrollTop(
+      this.paneViewHost?.setScrollTop(
         Math.round(max * Math.max(0, Math.min(1, snapshot.ratio))),
       );
       return;
@@ -8062,9 +7852,71 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     });
   }
 
+  onSharedPaneDrop(event: { event: DragEvent; source: FileInfo[]; targetPath: string }): void {
+    const targetEntry = this.visibleEntries.find(entry => entry.path === event.targetPath) ?? null;
+    this.internalDrop.emit({
+      event: event.event,
+      targetPath: event.targetPath,
+      targetEntry,
+    });
+  }
+
+  async renameEntry(entry: FileInfo, newName: string): Promise<void> {
+    if (!entry || entry.path === '__parent__' || this.renameBusy) {
+      return;
+    }
+
+    const cleanName = this.cleanLeafName(newName);
+    if (!cleanName) {
+      await this.confirmDialog.alert({
+        title: 'Invalid Name',
+        message:
+          'Choose a valid name. Avoid path separators, reserved characters/names, and trailing spaces or dots.',
+      });
+      return;
+    }
+
+    if (cleanName === entry.name) {
+      return;
+    }
+
+    const available = await this.ensureLeafAvailableInline(
+      this.path,
+      cleanName,
+      entry.path,
+    );
+    if (!available.ok) {
+      await this.confirmDialog.alert({
+        title: 'Name Already Exists',
+        message: available.message,
+      });
+      return;
+    }
+
+    this.renameBusy = true;
+    this.cdr.markForCheck();
+
+    try {
+      const destination = await this.performRename(entry, cleanName);
+      this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
+      this.actionFeedback.success(
+        'Renamed',
+        `${entry.name} \u2192 ${cleanName}`,
+      );
+      await this.refresh();
+      this.selectPath(destination);
+      this.focusContent();
+    } catch (error) {
+      await this.showOperationError('Rename', error);
+    } finally {
+      this.renameBusy = false;
+      this.cdr.markForCheck();
+    }
+  }
+
   onSharedDetailsViewportChange(): void {
     const active = this.activeTab;
-    const scrollTop = this.detailsView?.getScrollTop() ?? 0;
+    const scrollTop = this.paneViewHost?.getScrollTop() ?? 0;
     if (active && active.kind === 'dir') {
       const updated: Extract<Tab, { kind: 'dir' }> = {
         ...active,
@@ -9134,7 +8986,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
     if (!this.cursorPath || typeof document === 'undefined') return;
 
     if (this.viewMode === 'details') {
-      this.detailsView?.scrollToPath(this.cursorPath);
+      this.paneViewHost?.scrollToCursorPath(this.cursorPath);
       return;
     }
 

@@ -60,12 +60,12 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
   template: `
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.backdrop--closing]="isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onBackdropAnimationEnd($event)">
       <section class="quick palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
-        tabindex="-1">
+        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
           <input [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
-          <button type="button" class="dialog-close-btn" aria-label="Close Quick Access" title="Close (Esc)" (click)="close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close (Esc)" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
         <nav class="sections" *ngIf="filteredSections.length > 1" aria-label="Quick Access sections">

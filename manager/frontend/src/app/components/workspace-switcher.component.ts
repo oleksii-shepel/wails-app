@@ -221,7 +221,7 @@ interface WorkspaceSwitcherItem {
         aria-modal="true"
         aria-label="Workspace switcher"
         (mousedown)="$event.stopPropagation()"
-        tabindex="-1">
+        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
 
         <header>
           <div>
@@ -238,12 +238,11 @@ interface WorkspaceSwitcherItem {
             + New
           </button>
 
-          <button
-            type="button"
-            class="dialog-close-btn"
-            aria-label="Close"
+          <span
+            class="dialog-close"
+            aria-label="Close tab"
             title="Close"
-            (click)="close()">×</button>
+            (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="workspace-list" role="listbox" aria-label="Workspaces">
@@ -427,7 +426,7 @@ interface WorkspaceSwitcherItem {
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
-    button:not(.dialog-close-btn) {
+    button:not(.dialog-close) {
       border: 1px solid transparent;
       border-radius: 4px;
       background: transparent;
@@ -436,12 +435,12 @@ interface WorkspaceSwitcherItem {
       font: inherit;
     }
 
-    button:not(.dialog-close-btn):hover:not(:disabled) {
+    button:not(.dialog-close):hover:not(:disabled) {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
       border-color: var(--vsc-border, var(--vsc-border));
     }
 
-    button:not(.dialog-close-btn):disabled {
+    button:not(.dialog-close):disabled {
       opacity: .35;
       cursor: default;
     }

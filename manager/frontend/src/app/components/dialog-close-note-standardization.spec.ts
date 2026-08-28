@@ -8,7 +8,7 @@ describe('dialog close-note standardization', () => {
     const scss = read('keyboard-help.component.scss');
     expect(html).toContain('shortcut-reference-backdrop backdrop dialog-group');
     expect(html).toContain('shortcut-reference dialog-surface');
-    expect(html).toContain('class="dialog-close-btn"');
+    expect(html).toContain('class="dialog-close"');
     expect(scss).toContain('place-items: start center');
     expect(scss).toContain('padding-top: min(8vh, 72px)');
     expect(scss).toContain('background: var(--vsc-scrim-soft)');

@@ -52,13 +52,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       (animationend)="onAnimationEnd($event)">
       <section class="palette dialog-surface" role="dialog" aria-modal="true" aria-label="Command palette"
         (mousedown)="$event.stopPropagation()"
-        tabindex="-1">
+        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header>
           <div class="title-block">
             <strong>Command Palette</strong>
             <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close Command Palette" title="Close" (click)="close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="query">
@@ -117,7 +117,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     kbd{padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-neutral-overlay-subtle);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
     .state{font-size:10px}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}
-    .dialog-close-btn{margin-left:8px}
+    .dialog-close{margin-left:8px}
   `],
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {

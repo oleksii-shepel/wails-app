@@ -24,13 +24,13 @@ import {
         role="dialog"
         aria-modal="true"
         aria-label="Recently Closed Tabs"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <strong>Recently Closed Tabs</strong>
             <span class="palette-dialog-subtitle">{{ entries.length }} recoverable tabs</span>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="tabs palette-dialog-body palette-dialog-list">

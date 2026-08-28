@@ -32,12 +32,12 @@ describe('Connect Remote standard dialog contract', () => {
   });
 
   it('uses the same close-button class and local spacing as Command Palette', () => {
-    expect(component).toContain('class=\"dialog-close-btn\"');
+    expect(component).toContain('class=\"dialog-close\"');
     expect(component).toContain('title=\"Close (Esc)\"');
-    expect(commandPalette).toContain('class=\"dialog-close-btn\"');
-    expect(commandPalette).toContain('.dialog-close-btn{margin-left:8px}');
-    expect(componentStyles).toMatch(/\.remote-connect-panel \.dialog-close-btn \{\s*margin-left: 8px;\s*\}/);
-    expect(componentStyles).not.toMatch(/\.dialog-close-btn[^}]*padding:/s);
-    expect(componentStyles).not.toMatch(/\.dialog-close-btn[^}]*min-height:/s);
+    expect(commandPalette).toContain('class=\"dialog-close\"');
+    expect(commandPalette).toContain('.dialog-close{margin-left:8px}');
+    expect(componentStyles).toMatch(/\.remote-connect-panel \.dialog-close \{\s*margin-left: 8px;\s*\}/);
+    expect(componentStyles).not.toMatch(/\.dialog-close[^}]*padding:/s);
+    expect(componentStyles).not.toMatch(/\.dialog-close[^}]*min-height:/s);
   });
 });

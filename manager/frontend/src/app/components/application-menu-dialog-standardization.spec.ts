@@ -23,7 +23,7 @@ describe('main-menu dialog standardization', () => {
 
   it('uses the shared close button in Operation Center', () => {
     const source = read('operation-center.component.ts');
-    expect(source).toContain('class="dialog-close-btn"');
+    expect(source).toContain('class="dialog-close"');
     expect(source).not.toContain('class="icon-button"');
   });
 

@@ -61,7 +61,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
           aria-label="Project Settings"
           tabindex="-1"
           (click)="$event.stopPropagation()"
-        >
+         (keydown.escape)="onCancel(); $event.preventDefault(); $event.stopPropagation()">
           <header class="settings-header">
             <div class="settings-header-title">
               <h2>Settings</h2>
@@ -89,7 +89,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
               >
                 Reset All
               </button>
-              <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close (Esc)">×</button>
+              <span class="dialog-close" aria-label="Close tab" (click)="onCancel()" title="Close (Esc)" role="button" tabindex="0" (keydown.enter)="onCancel()" (keydown.space)="onCancel(); $event.preventDefault()"> × </span>
             </div>
           </header>
 

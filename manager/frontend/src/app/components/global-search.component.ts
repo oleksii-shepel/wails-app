@@ -86,7 +86,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible || isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="search palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Global search"
         (mousedown)="$event.stopPropagation()"
-        tabindex="-1">
+        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <strong>Global Search</strong>
@@ -99,7 +99,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               · {{ folderCount }} folders · {{ fileCount }} files
             </ng-container>
           </span>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
           </div>
         </header>
 

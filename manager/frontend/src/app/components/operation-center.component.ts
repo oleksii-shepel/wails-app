@@ -17,7 +17,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
             <div class="eyebrow">Activity</div>
             <h2>Operations</h2>
           </div>
-          <button class="dialog-close-btn" type="button" aria-label="Close Operations" title="Close" (click)="hide()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="hide()" role="button" tabindex="0" (keydown.enter)="hide()" (keydown.space)="hide(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="summary">

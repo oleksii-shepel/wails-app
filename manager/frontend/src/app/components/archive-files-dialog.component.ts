@@ -19,13 +19,13 @@ import {
           role="dialog"
           aria-modal="true"
           [attr.aria-label]="request.title"
-          (click)="$event.stopPropagation()">
+          (click)="$event.stopPropagation()" (keydown.escape)="dialogs.close(); $event.preventDefault(); $event.stopPropagation()">
           <header class="dialog-header">
             <div>
               <h2>{{ request.title }}</h2>
               <p>{{ request.message }}</p>
             </div>
-            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close (Esc)" (click)="dialogs.close()">×</button>
+            <span class="dialog-close" aria-label="Close tab" title="Close (Esc)" (click)="dialogs.close()" role="button" tabindex="0" (keydown.enter)="dialogs.close()" (keydown.space)="dialogs.close(); $event.preventDefault()"> × </span>
           </header>
 
           <div class="dialog-body">

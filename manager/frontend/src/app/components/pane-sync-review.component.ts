@@ -20,7 +20,7 @@ type Filter = 'different' | PaneComparisonStatus;
   template: `
     <ng-container *ngIf="activeRequest as request">
     <div class="review-backdrop dialog-group" [class.dialog-group--closing]="isClosing" (click)="dialogs.close()" (animationend)="onAnimationEnd($event)">
-      <div class="review dialog-surface" role="dialog" aria-modal="true" aria-label="Synchronization review" (click)="$event.stopPropagation()">
+      <div class="review dialog-surface" role="dialog" aria-modal="true" aria-label="Synchronization review" (click)="$event.stopPropagation()" (keydown.escape)="dialogs.close(); $event.preventDefault(); $event.stopPropagation()">
       <div class="header">
         <div class="title">
           <strong>Synchronization Review</strong>
@@ -32,7 +32,7 @@ type Filter = 'different' | PaneComparisonStatus;
           <button type="button" (click)="applyPreset('right-to-left')">Right → Left</button>
           <button type="button" (click)="applyPreset('bidirectional')">Bidirectional</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="dialogs.close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="dialogs.close()" role="button" tabindex="0" (keydown.enter)="dialogs.close()" (keydown.space)="dialogs.close(); $event.preventDefault()"> × </span>
         </div>
       </div>
 
@@ -92,7 +92,7 @@ type Filter = 'different' | PaneComparisonStatus;
     .title strong { color: var(--vsc-foreground-bright); font-size: 14px; font-weight: 600; }
     .title span { color: var(--vsc-foreground-dim); }
     .header-actions, .filters, .decision { display: flex; gap: 6px; align-items: center; }
-    button:not(.dialog-close-btn) {
+    button:not(.dialog-close) {
       border: 1px solid transparent;
       background: var(--vsc-button-secondary, transparent);
       color: inherit;
@@ -103,12 +103,12 @@ type Filter = 'different' | PaneComparisonStatus;
       cursor: pointer;
       transition: background-color var(--vsc-transition-fast), border-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
     }
-    button:not(.dialog-close-btn):hover:not(:disabled), button:not(.dialog-close-btn).active { background: var(--vsc-button-secondary-hover, color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent)); }
-    button:not(.dialog-close-btn).primary { background: var(--vsc-button-background, var(--vsc-accent-blue)); color: var(--vsc-button-foreground, var(--vsc-on-accent)); border-color: transparent; }
-    button:not(.dialog-close-btn):disabled { opacity: .38; cursor: default; }
-    button:not(.dialog-close-btn):focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
+    button:not(.dialog-close):hover:not(:disabled), button:not(.dialog-close).active { background: var(--vsc-button-secondary-hover, color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent)); }
+    button:not(.dialog-close).primary { background: var(--vsc-button-background, var(--vsc-accent-blue)); color: var(--vsc-button-foreground, var(--vsc-on-accent)); border-color: transparent; }
+    button:not(.dialog-close):disabled { opacity: .38; cursor: default; }
+    button:not(.dialog-close):focus-visible { outline: 1px solid var(--vsc-input-focus-border); outline-offset: 1px; }
     .filters { padding: 8px 16px; overflow-x: auto; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: color-mix(in srgb, var(--vsc-foreground) 2%, var(--vsc-editor-background)); }
-    .filters button:not(.dialog-close-btn) { white-space: nowrap; }
+    .filters button:not(.dialog-close) { white-space: nowrap; }
     .filters span { opacity: .65; margin-left: 3px; }
     .columns, .row { grid-template-columns: minmax(180px, 1fr) 150px minmax(270px, auto); gap: 10px; padding: 7px 16px; }
     .columns { color: var(--vsc-foreground-dim); text-transform: uppercase; font-size: 10px; letter-spacing: .08em; border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-neutral-overlay-soft)); background: color-mix(in srgb, var(--vsc-sidebar-background) 30%, var(--vsc-editor-background)); }

@@ -35,7 +35,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible || isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="history palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Location history"
         (mousedown)="$event.stopPropagation()"
-        tabindex="-1">
+        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <strong>Location History</strong>
@@ -45,7 +45,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
             <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
               placeholder="Filter history" autocomplete="off" spellcheck="false"
               aria-label="Filter location history" aria-controls="history-list" />
-            <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
+            <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
           </div>
         </header>
 

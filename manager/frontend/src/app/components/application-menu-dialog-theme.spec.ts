@@ -27,7 +27,7 @@ describe('application menu dialog theme convergence', () => {
   it('uses the standard dialog close button wherever dialog chrome owns a close control', () => {
     for (const file of closeButtonOwners) {
       const source = read(file);
-      expect(source).withContext(file).toContain('dialog-close-btn');
+      expect(source).withContext(file).toContain('dialog-close');
     }
   });
 

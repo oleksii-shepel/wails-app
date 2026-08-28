@@ -140,7 +140,6 @@ export type ResponsiveToolbarCommand = PresentedCommand & {
       position: relative;
       display: flex;
       align-items: center;
-      justify-content: flex-end;
       gap: 4px;
       width: 100%;
       min-width: 0;

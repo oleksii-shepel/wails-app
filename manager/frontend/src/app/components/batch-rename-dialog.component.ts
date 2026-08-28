@@ -35,11 +35,11 @@ interface PreviewRow {
           tabindex="-1"
           (keydown.tab)="onTabKey($event)"
           (click)="$event.stopPropagation()"
-        >
+         (keydown.escape)="onCancel(); $event.preventDefault(); $event.stopPropagation()">
           <header class="br-header">
             <h2>Batch Rename</h2>
             <span class="br-subtitle">{{ request.items.length }} item(s) selected</span>
-            <button type="button" class="dialog-close-btn" aria-label="Close Batch Rename" title="Close (Esc)" (click)="onCancel()">×</button>
+            <span class="dialog-close" aria-label="Close tab" title="Close (Esc)" (click)="onCancel()" role="button" tabindex="0" (keydown.enter)="onCancel()" (keydown.space)="onCancel(); $event.preventDefault()"> × </span>
           </header>
 
           <div class="br-body">

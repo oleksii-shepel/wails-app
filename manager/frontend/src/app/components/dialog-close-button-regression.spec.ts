@@ -11,7 +11,7 @@ describe('standard dialog close control', () => {
     expect(styles).toContain('width: var(--dialog-close-size');
     expect(styles).toContain('height: var(--dialog-close-size');
     expect(styles).toContain('font: 400 24px/1');
-    expect(styles).toContain('.dialog-close-btn:active');
+    expect(styles).toContain('.dialog-close:active');
     expect(styles).toContain('background: var(--vsc-list-hover-background');
     expect(styles).toContain('box-shadow: none !important;');
   });
@@ -34,7 +34,7 @@ describe('standard dialog close control', () => {
       'pane-sync-review.component.ts',
       'trash-dialog.component.ts',
     ]) {
-      expect(read(file)).toContain('class="dialog-close-btn"');
+      expect(read(file)).toContain('class="dialog-close"');
     }
   });
 });

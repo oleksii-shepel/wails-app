@@ -39,13 +39,13 @@ import type {
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard and Mouse Bindings"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()" (keydown.escape)="requestClose(); $event.preventDefault(); $event.stopPropagation()">
         <header>
           <div class="title-block">
             <h2>Input & Shortcuts</h2>
             <p>Rebind keyboard, chords, mouse gestures, and plugin commands live.</p>
           </div>
-          <button type="button" class="dialog-close-btn" title="Close" aria-label="Close Input & Shortcuts" (click)="requestClose()">×</button>
+          <span class="dialog-close" title="Close" aria-label="Close tab" (click)="requestClose()" role="button" tabindex="0" (keydown.enter)="requestClose()" (keydown.space)="requestClose(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="toolbar">
@@ -172,7 +172,7 @@ import type {
     button{padding:2px 8px;cursor:pointer} button:disabled{opacity:.4;cursor:default}
     button:hover:not(:disabled){background:var(--vsc-list-hover-background)}
     button:focus-visible,input:focus-visible,select:focus-visible{outline:1px solid var(--vsc-focus-border);outline-offset:1px}
-    .dialog-close-btn{margin-left:8px}
+    .dialog-close{margin-left:8px}
     .toolbar{border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));flex-wrap:wrap}
     .search{flex:1;min-width:240px;height:26px;padding:3px 7px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:3px;background:var(--vsc-input-background);color:var(--vsc-input-foreground)}
     .check{display:flex;align-items:center;gap:4px}.summary{margin-left:auto;color:var(--vsc-description-foreground)}

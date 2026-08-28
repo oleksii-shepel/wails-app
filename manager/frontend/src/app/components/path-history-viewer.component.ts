@@ -14,14 +14,14 @@ import { locationIcon, locationLabel } from '../services/location-reference';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="path-history-overlay" *ngIf="renderVisible" [class.path-history-overlay--closing]="isClosing" (click)="hide()" (animationend)="onOverlayAnimationEnd($event)">
-      <div class="path-history-modal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
+      <div class="path-history-modal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown.escape)="hide(); $event.preventDefault(); $event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
           <div>
             <h2>Location History</h2>
             <p>Recently visited locations. Click to navigate.</p>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close">×</button>
+          <span class="dialog-close" aria-label="Close tab" (click)="hide()" title="Close" role="button" tabindex="0" (keydown.enter)="hide()" (keydown.space)="hide(); $event.preventDefault()"> × </span>
         </div>
 
         <!-- Stats -->
@@ -185,7 +185,7 @@ import { locationIcon, locationLabel } from '../services/location-reference';
       line-height: 1.45;
     }
 
-    .dialog-close-btn:focus-visible {
+    .dialog-close:focus-visible {
       outline: 1px solid var(--vsc-input-focus-border);
       outline-offset: 2px;
     }

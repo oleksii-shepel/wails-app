@@ -40,13 +40,13 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
         aria-label="Trash / Recycle Bin"
         tabindex="-1"
         (keydown.tab)="onTabKey($event)"
-        >
+         (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <h2>Trash / Recycle Bin</h2>
             <p class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</p>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="toolbar palette-dialog-toolbar">
@@ -144,7 +144,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       justify-content: space-between;
     }
 
-    .dialog-close-btn {
+    .dialog-close {
       flex-shrink: 0;
     }
 

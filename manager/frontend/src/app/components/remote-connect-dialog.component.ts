@@ -194,14 +194,14 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
           aria-label="Connect remote storage"
           tabindex="-1"
           (click)="$event.stopPropagation()"
-        >
+         (keydown.escape)="onCancel(); $event.preventDefault(); $event.stopPropagation()">
           <header class="remote-connect-header palette-dialog-header">
             <div class="palette-dialog-title">
               <strong>Connect Remote</strong>
               <span class="palette-dialog-subtitle">{{ selectedProtocol.label }}</span>
             </div>
             <div class="remote-connect-header-actions">
-                            <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">×</button>
+                            <span class="dialog-close" aria-label="Close tab" (click)="onCancel()" title="Close" role="button" tabindex="0" (keydown.enter)="onCancel()" (keydown.space)="onCancel(); $event.preventDefault()"> × </span>
             </div>
           </header>
           <p class="remote-connect-intro palette-dialog-footnote">

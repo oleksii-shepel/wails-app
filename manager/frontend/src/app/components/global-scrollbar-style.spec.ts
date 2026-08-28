@@ -18,12 +18,12 @@ describe('global application scrollbar style', () => {
     expect(styles).toContain('scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);');
   });
 
-  it('uses the same scrollbar palette in dark and light themes', () => {
+  it('uses a light toolbar-like scrollbar palette in both themes', () => {
     expect(theme.match(/--vsc-scrollbar-size: 12px;/g)?.length).toBe(2);
     expect(theme.match(/--vsc-scrollbar-track: transparent;/g)?.length).toBe(2);
-    expect(theme.match(/--vsc-scrollbar-thumb: rgba\(121, 121, 121, 0\.42\);/g)?.length).toBe(2);
-    expect(theme.match(/--vsc-scrollbar-thumb-hover: rgba\(121, 121, 121, 0\.58\);/g)?.length).toBe(2);
-    expect(theme.match(/--vsc-scrollbar-thumb-active: rgba\(121, 121, 121, 0\.72\);/g)?.length).toBe(2);
+    expect(theme.match(/--vsc-scrollbar-thumb: rgba\(200, 200, 200, 0\.1\);/g)?.length).toBe(2);
+    expect(theme.match(/--vsc-scrollbar-thumb-hover: rgba\(200, 200, 200, 0\.2\);/g)?.length).toBe(2);
+    expect(theme.match(/--vsc-scrollbar-thumb-active: rgba\(200, 200, 200, 0\.3\);/g)?.length).toBe(2);
   });
 
   it('does not keep pane-only scrollbar skinning', () => {

@@ -73,13 +73,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="tools palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="File manager tools"
         (mousedown)="$event.stopPropagation()"
-        tabindex="-1">
+        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <strong>Tools</strong>
             <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ rootPath }}</span>
           </div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
         <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages">

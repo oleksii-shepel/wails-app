@@ -11,7 +11,7 @@
     aria-modal="true"
     aria-label="Keyboard shortcuts"
     tabindex="-1"
-    (click)="$event.stopPropagation()">
+    (click)="$event.stopPropagation()" (keydown.escape)="hide(); $event.preventDefault(); $event.stopPropagation()">
 
     <header class="reference-header">
       <div>
@@ -20,7 +20,7 @@
       </div>
 
       <div class="reference-header-actions">
-        <button type="button" class="dialog-close-btn" (click)="hide()" aria-label="Close" title="Close">×</button>
+        <span class="dialog-close" (click)="hide()" aria-label="Close tab" title="Close" role="button" tabindex="0" (keydown.enter)="hide()" (keydown.space)="hide(); $event.preventDefault()"> × </span>
       </div>
     </header>
 

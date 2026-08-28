@@ -19,7 +19,7 @@ describe('standard dialog close lifecycle', () => {
       'trash-dialog.component.ts',
       'tools-center.component.ts',
     ]) {
-      expect(read(file)).withContext(file).toContain('dialog-close-btn');
+      expect(read(file)).withContext(file).toContain('dialog-close');
     }
   });
 

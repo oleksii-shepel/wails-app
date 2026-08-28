@@ -12,7 +12,7 @@ describe('main-menu input dialog polish', () => {
   });
 
   it('uses the standard dialog close button for Input & Shortcuts', () => {
-    expect(inputCenter).toContain('class="dialog-close-btn"');
+    expect(inputCenter).toContain('class="dialog-close"');
     expect(inputCenter).toContain('title="Close (Esc)"');
   });
 

@@ -17,7 +17,7 @@ import { CommonModule } from '@angular/common';
             <strong>Selection Basket</strong>
             <span class="palette-dialog-subtitle">{{ entries.length }} items</span>
           </div>
-          <button class="dialog-close-btn" type="button" title="Close" aria-label="Close Selection Basket" (click)="hide()">×</button>
+          <span class="dialog-close" title="Close" aria-label="Close tab" (click)="hide()" role="button" tabindex="0" (keydown.enter)="hide()" (keydown.space)="hide(); $event.preventDefault()"> × </span>
         </header>
 
         <div class="basket-summary">

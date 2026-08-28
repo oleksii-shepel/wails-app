@@ -10,9 +10,9 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
   template: `
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
       <section class="journal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Operation History"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header"><div class="palette-dialog-title"><strong>Operation History</strong><span class="palette-dialog-subtitle">{{ entries.length }} recent operations</span></div>
-          <button type="button" class="dialog-close-btn" aria-label="Close" title="Close" (click)="close()">×</button></header>
+          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span></header>
         <div class="entries palette-dialog-body">
           <article *ngFor="let entry of entries; trackBy: trackEntry">
             <span class="state">{{ stateIcon(entry) }}</span>

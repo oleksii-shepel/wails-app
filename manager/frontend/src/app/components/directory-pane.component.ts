@@ -470,17 +470,15 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [attr.aria-selected]="selectedPaths.has(row.entry.path)"
           [attr.aria-current]="cursorPath === row.entry.path ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(row.entry)"
-          [style.padding-left.px]="6 + row.depth * 14"
-          (click)="selectFromPointer(row.entry, $event)"
-          (dblclick)="onTreeDoubleClick(row)"
+          [style.padding-left.px]="5 + row.depth * 10"
+          (click)="toggleTreeRow(row, $event)",
           (contextmenu)="onEntryContextMenu(row.entry, $event)"
           (dragstart)="onEntryDragStart(row.entry, $event)"
           (dragend)="onDragEnd()"
           draggable="true">
           <span
             class="tree-expander"
-            [class.placeholder]="!row.expandable"
-            (click)="toggleTreeRow(row, $event)">
+            [class.placeholder]="!row.expandable">
             {{ row.loading ? '\u2026' : (row.expandable ? (row.expanded ? '\u25BE' : '\u25B8') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>

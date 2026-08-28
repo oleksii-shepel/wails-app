@@ -93,17 +93,16 @@ interface DetailsRowVm {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div #detailsRoot class="file-details" role="table" data-pane-details-root>
-      <div class="details-header" role="rowgroup">
-        <div class="details-row header-row" role="row" [style.grid-template-columns]="columnGridTemplate">
-          <div 
-            *ngFor="let col of activeColumnVms; let i = index; trackBy: trackByColumnKey"
-            class="details-cell header-cell"
+      <div class="details-header-viewport" role="rowgroup">
+        <div class="details-header" role="row" [style.grid-template-columns]="columnGridTemplate">
+          <span
+            *ngFor="let col of activeColumnVms; trackBy: trackByColumnKey"
+            class="header-column"
             [attr.data-col]="col.key"
             [class.sortable]="col.column.sortable"
-            [attr.role]="'columnheader'"
+            role="columnheader"
             [attr.aria-sort]="getSortState(col.column.field)"
             (click)="col.column.sortable && onSort(col.column.field)">
-            
             <span class="header-label">{{ col.column.header }}</span>
             <span class="sort-indicator" *ngIf="sortField === col.column.field"
                   [class.sort-asc]="sortDirection === 'asc'"
@@ -112,16 +111,13 @@ interface DetailsRowVm {
                 <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/>
               </svg>
             </span>
-            <div
-              *ngIf="i < activeColumnVms.length - 1"
-              class="view-divider"
+            <i
               title="Resize column"
               [paneDetailsResizeHandle]="col.key"
               [paneDetailsMinWidth]="col.minWidth"
               [paneDetailsMaxWidth]="col.maxWidth"
-              (paneDetailsWidthCommit)="onColumnWidthCommit($event)">
-            </div>
-          </div>
+              (paneDetailsWidthCommit)="onColumnWidthCommit($event)"></i>
+          </span>
         </div>
       </div>
       
@@ -265,15 +261,81 @@ interface DetailsRowVm {
       background: var(--vsc-editor-background);
     }
 
+    .details-header-viewport {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      flex: 0 0 auto;
+      width: max-content;
+      min-width: 100%;
+      overflow: visible;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+    }
+
     .details-header {
-      flex-shrink: 0;
+      display: grid;
+      align-items: center;
       min-height: 25px;
       box-sizing: border-box;
-      padding: 0 4px;
+      width: max-content;
+      min-width: 100%;
+      padding: 0 8px;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
+      column-gap: var(--pane-column-gutter, 12px);
+    }
+
+    .header-column {
+      position: relative;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      height: 25px;
+      padding-inline: 2px;
+      overflow: visible;
+      white-space: nowrap;
+      color: inherit;
+      font: inherit;
+      font-weight: 400;
+    }
+
+    /* Legacy Directory Details reserved a 28px icon track before Name. The
+     * shared renderer keeps the icon inside the Name cell, so reserve the same
+     * visual gutter inside the first header column to preserve old alignment. */
+    .header-column:first-child {
+      padding-left: 30px;
+    }
+
+    .header-column.sortable {
+      cursor: pointer;
+    }
+
+    /* Legacy Details used a short delimiter inside the resize hit target, not
+     * a full-height table separator. Keep the directive's 8px drag area but
+     * paint only the compact centered rule. */
+    .header-column > .pane-details-resize-handle {
+      background: transparent !important;
+      opacity: 1 !important;
+    }
+
+    .header-column > .pane-details-resize-handle::before {
+      content: '';
+      position: absolute;
+      top: 5px;
+      bottom: 5px;
+      left: 50%;
+      width: 1px;
+      transform: translateX(-50%);
+      background: var(--vsc-border, rgba(128, 128, 128, .7));
+      opacity: .72;
+      pointer-events: none;
+    }
+
+    .header-column > .pane-details-resize-handle:hover::before {
+      opacity: 1;
+      background: var(--vsc-focus-border, var(--vsc-border));
     }
 
     :host-context(.pane:not(.active-pane)) .details-row.selected {
@@ -313,13 +375,6 @@ interface DetailsRowVm {
       flex-shrink: 0;
       contain: layout style;
       position: relative;
-      
-      &.header-row {
-        height: 25px;
-        min-height: 25px;
-        font-weight: 600;
-        color: var(--vsc-foreground-dim);
-      }
       
       &:not(.header-row) {
         border-radius: 3px;
@@ -409,78 +464,35 @@ interface DetailsRowVm {
       text-overflow: ellipsis;
       font-size: var(--vsc-font-size);
       
-      &.header-cell {
-        position: relative;
-        line-height: normal;
-        font-weight: 600;
-        &.sortable {
-          cursor: pointer;
-          
-          &:hover {
-            background: var(--vsc-list-hover-background);
-          }
-        }
-      }
-
-      .view-divider {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        right: 0;
-        width: 1px;
-        background: var(--vsc-border);
-        pointer-events: none;
-      }
-
-      &.header-cell .view-divider {
-        right: -3px;
-        width: 6px;
-        cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2730%27%20height=%2730%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27white%27%20d=%27M11%202h2v20h-2zM6.29%207.29l-4%204a.996.996%200%200%200%200%201.41l4%204%201.41-1.41L4.41%2012%207.7%208.71%206.29%207.3ZM17.71%207.29%2016.3%208.7l3.29%203.29-3.29%203.29%201.41%201.41%204-4a.996.996%200%200%200%200-1.41l-4-4Z%27/%3E%3C/svg%3E") 15 15, col-resize;
-        pointer-events: auto;
-        background: transparent;
-        z-index: 3;
-      }
-
-      &.header-cell .view-divider::before {
-        content: '';
-        position: absolute;
-        top: 2px;
-        bottom: 2px;
-        left: 50%;
-        width: 1px;
-        transform: translateX(-50%);
-        background: var(--vsc-border);
-      }
-
-      &.header-cell .view-divider:hover::before {
-        background: var(--vsc-focus-border);
-      }
-      
-      .header-label {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-left: 0;
-        margin-right: 0;
-        white-space: nowrap;
-      }
-      
-      .sort-indicator {
-        margin-left: var(--vsc-padding-md);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 12px;
-        height: 12px;
-        flex: 0 0 12px;
-        font-size: 12px;
-        line-height: 1;
-        transform-origin: 50% 50%;
-        transition: transform 0.15s ease;
-
-        &.sort-asc  { transform: rotate(-90deg); }
-        &.sort-desc { transform: rotate(90deg); }
-      }
     }
+
+
+    .header-column .header-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin: 0;
+      white-space: nowrap;
+    }
+
+    .header-column .sort-indicator {
+      margin-left: calc(var(--vsc-padding-md) - 3px);
+      margin-right: calc(var(--vsc-padding-md) - 3px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 12px;
+      height: 12px;
+      flex: 0 0 12px;
+      font-size: 12px;
+      line-height: 1;
+      transform-origin: 50% 50%;
+      transition: transform 0.15s ease;
+    }
+
+    .header-column .sort-indicator.sort-asc { transform: rotate(-90deg); }
+    .header-column .sort-indicator.sort-desc { transform: rotate(90deg); }
 
     .details-body {
       flex: 1 1 0%;

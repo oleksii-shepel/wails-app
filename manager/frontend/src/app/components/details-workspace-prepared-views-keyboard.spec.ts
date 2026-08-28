@@ -1,37 +1,57 @@
 import { readFileSync } from 'node:fs';
 
-const host = readFileSync(new URL('./tool-workspace-host.component.ts', import.meta.url), 'utf8');
-const directory = readFileSync(new URL('./directory-pane.component.ts', import.meta.url), 'utf8');
-const dual = readFileSync(new URL('./dual-pane.component.ts', import.meta.url), 'utf8');
+const read = (name: string) =>
+  readFileSync(new URL(`./${name}`, import.meta.url), 'utf8');
 
-describe('Details workspace prepared views and keyboard navigation', () => {
-  it('owns the prepared-view selector in the Details workspace rather than DirectoryPane', () => {
-    expect(host).toContain('detailsWorkspaceViewPresets');
-    expect(host).toContain('aria-label="Details view"');
-    expect(host).toContain('[detailsColumns]="detailsWorkspaceColumns"');
-    expect(directory).not.toContain('detailsViewPresets');
-    expect(directory).not.toContain('details-view-select');
+const host = read('tool-workspace-host.component.ts');
+const dual = read('dual-pane.component.ts');
+
+describe('Details workspace specialized views and keyboard navigation', () => {
+  it('offers exactly the three workspace-specific prepared views', () => {
+    expect(host).toContain("type DetailsWorkspaceViewPresetId = 'security' | 'timestamps' | 'filesystem';");
+    expect(host).toContain("{ id: 'security', label: 'Security' }");
+    expect(host).toContain("{ id: 'timestamps', label: 'Timestamps' }");
+    expect(host).toContain("{ id: 'filesystem', label: 'Filesystem' }");
+    expect(host).not.toContain("{ id: 'brief', label: 'Brief' }");
+    expect(host).not.toContain("{ id: 'standard', label: 'Standard' }");
+    expect(host).not.toContain("{ id: 'full', label: 'Full' }");
   });
 
-  it('provides prepared views instead of individual column toggles', () => {
-    for (const id of ['brief', 'standard', 'full', 'security', 'times']) {
-      expect(host).toContain(`id: '${id}'`);
-    }
-    expect(host).not.toContain('type="checkbox"');
+  it('keeps the specialized column sets exact', () => {
+    expect(host).toContain("security: ['name', 'owner', 'permissions', 'attributes']");
+    expect(host).toContain("timestamps: ['name', 'created', 'modified', 'accessed']");
+    expect(host).toContain("filesystem: ['name', 'type', 'attributes', 'isHidden', 'isSymlink']");
   });
 
-  it('uses Tab and Shift+Tab inside the Details workspace to move between tree and details', () => {
-    expect(host).toContain("event.key !== 'Tab'");
-    expect(host).toContain("this.detailsWorkspacePane === 'tree' ? 'details' : 'tree'");
+  it('materializes a new Details column array on every preset change', () => {
+    expect(host).toContain('detailsWorkspaceColumns: PaneDetailsColumn[] = [];');
+    expect(host).toContain('this.applyDetailsWorkspaceColumns();');
+    expect(host).toContain('.map(column => ({ ...column }))');
+    expect(host).toContain('this.cdr.markForCheck();');
+  });
+
+  it('owns Tab and Shift+Tab in a higher-priority workspace input context', () => {
+    expect(host).toContain("const DETAILS_WORKSPACE_INPUT_CONTEXT = 'reassembly.workspace.details';");
+    expect(host).toContain("priority: 180");
+    expect(host).toContain("source: 'workspace'");
+    expect(host).toContain("id: 'reassembly.workspace.details.switchPane.tab'");
+    expect(host).toContain("id: 'reassembly.workspace.details.switchPane.shiftTab'");
+    expect(host).toContain("modifiers: ['shift']");
+    expect(host).toContain('this.input.activateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);');
+    expect(host).toContain('(keydown.tab)=\"onDetailsWorkspaceTab($event)\"');
+  });
+
+  it('routes the pane-switch command into the Details workspace first', () => {
+    expect(dual).toContain('#toolWorkspaceHost');
+    expect(dual).toContain("@ViewChild('toolWorkspaceHost') toolWorkspaceHost?: ToolWorkspaceHostComponent;");
+    expect(dual).toContain('this.toolWorkspaceHost?.switchDetailsWorkspacePane()');
+    expect(host).toContain('switchDetailsWorkspacePane(): boolean');
+  });
+
+  it('moves to the opposite Tree/Inspector side and focuses it', () => {
+    expect(host).toContain("const next: DetailsWorkspacePane = current === 'tree' ? 'details' : 'tree';");
     expect(host).toContain('data-details-workspace-pane="tree"');
     expect(host).toContain('data-details-workspace-pane="details"');
-  });
-
-  it('does not add a duplicate Shift+Tab binding to the ordinary dual-pane manager', () => {
-    expect(dual).not.toContain('reassembly.manager.switchPane.shiftTab');
-  });
-
-  it('does not render support/primary role notes in workspace headers', () => {
-    expect(host).not.toContain("surface.role || 'primary'");
+    expect(host).toContain('focusTarget.focus();');
   });
 });

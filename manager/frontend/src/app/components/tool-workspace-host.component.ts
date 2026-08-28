@@ -1,14 +1,21 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
+  ElementRef,
   EventEmitter,
   Input,
+  OnDestroy,
+  OnInit,
   Output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PaneViewHostComponent } from './pane-view-host.component';
 import type { PaneDetailsColumn } from './pane-details.component';
-import { FileType, type FileInfo } from '../shared/protocol';
+import type { FileInfo } from '../shared/protocol';
+import { InputEngineService } from '../services/input-engine.service';
+import type { InputBindingDefinition } from '../services/input-system.types';
+import { FILE_MANAGER_COMMANDS } from './command-registry';
 
 import type {
   WorkspaceLayout,
@@ -18,19 +25,44 @@ import type {
 } from '../services/workspace-surface.model';
 
 type DetailsWorkspacePane = 'tree' | 'details';
-type DetailsWorkspaceViewPresetId = 'brief' | 'standard' | 'full' | 'security' | 'times';
+type DetailsWorkspaceViewPresetId = 'security' | 'timestamps' | 'filesystem';
 
 const DETAILS_WORKSPACE_VIEW_PRESETS: ReadonlyArray<{ id: DetailsWorkspaceViewPresetId; label: string }> = [
-  { id: 'brief', label: 'Brief' },
-  { id: 'standard', label: 'Standard' },
-  { id: 'full', label: 'Full' },
   { id: 'security', label: 'Security' },
-  { id: 'times', label: 'Times' },
+  { id: 'timestamps', label: 'Timestamps' },
+  { id: 'filesystem', label: 'Filesystem' },
 ];
 
 function isDetailsWorkspaceViewPresetId(value: string): value is DetailsWorkspaceViewPresetId {
   return DETAILS_WORKSPACE_VIEW_PRESETS.some(preset => preset.id === value);
 }
+
+const DETAILS_WORKSPACE_INPUT_CONTEXT = 'reassembly.workspace.details';
+const DETAILS_WORKSPACE_INPUT_OWNER = 'reassembly.workspace.details';
+const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
+  {
+    id: 'reassembly.workspace.details.switchPane.tab',
+    commandId: FILE_MANAGER_COMMANDS.switchPane,
+    contextId: DETAILS_WORKSPACE_INPUT_CONTEXT,
+    source: 'workspace',
+    description: 'Switch Details workspace pane',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: 'tab' }] } },
+    preventDefault: true,
+    stopPropagation: true,
+  },
+  {
+    id: 'reassembly.workspace.details.switchPane.shiftTab',
+    commandId: FILE_MANAGER_COMMANDS.switchPane,
+    contextId: DETAILS_WORKSPACE_INPUT_CONTEXT,
+    source: 'workspace',
+    description: 'Switch Details workspace pane backward',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: 'tab', modifiers: ['shift'] }] } },
+    preventDefault: true,
+    stopPropagation: true,
+  },
+];
 
 @Component({
   selector: 'app-tool-workspace-host',
@@ -42,7 +74,7 @@ function isDetailsWorkspaceViewPresetId(value: string): value is DetailsWorkspac
       class="tool-workspace"
       role="region"
       [attr.aria-label]="presentation.title"
-      (keydown)="onWorkspaceKeydown($event)">
+      (keydown.tab)="onDetailsWorkspaceTab($event)">
 
       <header class="workspace-header">
         <div class="workspace-title">
@@ -633,7 +665,7 @@ function isDetailsWorkspaceViewPresetId(value: string): value is DetailsWorkspac
     }
   `],
 })
-export class ToolWorkspaceHostComponent {
+export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
   @Input({ required: true }) presentation!: WorkspacePresentation;
   @Output() close = new EventEmitter<void>();
   @Output() pin = new EventEmitter<void>();
@@ -648,65 +680,98 @@ export class ToolWorkspaceHostComponent {
   readonly detailsWorkspaceViewPresets = DETAILS_WORKSPACE_VIEW_PRESETS;
   detailsWorkspacePane: DetailsWorkspacePane = 'tree';
 
-  private detailsWorkspaceViewPresetValue: DetailsWorkspaceViewPresetId = 'standard';
-  private detailsWorkspaceViewPresetLoaded = false;
+  detailsWorkspaceViewPreset: DetailsWorkspaceViewPresetId = 'security';
 
   private readonly detailsWorkspaceAllColumns: readonly PaneDetailsColumn[] = [
     { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
-    { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 220 },
-    { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 180, formatter: (value, entry) => entry.type === FileType.DIRECTORY ? '' : this.formatSize(value) },
-    { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
-    { field: 'created', header: 'Created', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
-    { field: 'accessed', header: 'Accessed', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
     { field: 'owner', header: 'Owner', width: '170px', sortable: true, minWidth: 110, maxWidth: 320 },
     { field: 'permissions', header: 'Permissions', width: '150px', sortable: true, minWidth: 100, maxWidth: 260 },
     { field: 'attributes', header: 'Attributes', width: '100px', sortable: true, minWidth: 80, maxWidth: 180 },
+    { field: 'created', header: 'Created', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
+    { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
+    { field: 'accessed', header: 'Accessed', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
+    { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 220 },
     { field: 'isHidden', header: 'Hidden', width: '72px', sortable: true, minWidth: 60, maxWidth: 100, formatter: value => value ? 'Yes' : '' },
     { field: 'isSymlink', header: 'Link', width: '64px', sortable: true, minWidth: 54, maxWidth: 100, formatter: value => value ? 'Yes' : '' },
   ];
 
-  get detailsWorkspaceViewPreset(): DetailsWorkspaceViewPresetId {
-    this.ensureDetailsWorkspaceViewPresetLoaded();
-    return this.detailsWorkspaceViewPresetValue;
+  detailsWorkspaceColumns: PaneDetailsColumn[] = [];
+
+  ngOnInit(): void {
+    this.loadDetailsWorkspaceViewPreset();
+    this.applyDetailsWorkspaceColumns();
+
+    this.input.registerContext({
+      id: DETAILS_WORKSPACE_INPUT_CONTEXT,
+      kind: 'widget',
+      priority: 180,
+      parentId: 'reassembly.manager',
+      description: 'Details workspace input context',
+    });
+    for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
+      this.input.registerBinding(binding, DETAILS_WORKSPACE_INPUT_OWNER);
+    }
+    this.input.activateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
   }
 
-  get detailsWorkspaceColumns(): PaneDetailsColumn[] {
-    const fields: Readonly<Record<DetailsWorkspaceViewPresetId, readonly string[]>> = {
-      brief: ['name', 'size'],
-      standard: ['name', 'size', 'modified', 'type'],
-      full: ['name', 'type', 'size', 'modified', 'created', 'accessed', 'owner', 'permissions', 'attributes', 'isHidden', 'isSymlink'],
-      security: ['name', 'owner', 'permissions', 'attributes'],
-      times: ['name', 'size', 'created', 'modified', 'accessed'],
-    };
-    const selected = new Set(fields[this.detailsWorkspaceViewPreset]);
-    return this.detailsWorkspaceAllColumns.filter(column => selected.has(String(column.field)));
+  ngOnDestroy(): void {
+    this.input.deactivateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
+    for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
+      this.input.unregisterBinding(binding.id, DETAILS_WORKSPACE_INPUT_OWNER);
+    }
   }
 
   setDetailsWorkspaceViewPreset(value: string): void {
-    if (!isDetailsWorkspaceViewPresetId(value)) return;
-    this.detailsWorkspaceViewPresetValue = value;
-    this.detailsWorkspaceViewPresetLoaded = true;
+    if (!isDetailsWorkspaceViewPresetId(value) || value === this.detailsWorkspaceViewPreset) return;
+    this.detailsWorkspaceViewPreset = value;
+    this.applyDetailsWorkspaceColumns();
     try { localStorage.setItem('reassembly.details-workspace.view', value); } catch {}
+    this.cdr.markForCheck();
   }
 
   activateDetailsWorkspacePane(pane: DetailsWorkspacePane): void {
     this.detailsWorkspacePane = pane;
   }
 
-  onWorkspaceKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Tab' || !this.isDetailsWorkspaceSplit(this.presentation.layout)) return;
-
+  onDetailsWorkspaceTab(event: KeyboardEvent): void {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return;
     event.preventDefault();
     event.stopPropagation();
-
-    const next: DetailsWorkspacePane = this.detailsWorkspacePane === 'tree' ? 'details' : 'tree';
-    this.detailsWorkspacePane = next;
-
-    const root = event.currentTarget as HTMLElement | null;
-    queueMicrotask(() => {
-      root?.querySelector<HTMLElement>(`[data-details-workspace-pane="${next}"]`)?.focus();
-    });
+    this.switchDetailsWorkspacePane();
   }
+
+  switchDetailsWorkspacePane(): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+
+    const active = document.activeElement as HTMLElement | null;
+    const currentPane = active?.closest<HTMLElement>('[data-details-workspace-pane]')
+      ?.dataset['detailsWorkspacePane'] as DetailsWorkspacePane | undefined;
+    const current = currentPane ?? this.detailsWorkspacePane;
+    const next: DetailsWorkspacePane = current === 'tree' ? 'details' : 'tree';
+
+    this.detailsWorkspacePane = next;
+    this.cdr.markForCheck();
+
+    queueMicrotask(() => {
+      const pane = this.host.nativeElement.querySelector<HTMLElement>(
+        `[data-details-workspace-pane="${next}"]`,
+      );
+      if (!pane) return;
+
+      const focusTarget = next === 'tree'
+        ? pane.querySelector<HTMLElement>('.file-tree-container[tabindex="0"]') ?? pane
+        : pane;
+      focusTarget.focus();
+    });
+
+    return true;
+  }
+
+  constructor(
+    private readonly host: ElementRef<HTMLElement>,
+    private readonly input: InputEngineService,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
 
   trackSurface = (_: number, surface: WorkspaceSurface) => surface.id;
   trackAction = (_: number, action: WorkspaceSurfaceAction) => action.id;
@@ -874,15 +939,25 @@ export class ToolWorkspaceHostComponent {
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   }
 
-  private ensureDetailsWorkspaceViewPresetLoaded(): void {
-    if (this.detailsWorkspaceViewPresetLoaded) return;
-    this.detailsWorkspaceViewPresetLoaded = true;
+  private loadDetailsWorkspaceViewPreset(): void {
     try {
       const stored = localStorage.getItem('reassembly.details-workspace.view');
       if (stored && isDetailsWorkspaceViewPresetId(stored)) {
-        this.detailsWorkspaceViewPresetValue = stored;
+        this.detailsWorkspaceViewPreset = stored;
       }
     } catch {}
+  }
+
+  private applyDetailsWorkspaceColumns(): void {
+    const fields: Readonly<Record<DetailsWorkspaceViewPresetId, readonly string[]>> = {
+      security: ['name', 'owner', 'permissions', 'attributes'],
+      timestamps: ['name', 'created', 'modified', 'accessed'],
+      filesystem: ['name', 'type', 'attributes', 'isHidden', 'isSymlink'],
+    };
+    const selected = new Set(fields[this.detailsWorkspaceViewPreset]);
+    this.detailsWorkspaceColumns = this.detailsWorkspaceAllColumns
+      .filter(column => selected.has(String(column.field)))
+      .map(column => ({ ...column }));
   }
 
   private layoutContainsSurface(

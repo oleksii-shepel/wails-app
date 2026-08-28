@@ -286,6 +286,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:'global', source:'default', description:'Open command palette', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.settings.open.ctrlComma', commandId:COMMAND.openSettings, contextId:CONTEXT_ID, source:'default', description:'Open Settings', category:'Settings', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:',', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.switchPane.tab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
+  { id:'reassembly.manager.switchPane.shiftTab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane backward', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['shift']}]}}},
   { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
   { id:'reassembly.manager.cursorDown.arrowDown', commandId:COMMAND.cursorDown, contextId:CONTEXT_ID, source:'default', description:'Move cursor down', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
   { id:'reassembly.manager.open.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open selected item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
@@ -402,6 +403,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <app-tool-workspace-host
+        #toolWorkspaceHost
         *ngIf="workspacePresentation?.kind === 'tool' && workspacePresentation as toolWorkspace"
         class="tool-workspace-host"
         [presentation]="toolWorkspace"
@@ -898,6 +900,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   @ViewChild('paneIntelligenceMenu') paneIntelligenceMenu?: ElementRef<HTMLElement>;
   @ViewChild('leftPane') leftPane?: PaneHostComponent;
   @ViewChild('rightPane') rightPane?: PaneHostComponent;
+  @ViewChild('toolWorkspaceHost') toolWorkspaceHost?: ToolWorkspaceHostComponent;
 
   activePaneId: PaneId = 'left';
   readonly MIN_PANE_PERCENT = 20;
@@ -2419,6 +2422,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   switchPane(): void {
+    if (this.workspacePresentation?.kind === 'tool' && this.toolWorkspaceHost?.switchDetailsWorkspacePane()) {
+      return;
+    }
+
     this.activate(
       this.activePaneId === 'left' ? 'right' : 'left',
       true,

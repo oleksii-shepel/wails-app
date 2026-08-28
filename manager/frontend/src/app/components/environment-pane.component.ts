@@ -56,6 +56,7 @@ import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
+import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
@@ -182,6 +183,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     AddressBarComponent,
     FilterComponent,
     FileEntryInlineComponent,
+    PaneDetailsResizeHandleDirective,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
@@ -478,6 +480,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
+        data-pane-details-root
         *ngIf="!error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
@@ -495,8 +498,14 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div class="details-header-viewport" *ngIf="!error && viewMode === 'details'">
         <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Scope</span><span>Value</span><span>Type</span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+        <span></span>
+        <span>Name<i [paneDetailsResizeHandle]="'environment-name'" [paneDetailsMinWidth]="120"></i></span>
+        <span>Scope<i [paneDetailsResizeHandle]="'environment-scope'" [paneDetailsMinWidth]="72"></i></span>
+        <span>Value<i [paneDetailsResizeHandle]="'environment-value'" [paneDetailsMinWidth]="140"></i></span>
+        <span>Type<i [paneDetailsResizeHandle]="'environment-type'" [paneDetailsMinWidth]="80"></i></span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
+          {{ column.label }}<i [paneDetailsResizeHandle]="'environment-plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
+        </span>
       </div>
       </div>
 
@@ -2250,13 +2259,21 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
   }
 
   get detailsGridTemplate(): string {
+    const extra = this.pluginPanelColumns.map(column =>
+      `var(--details-column-environment-plugin-${this.detailsCssKey(column.id)}-width, ${column.width?.trim() || '120px'})`,
+    );
     return [
       '28px',
-      'minmax(150px, .8fr)',
-      '90px',
-      'minmax(220px, 1.6fr)',
-      '110px',
+      'var(--details-column-environment-name-width, minmax(150px, .8fr))',
+      'var(--details-column-environment-scope-width, 90px)',
+      'var(--details-column-environment-value-width, minmax(220px, 1.6fr))',
+      'var(--details-column-environment-type-width, 110px)',
+      ...extra,
     ].join(' ');
+  }
+
+  private detailsCssKey(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
   }
 
   panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {

@@ -548,7 +548,7 @@ export class PluginManagerService implements PluginRegistryAPI {
       onRegister: api => {
         api.registerPanelSource(source);
         api.registerPanelColumn({
-          id: 'builtin.autorun.enabled', label: 'Enabled', width: '82px',
+          id: 'builtin.autorun.enabled', label: 'Enabled', width: '96px',
           score: context => context.sourceId === source.id ? 100 : 0,
           value: entry => (entry as any).autorunEnabled === undefined ? '' : ((entry as any).autorunEnabled ? 'Yes' : 'No'),
         });

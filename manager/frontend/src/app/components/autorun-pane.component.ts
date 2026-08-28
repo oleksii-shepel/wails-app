@@ -8185,15 +8185,30 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
       { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
       { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 260, formatter: (_, entry) => this.entryDisplayKind(entry) },
       { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 220, formatter: (value, entry) => entry.type === FileType.DIRECTORY ? '' : this.formatSize(Number(value) || 0) },
-      { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatModified(Number(value) || 0) },
+      {
+        field: 'modified',
+        header: 'Modified',
+        width: '150px',
+        sortable: true,
+        minWidth: 110,
+        maxWidth: 320,
+        formatter: (value, entry) => {
+          if (entry.type === FileType.DIRECTORY) return '';
+          const modified = Number(value) || 0;
+          return modified > 0 ? this.formatModified(modified) : 'Not tracked';
+        },
+      },
     ];
     for (const column of this.pluginPanelColumns) {
+      const configuredWidth = typeof column.width === 'string' && column.width.trim()
+        ? column.width.trim()
+        : '160px';
       columns.push({
         field: `plugin-${column.id}`,
         header: column.label,
-        width: '160px',
+        width: configuredWidth,
         sortable: false,
-        minWidth: 96,
+        minWidth: this.parsePixelWidth(configuredWidth) ?? 96,
         formatter: (_, entry) => this.panelColumnValue(column, entry),
       });
     }
@@ -8205,6 +8220,11 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
       field: change.field as SortField,
       direction: change.direction,
     });
+  }
+
+  private parsePixelWidth(width: string): number | null {
+    const match = /^(\d+(?:\.\d+)?)px$/i.exec(width.trim());
+    return match ? Number(match[1]) : null;
   }
 
   onSharedDetailsSelectionChange(entries: FileInfo[]): void {

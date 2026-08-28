@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
+import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 
 type BinFileInfo = FileInfo & {
   binGroupHeader?: boolean;
@@ -20,13 +21,14 @@ type BinFileInfo = FileInfo & {
 @Component({
   selector: 'app-bin-grouped-view',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, PaneDetailsResizeHandleDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       #viewport
       class="bin-grouped-view"
       data-pane-content
+      data-pane-details-root
       tabindex="-1"
       role="listbox"
       aria-label="Recycle Bin grouped by original item"
@@ -35,7 +37,12 @@ type BinFileInfo = FileInfo & {
       (contextmenu)="backgroundContextMenu.emit($event)"
       (scroll)="scroll.emit($event)">
       <div class="details-header" aria-hidden="true">
-        <span></span><span>Name</span><span>Path</span><span>Deleted</span><span>Size</span><span>Revision</span>
+        <span></span>
+        <span>Name<i [paneDetailsResizeHandle]="'bin-name'" [paneDetailsMinWidth]="140"></i></span>
+        <span>Path<i [paneDetailsResizeHandle]="'bin-location'" [paneDetailsMinWidth]="120"></i></span>
+        <span>Deleted<i [paneDetailsResizeHandle]="'bin-deleted'" [paneDetailsMinWidth]="100"></i></span>
+        <span>Size<i [paneDetailsResizeHandle]="'bin-size'" [paneDetailsMinWidth]="64"></i></span>
+        <span>Revision<i [paneDetailsResizeHandle]="'bin-revision'" [paneDetailsMinWidth]="64"></i></span>
       </div>
 
       <div *ngIf="beforePx > 0" class="virtual-spacer" [style.height.px]="beforePx" aria-hidden="true"></div>
@@ -83,7 +90,7 @@ type BinFileInfo = FileInfo & {
   styles: [`
     :host { display:flex; flex:1 1 0%; min-width:0; min-height:0; overflow:hidden; }
     .bin-grouped-view { flex:1 1 0%; min-width:0; min-height:0; overflow:auto; background:var(--vsc-editor-background); color:var(--vsc-foreground); }
-    .details-header, .entry { display:grid; grid-template-columns:26px minmax(180px,1.5fr) minmax(140px,1fr) minmax(130px,.8fr) minmax(72px,.45fr) minmax(82px,.5fr); align-items:center; min-width:760px; }
+    .details-header, .entry { display:grid; grid-template-columns:26px var(--details-column-bin-name-width, minmax(180px,1.5fr)) var(--details-column-bin-location-width, minmax(140px,1fr)) var(--details-column-bin-deleted-width, minmax(130px,.8fr)) var(--details-column-bin-size-width, minmax(72px,.45fr)) var(--details-column-bin-revision-width, minmax(82px,.5fr)); align-items:center; min-width:760px; }
     .details-header { position:sticky; top:0; z-index:2; height:28px; border-bottom:1px solid var(--vsc-border); background:var(--vsc-sidebar-background); color:var(--vsc-description-foreground); font-size:12px; }
     .details-header > span, .entry > span { min-width:0; padding:0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .entry { position:relative; min-height:26px; border-radius:3px; font-size:13px; }

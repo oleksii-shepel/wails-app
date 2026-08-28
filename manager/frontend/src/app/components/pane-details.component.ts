@@ -293,7 +293,7 @@ interface DetailsRowVm {
       align-items: center;
       min-width: 0;
       height: 25px;
-      padding-inline: 2px;
+      padding-inline: var(--vsc-padding-sm);
       overflow: visible;
       white-space: nowrap;
       color: inherit;
@@ -368,7 +368,7 @@ interface DetailsRowVm {
       display: grid;
       align-items: center;
       grid-auto-flow: column;
-      column-gap: 6px;
+      column-gap: var(--pane-column-gutter, 12px);
       height: 30px;
       padding: 0;
       border-bottom: 0;
@@ -428,8 +428,8 @@ interface DetailsRowVm {
 
     .details-body .details-row {
       width: auto;
-      margin-left: 4px;
-      margin-right: 4px;
+      margin-left: 8px;
+      margin-right: 8px;
     }
 
     .drop-indicator {

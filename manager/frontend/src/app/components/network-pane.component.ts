@@ -57,6 +57,7 @@ import { AddressBarComponent } from './address-bar.component';
 import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
+import { PaneDetailsResizeHandleDirective } from './pane-details-resize-handle.directive';
 import { NavigationController } from './navigation.controller';
 import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
@@ -182,6 +183,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     AddressBarComponent,
     FilterComponent,
     FileEntryInlineComponent,
+    PaneDetailsResizeHandleDirective,
     ViewerHostSurfaceComponent,
     SurfaceOutletComponent,
     ResponsiveToolbarComponent,
@@ -506,6 +508,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         #listViewport
         class="list"
         data-pane-content
+        data-pane-details-root
         *ngIf="!error && viewMode !== 'tree'"
         tabindex="-1"
         role="listbox"
@@ -523,8 +526,14 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <div class="details-header-viewport" *ngIf="!error && viewMode === 'details'">
         <div class="details-header" [style.grid-template-columns]="detailsGridTemplate">
-        <span></span><span>Name</span><span>Kind</span><span>Status</span><span>Endpoints</span>
-        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
+        <span></span>
+        <span>Name<i [paneDetailsResizeHandle]="'network-name'" [paneDetailsMinWidth]="120"></i></span>
+        <span>Kind<i [paneDetailsResizeHandle]="'network-kind'" [paneDetailsMinWidth]="72"></i></span>
+        <span>Status<i [paneDetailsResizeHandle]="'network-status'" [paneDetailsMinWidth]="72"></i></span>
+        <span>Endpoints<i [paneDetailsResizeHandle]="'network-endpoints'" [paneDetailsMinWidth]="100"></i></span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">
+          {{ column.label }}<i [paneDetailsResizeHandle]="'network-plugin-' + column.id" [paneDetailsMinWidth]="72"></i>
+        </span>
       </div>
       </div>
 
@@ -2371,8 +2380,21 @@ export class NetworkPaneComponent implements OnInit, OnDestroy {
   }
 
   get detailsGridTemplate(): string {
-    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
-    return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
+    const extra = this.pluginPanelColumns.map(column =>
+      `var(--details-column-network-plugin-${this.detailsCssKey(column.id)}-width, ${column.width?.trim() || '120px'})`,
+    );
+    return [
+      '28px',
+      'var(--details-column-network-name-width, minmax(120px, 1fr))',
+      'var(--details-column-network-kind-width, 90px)',
+      'var(--details-column-network-status-width, 82px)',
+      'var(--details-column-network-endpoints-width, 150px)',
+      ...extra,
+    ].join(' ');
+  }
+
+  private detailsCssKey(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
   }
 
   panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {

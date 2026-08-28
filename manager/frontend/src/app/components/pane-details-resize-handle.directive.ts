@@ -45,6 +45,7 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
   @HostBinding('style.background') readonly delimiterBackground =
     'linear-gradient(to right, transparent calc(50% - 0.5px), var(--vsc-border, rgba(128, 128, 128, .7)) calc(50% - 0.5px), var(--vsc-border, rgba(128, 128, 128, .7)) calc(50% + 0.5px), transparent calc(50% + 0.5px))';
   @HostBinding('style.opacity') delimiterOpacity = '0.72';
+  @HostBinding('class.pane-details-resize-handle--dragging') dragging = false;
 
   private root: HTMLElement | null = null;
   private startX = 0;
@@ -86,6 +87,8 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
 
     this.cleanup();
     this.root = root;
+    this.dragging = true;
+    root.setAttribute('data-pane-column-resizing', this.key);
     this.startX = event.clientX;
     this.startWidth = Math.round(cell.getBoundingClientRect().width);
     this.currentWidth = this.clamp(this.startWidth);
@@ -141,6 +144,8 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
       window.removeEventListener('mouseup', this.upListener);
       this.upListener = undefined;
     }
+    this.root?.removeAttribute('data-pane-column-resizing');
+    this.dragging = false;
     this.root = null;
   }
 }

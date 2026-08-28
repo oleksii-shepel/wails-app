@@ -874,14 +874,23 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return String(col.field);
   }
 
-  getColumnWidthVar(col: PaneDetailsColumn): string | null {
+  getColumnWidthVar(col: PaneDetailsColumn): string {
     const key = this.getColumnKey(col);
     const configured = this.columnWidths.get(key);
+    const variable = `var(--details-column-${this.cssKey(key)}-width`;
     if (configured !== undefined) {
-      return `${Math.max(1, configured)}px`;
+      return `${variable}, ${Math.max(1, configured)}px)`;
     }
+
     const fallback = this.pixelWidth(col.width);
-    return fallback !== null ? `${Math.max(1, fallback)}px` : null;
+    if (fallback !== null) {
+      return `${variable}, ${Math.max(1, fallback)}px)`;
+    }
+
+    const minWidth = Math.max(1, col.minWidth ?? this.MIN_COLUMN_WIDTH);
+    const weight = Number(col.flex);
+    const fr = Number.isFinite(weight) && weight > 0 ? weight : 1;
+    return `${variable}, minmax(${minWidth}px, ${fr}fr))`;
   }
 
   getColumnFlex(col: PaneDetailsColumn): string {

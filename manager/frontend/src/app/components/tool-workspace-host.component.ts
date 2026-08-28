@@ -7,7 +7,8 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PaneViewHostComponent } from './pane-view-host.component';
-import type { FileInfo } from '../shared/protocol';
+import type { PaneDetailsColumn } from './pane-details.component';
+import { FileType, type FileInfo } from '../shared/protocol';
 
 import type {
   WorkspaceLayout,
@@ -15,6 +16,21 @@ import type {
   WorkspaceSurface,
   WorkspaceSurfaceAction,
 } from '../services/workspace-surface.model';
+
+type DetailsWorkspacePane = 'tree' | 'details';
+type DetailsWorkspaceViewPresetId = 'brief' | 'standard' | 'full' | 'security' | 'times';
+
+const DETAILS_WORKSPACE_VIEW_PRESETS: ReadonlyArray<{ id: DetailsWorkspaceViewPresetId; label: string }> = [
+  { id: 'brief', label: 'Brief' },
+  { id: 'standard', label: 'Standard' },
+  { id: 'full', label: 'Full' },
+  { id: 'security', label: 'Security' },
+  { id: 'times', label: 'Times' },
+];
+
+function isDetailsWorkspaceViewPresetId(value: string): value is DetailsWorkspaceViewPresetId {
+  return DETAILS_WORKSPACE_VIEW_PRESETS.some(preset => preset.id === value);
+}
 
 @Component({
   selector: 'app-tool-workspace-host',
@@ -25,7 +41,8 @@ import type {
     <section
       class="tool-workspace"
       role="region"
-      [attr.aria-label]="presentation.title">
+      [attr.aria-label]="presentation.title"
+      (keydown)="onWorkspaceKeydown($event)">
 
       <header class="workspace-header">
         <div class="workspace-title">
@@ -101,6 +118,18 @@ import type {
         <header class="surface-header">
           <strong>{{ text(surface, 'title') || surface.title }}</strong>
 
+          <select
+            *ngIf="surface.surfaceId === 'details-workspace'"
+            class="details-view-select"
+            aria-label="Details view"
+            title="Details view"
+            [value]="detailsWorkspaceViewPreset"
+            (change)="setDetailsWorkspaceViewPreset($any($event.target).value)">
+            <option *ngFor="let preset of detailsWorkspaceViewPresets" [value]="preset.id">
+              {{ preset.label }}
+            </option>
+          </select>
+
           <span class="surface-actions">
             <span
               *ngIf="text(surface, 'busy') === 'true'"
@@ -121,7 +150,6 @@ import type {
               {{ action.title }}
             </button>
 
-            <span>{{ surface.role || 'primary' }}</span>
           </span>
         </header>
 
@@ -204,7 +232,14 @@ import type {
             </div>
           </section>
 
-          <section *ngSwitchCase="'details-tree'" class="details-tree-surface tree-view">
+          <section
+            *ngSwitchCase="'details-tree'"
+            class="details-tree-surface tree-view"
+            data-details-workspace-pane="tree"
+            [class.workspace-pane-active]="detailsWorkspacePane === 'tree'"
+            [attr.tabindex]="detailsWorkspacePane === 'tree' ? 0 : -1"
+            (focusin)="activateDetailsWorkspacePane('tree')"
+            (mousedown)="activateDetailsWorkspacePane('tree')">
             <app-pane-view-host
               [surfaceId]="surface.id"
               [surfaceActive]="true"
@@ -215,14 +250,21 @@ import type {
               [cursorPath]="treeCursorPath(surface)"
               [currentView]="'tree'"
               [treeContentMode]="'folders'"
-              [paneActive]="true"
+              [paneActive]="detailsWorkspacePane === 'tree'"
               (selectionChange)="onTreeSelectionChange(surface, $event)"
               (navigate)="emitNamedAction(surface, 'select-folder', $event)"
               (nodeDoubleClick)="emitNamedAction(surface, 'select-folder', $event)">
             </app-pane-view-host>
           </section>
 
-          <section *ngSwitchCase="'details-workspace'" class="details-surface details-inspector list view-details">
+          <section
+            *ngSwitchCase="'details-workspace'"
+            class="details-surface details-inspector list view-details"
+            data-details-workspace-pane="details"
+            [class.workspace-pane-active]="detailsWorkspacePane === 'details'"
+            [attr.tabindex]="detailsWorkspacePane === 'details' ? 0 : -1"
+            (focusin)="activateDetailsWorkspacePane('details')"
+            (mousedown)="activateDetailsWorkspacePane('details')">
             <app-pane-view-host
               [surfaceId]="surface.id"
               [surfaceActive]="true"
@@ -235,7 +277,8 @@ import type {
               [currentView]="'details'"
               [sortField]="text(surface, 'sortField') || 'name'"
               [sortDirection]="sortDirection(surface)"
-              [paneActive]="true"
+              [detailsColumns]="detailsWorkspaceColumns"
+              [paneActive]="detailsWorkspacePane === 'details'"
               (selectionChange)="onDetailsSelectionChange(surface, $event)"
               (navigate)="emitNamedAction(surface, 'open', $event)">
             </app-pane-view-host>
@@ -318,6 +361,35 @@ import type {
     .surface-actions button {
       min-height: 24px;
       padding: 2px 7px;
+    }
+
+    .details-view-select {
+      height: 24px;
+      min-width: 104px;
+      margin-left: auto;
+      padding: 0 24px 0 7px;
+      border: 1px solid var(--vsc-dropdown-border, var(--vsc-border));
+      border-radius: 3px;
+      background: var(--vsc-dropdown-background, var(--vsc-menu-background, var(--vsc-panel-background)));
+      color: var(--vsc-dropdown-foreground, var(--vsc-foreground));
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .details-view-select:focus-visible,
+    [data-details-workspace-pane]:focus-visible {
+      outline: 1px solid var(--vsc-focus-border);
+      outline-offset: -1px;
+    }
+
+    [data-details-workspace-pane] {
+      min-width: 0;
+      min-height: 0;
+    }
+
+    [data-details-workspace-pane].workspace-pane-active {
+      border-color: var(--vsc-focus-border, var(--vsc-accent-blue));
     }
 
     .live-state {
@@ -573,6 +645,69 @@ export class ToolWorkspaceHostComponent {
 
   private readonly selectedBySurface = new Map<string, unknown>();
 
+  readonly detailsWorkspaceViewPresets = DETAILS_WORKSPACE_VIEW_PRESETS;
+  detailsWorkspacePane: DetailsWorkspacePane = 'tree';
+
+  private detailsWorkspaceViewPresetValue: DetailsWorkspaceViewPresetId = 'standard';
+  private detailsWorkspaceViewPresetLoaded = false;
+
+  private readonly detailsWorkspaceAllColumns: readonly PaneDetailsColumn[] = [
+    { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
+    { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 220 },
+    { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 180, formatter: (value, entry) => entry.type === FileType.DIRECTORY ? '' : this.formatSize(value) },
+    { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
+    { field: 'created', header: 'Created', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
+    { field: 'accessed', header: 'Accessed', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
+    { field: 'owner', header: 'Owner', width: '170px', sortable: true, minWidth: 110, maxWidth: 320 },
+    { field: 'permissions', header: 'Permissions', width: '150px', sortable: true, minWidth: 100, maxWidth: 260 },
+    { field: 'attributes', header: 'Attributes', width: '100px', sortable: true, minWidth: 80, maxWidth: 180 },
+    { field: 'isHidden', header: 'Hidden', width: '72px', sortable: true, minWidth: 60, maxWidth: 100, formatter: value => value ? 'Yes' : '' },
+    { field: 'isSymlink', header: 'Link', width: '64px', sortable: true, minWidth: 54, maxWidth: 100, formatter: value => value ? 'Yes' : '' },
+  ];
+
+  get detailsWorkspaceViewPreset(): DetailsWorkspaceViewPresetId {
+    this.ensureDetailsWorkspaceViewPresetLoaded();
+    return this.detailsWorkspaceViewPresetValue;
+  }
+
+  get detailsWorkspaceColumns(): PaneDetailsColumn[] {
+    const fields: Readonly<Record<DetailsWorkspaceViewPresetId, readonly string[]>> = {
+      brief: ['name', 'size'],
+      standard: ['name', 'size', 'modified', 'type'],
+      full: ['name', 'type', 'size', 'modified', 'created', 'accessed', 'owner', 'permissions', 'attributes', 'isHidden', 'isSymlink'],
+      security: ['name', 'owner', 'permissions', 'attributes'],
+      times: ['name', 'size', 'created', 'modified', 'accessed'],
+    };
+    const selected = new Set(fields[this.detailsWorkspaceViewPreset]);
+    return this.detailsWorkspaceAllColumns.filter(column => selected.has(String(column.field)));
+  }
+
+  setDetailsWorkspaceViewPreset(value: string): void {
+    if (!isDetailsWorkspaceViewPresetId(value)) return;
+    this.detailsWorkspaceViewPresetValue = value;
+    this.detailsWorkspaceViewPresetLoaded = true;
+    try { localStorage.setItem('reassembly.details-workspace.view', value); } catch {}
+  }
+
+  activateDetailsWorkspacePane(pane: DetailsWorkspacePane): void {
+    this.detailsWorkspacePane = pane;
+  }
+
+  onWorkspaceKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab' || !this.isDetailsWorkspaceSplit(this.presentation.layout)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const next: DetailsWorkspacePane = this.detailsWorkspacePane === 'tree' ? 'details' : 'tree';
+    this.detailsWorkspacePane = next;
+
+    const root = event.currentTarget as HTMLElement | null;
+    queueMicrotask(() => {
+      root?.querySelector<HTMLElement>(`[data-details-workspace-pane="${next}"]`)?.focus();
+    });
+  }
+
   trackSurface = (_: number, surface: WorkspaceSurface) => surface.id;
   trackAction = (_: number, action: WorkspaceSurfaceAction) => action.id;
   trackEntry = (index: number, entry: any) => entry?.path ?? `${index}`;
@@ -730,6 +865,24 @@ export class ToolWorkspaceHostComponent {
     }
 
     return `${amount.toFixed(amount >= 100 ? 0 : amount >= 10 ? 1 : 2)} ${unit}`;
+  }
+
+  private formatDate(value: unknown): string {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp > 10_000_000_000 ? timestamp : timestamp * 1000);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+  }
+
+  private ensureDetailsWorkspaceViewPresetLoaded(): void {
+    if (this.detailsWorkspaceViewPresetLoaded) return;
+    this.detailsWorkspaceViewPresetLoaded = true;
+    try {
+      const stored = localStorage.getItem('reassembly.details-workspace.view');
+      if (stored && isDetailsWorkspaceViewPresetId(stored)) {
+        this.detailsWorkspaceViewPresetValue = stored;
+      }
+    } catch {}
   }
 
   private layoutContainsSurface(

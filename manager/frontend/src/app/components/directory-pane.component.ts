@@ -5,7 +5,6 @@ import {
   ElementRef,
   EventEmitter,
   Input,
-  HostListener,
   OnDestroy,
   OnInit,
   Output,
@@ -206,20 +205,6 @@ const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
-type DetailsViewPresetId = 'brief' | 'standard' | 'full' | 'security' | 'times';
-
-const DETAILS_VIEW_PRESET_FIELDS: Readonly<Record<DetailsViewPresetId, readonly string[]>> = {
-  brief: ['name', 'size'],
-  standard: ['name', 'size', 'modified', 'type'],
-  full: ['name', 'type', 'size', 'modified', 'created', 'accessed', 'owner', 'permissions', 'attributes', 'isHidden', 'isSymlink'],
-  security: ['name', 'owner', 'permissions', 'attributes'],
-  times: ['name', 'size', 'created', 'modified', 'accessed'],
-};
-
-function isDetailsViewPresetId(value: string): value is DetailsViewPresetId {
-  return value === 'brief' || value === 'standard' || value === 'full' || value === 'security' || value === 'times';
-}
-
 @Component({
   selector: 'app-directory-pane',
   standalone: true,
@@ -390,20 +375,11 @@ function isDetailsViewPresetId(value: string): value is DetailsViewPresetId {
       </div>
 
       <div class="action-bar">
-        <div class="view-switcher" role="group" aria-label="Directory view" (keydown)="onViewSwitcherKeydown($event)">
+        <div class="view-switcher" role="group" aria-label="Directory view">
           <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
           <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
-          <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')" title="Details">Details</button>
-          <select
-            *ngIf="viewMode === 'details'"
-            class="details-view-select"
-            title="Details layout"
-            aria-label="Details layout"
-            [value]="detailsViewPreset"
-            (change)="setDetailsViewPreset($any($event.target).value)">
-            <option *ngFor="let preset of detailsViewPresets" [value]="preset.id">{{ preset.label }}</option>
-          </select>
-          <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')" title="Tree">Tree</button>
+          <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
+          <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
         </div>
         <div *ngIf="viewMode === 'tree'" class="tree-mode-switch" role="group" aria-label="Tree contents">
           <button type="button" [class.active]="treeContentMode === 'all'" [attr.aria-pressed]="treeContentMode === 'all'" (click)="setTreeContentMode('all')">All</button>
@@ -474,7 +450,7 @@ function isDetailsViewPresetId(value: string): value is DetailsViewPresetId {
         [sortField]="sortField"
         [sortDirection]="sortDirection"
         [directoriesFirst]="directoriesFirst"
-        [detailsColumns]="visiblePaneDetailsColumns"
+        [detailsColumns]="paneDetailsColumns"
         [paneActive]="active"
         (selectionChange)="onSharedDetailsSelectionChange($event)"
         (navigate)="openEntry($event)"
@@ -825,14 +801,12 @@ function isDetailsViewPresetId(value: string): value is DetailsViewPresetId {
     .results-collection-bar button:disabled{opacity:.4;cursor:default}
 
     .action-bar {
-      position: relative;
-      z-index: 12;
       display: flex;
       align-items: center;
       gap: 4px;
       min-height: 34px;
       min-width: 0;
-      overflow: visible;
+      overflow: hidden;
       padding: 3px 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
@@ -869,25 +843,6 @@ function isDetailsViewPresetId(value: string): value is DetailsViewPresetId {
     .view-switcher button.active {
       background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
       color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
-    }
-
-    .details-view-select {
-      height: 24px;
-      min-width: 96px;
-      margin-left: 2px;
-      padding: 0 22px 0 7px;
-      border: 1px solid var(--vsc-dropdown-border, var(--vsc-border));
-      border-radius: 3px;
-      background: var(--vsc-dropdown-background, var(--vsc-menu-background, var(--vsc-panel-background)));
-      color: var(--vsc-dropdown-foreground, var(--vsc-foreground));
-      font: inherit;
-      font-size: 12px;
-      cursor: pointer;
-    }
-
-    .details-view-select:focus-visible {
-      outline: 1px solid var(--vsc-focus-border);
-      outline-offset: -1px;
     }
 
     .tree-mode-switch {
@@ -3521,28 +3476,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.toggleDirectoriesFirst();
     }
   }
-
-  onViewSwitcherKeydown(event: KeyboardEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (!target || target.tagName === 'SELECT') return;
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-
-    const group = event.currentTarget as HTMLElement | null;
-    if (!group) return;
-    const controls = Array.from(group.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled)'));
-    if (!controls.length) return;
-
-    const current = Math.max(0, controls.indexOf(target));
-    let next = current;
-    if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = controls.length - 1;
-    else if (event.key === 'ArrowLeft') next = (current - 1 + controls.length) % controls.length;
-    else if (event.key === 'ArrowRight') next = (current + 1) % controls.length;
-
-    event.preventDefault();
-    controls[next]?.focus();
-  }
-
 
   setViewMode(mode: DirectoryView): void {
     this.resetVirtualViewport();
@@ -8258,13 +8191,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 260, formatter: (_, entry) => this.entryDisplayKind(entry) },
       { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 220, formatter: (value, entry) => entry.type === FileType.DIRECTORY ? '' : this.formatSize(Number(value) || 0) },
       { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatModified(Number(value) || 0) },
-      { field: 'created', header: 'Created', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatModified(Number(value) || 0) },
-      { field: 'accessed', header: 'Accessed', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatModified(Number(value) || 0) },
-      { field: 'owner', header: 'Owner', width: '170px', sortable: true, minWidth: 110, maxWidth: 360, formatter: (value) => value?.toString() || '' },
-      { field: 'permissions', header: 'Permissions', width: '150px', sortable: true, minWidth: 100, maxWidth: 320, formatter: (value) => value?.toString() || '' },
-      { field: 'attributes', header: 'Attributes', width: '100px', sortable: true, minWidth: 80, maxWidth: 180, formatter: (value) => value?.toString() || '' },
-      { field: 'isHidden', header: 'Hidden', width: '72px', sortable: true, minWidth: 60, maxWidth: 110, formatter: (value) => value ? 'Yes' : '' },
-      { field: 'isSymlink', header: 'Link', width: '64px', sortable: true, minWidth: 54, maxWidth: 100, formatter: (value) => value ? 'Yes' : '' },
     ];
     for (const column of this.pluginPanelColumns) {
       columns.push({
@@ -8277,58 +8203,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
     }
     return columns;
-  }
-
-
-  readonly detailsViewPresets: ReadonlyArray<{ id: DetailsViewPresetId; label: string }> = [
-    { id: 'brief', label: 'Brief' },
-    { id: 'standard', label: 'Standard' },
-    { id: 'full', label: 'Full' },
-    { id: 'security', label: 'Security' },
-    { id: 'times', label: 'Times' },
-  ];
-
-  get detailsViewPreset(): DetailsViewPresetId {
-    this.ensureDetailsViewPresetLoaded();
-    return this.detailsViewPresetValue;
-  }
-
-  get visiblePaneDetailsColumns(): PaneDetailsColumn[] {
-    const preset = this.detailsViewPreset;
-    const fields = DETAILS_VIEW_PRESET_FIELDS[preset];
-    const base = this.paneDetailsColumns;
-    const pluginColumns = base.filter(column => String(column.field).startsWith('plugin-'));
-    const selected = fields
-      .map(field => base.find(column => String(column.field) === field))
-      .filter((column): column is PaneDetailsColumn => !!column);
-    return [...selected, ...pluginColumns];
-  }
-
-  setDetailsViewPreset(value: string): void {
-    if (!isDetailsViewPresetId(value)) return;
-    this.detailsViewPresetValue = value;
-    this.detailsViewPresetLoadedFor = this.paneId;
-    try { localStorage.setItem(this.detailsViewStorageKey, value); } catch {}
-    this.cdr.markForCheck();
-  }
-
-  private detailsViewPresetValue: DetailsViewPresetId = 'standard';
-  private detailsViewPresetLoadedFor: 'left' | 'right' | null = null;
-
-  private get detailsViewStorageKey(): string {
-    return `reassembly.details-view.${this.paneId}`;
-  }
-
-  private ensureDetailsViewPresetLoaded(): void {
-    if (this.detailsViewPresetLoadedFor === this.paneId) return;
-    this.detailsViewPresetLoadedFor = this.paneId;
-    this.detailsViewPresetValue = 'standard';
-    try {
-      const stored = localStorage.getItem(this.detailsViewStorageKey);
-      if (stored && isDetailsViewPresetId(stored)) this.detailsViewPresetValue = stored;
-    } catch {
-      this.detailsViewPresetValue = 'standard';
-    }
   }
 
   applyDetailsSort(change: { field: string; direction: 'asc' | 'desc' }): void {

@@ -162,8 +162,8 @@ type VisibleRowVm = {
       position: relative;
       flex: 1;
       overflow-y: auto;
-      overflow-x: hidden;
-      padding: var(--vsc-padding-sm);
+      overflow-x: auto;
+      padding: 0;
       background: var(--vsc-editor-background);
       min-height: 0;
       contain: layout style paint;
@@ -207,27 +207,36 @@ type VisibleRowVm = {
 
     .file-list-container {
       position: relative;
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
+      min-width: 100%;
     }
 
     .virtual-spacer {
-      width: 1px;
+      grid-column: 1;
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
       pointer-events: none;
       flex-shrink: 0;
     }
 
     .file-list-window {
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-columns: minmax(100%, max-content);
+      align-content: start;
       gap: 0;
+      min-width: 100%;
     }
 
     .file-list-window.virtual-window {
       position: absolute;
       left: 0;
-      right: 0;
+      right: auto;
       top: 0;
+      width: 100%;
+      min-width: 100%;
       will-change: transform;
     }
 
@@ -240,6 +249,12 @@ type VisibleRowVm = {
     }
 
     .file-list-row {
+      grid-column: 1;
+      width: auto;
+      min-width: 0;
+      justify-self: stretch;
+      margin-left: 4px;
+      margin-right: 4px;
       border-radius: var(--vsc-border-radius-sm);
       flex-shrink: 0;
       contain: layout style;

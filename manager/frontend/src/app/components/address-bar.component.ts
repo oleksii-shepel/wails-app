@@ -745,7 +745,8 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
         : undefined
     ) ?? this.value;
 
-    const normalized = normalizeAddressBarPathInput(candidate, this.path);
+    const resolvedCandidate = this.resolveImplicitAddressRoot(candidate) ?? candidate;
+    const normalized = normalizeAddressBarPathInput(resolvedCandidate, this.path);
     if (!normalized) return;
 
     this.cancelEdit();
@@ -778,7 +779,8 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
     const raw = (value || '').trim().replace(/\\/g, '/');
     if (!raw) return null;
 
-    const normalized = normalizeAddressBarPathInput(raw, this.path);
+    const resolvedRaw = this.resolveImplicitAddressRoot(raw) ?? raw;
+    const normalized = normalizeAddressBarPathInput(resolvedRaw, this.path);
     if (!normalized) return null;
 
     // The editor displays Windows roots as C:/ while the source boundary uses
@@ -811,6 +813,42 @@ export class AddressBarComponent implements OnInit, OnChanges, AfterViewInit, On
       dirPath: normalizedSlashes.slice(0, slash + 1),
       prefix: normalizedSlashes.slice(slash + 1),
     };
+  }
+
+  private resolveImplicitAddressRoot(value: string): string | null {
+    const raw = (value || '').trim();
+    if (!raw) return null;
+
+    const normalized = raw
+      .replace(/\\/g, '/')
+      .replace(/:(?:\/\/?)?$/, '')
+      .trim()
+      .toLowerCase();
+
+    if (!normalized || normalized.includes('/')) {
+      return null;
+    }
+
+    if (/^[a-z]$/i.test(normalized)) {
+      return `${normalized.toUpperCase()}:`;
+    }
+
+    for (const root of SOURCE_ROOT_SUGGESTIONS) {
+      const resolved = this.panelSources.resolve({
+        path: root.path,
+        entries: [],
+        inArchive: false,
+      });
+      if (resolved.source.kind === 'filesystem') continue;
+
+      const schemeName = root.path.slice(0, root.path.indexOf(':')).toLowerCase();
+      const displayName = root.displayName.toLowerCase();
+      if (normalized === schemeName || normalized === displayName) {
+        return root.path;
+      }
+    }
+
+    return null;
   }
 
   private async forceSourceSuggestions(): Promise<void> {

@@ -9705,9 +9705,7 @@ export class BinPaneComponent implements OnInit, OnDestroy {
 
   moveCursor(delta: -1 | 1): void {
     this.markUserInteraction();
-    const visible = this.viewMode === 'tree'
-      ? this.treeRows.map(row => row.entry)
-      : this.visibleEntries;
+    const visible = this.selectableEntries();
     if (!this.isDirectoryTab || visible.length === 0) return;
 
     const currentIndex = this.cursorPath

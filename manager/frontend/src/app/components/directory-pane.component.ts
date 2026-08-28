@@ -4800,6 +4800,11 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private selectableEntries(): FileInfo[] {
+    if (this.viewMode !== 'tree') {
+      const rendered = this.paneViewHost?.getSelectableEntries('__parent__', true);
+      if (rendered?.length) return rendered;
+    }
+
     return this.viewMode === 'tree'
       ? this.treeRows.map(row => row.entry)
       : this.visibleEntries;
@@ -9280,9 +9285,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   moveCursor(delta: -1 | 1): void {
     this.markUserInteraction();
-    const visible = this.viewMode === 'tree'
-      ? this.treeRows.map(row => row.entry)
-      : this.visibleEntries;
+    const visible = this.selectableEntries();
     if (!this.isDirectoryTab || visible.length === 0) return;
 
     const currentIndex = this.cursorPath

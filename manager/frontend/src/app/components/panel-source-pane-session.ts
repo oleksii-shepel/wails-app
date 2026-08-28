@@ -364,8 +364,11 @@ export class PanelSourcePaneSession implements PaneComponent {
   moveCursor(delta: number, extend = false): void {
     const entries = this.selectableEntries();
     if (!entries.length) return;
-    const current = Math.max(0, entries.findIndex(entry => entry.path === this.cursorPath));
-    const index = Math.max(0, Math.min(entries.length - 1, current + delta));
+
+    const current = entries.findIndex(entry => entry.path === this.cursorPath);
+    const index = current < 0
+      ? (delta < 0 ? entries.length - 1 : 0)
+      : Math.max(0, Math.min(entries.length - 1, current + delta));
     const path = entries[index]?.path;
     if (!path) return;
     this.cursorPath = path;

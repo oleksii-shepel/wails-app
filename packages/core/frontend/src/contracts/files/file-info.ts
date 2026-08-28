@@ -27,6 +27,8 @@ export interface FileInfo {
   modified: number;
   accessed: number;
   permissions: string;
+  owner?: string;
+  attributes?: string;
   isHidden: boolean;
   isSymlink?: boolean;
 

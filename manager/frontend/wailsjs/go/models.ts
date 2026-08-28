@@ -158,6 +158,8 @@ export namespace contracts {
 	    modified: number;
 	    accessed: number;
 	    permissions: string;
+	    owner?: string;
+	    attributes?: string;
 	    isHidden: boolean;
 	    isSymlink?: boolean;
 	    isNested: boolean;
@@ -184,6 +186,8 @@ export namespace contracts {
 	        this.modified = source["modified"];
 	        this.accessed = source["accessed"];
 	        this.permissions = source["permissions"];
+	        this.owner = source["owner"];
+	        this.attributes = source["attributes"];
 	        this.isHidden = source["isHidden"];
 	        this.isSymlink = source["isSymlink"];
 	        this.isNested = source["isNested"];

@@ -600,7 +600,13 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
     { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 220, formatter: (value) => this.formatSize(value) },
     { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
-    { field: 'permissions', header: 'Permissions', width: '110px', sortable: true, minWidth: 90, maxWidth: 180, formatter: (value) => value?.toString() || '' },
+    { field: 'created', header: 'Created', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
+    { field: 'accessed', header: 'Accessed', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
+    { field: 'owner', header: 'Owner', width: '170px', sortable: true, minWidth: 110, maxWidth: 360, formatter: (value) => value?.toString() || '' },
+    { field: 'attributes', header: 'Attributes', width: '100px', sortable: true, minWidth: 80, maxWidth: 180, formatter: (value) => value?.toString() || '' },
+    { field: 'permissions', header: 'Permissions', width: '150px', sortable: true, minWidth: 100, maxWidth: 320, formatter: (value) => value?.toString() || '' },
+    { field: 'isHidden', header: 'Hidden', width: '72px', sortable: true, minWidth: 60, maxWidth: 110, formatter: (value) => value ? 'Yes' : '' },
+    { field: 'isSymlink', header: 'Link', width: '64px', sortable: true, minWidth: 54, maxWidth: 100, formatter: (value) => value ? 'Yes' : '' },
     { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 260, formatter: (_, entry) => this.getFileTypeLabel(entry) }
   ];
   private readonly registryColumns: PaneDetailsColumn[] = [

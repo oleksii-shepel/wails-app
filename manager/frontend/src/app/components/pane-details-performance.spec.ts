@@ -49,6 +49,12 @@ describe('PaneDetailsComponent performance model', () => {
       'type',
       'name',
       'modified',
+      'created',
+      'accessed',
+      'owner',
+      'permissions',
+      'isHidden',
+      'isSymlink',
     ]);
   });
 

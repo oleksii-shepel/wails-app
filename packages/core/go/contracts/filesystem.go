@@ -19,6 +19,8 @@ type FileInfo struct {
 	Modified          int64    `json:"modified"`
 	Accessed          int64    `json:"accessed"`
 	Permissions       string   `json:"permissions"`
+	Owner             string   `json:"owner,omitempty"`
+	Attributes        string   `json:"attributes,omitempty"`
 	IsHidden          bool     `json:"isHidden"`
 	IsSymlink         bool     `json:"isSymlink,omitempty"`
 	IsNested          bool     `json:"isNested"`

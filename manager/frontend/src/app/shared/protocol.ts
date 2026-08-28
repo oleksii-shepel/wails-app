@@ -240,8 +240,12 @@ export interface FileInfo {
   modified: number;
   /** Unix timestamp */
   accessed: number;
-  /** e.g. "rwxr-xr-x" on Unix, "rw-" / "r--" on Windows */
+  /** Full native permission summary exposed by the filesystem provider. */
   permissions: string;
+  /** Native file owner when the provider can resolve one (for example DOMAIN\\user on Windows). */
+  owner?: string;
+  /** Native filesystem attribute flags (for example R, H, S, A on Windows). */
+  attributes?: string;
   isHidden: boolean;
   /** True for both dir-symlinks (type=DIRECTORY) and file-symlinks (type=SYMLINK). */
   isSymlink?: boolean;

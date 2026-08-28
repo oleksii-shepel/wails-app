@@ -23,6 +23,8 @@ type MetadataCallbacks struct {
 	GetCreatedTime               func(os.FileInfo) int64
 	GetAccessedTime              func(os.FileInfo) int64
 	FormatPermissions            func(os.FileInfo) string
+	GetOwner                     func(path string, info os.FileInfo) string
+	FormatAttributes             func(path string, info os.FileInfo) string
 }
 
 type RawCallbacks struct {
@@ -400,6 +402,8 @@ func BuildFileInfoWithHidden(callbacks MetadataCallbacks, name, fullPath string,
 		Modified:    info.ModTime().Unix(),
 		Accessed:    callAccessed(callbacks, info),
 		Permissions: callPermissions(callbacks, info),
+		Owner:       callOwner(callbacks, fullPath, info),
+		Attributes:  callAttributes(callbacks, fullPath, info),
 		IsHidden:    hidden,
 		IsSymlink:   isSymlink,
 	}
@@ -483,6 +487,20 @@ func callPermissions(callbacks MetadataCallbacks, info os.FileInfo) string {
 		return info.Mode().Perm().String()
 	}
 	return callbacks.FormatPermissions(info)
+}
+
+func callOwner(callbacks MetadataCallbacks, path string, info os.FileInfo) string {
+	if callbacks.GetOwner == nil {
+		return ""
+	}
+	return callbacks.GetOwner(path, info)
+}
+
+func callAttributes(callbacks MetadataCallbacks, path string, info os.FileInfo) string {
+	if callbacks.FormatAttributes == nil {
+		return ""
+	}
+	return callbacks.FormatAttributes(path, info)
 }
 
 func inferMimeTypeFromName(name string) string {

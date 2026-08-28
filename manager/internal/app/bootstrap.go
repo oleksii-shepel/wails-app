@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 
 	internalarchive "wails-app/internal/archive"
@@ -183,16 +182,15 @@ func rawFilesystemMetadataCallbacks() internalfilesystem.MetadataCallbacks {
 		GetCreatedTime:               internalplatform.GetCreatedTime,
 		GetAccessedTime:              internalplatform.GetAccessedTime,
 		FormatPermissions:            formatPermissions,
+		GetOwner:                     internalplatform.GetFileOwner,
+		FormatAttributes:             internalplatform.FormatFileAttributes,
 	}
 }
 
 func formatPermissions(info os.FileInfo) string {
-	if runtime.GOOS == "windows" {
-		if info.Mode()&0200 != 0 {
-			return "rw-"
-		}
-		return "r--"
-	}
+	// Keep the complete permission mask. On Windows Go maps the native
+	// read-only state to the owner/group/other mode bits, so this preserves
+	// all positions instead of collapsing the value to only `rw-` / `r--`.
 	return info.Mode().Perm().String()
 }
 

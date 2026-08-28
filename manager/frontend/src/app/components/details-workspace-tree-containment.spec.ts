@@ -37,6 +37,8 @@ describe('Details workspace folder tree and containment', () => {
     expect(host).toContain('<app-pane-view-host');
     expect(host).toContain("[currentView]=\"'details'\"");
     expect(host).toContain("[entries]=\"fileEntries(surface)\"");
+    expect(host).toContain('selectedCursorPath(surface)');
+    expect(host).toContain('selectedPathSet(surface)');
   });
 
   it('uses the normal pane cursor language and compact tree geometry', () => {

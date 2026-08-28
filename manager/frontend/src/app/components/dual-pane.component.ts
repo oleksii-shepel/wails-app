@@ -407,6 +407,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         *ngIf="workspacePresentation?.kind === 'tool' && workspacePresentation as toolWorkspace"
         class="tool-workspace-host"
         [presentation]="toolWorkspace"
+        [showHidden]="showHidden"
         (close)="closeToolWorkspace()"
         (pin)="pinToolWorkspace()"
         (surfaceAction)="handleWorkspaceSurfaceAction($event)">
@@ -911,6 +912,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private workspaceApplyGeneration = 0;
   showHidden = false;
   workspacePresentation: WorkspacePresentation | null = null;
+  private detailsWorkspaceRefreshSequence = 0;
 
   commandPaletteCommands: PaletteCommand[] = [];
 
@@ -2762,6 +2764,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       const folderPath = entry.type === FileType.DIRECTORY
         ? entry.path
         : this.parentLocation(entry.path);
+      const initialSelectedPath = entry.type === FileType.DIRECTORY ? '' : entry.path;
       if (!folderPath) return;
 
       const folderInfo = pane.contextState.isInArchive
@@ -2816,6 +2819,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
                 sections: [],
                 containment: [],
                 containmentSummary: {},
+                selectedPath: initialSelectedPath,
               },
               pane.contextState.isInArchive
                 ? [{ id: 'refresh', title: 'Refresh' }]
@@ -2878,10 +2882,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       if (!entry?.path) return;
 
       if (entry.type === FileType.DIRECTORY) {
-        const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
-        if (treeSurface) {
-          await this.selectDetailsTreeFolder(treeSurface, entry.path);
-        }
+        const targetPath = entry.path === '__parent__'
+          ? this.parentLocation(String(event.surface.state?.['path'] ?? ''))
+          : entry.path;
+        if (targetPath) await this.navigateDetailsWorkspacePath(event.surface, targetPath);
         return;
       }
 
@@ -3084,8 +3088,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const path = String(surface.state?.['path'] ?? '');
     const inArchive = surface.state?.['inArchive'] === true;
+    const requestedSelectedPath = String(surface.state?.['selectedPath'] ?? '');
+    const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
+    const rootPath = treeSurface
+      ? String(treeSurface.state?.['rootPath'] ?? '')
+      : '';
     if (!path) return;
 
+    const refreshSequence = ++this.detailsWorkspaceRefreshSequence;
     this.patchLiveSurface(surface.id, { busy: true, error: '' });
 
     try {
@@ -3097,31 +3107,42 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       const [info, listing] = await Promise.all([
         this.api.getFileInfo(path),
-        this.api.listDirectory(path, true),
+        this.api.listDirectory(path, this.showHidden),
       ]);
-      const entries = (listing.entries ?? []).filter(entry => entry.name !== '..');
+      const entries = (listing.entries ?? []).filter(entry => entry.path !== '__parent__');
+      if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;
 
+      const selectedPath = requestedSelectedPath && entries.some(entry => entry.path === requestedSelectedPath)
+        ? requestedSelectedPath
+        : '';
       this.patchLiveSurface(surface.id, {
         path: info.path,
         title: info.name,
         containment: entries.map(entry => ({ ...entry })),
         sections: [],
+        selectedPath,
         busy: false,
         error: '',
         refreshedAt: new Date().toLocaleTimeString(),
       });
 
-      const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
       if (treeSurface) {
-        this.patchLiveSurface(treeSurface.id, {
+        const treePatch: Record<string, unknown> = {
           currentPath: info.path,
           selectedPath: info.path,
-          entries: entries.map(entry => ({ ...entry })),
           busy: false,
           error: '',
-        });
+        };
+        // Keep the workspace tree anchored at the folder it was opened for.
+        // Child navigation is handled by PaneTree's lazy hierarchy instead of
+        // replacing the tree root with every inspected folder.
+        if (!rootPath || info.path === rootPath) {
+          treePatch['entries'] = entries.map(entry => ({ ...entry }));
+        }
+        this.patchLiveSurface(treeSurface.id, treePatch);
       }
     } catch (error) {
+      if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;
       this.patchLiveSurface(surface.id, {
         busy: false,
         error: error instanceof Error ? error.message : String(error),
@@ -3140,10 +3161,41 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     });
     const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
     if (!detailsSurface) return;
-    this.patchLiveSurface(detailsSurface.id, { path, error: '' });
+    this.patchLiveSurface(detailsSurface.id, { path, selectedPath: '', error: '' });
     await this.refreshDetailsWorkspaceSurface(
       this.findWorkspaceSurfaceByKind('details-workspace') ?? detailsSurface,
     );
+  }
+
+  private async navigateDetailsWorkspacePath(
+    detailsSurface: WorkspaceSurface,
+    path: string,
+  ): Promise<void> {
+    this.patchLiveSurface(detailsSurface.id, { path, selectedPath: '', error: '' });
+
+    const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
+    if (treeSurface) {
+      const rootPath = String(treeSurface.state?.['rootPath'] ?? '');
+      if (rootPath && this.pathWithinWorkspaceRoot(path, rootPath)) {
+        this.patchLiveSurface(treeSurface.id, {
+          currentPath: path,
+          selectedPath: path,
+          error: '',
+        });
+      }
+    }
+
+    await this.refreshDetailsWorkspaceSurface(
+      this.findWorkspaceSurfaceByKind('details-workspace') ?? detailsSurface,
+    );
+  }
+
+  private pathWithinWorkspaceRoot(path: string, rootPath: string): boolean {
+    const normalize = (value: string): string =>
+      (value ?? '').replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase();
+    const candidate = normalize(path);
+    const root = normalize(rootPath);
+    return candidate === root || candidate.startsWith(`${root}/`);
   }
 
 
@@ -3524,11 +3576,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   private parentLocation(path: string): string {
     const normalized = (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (/^[a-z]:$/i.test(normalized)) return `${normalized}/`;
+    if (/^filesystem:\/\/[a-z]$/i.test(normalized)) return normalized;
+
     const schemeIndex = normalized.indexOf('://');
     const minimum = schemeIndex >= 0 ? schemeIndex + 3 : 0;
     const slash = normalized.lastIndexOf('/');
     if (slash < minimum) return normalized;
-    return normalized.slice(0, slash);
+
+    const parent = normalized.slice(0, slash);
+    return /^[a-z]:$/i.test(parent) ? `${parent}/` : parent;
   }
 
   addActiveSelectionToBasket(): void {
@@ -5153,6 +5210,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         .filter(pane => pane.contextState.isDirectoryTab)
         .map(pane => pane.navigation?.refresh()),
     );
+
+    const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
+    if (detailsSurface) {
+      await this.refreshDetailsWorkspaceSurface(detailsSurface);
+    }
 
     this.cdr.markForCheck();
   }

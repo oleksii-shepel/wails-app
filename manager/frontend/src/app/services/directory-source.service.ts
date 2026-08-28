@@ -219,8 +219,16 @@ class FilesystemDirectoryProvider implements DirectoryListingProvider {
 
   getRootPath(path: string): string | null {
     const normalized = normalizePath(path || '/');
+
     const driveMatch = /^(?:filesystem|drive):\/\/([a-z])(?:\/.*)?$/i.exec(normalized);
     if (driveMatch) return `filesystem://${driveMatch[1].toLowerCase()}`;
+
+    // Native Windows paths are valid filesystem locations too. Preserve their
+    // drive-root representation instead of falling through to the POSIX root.
+    // C:/Users/name -> C:/ (never a synthetic / or \ node).
+    const nativeDriveMatch = /^([a-z]):(?:\/.*)?$/i.exec(normalized);
+    if (nativeDriveMatch) return `${nativeDriveMatch[1].toUpperCase()}:/`;
+
     const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
     if (aliasMatch) return `${aliasMatch[1].toLowerCase()}://`;
     return '/';

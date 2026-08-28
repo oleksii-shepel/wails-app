@@ -5,17 +5,21 @@ import {
   ElementRef,
   EventEmitter,
   Input,
+  OnChanges,
   OnDestroy,
   OnInit,
   Output,
+  QueryList,
+  SimpleChanges,
+  ViewChildren,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PaneViewHostComponent } from './pane-view-host.component';
 import type { PaneDetailsColumn } from './pane-details.component';
-import type { FileInfo } from '../shared/protocol';
+import { FileType, type FileInfo } from '../shared/protocol';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
-import { FILE_MANAGER_COMMANDS } from './command-registry';
 
 import type {
   WorkspaceLayout,
@@ -39,29 +43,30 @@ function isDetailsWorkspaceViewPresetId(value: string): value is DetailsWorkspac
 
 const DETAILS_WORKSPACE_INPUT_CONTEXT = 'reassembly.workspace.details';
 const DETAILS_WORKSPACE_INPUT_OWNER = 'reassembly.workspace.details';
+const DETAILS_WORKSPACE_COMMANDS = {
+  nextPane: 'reassembly.workspace.details.nextPane',
+  previousPane: 'reassembly.workspace.details.previousPane',
+  cursorUp: 'reassembly.workspace.details.cursorUp',
+  cursorDown: 'reassembly.workspace.details.cursorDown',
+  firstItem: 'reassembly.workspace.details.firstItem',
+  lastItem: 'reassembly.workspace.details.lastItem',
+  pageUp: 'reassembly.workspace.details.pageUp',
+  pageDown: 'reassembly.workspace.details.pageDown',
+  open: 'reassembly.workspace.details.open',
+  parent: 'reassembly.workspace.details.parent',
+} as const;
+
 const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
-  {
-    id: 'reassembly.workspace.details.switchPane.tab',
-    commandId: FILE_MANAGER_COMMANDS.switchPane,
-    contextId: DETAILS_WORKSPACE_INPUT_CONTEXT,
-    source: 'workspace',
-    description: 'Switch Details workspace pane',
-    category: 'Workspace',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'tab' }] } },
-    preventDefault: true,
-    stopPropagation: true,
-  },
-  {
-    id: 'reassembly.workspace.details.switchPane.shiftTab',
-    commandId: FILE_MANAGER_COMMANDS.switchPane,
-    contextId: DETAILS_WORKSPACE_INPUT_CONTEXT,
-    source: 'workspace',
-    description: 'Switch Details workspace pane backward',
-    category: 'Workspace',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'tab', modifiers: ['shift'] }] } },
-    preventDefault: true,
-    stopPropagation: true,
-  },
+  { id: 'reassembly.workspace.details.nextPane.tab', commandId: DETAILS_WORKSPACE_COMMANDS.nextPane, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Focus next Details workspace pane', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'tab' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.previousPane.shiftTab', commandId: DETAILS_WORKSPACE_COMMANDS.previousPane, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Focus previous Details workspace pane', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'tab', modifiers: ['shift'] }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.cursorUp', commandId: DETAILS_WORKSPACE_COMMANDS.cursorUp, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move Details workspace cursor up', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowup' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.cursorDown', commandId: DETAILS_WORKSPACE_COMMANDS.cursorDown, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move Details workspace cursor down', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowdown' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.firstItem', commandId: DETAILS_WORKSPACE_COMMANDS.firstItem, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move to first Details workspace item', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'home' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.lastItem', commandId: DETAILS_WORKSPACE_COMMANDS.lastItem, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move to last Details workspace item', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'end' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.pageUp', commandId: DETAILS_WORKSPACE_COMMANDS.pageUp, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move one Details workspace page up', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'pageup' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.pageDown', commandId: DETAILS_WORKSPACE_COMMANDS.pageDown, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move one Details workspace page down', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'pagedown' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.open', commandId: DETAILS_WORKSPACE_COMMANDS.open, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Open Details workspace item', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.parent', commandId: DETAILS_WORKSPACE_COMMANDS.parent, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Inspect parent folder in Details workspace', category: 'Workspace', when: '!typing', trigger: { device: 'keyboard', chord: { steps: [{ key: 'backspace' }] } }, preventDefault: true, stopPropagation: true },
 ];
 
 @Component({
@@ -276,6 +281,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               [surfaceId]="surface.id"
               [surfaceActive]="true"
               [paneId]="'left'"
+              [showHidden]="showHidden"
               [entries]="treeEntries(surface)"
               [currentPath]="text(surface, 'currentPath') || text(surface, 'selectedPath') || text(surface, 'rootPath')"
               [selectedFiles]="treeSelectedPathSet(surface)"
@@ -284,8 +290,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               [treeContentMode]="'folders'"
               [paneActive]="detailsWorkspacePane === 'tree'"
               (selectionChange)="onTreeSelectionChange(surface, $event)"
-              (navigate)="emitNamedAction(surface, 'select-folder', $event)"
-              (nodeDoubleClick)="emitNamedAction(surface, 'select-folder', $event)">
+              (navigate)="emitNamedAction(surface, 'select-folder', $event)">
             </app-pane-view-host>
           </section>
 
@@ -296,12 +301,14 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
             [class.workspace-pane-active]="detailsWorkspacePane === 'details'"
             [attr.tabindex]="detailsWorkspacePane === 'details' ? 0 : -1"
             (focusin)="activateDetailsWorkspacePane('details')"
-            (mousedown)="activateDetailsWorkspacePane('details')">
+            (mousedown)="activateDetailsWorkspacePane('details')"
+            (keydown.backspace)="onDetailsWorkspaceBackspace($event)">
             <app-pane-view-host
               [surfaceId]="surface.id"
               [surfaceActive]="true"
               [paneId]="'right'"
-              [entries]="fileEntries(surface)"
+              [showHidden]="showHidden"
+              [entries]="detailsWorkspaceEntries(surface)"
               [currentPath]="text(surface, 'path')"
               [selectedFiles]="selectedPathSet(surface)"
               [cursorPath]="selectedCursorPath(surface)"
@@ -665,8 +672,9 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
   `],
 })
-export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
+export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy {
   @Input({ required: true }) presentation!: WorkspacePresentation;
+  @Input() showHidden = false;
   @Output() close = new EventEmitter<void>();
   @Output() pin = new EventEmitter<void>();
   @Output() surfaceAction = new EventEmitter<{
@@ -675,9 +683,25 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
     payload?: unknown;
   }>();
 
+  @ViewChildren(PaneViewHostComponent) private paneViewHosts!: QueryList<PaneViewHostComponent>;
+
   private readonly selectedBySurface = new Map<string, unknown>();
+  private detailsWorkspaceInputRegistered = false;
 
   readonly detailsWorkspaceViewPresets = DETAILS_WORKSPACE_VIEW_PRESETS;
+
+  private readonly detailsWorkspaceTabFallback = (event: KeyboardEvent): void => {
+    if (event.key !== 'Tab' || event.defaultPrevented) return;
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return;
+
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || !this.host.nativeElement.contains(target)) return;
+    if (!target.closest('[data-details-workspace-pane]')) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.focusDetailsWorkspacePane(event.shiftKey ? -1 : 1);
+  };
   detailsWorkspacePane: DetailsWorkspacePane = 'tree';
 
   detailsWorkspaceViewPreset: DetailsWorkspaceViewPresetId = 'security';
@@ -711,13 +735,36 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
     for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
       this.input.registerBinding(binding, DETAILS_WORKSPACE_INPUT_OWNER);
     }
-    this.input.activateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.nextPane, () => { this.focusDetailsWorkspacePane(1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.previousPane, () => { this.focusDetailsWorkspacePane(-1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.cursorUp, () => { this.navigateDetailsWorkspace(-1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.cursorDown, () => { this.navigateDetailsWorkspace(1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.firstItem, () => { this.navigateDetailsWorkspace('first'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.lastItem, () => { this.navigateDetailsWorkspace('last'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.pageUp, () => { this.navigateDetailsWorkspace('page-up'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.pageDown, () => { this.navigateDetailsWorkspace('page-down'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.open, () => { this.openDetailsWorkspaceCursor(); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.parent, () => {
+      if (this.detailsWorkspacePane === 'details') this.navigateDetailsWorkspaceParent();
+    }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.detailsWorkspaceInputRegistered = true;
+    this.syncDetailsWorkspaceInputContext();
+    window.addEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
+  }
+
+  ngOnChanges(_changes: SimpleChanges): void {
+    if (!this.detailsWorkspaceInputRegistered) return;
+    this.syncDetailsWorkspaceInputContext();
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
     this.input.deactivateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
     for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
       this.input.unregisterBinding(binding.id, DETAILS_WORKSPACE_INPUT_OWNER);
+    }
+    for (const commandId of Object.values(DETAILS_WORKSPACE_COMMANDS)) {
+      this.input.unregisterCommand(commandId, DETAILS_WORKSPACE_INPUT_OWNER);
     }
   }
 
@@ -733,38 +780,223 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
     this.detailsWorkspacePane = pane;
   }
 
-  onDetailsWorkspaceTab(event: KeyboardEvent): void {
+  onDetailsWorkspaceTab(event: Event): void {
+    if (!(event instanceof KeyboardEvent)) return;
     if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return;
     event.preventDefault();
     event.stopPropagation();
-    this.switchDetailsWorkspacePane();
+    this.focusDetailsWorkspacePane(event.shiftKey ? -1 : 1);
+  }
+
+  onDetailsWorkspaceBackspace(event: Event): void {
+    if (!(event instanceof KeyboardEvent)) return;
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return;
+
+    const target = event.target as HTMLElement | null;
+    const pane = target?.closest<HTMLElement>('[data-details-workspace-pane]');
+    if (pane?.dataset['detailsWorkspacePane'] !== 'details') return;
+
+    if (!this.navigateDetailsWorkspaceParent()) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  private navigateDetailsWorkspaceParent(): boolean {
+    const detailsSurface = this.findSurfaceById(this.presentation.layout, 'details-workspace');
+    const treeSurface = this.findSurfaceById(this.presentation.layout, 'details-tree');
+    if (!detailsSurface || !treeSurface) return false;
+
+    const currentPath = this.text(detailsSurface, 'path');
+    if (!currentPath || this.isDetailsWorkspaceDriveRoot(currentPath)) return false;
+
+    this.emitNamedAction(detailsSurface, 'open', {
+      path: PARENT_ENTRY_PATH,
+      name: '..',
+      type: FileType.DIRECTORY,
+    });
+    return true;
   }
 
   switchDetailsWorkspacePane(): boolean {
+    return this.focusDetailsWorkspacePane(1);
+  }
+
+  private focusDetailsWorkspacePane(direction: -1 | 1): boolean {
     if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
 
     const active = document.activeElement as HTMLElement | null;
     const currentPane = active?.closest<HTMLElement>('[data-details-workspace-pane]')
       ?.dataset['detailsWorkspacePane'] as DetailsWorkspacePane | undefined;
     const current = currentPane ?? this.detailsWorkspacePane;
-    const next: DetailsWorkspacePane = current === 'tree' ? 'details' : 'tree';
+    const order: readonly DetailsWorkspacePane[] = ['tree', 'details'];
+    const currentIndex = Math.max(0, order.indexOf(current));
+    const nextIndex = (currentIndex + direction + order.length) % order.length;
+    const next = order[nextIndex];
 
     this.detailsWorkspacePane = next;
     this.cdr.markForCheck();
 
-    queueMicrotask(() => {
-      const pane = this.host.nativeElement.querySelector<HTMLElement>(
-        `[data-details-workspace-pane="${next}"]`,
-      );
-      if (!pane) return;
-
-      const focusTarget = next === 'tree'
-        ? pane.querySelector<HTMLElement>('.file-tree-container[tabindex="0"]') ?? pane
-        : pane;
-      focusTarget.focus();
-    });
-
+    queueMicrotask(() => this.focusDetailsWorkspacePaneElement(next));
     return true;
+  }
+
+  private focusDetailsWorkspacePaneElement(paneId: DetailsWorkspacePane): void {
+    const pane = this.host.nativeElement.querySelector<HTMLElement>(
+      `[data-details-workspace-pane="${paneId}"]`,
+    );
+    if (!pane) return;
+
+    if (paneId === 'details') {
+      const surface = this.findSurfaceById(this.presentation.layout, 'details-workspace');
+      const host = this.detailsWorkspaceViewHost('details');
+      if (surface) {
+        const entries = (host?.getSortedEntries() ?? this.detailsWorkspaceEntries(surface))
+          .filter(entry => !!entry?.path);
+        if (entries.length > 0) {
+          const currentPath = this.selectedCursorPath(surface);
+          const current = currentPath
+            ? entries.find(entry => entry.path === currentPath)
+            : undefined;
+          const cursor = current ?? entries[0];
+          this.select(surface, cursor);
+          this.cdr.detectChanges();
+
+          const row = pane.querySelector<HTMLElement>(
+            `.details-row[data-path="${CSS.escape(cursor.path)}"]`,
+          );
+          row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      }
+    }
+
+    const focusTarget = paneId === 'tree'
+      ? pane.querySelector<HTMLElement>('.file-tree-container[tabindex="0"]') ?? pane
+      : pane;
+    focusTarget.focus();
+  }
+
+  private navigateDetailsWorkspace(move: -1 | 1 | 'first' | 'last' | 'page-up' | 'page-down'): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+    return this.detailsWorkspacePane === 'tree'
+      ? this.navigateDetailsWorkspaceTree(move)
+      : this.navigateDetailsWorkspaceList(move);
+  }
+
+  private navigateDetailsWorkspaceTree(move: -1 | 1 | 'first' | 'last' | 'page-up' | 'page-down'): boolean {
+    const surface = this.findSurfaceById(this.presentation.layout, 'details-tree');
+    const host = this.detailsWorkspaceViewHost('tree');
+    if (!surface || !host) return false;
+
+    const entries = host.getVisibleTreeNodes().filter(node => !!node?.path);
+    if (entries.length === 0) return false;
+
+    const currentPath = host.getTreeFocusedPath() ?? this.treeCursorPath(surface);
+    const currentIndex = currentPath
+      ? entries.findIndex(entry => entry.path === currentPath)
+      : -1;
+    const nextIndex = this.workspaceNavigationIndex(
+      currentIndex,
+      entries.length,
+      move,
+      Math.max(1, host.getApproxPageSize()),
+    );
+    const next = entries[nextIndex];
+    if (!next?.path) return false;
+
+    this.detailsWorkspacePane = 'tree';
+    host.focusTreeNode(next.path);
+    this.select(surface, next);
+    this.cdr.markForCheck();
+    return true;
+  }
+
+  private navigateDetailsWorkspaceList(move: -1 | 1 | 'first' | 'last' | 'page-up' | 'page-down'): boolean {
+    const surface = this.findSurfaceById(this.presentation.layout, 'details-workspace');
+    const host = this.detailsWorkspaceViewHost('details');
+    if (!surface) return false;
+
+    const entries = (host?.getSortedEntries() ?? this.detailsWorkspaceEntries(surface))
+      .filter(entry => !!entry?.path);
+    if (entries.length === 0) return false;
+
+    const currentPath = this.selectedCursorPath(surface);
+    const currentIndex = currentPath
+      ? entries.findIndex(entry => entry.path === currentPath)
+      : -1;
+    const nextIndex = this.workspaceNavigationIndex(
+      currentIndex,
+      entries.length,
+      move,
+      Math.max(1, host?.getApproxPageSize() ?? 10),
+    );
+    const next = entries[nextIndex];
+    if (!next?.path) return false;
+
+    this.detailsWorkspacePane = 'details';
+    this.select(surface, next);
+    this.cdr.markForCheck();
+    queueMicrotask(() => {
+      const row = this.host.nativeElement.querySelector<HTMLElement>(
+        `.details-row[data-path="${CSS.escape(next.path)}"]`,
+      );
+      row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return true;
+  }
+
+  private workspaceNavigationIndex(
+    currentIndex: number,
+    length: number,
+    move: -1 | 1 | 'first' | 'last' | 'page-up' | 'page-down',
+    pageSize: number,
+  ): number {
+    if (length <= 1) return 0;
+    switch (move) {
+      case 'first': return 0;
+      case 'last': return length - 1;
+      case 'page-up': return currentIndex < 0 ? 0 : Math.max(0, currentIndex - pageSize);
+      case 'page-down': return currentIndex < 0 ? 0 : Math.min(length - 1, currentIndex + pageSize);
+      case -1: return currentIndex < 0 ? length - 1 : Math.max(0, currentIndex - 1);
+      case 1: return currentIndex < 0 ? 0 : Math.min(length - 1, currentIndex + 1);
+    }
+  }
+
+  private openDetailsWorkspaceCursor(): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+
+    if (this.detailsWorkspacePane === 'tree') {
+      const surface = this.findSurfaceById(this.presentation.layout, 'details-tree');
+      const host = this.detailsWorkspaceViewHost('tree');
+      if (!surface || !host) return false;
+      const path = host.getTreeFocusedPath() ?? this.treeCursorPath(surface);
+      const entry = host.getVisibleTreeNodes().find(node => node.path === path);
+      if (!entry) return false;
+      this.emitNamedAction(surface, 'select-folder', entry);
+      return true;
+    }
+
+    const surface = this.findSurfaceById(this.presentation.layout, 'details-workspace');
+    if (!surface) return false;
+    const path = this.selectedCursorPath(surface);
+    const entry = this.detailsWorkspaceEntries(surface).find(item => item.path === path);
+    if (!entry) return false;
+    this.emitNamedAction(surface, 'open', entry);
+    return true;
+  }
+
+  private detailsWorkspaceViewHost(pane: DetailsWorkspacePane): PaneViewHostComponent | null {
+    return this.paneViewHosts?.find(host =>
+      pane === 'tree' ? host.currentView === 'tree' : host.currentView === 'details'
+    ) ?? null;
+  }
+
+  private syncDetailsWorkspaceInputContext(): void {
+    if (!this.detailsWorkspaceInputRegistered) return;
+    if (this.presentation?.layout && this.isDetailsWorkspaceSplit(this.presentation.layout)) {
+      this.input.activateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
+    } else {
+      this.input.deactivateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
+    }
   }
 
   constructor(
@@ -827,29 +1059,30 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
   }
 
   selectedPathSet(surface: WorkspaceSurface): Set<string> {
+    const selectableEntries = surface.surfaceId === 'details-workspace'
+      ? this.detailsWorkspaceEntries(surface)
+      : this.fileEntries(surface);
+    const validPaths = new Set(selectableEntries.map(entry => entry.path));
     const selected = this.selected(surface);
     if (Array.isArray(selected)) {
-      return new Set(
-        selected
-          .map(entry => String((entry as any)?.path ?? ''))
-          .filter(Boolean),
-      );
+      const paths = selected
+        .map(entry => String((entry as any)?.path ?? ''))
+        .filter(path => !!path && validPaths.has(path));
+      if (paths.length > 0) return new Set(paths);
+    } else {
+      const path = String((selected as any)?.path ?? '');
+      if (path && validPaths.has(path)) return new Set([path]);
     }
 
-    const path = String((selected as any)?.path ?? '');
-    return path ? new Set([path]) : new Set<string>();
+    const statePath = this.text(surface, 'selectedPath');
+    return statePath && validPaths.has(statePath)
+      ? new Set([statePath])
+      : new Set<string>();
   }
 
   selectedCursorPath(surface: WorkspaceSurface): string | null {
-    const selected = this.selected(surface);
-    if (Array.isArray(selected)) {
-      return selected.length > 0
-        ? String((selected[0] as any)?.path ?? '') || null
-        : null;
-    }
-
-    const path = String((selected as any)?.path ?? '');
-    return path || null;
+    const paths = this.selectedPathSet(surface);
+    return paths.values().next().value ?? null;
   }
 
   sortDirection(surface: WorkspaceSurface): 'asc' | 'desc' {
@@ -857,6 +1090,10 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
   }
 
   treeSelectedPathSet(surface: WorkspaceSurface): Set<string> {
+    const local = this.selected(surface) as { path?: string } | null;
+    const localPath = String(local?.path ?? '');
+    if (localPath) return new Set([localPath]);
+
     const current =
       this.text(surface, 'selectedPath') ||
       this.text(surface, 'currentPath');
@@ -864,10 +1101,39 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
   }
 
   treeCursorPath(surface: WorkspaceSurface): string | null {
+    const local = this.selected(surface) as { path?: string } | null;
+    const localPath = String(local?.path ?? '');
+    if (localPath) return localPath;
+
     const current =
       this.text(surface, 'selectedPath') ||
       this.text(surface, 'currentPath');
     return current || null;
+  }
+
+  detailsWorkspaceEntries(surface: WorkspaceSurface): FileInfo[] {
+    const entries = this.fileEntries(surface);
+    const currentPath = this.text(surface, 'path');
+    const regularEntries = entries.filter(entry => entry.path !== PARENT_ENTRY_PATH);
+
+    if (!currentPath || this.isDetailsWorkspaceDriveRoot(currentPath)) {
+      return regularEntries;
+    }
+
+    const existingParent = entries.find(entry => entry.path === PARENT_ENTRY_PATH);
+    const parentEntry: FileInfo = existingParent ?? {
+      name: '..',
+      path: PARENT_ENTRY_PATH,
+      type: FileType.DIRECTORY,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    };
+
+    return [parentEntry, ...regularEntries];
   }
 
   onDetailsSelectionChange(
@@ -875,7 +1141,8 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
     entries: FileInfo[],
   ): void {
     if (entries.length <= 1) {
-      this.select(surface, entries[0] ?? null);
+      const entry = entries[0] ?? null;
+      this.select(surface, entry);
       return;
     }
 
@@ -887,11 +1154,16 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
     entries: FileInfo[],
   ): void {
     const entry = entries[0];
-    if (!entry?.path) {
-      return;
-    }
+    if (!entry?.path) return;
 
-    this.emitNamedAction(surface, 'select-folder', entry);
+    // Tree selection is cursor movement only. Enter/double-click owns containment changes.
+    this.select(surface, entry);
+    this.cdr.markForCheck();
+  }
+
+  private isDetailsWorkspaceDriveRoot(path: string): boolean {
+    const normalized = (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^[a-z]:$/i.test(normalized) || /^filesystem:\/\/[a-z]$/i.test(normalized);
   }
 
   emitAction(
@@ -958,6 +1230,21 @@ export class ToolWorkspaceHostComponent implements OnInit, OnDestroy {
     this.detailsWorkspaceColumns = this.detailsWorkspaceAllColumns
       .filter(column => selected.has(String(column.field)))
       .map(column => ({ ...column }));
+  }
+
+  private findSurfaceById(
+    layout: WorkspaceLayout,
+    surfaceId: string,
+  ): WorkspaceSurface | null {
+    switch (layout.kind) {
+      case 'surface':
+        return layout.surface.surfaceId === surfaceId ? layout.surface : null;
+      case 'split':
+        return this.findSurfaceById(layout.first, surfaceId)
+          ?? this.findSurfaceById(layout.second, surfaceId);
+      case 'stack':
+        return layout.surfaces.find(surface => surface.surfaceId === surfaceId) ?? null;
+    }
   }
 
   private layoutContainsSurface(

@@ -34,4 +34,11 @@ describe('Details view pipeline integration', () => {
     expect(details).toContain('activeColumnVms');
     expect(details).toContain('columnConfiguration');
   });
+
+  it('invalidates cached row VMs when visible columns or cell content change', () => {
+    expect(details).toContain('renderSignature');
+    expect(details).toContain('rowRenderSignature(');
+    expect(details).toContain('existing.renderSignature === renderSignature');
+    expect(details).toContain('const cellState = this.activeColumnVms');
+  });
 });

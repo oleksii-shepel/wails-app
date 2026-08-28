@@ -807,6 +807,10 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     return result;
   }
 
+  getFocusedNodePath(): string | null {
+    return this.focusedNodePath;
+  }
+
   isNodeExpanded(path: string): boolean {
     const node = this.findNodeByPath(this.nodes, path);
     return !!node && this.isExpanded(node);

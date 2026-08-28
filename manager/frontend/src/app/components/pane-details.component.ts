@@ -79,6 +79,7 @@ interface DetailsRowVm {
   dragOverAfter: boolean;
   draggable: boolean;
   displayNameOverride: string | null;
+  renderSignature: string;
   cells: DetailsCellVm[];
 }
 
@@ -1166,23 +1167,31 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private buildRowVm(entry: FileInfo): DetailsRowVm {
     const selected = this.selectedFiles.has(entry.path);
     const cursor = entry.path === this.cursorPath;
+    const renaming = this.renamingPath === entry.path;
+    const editingName = renaming ? this.editingName : '';
     const directorySizePending = this.pendingDirectorySizePaths.has(entry.path);
     const dragOverInside = this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
     const dragOverBefore = this.dragOverPath === entry.path && this.dragOverPosition === 'before';
     const dragOverAfter = this.dragOverPath === entry.path && this.dragOverPosition === 'after';
     const displayNameOverride = this.pendingRenameDisplayNames.get(entry.path) ?? null;
+    const renderSignature = this.rowRenderSignature(
+      entry,
+      selected,
+      cursor,
+      renaming,
+      editingName,
+      directorySizePending,
+      dragOverInside,
+      dragOverBefore,
+      dragOverAfter,
+      displayNameOverride,
+    );
     const existing = this.rowVmCache.get(entry.path);
 
     if (
       existing &&
       existing.entry === entry &&
-      existing.selected === selected &&
-      existing.cursor === cursor &&
-      existing.directorySizePending === directorySizePending &&
-      existing.dragOverInside === dragOverInside &&
-      existing.dragOverBefore === dragOverBefore &&
-      existing.dragOverAfter === dragOverAfter &&
-      existing.displayNameOverride === displayNameOverride
+      existing.renderSignature === renderSignature
     ) {
       return existing;
     }
@@ -1192,18 +1201,57 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       selected,
       cursor,
       parentDir: this.isParentEntry(entry),
-      renaming: this.renamingPath === entry.path,
-      editingName: this.renamingPath === entry.path ? this.editingName : '',
+      renaming,
+      editingName,
       directorySizePending,
       dragOverInside,
       dragOverBefore,
       dragOverAfter,
       draggable: !this.isParentEntry(entry),
       displayNameOverride,
+      renderSignature,
       cells: this.activeColumnVms.map((columnVm) => this.buildCellVm(entry, columnVm, directorySizePending)),
     };
     this.rowVmCache.set(entry.path, vm);
     return vm;
+  }
+
+  private rowRenderSignature(
+    entry: FileInfo,
+    selected: boolean,
+    cursor: boolean,
+    renaming: boolean,
+    editingName: string,
+    directorySizePending: boolean,
+    dragOverInside: boolean,
+    dragOverBefore: boolean,
+    dragOverAfter: boolean,
+    displayNameOverride: string | null,
+  ): string {
+    const cellState = this.activeColumnVms
+      .map((columnVm) => {
+        const field = columnVm.column.field;
+        const value = (entry as any)[field];
+        const cellSignature = this.cellSignature(entry, columnVm.column, value);
+        const pending = field === 'size' && directorySizePending ? ':pending' : '';
+        const nameState = field === 'name'
+          ? `:name:${displayNameOverride ?? entry.name}:${renaming ? editingName : ''}`
+          : '';
+        return `${columnVm.key}:${cellSignature}${pending}${nameState}`;
+      })
+      .join('|');
+
+    return [
+      selected ? 'selected' : '',
+      cursor ? 'cursor' : '',
+      renaming ? 'renaming' : '',
+      editingName,
+      dragOverInside ? 'inside' : '',
+      dragOverBefore ? 'before' : '',
+      dragOverAfter ? 'after' : '',
+      displayNameOverride ?? '',
+      cellState,
+    ].join('||');
   }
 
   private buildCellVm(entry: FileInfo, columnVm: DetailsColumnVm, directorySizePending: boolean): DetailsCellVm {

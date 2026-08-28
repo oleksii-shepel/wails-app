@@ -650,6 +650,10 @@ export class PaneViewHostComponent implements OnChanges, OnDestroy, AfterViewIni
     return this.treeComponent?.getVisibleNodes() ?? [];
   }
 
+  getTreeFocusedPath(): string | null {
+    return this.treeComponent?.getFocusedNodePath() ?? null;
+  }
+
   isTreeNodeExpanded(path: string): boolean {
     return this.treeComponent?.isNodeExpanded(path) ?? false;
   }

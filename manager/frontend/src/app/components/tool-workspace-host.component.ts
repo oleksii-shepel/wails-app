@@ -461,7 +461,8 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      padding: 8px;
+      padding: 0;
+      box-sizing: border-box;
     }
 
     .layout,
@@ -470,6 +471,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       height: 100%;
       min-width: 0;
       min-height: 0;
+      box-sizing: border-box;
     }
 
     .split {
@@ -478,7 +480,9 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .split.details-workspace-split {
-      gap: 10px;
+      gap: 5px;
+      padding: 5px;
+      box-sizing: border-box;
     }
 
     .split.horizontal {
@@ -498,6 +502,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       min-width: 0;
       min-height: 0;
       overflow: hidden;
+      box-sizing: border-box;
     }
 
     .split.details-workspace-split.horizontal {

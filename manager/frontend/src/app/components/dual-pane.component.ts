@@ -647,6 +647,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       min-width: 0;
       min-height: 0;
       overflow: hidden;
+      gap: 0;
+      box-sizing: border-box;
+      background:
+        linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--vsc-panel-background) 84%, transparent),
+          color-mix(in srgb, var(--vsc-editor-background) 96%, black 4%)
+        );
     }
 
     .tool-workspace-host {
@@ -786,23 +794,35 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .pane-slot {
       position: relative;
-      height: 100%;
-      width: 100%;
+      height: auto;
+      width: auto;
+      margin: 5px;
       min-width: 0;
       min-height: 0;
       overflow: hidden;
       contain: layout paint;
       isolation: isolate;
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
+      border-radius: 8px;
+      background:
+        linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--vsc-editor-background) 96%, white 4%),
+          var(--vsc-editor-background)
+        );
+      box-shadow: 0 10px 24px color-mix(in srgb, var(--vsc-shadow-soft) 60%, transparent);
     }
 
     .left-pane-slot {
       grid-column: 1;
       grid-row: 1;
+      margin: 0;
     }
 
     .right-pane-slot {
       grid-column: 3;
       grid-row: 1;
+      margin: 0;
     }
 
     .pane-slot > app-pane-host {
@@ -830,26 +850,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       position: relative;
       touch-action: none;
       cursor: col-resize;
-      background:
-        linear-gradient(
-          90deg,
-          transparent,
-          var(--vsc-border, var(--vsc-control-background)) 40%,
-          var(--vsc-border, var(--vsc-control-background)) 60%,
-          transparent
-        );
+      width: 5px;
+      background: transparent;
     }
 
     .divider:hover,
     .divider.resizing {
-      background:
-        linear-gradient(
-          90deg,
-          transparent,
-          var(--vsc-accent-blue, var(--vsc-accent-blue)) 35%,
-          var(--vsc-accent-blue, var(--vsc-accent-blue)) 65%,
-          transparent
-        );
+      background: transparent;
     }
 
     .divider-grip {
@@ -865,19 +872,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       .left-pane-slot { grid-column: 1; grid-row: 1; }
       .divider { grid-column: 1; grid-row: 2; }
-      .right-pane-slot { grid-column: 1; grid-row: 3; }
+      .right-pane-slot { grid-column: 1; grid-row: 3; margin: 0; }
       .pane-intelligence { grid-row: 4; }
 
       .divider {
         cursor: default;
-        background:
-          linear-gradient(
-            180deg,
-            transparent,
-            var(--vsc-border, var(--vsc-control-background)) 40%,
-            var(--vsc-border, var(--vsc-control-background)) 60%,
-            transparent
-          );
+        width: auto;
+        background: transparent;
       }
 
       .divider-grip {
@@ -885,11 +886,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       }
     }
     .divider:focus-visible{
-      outline:2px solid var(--vsc-focus-border,var(--vsc-accent-blue));
-      outline-offset:-2px;
+      outline: none;
     }
     @container (max-width:760px){
-      .divider{width:7px}
+      .divider{width:5px}
       .pane-slot{overflow:hidden}
     }
   `],

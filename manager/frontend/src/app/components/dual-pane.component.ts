@@ -821,13 +821,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .left-pane-slot {
       grid-column: 1;
       grid-row: 1;
-      margin: 0;
+      margin: 5px 0 5px 5px;
     }
 
     .right-pane-slot {
       grid-column: 3;
       grid-row: 1;
-      margin: 0;
+      margin: 5px 5px 5px 0;
     }
 
     .pane-slot > app-pane-host {
@@ -875,9 +875,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr) auto;
       }
 
-      .left-pane-slot { grid-column: 1; grid-row: 1; }
+      .left-pane-slot { grid-column: 1; grid-row: 1; margin: 5px 5px 0 5px; }
       .divider { grid-column: 1; grid-row: 2; }
-      .right-pane-slot { grid-column: 1; grid-row: 3; margin: 0; }
+      .right-pane-slot { grid-column: 1; grid-row: 3; margin: 0 5px 5px 5px; }
       .pane-intelligence { grid-row: 4; }
 
       .divider {

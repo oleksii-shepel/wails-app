@@ -392,6 +392,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     <section
       #managerRoot
       class="manager"
+      [class.tool-mode]="workspacePresentation?.kind === 'tool'"
       role="application"
       [attr.data-workspace-kind]="workspacePresentation?.kind ?? 'files'"
       [attr.data-workspace-lifetime]="workspacePresentation?.lifetime ?? 'persistent'"
@@ -655,6 +656,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           color-mix(in srgb, var(--vsc-panel-background) 84%, transparent),
           color-mix(in srgb, var(--vsc-editor-background) 96%, black 4%)
         );
+    }
+
+    .manager.tool-mode {
+      padding: 0;
     }
 
     .tool-workspace-host {

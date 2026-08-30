@@ -43,6 +43,7 @@ export interface ContextMenuState {
         #menu
         class="menu"
         role="menu"
+        tabindex="-1"
         aria-label="Context menu"
         [style.left.px]="menuLeft"
         [style.top.px]="menuTop"
@@ -143,9 +144,14 @@ export interface ContextMenuState {
     }
 
     button:hover:not(:disabled),
+    button:focus:not(:disabled),
     button:focus-visible:not(:disabled) {
       outline: none;
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+    }
+
+    button:focus:not(:focus-visible) {
+      outline: none;
     }
 
     button:disabled {
@@ -213,6 +219,7 @@ export class ContextMenuComponent implements OnChanges {
 
     queueMicrotask(() => {
       this.fitToViewport();
+      this.menu?.nativeElement.focus({ preventScroll: true });
       this.focusItem(0, 1);
     });
   }

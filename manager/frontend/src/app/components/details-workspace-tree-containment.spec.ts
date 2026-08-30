@@ -20,7 +20,7 @@ describe('Details workspace folder tree and containment', () => {
     expect(host).toContain('(selectionChange)="onTreeSelectionChange(surface, $event)"');
     expect(host).toContain("(navigate)=\"emitNamedAction(surface, 'select-folder', $event)\"");
     expect(dual).toContain('selectDetailsTreeFolder');
-    expect(dual).toContain("this.patchLiveSurface(detailsSurface.id, { path, error: '' });");
+    expect(dual).toContain("this.patchLiveSurface(detailsSurface.id, { path, selectedPath: '', error: '' });");
   });
 
   it('reuses the standard workspace tree and details views', () => {
@@ -36,7 +36,7 @@ describe('Details workspace folder tree and containment', () => {
     expect(dual).toContain('containment: entries.map');
     expect(host).toContain('<app-pane-view-host');
     expect(host).toContain("[currentView]=\"'details'\"");
-    expect(host).toContain("[entries]=\"fileEntries(surface)\"");
+    expect(host).toContain("[entries]=\"detailsWorkspaceEntries(surface)\"");
     expect(host).toContain('selectedCursorPath(surface)');
     expect(host).toContain('selectedPathSet(surface)');
   });

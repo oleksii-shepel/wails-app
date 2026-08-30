@@ -20,6 +20,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { formatAttributeFlags } from '../utils/attribute-flags';
 
 import type {
   WorkspaceLayout,
@@ -54,6 +55,10 @@ const DETAILS_WORKSPACE_COMMANDS = {
   pageDown: 'reassembly.workspace.details.pageDown',
   open: 'reassembly.workspace.details.open',
   parent: 'reassembly.workspace.details.parent',
+  rename: 'reassembly.workspace.details.rename',
+  rowMenu: 'reassembly.workspace.details.rowMenu',
+  attributes: 'reassembly.workspace.details.attributes',
+  modifiedTime: 'reassembly.workspace.details.modifiedTime',
 } as const;
 
 const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
@@ -67,6 +72,10 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
   { id: 'reassembly.workspace.details.pageDown', commandId: DETAILS_WORKSPACE_COMMANDS.pageDown, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Move one Details workspace page down', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'pagedown' }] } }, preventDefault: true, stopPropagation: true },
   { id: 'reassembly.workspace.details.open', commandId: DETAILS_WORKSPACE_COMMANDS.open, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Open Details workspace item', category: 'Workspace', trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } }, preventDefault: true, stopPropagation: true },
   { id: 'reassembly.workspace.details.parent', commandId: DETAILS_WORKSPACE_COMMANDS.parent, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Inspect parent folder in Details workspace', category: 'Workspace', when: '!typing', trigger: { device: 'keyboard', chord: { steps: [{ key: 'backspace' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.rename.f2', commandId: DETAILS_WORKSPACE_COMMANDS.rename, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Rename selected Details workspace item', category: 'Workspace', when: '!typing', trigger: { device: 'keyboard', chord: { steps: [{ key: 'f2' }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.rowMenu.ctrlPeriod', commandId: DETAILS_WORKSPACE_COMMANDS.rowMenu, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Open Details workspace item menu', category: 'Workspace', when: '!typing', trigger: { device: 'keyboard', chord: { steps: [{ key: '.', modifiers: ['ctrl'] }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.attributes.ctrlShiftA', commandId: DETAILS_WORKSPACE_COMMANDS.attributes, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Edit attributes of the selected Details workspace item', category: 'Workspace', when: '!typing', trigger: { device: 'keyboard', chord: { steps: [{ key: 'a', modifiers: ['ctrl', 'shift'] }] } }, preventDefault: true, stopPropagation: true },
+  { id: 'reassembly.workspace.details.modifiedTime.ctrlM', commandId: DETAILS_WORKSPACE_COMMANDS.modifiedTime, contextId: DETAILS_WORKSPACE_INPUT_CONTEXT, source: 'workspace', description: 'Set modified time of the selected Details workspace item', category: 'Workspace', when: '!typing', trigger: { device: 'keyboard', chord: { steps: [{ key: 'm', modifiers: ['ctrl'] }] } }, preventDefault: true, stopPropagation: true },
 ];
 
 @Component({
@@ -290,6 +299,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               [treeContentMode]="'folders'"
               [paneActive]="detailsWorkspacePane === 'tree'"
               (selectionChange)="onTreeSelectionChange(surface, $event)"
+              (contextMenu)="onTreeEntryContextMenu(surface, $event)"
               (navigate)="emitNamedAction(surface, 'select-folder', $event)">
             </app-pane-view-host>
           </section>
@@ -319,6 +329,8 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               [detailsColumns]="detailsWorkspaceColumns"
               [paneActive]="detailsWorkspacePane === 'details'"
               (selectionChange)="onDetailsSelectionChange(surface, $event)"
+              (contextMenu)="onDetailsEntryContextMenu(surface, $event)"
+              (rename)="onDetailsRename(surface, $event)"
               (navigate)="emitNamedAction(surface, 'open', $event)">
             </app-pane-view-host>
           </section>
@@ -377,6 +389,25 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       gap: 8px;
     }
 
+    .workspace-title strong {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .01em;
+    }
+
+    .eyebrow,
+    .surface-header > strong {
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .surface-header > strong {
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .06em;
+    }
+
     .eyebrow,
     .lifetime,
     .surface-header span,
@@ -417,7 +448,9 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .details-view-select:focus-visible,
-    [data-details-workspace-pane]:focus-visible {
+    [data-details-workspace-pane]:focus-visible,
+    .workspace-header button:focus-visible,
+    .surface-actions button:focus-visible {
       outline: 1px solid var(--vsc-focus-border);
       outline-offset: -1px;
     }
@@ -436,6 +469,22 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       font-size: 10px;
     }
 
+    .live-state::before {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 5px;
+      border-radius: 50%;
+      background: var(--vsc-focus-border, var(--vsc-accent-blue));
+      content: '';
+      animation: details-workspace-live-pulse .9s ease-in-out infinite alternate;
+    }
+
+    @keyframes details-workspace-live-pulse {
+      from { opacity: .35; }
+      to { opacity: 1; }
+    }
+
     .surface-error {
       flex: 0 0 auto;
       padding: 6px 8px;
@@ -449,11 +498,21 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       min-height: 28px;
       padding: 3px 9px;
       border: 1px solid var(--vsc-border, var(--vsc-border));
-      border-radius: 4px;
+      border-radius: var(--vsc-border-radius, 4px);
       background: var(--vsc-button-secondary-background, var(--vsc-control-background));
       color: inherit;
       font: inherit;
       cursor: pointer;
+      transition: background-color .08s ease;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--vsc-list-hover-background, var(--vsc-button-secondary-background, var(--vsc-control-background)));
+    }
+
+    button:disabled {
+      opacity: .42;
+      cursor: default;
     }
 
     .workspace-body {
@@ -687,6 +746,11 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     action: string;
     payload?: unknown;
   }>();
+  @Output() entryContextMenu = new EventEmitter<{
+    surface: WorkspaceSurface;
+    event: MouseEvent;
+    entry: FileInfo;
+  }>();
 
   @ViewChildren(PaneViewHostComponent) private paneViewHosts!: QueryList<PaneViewHostComponent>;
 
@@ -715,7 +779,7 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
     { field: 'owner', header: 'Owner', width: '170px', sortable: true, minWidth: 110, maxWidth: 320 },
     { field: 'permissions', header: 'Permissions', width: '150px', sortable: true, minWidth: 100, maxWidth: 260 },
-    { field: 'attributes', header: 'Attributes', width: '100px', sortable: true, minWidth: 80, maxWidth: 180 },
+    { field: 'attributes', header: 'Attributes', width: '100px', sortable: true, minWidth: 80, maxWidth: 180, formatter: value => formatAttributeFlags(value) },
     { field: 'created', header: 'Created', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
     { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
     { field: 'accessed', header: 'Accessed', width: '150px', sortable: true, minWidth: 110, maxWidth: 260, formatter: value => this.formatDate(value) },
@@ -752,6 +816,10 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.parent, () => {
       if (this.detailsWorkspacePane === 'details') this.navigateDetailsWorkspaceParent();
     }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.rename, () => { this.startDetailsWorkspaceRename(); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.rowMenu, () => { this.openDetailsWorkspaceRowMenu(); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.attributes, () => { this.editDetailsWorkspaceCursorField('attributes'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.modifiedTime, () => { this.editDetailsWorkspaceCursorField('modified-time'); }, DETAILS_WORKSPACE_INPUT_OWNER);
     this.detailsWorkspaceInputRegistered = true;
     this.syncDetailsWorkspaceInputContext();
     window.addEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
@@ -824,6 +892,98 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
 
   switchDetailsWorkspacePane(): boolean {
     return this.focusDetailsWorkspacePane(1);
+  }
+
+  startDetailsWorkspaceRename(path?: string): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+    this.activateDetailsWorkspacePane('details');
+    const host = this.detailsWorkspaceViewHost('details');
+    if (!host) return false;
+    if (path) host.startRenamePath(path);
+    else host.startRenameSelected();
+    return true;
+  }
+
+  revealDetailsWorkspacePath(path: string): void {
+    if (!path) return;
+    this.detailsWorkspaceViewHost('details')?.scrollToCursorPath(path);
+  }
+
+  /** Keyboard entry point (Ctrl+.) for the row context menu. */
+  openDetailsWorkspaceRowMenu(): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+    const pane = this.detailsWorkspacePane;
+    const surfaceId = pane === 'tree' ? 'details-tree' : 'details-workspace';
+    const surface = this.findSurfaceById(this.presentation.layout, surfaceId);
+    const host = this.detailsWorkspaceViewHost(pane);
+    if (!surface) return false;
+
+    const path = pane === 'tree'
+      ? (host?.getTreeFocusedPath() ?? this.treeCursorPath(surface))
+      : this.selectedCursorPath(surface);
+    if (!path) return false;
+
+    let entry: FileInfo | undefined;
+    if (pane === 'tree') {
+      const node = host?.getVisibleTreeNodes().find(candidate => candidate.path === path);
+      entry = node
+        ? { path: node.path, name: node.name ?? node.path, type: FileType.DIRECTORY } as FileInfo
+        : undefined;
+    } else {
+      entry = (host?.getSortedEntries() ?? this.detailsWorkspaceEntries(surface))
+        .find(candidate => candidate.path === path);
+    }
+    if (!entry) return false;
+
+    const paneElement = this.host.nativeElement.querySelector<HTMLElement>(
+      `[data-details-workspace-pane="${pane}"]`,
+    );
+    const row = paneElement?.querySelector<HTMLElement>(
+      `.details-row[data-path="${CSS.escape(path)}"]`,
+    ) ?? paneElement;
+    const rect = row?.getBoundingClientRect();
+    this.entryContextMenu.emit({
+      surface,
+      event: new MouseEvent('contextmenu', {
+        clientX: rect ? rect.left + Math.min(120, rect.width / 2) : 0,
+        clientY: rect ? rect.top + 16 : 0,
+        bubbles: true,
+      }),
+      entry,
+    });
+    return true;
+  }
+
+  canOpenDetailsWorkspaceRowMenu(): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+    const pane = this.detailsWorkspacePane;
+    const surfaceId = pane === 'tree' ? 'details-tree' : 'details-workspace';
+    const surface = this.findSurfaceById(this.presentation.layout, surfaceId);
+    if (!surface) return false;
+
+    const path = pane === 'tree'
+      ? (this.detailsWorkspaceViewHost('tree')?.getTreeFocusedPath() ?? this.treeCursorPath(surface))
+      : this.selectedCursorPath(surface);
+    return !!path;
+  }
+
+  /** Keyboard entry points (Ctrl+Shift+A / Ctrl+M) for cursor-row field edits. */
+  editDetailsWorkspaceCursorField(action: 'attributes' | 'modified-time'): boolean {
+    if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
+    const surface = this.findSurfaceById(this.presentation.layout, 'details-workspace');
+    if (!surface) return false;
+
+    const path = this.selectedCursorPath(surface);
+    if (!path || path === PARENT_ENTRY_PATH) return false;
+
+    this.activateDetailsWorkspacePane('details');
+    this.emitNamedAction(surface, action, { path });
+    return true;
+  }
+
+  refreshDetailsWorkspaceTreeNode(path: string): void {
+    if (!path) return;
+    this.detailsWorkspaceViewHost('tree')?.refreshTreeNode(path);
   }
 
   private focusDetailsWorkspacePane(direction: -1 | 1): boolean {
@@ -1164,6 +1324,29 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     // Tree selection is cursor movement only. Enter/double-click owns containment changes.
     this.select(surface, entry);
     this.cdr.markForCheck();
+  }
+
+  onDetailsEntryContextMenu(
+    surface: WorkspaceSurface,
+    event: { event: MouseEvent; entry: FileInfo },
+  ): void {
+    this.activateDetailsWorkspacePane('details');
+    this.entryContextMenu.emit({ surface, event: event.event, entry: event.entry });
+  }
+
+  onTreeEntryContextMenu(
+    surface: WorkspaceSurface,
+    event: { event: MouseEvent; entry: FileInfo },
+  ): void {
+    this.activateDetailsWorkspacePane('tree');
+    this.entryContextMenu.emit({ surface, event: event.event, entry: event.entry });
+  }
+
+  onDetailsRename(
+    surface: WorkspaceSurface,
+    event: { entry: FileInfo; newName: string },
+  ): void {
+    this.emitNamedAction(surface, 'rename-entry', event);
   }
 
   private isDetailsWorkspaceDriveRoot(path: string): boolean {

@@ -85,7 +85,33 @@ export class BuiltinWorkspaceSurfaceActionsService {
         action: 'attributes',
         execute: context => this.attributes(context),
       },
+      {
+        id: 'builtin.workspace.details.copyPath',
+        surfaceId: 'details-workspace',
+        action: 'copy-path',
+        execute: context => this.copyDetailsPath(context),
+      },
     ];
+  }
+
+  /** Row-targeted actions pass { path } in the payload; toolbar actions pass
+    nothing and fall back to the inspected folder (surface.state.path). */
+  private targetPath(context: WorkspaceSurfaceActionContext): string {
+    const payloadPath = String((context.event.payload as { path?: string } | undefined)?.path ?? '');
+    return payloadPath || String(context.event.surface.state?.['path'] ?? '');
+  }
+
+  private async copyDetailsPath(
+    context: WorkspaceSurfaceActionContext,
+  ): Promise<void> {
+    const path = this.targetPath(context);
+    if (!path) return;
+
+    try {
+      await navigator.clipboard.writeText(path);
+    } catch (error) {
+      await this.showError(error);
+    }
   }
 
   private async openSearchResult(
@@ -208,7 +234,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
   private async revealDetails(
     context: WorkspaceSurfaceActionContext,
   ): Promise<void> {
-    const path = String(context.event.surface.state?.['path'] ?? '');
+    const path = this.targetPath(context);
     if (!path) return;
 
     try {
@@ -222,7 +248,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
     context: WorkspaceSurfaceActionContext,
   ): Promise<void> {
     const surface = context.event.surface;
-    const path = String(surface.state?.['path'] ?? '');
+    const path = this.targetPath(context);
     if (!path) return;
 
     try {
@@ -256,19 +282,25 @@ export class BuiltinWorkspaceSurfaceActionsService {
         throw new Error('Rename failed.');
       }
 
-      context.services.patchSurface(surface.id, {
-        path: destination,
-      });
-
-      const refreshed = {
-        ...surface,
-        state: {
-          ...(surface.state ?? {}),
+      // Only the toolbar renames the inspected folder itself; row-targeted
+      // renames leave the inspector's path untouched.
+      const renamedInspectedFolder = path === String(surface.state?.['path'] ?? '');
+      let toRefresh = surface;
+      if (renamedInspectedFolder) {
+        context.services.patchSurface(surface.id, {
           path: destination,
-        },
-      };
+        });
 
-      await context.services.refreshSurface(refreshed);
+        toRefresh = {
+          ...surface,
+          state: {
+            ...(surface.state ?? {}),
+            path: destination,
+          },
+        };
+      }
+
+      await context.services.refreshSurface(toRefresh);
     } catch (error) {
       context.services.patchSurface(surface.id, {
         busy: false,
@@ -281,7 +313,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
     context: WorkspaceSurfaceActionContext,
   ): Promise<void> {
     const surface = context.event.surface;
-    const path = String(surface.state?.['path'] ?? '');
+    const path = this.targetPath(context);
     if (!path) return;
 
     try {
@@ -319,7 +351,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
     context: WorkspaceSurfaceActionContext,
   ): Promise<void> {
     const surface = context.event.surface;
-    const path = String(surface.state?.['path'] ?? '');
+    const path = this.targetPath(context);
     if (!path) return;
 
     try {

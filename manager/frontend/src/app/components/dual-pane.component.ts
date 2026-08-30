@@ -203,6 +203,7 @@ const COMMAND = {
   openAsPdf: 'reassembly.viewer.openAsPdf',
   openAsLegacy: 'reassembly.viewer.openAsLegacy',
   closeContextMenu: 'reassembly.manager.closeContextMenu',
+  openContextMenu: 'reassembly.manager.openContextMenu',
   focusFilter: FILE_MANAGER_COMMANDS.focusFilter,
   toggleHidden: FILE_MANAGER_COMMANDS.toggleHidden,
   showWorkspaceSwitcher: FILE_MANAGER_COMMANDS.showWorkspaceSwitcher,
@@ -337,6 +338,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.viewer.fit.ctrl0', commandId:COMMAND.viewerFit, contextId:CONTEXT_ID, source:'default', description:'Fit viewer to window', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['ctrl']}]}}},
   { id:'reassembly.viewer.actualSize.ctrlAlt1', commandId:COMMAND.viewerActualSize, contextId:CONTEXT_ID, source:'default', description:'Viewer actual size', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.manager.contextMenu.escape', commandId:COMMAND.closeContextMenu, contextId:CONTEXT_ID, source:'default', description:'Close context menu', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}, preventDefault:true, stopPropagation:true },
+  { id:'reassembly.manager.contextMenu.ctrlPeriod', commandId:COMMAND.openContextMenu, contextId:CONTEXT_ID, source:'default', description:'Open context menu for current item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'.', modifiers:['ctrl']}]}} , preventDefault:true, stopPropagation:true },
   { id:'reassembly.manager.focusFilter.ctrlF', commandId:COMMAND.focusFilter, contextId:CONTEXT_ID, source:'default', description:'Focus folder filter', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl']}]}}},
   { id:'reassembly.workspace.toggleHidden.ctrlShiftH', commandId:COMMAND.toggleHidden, contextId:CONTEXT_ID, source:'default', description:'Show/hide hidden files', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.workspace.showSwitcher.ctrlShiftW', commandId:COMMAND.showWorkspaceSwitcher, contextId:CONTEXT_ID, source:'default', description:'Open workspace switcher', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl','shift']}]}}},
@@ -411,7 +413,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         [showHidden]="showHidden"
         (close)="closeToolWorkspace()"
         (pin)="pinToolWorkspace()"
-        (surfaceAction)="handleWorkspaceSurfaceAction($event)">
+        (surfaceAction)="handleWorkspaceSurfaceAction($event)"
+        (entryContextMenu)="openDetailsWorkspaceEntryMenu($event)">
       </app-tool-workspace-host>
 
       <div
@@ -918,6 +921,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   showHidden = false;
   workspacePresentation: WorkspacePresentation | null = null;
   private detailsWorkspaceRefreshSequence = 0;
+  private detailsWorkspaceRenameBusy = false;
 
   commandPaletteCommands: PaletteCommand[] = [];
 
@@ -2904,6 +2908,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (
+      event.surface.surfaceId === 'details-workspace' &&
+      event.action === 'rename-entry'
+    ) {
+      await this.renameDetailsWorkspaceEntry(
+        event.surface,
+        event.payload as { entry: FileInfo; newName: string } | undefined,
+      );
+      return;
+    }
+
     const handled = await this.workspaceSurfaceActions.dispatch(
       {
         workspace,
@@ -3085,6 +3100,56 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  private async renameDetailsWorkspaceEntry(
+    surface: WorkspaceSurface,
+    payload: { entry: FileInfo; newName: string } | undefined,
+  ): Promise<void> {
+    const entry = payload?.entry;
+    const newName = String(payload?.newName ?? '').trim();
+    if (!entry?.path || entry.path === '__parent__') return;
+    if (!newName || newName === entry.name) return;
+    if (surface.state?.['inArchive'] === true) return;
+    if (surface.state?.['busy'] === true || this.detailsWorkspaceRenameBusy) return;
+
+    this.detailsWorkspaceRenameBusy = true;
+    const detailsSurfaceId = surface.id;
+    try {
+      const parent = this.parentLocation(entry.path);
+      if (!parent) throw new Error('Cannot rename this item.');
+      const destination = await this.api.joinPaths([parent, newName]);
+      const result = await this.api.batchMove(
+        [{
+          source: entry.path,
+          destination,
+          exactDestination: true,
+        }],
+        true,
+      );
+      if (result.failed > 0 || result.skipped > 0) throw new Error('Rename failed.');
+
+      // Keep the cursor on the renamed row: the refresh below preserves
+      // selectedPath when the new listing still contains it.
+      this.patchLiveSurface(detailsSurfaceId, { selectedPath: destination, error: '' });
+
+      await this.refreshDetailsWorkspaceSurface(
+        this.findWorkspaceSurfaceByKind('details-workspace') ?? surface,
+      );
+
+      // A renamed folder row must also update a lazily-loaded tree node.
+      if (entry.type === FileType.DIRECTORY) {
+        this.toolWorkspaceHost?.refreshDetailsWorkspaceTreeNode(parent);
+      }
+      this.toolWorkspaceHost?.revealDetailsWorkspacePath(destination);
+    } catch (error) {
+      this.patchLiveSurface(detailsSurfaceId, {
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.detailsWorkspaceRenameBusy = false;
+    }
+  }
+
   private async refreshDetailsWorkspaceSurface(
     surface: WorkspaceSurface,
   ): Promise<void> {
@@ -3122,7 +3187,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         : '';
       this.patchLiveSurface(surface.id, {
         path: info.path,
-        title: info.name,
+        title: this.detailsWorkspaceTitle(info.path),
         containment: entries.map(entry => ({ ...entry })),
         sections: [],
         selectedPath,
@@ -4702,6 +4767,108 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  openActiveContextMenu(): void {
+    if (this.contextMenu) return;
+
+    if (this.workspacePresentation?.kind === 'tool') {
+      this.toolWorkspaceHost?.openDetailsWorkspaceRowMenu();
+      return;
+    }
+
+    const pane = this.activePane;
+    if (!pane?.contextState.isDirectoryTab) return;
+
+    const anchor = pane.getKeyboardContextMenuAnchor?.() ?? { x: 0, y: 0 };
+    const event = new MouseEvent('contextmenu', {
+      clientX: anchor.x,
+      clientY: anchor.y,
+      bubbles: true,
+    });
+    const entry = pane.selection.cursorEntry;
+
+    if (entry) {
+      this.openEntryMenu(this.activePaneId, event, entry);
+      return;
+    }
+
+    this.openBackgroundMenu(this.activePaneId, event);
+  }
+
+  private canOpenActiveContextMenu(): boolean {
+    if (this.workspacePresentation?.kind === 'tool') {
+      return this.toolWorkspaceHost?.canOpenDetailsWorkspaceRowMenu?.() ?? false;
+    }
+
+    return !!this.activePane?.contextState.isDirectoryTab;
+  }
+
+  openDetailsWorkspaceEntryMenu(request: {
+    surface: WorkspaceSurface;
+    event: MouseEvent;
+    entry: FileInfo;
+  }): void {
+    this.captureContextMenuFocus();
+    const { surface, entry } = request;
+    const isTree = surface.surfaceId === 'details-tree';
+    const isParent = entry.path === '__parent__';
+    const inArchive = surface.state?.['inArchive'] === true;
+    const busy = surface.state?.['busy'] === true;
+    const canMutate = !isParent && !inArchive && !busy;
+
+    // Registry contributions (reveal/attributes/…) are bound to the inspector
+    // surface, so tree right-clicks dispatch through it with an explicit path.
+    const actionSurface = isTree
+      ? (this.findWorkspaceSurfaceByKind('details-workspace') ?? surface)
+      : surface;
+
+    const contextual = (
+      label: string,
+      run: () => void | Promise<void>,
+      shortcut?: string,
+      enabled = true,
+    ): ContextMenuItem => {
+      const token = `reassembly.context.detailsWorkspace.${++this.contextMenuActionSequence}`;
+      this.contextMenuActions.set(token, run);
+      return { commandId: token, label, shortcut, enabled };
+    };
+
+    const items: ContextMenuItem[] = [];
+
+    this.pushMenuSection(items, [
+      contextual(isParent ? 'Go to parent folder' : 'Open',
+        () => isTree
+          ? this.handleWorkspaceSurfaceAction({ surface, action: 'select-folder', payload: entry })
+          : this.handleWorkspaceSurfaceAction({ surface, action: 'open', payload: entry }),
+        'Enter'),
+      contextual('Reveal in System File Manager',
+        () => this.handleWorkspaceSurfaceAction({ surface: actionSurface, action: 'reveal', payload: { path: entry.path } }),
+        undefined, !isParent && !inArchive),
+      contextual('Copy Path',
+        () => this.handleWorkspaceSurfaceAction({ surface: actionSurface, action: 'copy-path', payload: { path: entry.path } }),
+        'Ctrl+Shift+C', !isParent),
+    ]);
+
+    this.pushMenuSection(items, [
+      contextual('Rename',
+        () => { this.toolWorkspaceHost?.startDetailsWorkspaceRename(entry.path); },
+        'F2', canMutate),
+      contextual('Set Modified Time…',
+        () => this.handleWorkspaceSurfaceAction({ surface: actionSurface, action: 'modified-time', payload: { path: entry.path } }),
+        'Ctrl+M', canMutate),
+      contextual('Attributes / Permissions…',
+        () => this.handleWorkspaceSurfaceAction({ surface: actionSurface, action: 'attributes', payload: { path: entry.path } }),
+        'Ctrl+Shift+A', canMutate),
+    ]);
+
+    this.contextMenu = {
+      x: request.event.clientX,
+      y: request.event.clientY,
+      title: isParent ? 'Parent folder' : (entry.name || 'Item'),
+      items: normalizeContextMenuItems(items),
+    };
+    this.cdr.markForCheck();
+  }
+
   openNavigationTrail(
     paneId: PaneId,
     request: {
@@ -5739,6 +5906,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openAsPdf, 'Open as PDF Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('pdf'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.openAsLegacy, 'Open with Legacy Viewer', 'Viewer', () => this.activePane?.viewerCommands?.openSelectedWithViewer('legacy'), () => !!this.activePane?.contextState.isDirectoryTab && !!this.activePane?.selection.cursorEntry && this.activePane.selection.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
+    descriptor(COMMAND.openContextMenu, 'Open Context Menu', 'Navigation', () => this.openActiveContextMenu(), () => this.canOpenActiveContextMenu());
     descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.navigation?.focusFilter(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
     descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.overlays.openWorkspaceSwitcher());
@@ -6484,6 +6652,40 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   private otherPaneId(): PaneId {
     return this.activePaneId === 'left' ? 'right' : 'left';
+  }
+
+  private detailsWorkspaceTitle(path: string): string {
+    const normalized = (path ?? '').trim().replace(/\\/g, '/');
+    if (!normalized) return '';
+    if (normalized === '/') return '/';
+
+    const driveReference = /^(?:filesystem|drive):\/\/([a-z])(\/.*)?$/i.exec(normalized);
+    if (driveReference) {
+      const rel = (driveReference[2] || '').replace(/^\/+/, '');
+      return rel.split('/').filter(Boolean).pop() || `${driveReference[1].toUpperCase()}:`;
+    }
+
+    const windowsPath = /^([a-z]:)(?:\/(.*))?$/i.exec(normalized);
+    if (windowsPath) {
+      const rel = (windowsPath[2] || '').replace(/^\/+/, '').replace(/\/+$/, '');
+      return rel.split('/').filter(Boolean).pop() || windowsPath[1].toUpperCase();
+    }
+
+    if (normalized === 'registry://') return 'Registry';
+    if (normalized.startsWith('registry://')) {
+      const rel = normalized.slice('registry://'.length).replace(/^\/+/, '').replace(/\/+$/, '');
+      return rel.split('/').filter(Boolean).pop() || 'Registry';
+    }
+
+    const aliasPath = /^([a-z][a-z0-9+.-]*):\/\/(.*)?$/i.exec(normalized);
+    if (aliasPath) {
+      const rel = (aliasPath[2] || '').replace(/^\/+/, '').replace(/\/+$/, '');
+      return rel.split('/').filter(Boolean).pop() || aliasPath[1].toLowerCase();
+    }
+
+    const trimmed = normalized.replace(/\/+$/, '');
+    const index = trimmed.lastIndexOf('/');
+    return index >= 0 ? trimmed.slice(index + 1) : trimmed;
   }
 
   private leafName(path: string): string {

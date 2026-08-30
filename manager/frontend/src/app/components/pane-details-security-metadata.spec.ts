@@ -8,6 +8,7 @@ describe('Details security metadata', () => {
     expect(details).toContain("field: 'owner', header: 'Owner'");
     expect(details).toContain("field: 'permissions', header: 'Permissions'");
     expect(details).toContain("field: 'attributes', header: 'Attributes'");
+    expect(details).toContain('formatter: (value) => formatAttributeFlags(value)');
     expect(protocol).toContain('owner?: string;');
     expect(protocol).toContain('attributes?: string;');
   });

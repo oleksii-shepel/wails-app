@@ -93,6 +93,43 @@ describe('InputEngineService editable ownership', () => {
     expect(accepted).toBeTrue();
   });
 
+  it('does not let workspace bindings consume keys while a context menu owns focus', async () => {
+    const engine = createEngine();
+
+    engine.registerContext({
+      id: 'overlay.workspace',
+      kind: 'overlay',
+      priority: 900,
+      parentId: 'global',
+      description: 'workspace',
+    });
+    engine.activateContext('overlay.workspace');
+
+    let backgroundCalled = false;
+    engine.registerCommand('overlay.cursorDown', () => {
+      backgroundCalled = true;
+    });
+    engine.registerBinding({
+      id: 'overlay.cursorDown',
+      commandId: 'overlay.cursorDown',
+      contextId: 'overlay.workspace',
+      source: 'default',
+      description: 'Workspace cursor down',
+      trigger: {
+        device: 'keyboard',
+        chord: { steps: [{ key: 'arrowdown' }] },
+      },
+    });
+
+    const handled = await engine.dispatchKeyStroke(
+      { key: 'arrowdown' },
+      { context: { inContextMenu: true } },
+    );
+
+    expect(handled).toBeFalse();
+    expect(backgroundCalled).toBeFalse();
+  });
+
   it('normalizes modifier order for multi-modifier shortcuts', async () => {
     const engine = createEngine();
 

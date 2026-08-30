@@ -7,9 +7,11 @@
     "dev": "ng serve",
     "build": "ng build --configuration production",
     "watch": "ng build --configuration development --watch",
-    "test": "cd ..\\.. && npx testify --exclusive --project file-manager-client --config manager/frontend/testify.json",
-    "test:watch": "cd ..\\.. && npx testify --exclusive --project file-manager-client --config manager/frontend/testify.json --watch",
+    "test": "cd ../.. && npx testify --exclusive --project file-manager-client --config manager/frontend/testify.json",
+    "test:watch": "cd ../.. && npx testify --exclusive --project file-manager-client --config manager/frontend/testify.json --watch",
+    "test:ci": "npm run test -- --headless",
     "check": "npm run test && npm run build",
+    "check:ci": "npm run test:ci && npm run build",
     "audit:theme": "node scripts/audit-theme-colors.mjs"
   },
   "private": true,
@@ -37,8 +39,7 @@
     "@angular-devkit/build-angular": "22.1.4",
     "@angular/cli": "22.1.4",
     "@angular/compiler-cli": "22.1.2",
-    "@epikodelabs/testify": "^1.0.39",
-    "@oxc-project/runtime": "^0.140.0",
+    "@epikodelabs/testify": "^1.0.51",
     "@types/jasmine": "^6.0.0",
     "@types/node": "^26.2.0",
     "typescript": "~6.0.3"

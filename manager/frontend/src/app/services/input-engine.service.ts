@@ -52,6 +52,7 @@ interface KeyboardEventContext {
   inSelect: boolean;
   inContentEditable: boolean;
   inModal: boolean;
+  inContextMenu: boolean;
   inQuickAccessMenu: boolean;
   hasActivePane: boolean;
   isFilterInput: boolean;
@@ -72,6 +73,7 @@ export interface SyntheticKeyboardContext {
   inSelect?: boolean;
   inContentEditable?: boolean;
   inModal?: boolean;
+  inContextMenu?: boolean;
   inQuickAccessMenu?: boolean;
   hasActivePane?: boolean;
   isFilterInput?: boolean;
@@ -930,6 +932,7 @@ export class InputEngineService {
       if (!binding.enabled || binding.trigger.device !== 'keyboard') return false;
       if (!activeContextIds.has(binding.contextId)) return false;
       if (this.isEditableKeyboardContext(keyboardContext) && !this.whenClauseExplicitlyAllowsTyping(binding.when)) return false;
+      if (keyboardContext?.inContextMenu) return false;
       if (!this.whenClauseAllows(binding.when, keyboardContext)) return false;
 
       const steps = binding.trigger.chord.steps;
@@ -1073,6 +1076,7 @@ export class InputEngineService {
       inSelect: !!source.inSelect,
       inContentEditable: !!source.inContentEditable,
       inModal: !!source.inModal,
+      inContextMenu: !!source.inContextMenu,
       inQuickAccessMenu: !!source.inQuickAccessMenu,
       hasActivePane: !!source.hasActivePane,
       isFilterInput: !!source.isFilterInput,
@@ -1098,6 +1102,7 @@ export class InputEngineService {
       inSelect: tagName === 'select',
       inContentEditable: !!htmlElement?.isContentEditable,
       inModal: !!element?.closest('.modal, [role="dialog"]'),
+      inContextMenu: !!element?.closest('[role="menu"]'),
       inQuickAccessMenu: !!element?.closest('.ab-quick-access-drop'),
       hasActivePane: !!element?.closest('.pane'),
       isFilterInput: !!element?.classList.contains('filter-input'),

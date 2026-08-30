@@ -643,6 +643,7 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
     private readonly renderers: PaneRendererRegistryService,
     private readonly pluginManager: PluginManagerService,
     private readonly inputEngine: InputEngineService,
+    private readonly element: ElementRef<HTMLElement>,
     changeDetector: ChangeDetectorRef,
   ) {
     this.provider = new PanelSourcePaneSession(
@@ -833,4 +834,23 @@ export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {
   onProviderTabChange(tab: any): void { this.workspaceService.switchTab(this.paneId, tab.id); }
   onProviderTabClose(tab: any): void { this.workspaceService.closeTab(this.paneId, tab.id); }
   onProviderTabPin(tab: any): void { this.workspaceService.toggleTabPin(this.paneId, tab.id); }
+
+  getKeyboardContextMenuAnchor(): { x: number; y: number } | null {
+    const root = this.element.nativeElement;
+    const active = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    const anchor = active && root.contains(active)
+      ? active
+      : root.querySelector<HTMLElement>(
+          '.details-row.cursor, .grid-item.cursor, .tree-row.cursor, .file-entry.cursor, [aria-selected="true"]',
+        ) ?? root;
+
+    const rect = anchor.getBoundingClientRect();
+    return {
+      x: rect.left + Math.min(120, Math.max(24, rect.width / 2)),
+      y: rect.top + Math.min(18, Math.max(12, rect.height / 2)),
+    };
+  }
 }

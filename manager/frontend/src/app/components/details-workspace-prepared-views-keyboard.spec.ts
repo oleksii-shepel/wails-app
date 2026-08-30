@@ -76,7 +76,7 @@ describe('Details workspace focused inspection UX', () => {
 
   it('navigates Details rows in the exact rendered sort order', () => {
     expect(viewHost).toContain('getSortedEntries(): FileInfo[]');
-    expect(host).toContain('host?.getSortedEntries() ?? this.fileEntries(surface)');
+    expect(host).toContain('host?.getSortedEntries() ?? this.detailsWorkspaceEntries(surface)');
   });
 
   it('opens from a file with that file selected in the containing-folder inspector', () => {
@@ -86,7 +86,7 @@ describe('Details workspace focused inspection UX', () => {
   });
 
   it('keeps the folder tree anchored while the inspector moves through descendants', () => {
-    expect(dual).toContain("const rootPath = String(treeSurface?.state?.['rootPath'] ?? '');");
+    expect(dual).toContain("? String(treeSurface.state?.['rootPath'] ?? '')");
     expect(dual).toContain("if (!rootPath || info.path === rootPath)");
     expect(dual).toContain("treePatch['entries'] = entries.map(entry => ({ ...entry }));");
   });
@@ -126,6 +126,15 @@ describe('Details workspace focused inspection UX', () => {
     expect(host).toContain('/^filesystem:\/\/[a-z]$/i.test(normalized)');
     expect(dual).toContain("filter(entry => entry.path !== '__parent__')");
     expect(dual).toContain("this.parentLocation(String(event.surface.state?.['path'] ?? ''))");
+  });
+
+  it('derives the Details surface title from the inspected path instead of a raw root name', () => {
+    expect(dual).toContain('title: this.detailsWorkspaceTitle(info.path)');
+    expect(dual).toContain('private detailsWorkspaceTitle(path: string): string');
+    expect(dual).toContain("/^(?:filesystem|drive):\\/\\/([a-z])(\\/.*)?$/i.exec(normalized)");
+    expect(dual).toContain("return rel.split('/').filter(Boolean).pop() || `${driveReference[1].toUpperCase()}:`;");
+    expect(dual).toContain("/^([a-z]:)(?:\\/(.*))?$/i.exec(normalized)");
+    expect(dual).toContain("return rel.split('/').filter(Boolean).pop() || windowsPath[1].toUpperCase();");
   });
 
   it('keeps Details workspace hidden-folder visibility aligned with the manager setting', () => {

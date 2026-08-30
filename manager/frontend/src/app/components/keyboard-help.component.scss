@@ -107,11 +107,32 @@
   padding: 8px 20px 14px;
 }
 
+.shortcut-section + .shortcut-section {
+  margin-top: 18px;
+}
+
+.shortcut-section-header {
+  margin: 4px 0 10px;
+}
+
+.shortcut-section-header h3 {
+  margin: 0;
+  color: var(--vsc-foreground, #ddd);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.shortcut-section-header p {
+  margin: 4px 0 0;
+  color: var(--vsc-description-foreground, #999);
+  font-size: 11px;
+}
+
 .shortcut-category + .shortcut-category {
   margin-top: 12px;
 }
 
-.shortcut-category h3 {
+.shortcut-category h4 {
   margin: 8px 0 6px;
   color: var(--vsc-description-foreground, #aaa);
   font-size: 11px;

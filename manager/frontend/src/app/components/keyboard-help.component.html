@@ -16,7 +16,7 @@
     <header class="reference-header">
       <div>
         <h2>Keyboard shortcuts</h2>
-        <p>Currently active keyboard bindings.</p>
+        <p>Context-aware shortcuts, with the current surface first.</p>
       </div>
 
       <div class="reference-header-actions">
@@ -39,30 +39,37 @@
     </div>
 
     <div class="reference-body">
-      <div *ngIf="filteredCategories.length === 0" class="no-results">
+      <div *ngIf="!hasSearchResults" class="no-results">
         No shortcuts found for "{{ searchText }}"
       </div>
 
-      <section *ngFor="let category of filteredCategories" class="shortcut-category">
-        <h3>{{ category.name }}</h3>
+      <section *ngFor="let section of filteredSections" class="shortcut-section">
+        <header class="shortcut-section-header" *ngIf="section.categories.length > 0">
+          <h3>{{ section.title }}</h3>
+          <p>{{ section.subtitle }}</p>
+        </header>
 
-        <div class="shortcut-list">
-          <div *ngFor="let binding of category.bindings" class="shortcut-row">
-            <div class="shortcut-keys">
-              <ng-container *ngFor="let step of bindingKeySteps(binding); let stepIndex = index">
-                <span class="key-step">
-                  <ng-container *ngFor="let key of step; let keyIndex = index">
-                    <kbd>{{ key }}</kbd>
-                    <span *ngIf="keyIndex < step.length - 1" class="plus">+</span>
-                  </ng-container>
-                </span>
-                <span *ngIf="stepIndex < bindingKeySteps(binding).length - 1" class="then">then</span>
-              </ng-container>
+        <section *ngFor="let category of section.categories" class="shortcut-category">
+          <h4>{{ category.name }}</h4>
+
+          <div class="shortcut-list">
+            <div *ngFor="let binding of category.bindings" class="shortcut-row">
+              <div class="shortcut-keys">
+                <ng-container *ngFor="let step of bindingKeySteps(binding); let stepIndex = index">
+                  <span class="key-step">
+                    <ng-container *ngFor="let key of step; let keyIndex = index">
+                      <kbd>{{ key }}</kbd>
+                      <span *ngIf="keyIndex < step.length - 1" class="plus">+</span>
+                    </ng-container>
+                  </span>
+                  <span *ngIf="stepIndex < bindingKeySteps(binding).length - 1" class="then">then</span>
+                </ng-container>
+              </div>
+
+              <div class="shortcut-description">{{ binding.description }}</div>
             </div>
-
-            <div class="shortcut-description">{{ binding.description }}</div>
           </div>
-        </div>
+        </section>
       </section>
     </div>
 

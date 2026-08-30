@@ -31,7 +31,10 @@ describe('Details workspace row actions', () => {
     expect(host).toContain('openDetailsWorkspaceRowMenu(): boolean');
     expect(host).toContain("editDetailsWorkspaceCursorField(action: 'attributes' | 'modified-time'): boolean");
     expect(host).toContain('new MouseEvent(\'contextmenu\'');
-    expect(host).toContain('if (!path || path === PARENT_ENTRY_PATH) return false;');
+    expect(host).toContain('const paths = this.detailsWorkspaceTargetPaths(surface);');
+    expect(host).toContain('if (paths.length === 0) return false;');
+    expect(host).toContain('path: paths[0],');
+    expect(host).toContain('paths,');
     expect(dual).toContain("'Ctrl+M', canMutate");
     expect(dual).toContain("'Ctrl+Shift+A', canMutate");
   });

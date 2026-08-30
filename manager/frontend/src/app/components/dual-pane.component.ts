@@ -414,6 +414,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         class="tool-workspace-host"
         [presentation]="toolWorkspace"
         [showHidden]="showHidden"
+        [selectionBasketPaths]="selectionBasketPaths"
+        (addSelectionToBasket)="addDetailsWorkspaceSelectionToBasket($event)"
+        (openSelectionBasket)="openDetailsWorkspaceSelectionBasket()"
         (close)="closeToolWorkspace()"
         (pin)="pinToolWorkspace()"
         (surfaceAction)="handleWorkspaceSurfaceAction($event)"
@@ -3662,6 +3665,20 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     const parent = normalized.slice(0, slash);
     return /^[a-z]:$/i.test(parent) ? `${parent}/` : parent;
+  }
+
+  get selectionBasketPaths(): readonly string[] {
+    return this.selectionBasketService.paths;
+  }
+
+  addDetailsWorkspaceSelectionToBasket(paths: readonly string[]): void {
+    if (paths.length === 0) return;
+    this.selectionBasketService.add(paths, 'details-workspace');
+    this.cdr.markForCheck();
+  }
+
+  openDetailsWorkspaceSelectionBasket(): void {
+    this.overlays.showSelectionBasket();
   }
 
   addActiveSelectionToBasket(): void {

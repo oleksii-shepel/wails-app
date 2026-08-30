@@ -30,6 +30,7 @@ import type {
 } from '../services/workspace-surface.model';
 
 type DetailsWorkspacePane = 'tree' | 'details';
+type DetailsWorkspaceTarget = 'selection' | 'basket';
 type DetailsWorkspaceViewPresetId = 'security' | 'timestamps' | 'filesystem';
 
 const DETAILS_WORKSPACE_VIEW_PRESETS: ReadonlyArray<{ id: DetailsWorkspaceViewPresetId; label: string }> = [
@@ -175,6 +176,52 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               {{ preset.label }}
             </option>
           </select>
+
+          <span
+            *ngIf="surface.surfaceId === 'details-workspace'"
+            class="details-batch-controls">
+            <select
+              class="details-target-select"
+              aria-label="Batch target"
+              title="Choose which items Details operations apply to"
+              [value]="detailsWorkspaceTarget"
+              (change)="setDetailsWorkspaceTarget($any($event.target).value)">
+              <option value="selection">
+                Selection ({{ detailsWorkspaceSelectionCount(surface) }})
+              </option>
+              <option value="basket" [disabled]="selectionBasketPaths.length === 0">
+                Basket ({{ selectionBasketPaths.length }})
+              </option>
+            </select>
+            <button
+              type="button"
+              title="Add the current Details selection to the Selection Basket"
+              [disabled]="detailsWorkspaceSelectionCount(surface) === 0"
+              (click)="addDetailsSelectionToBasket(surface)">
+              Add to Basket
+            </button>
+            <button
+              type="button"
+              title="Open Selection Basket"
+              (click)="openSelectionBasket.emit()">
+              Basket {{ selectionBasketPaths.length }}
+            </button>
+            <button
+              *ngIf="detailsWorkspaceViewPreset === 'timestamps'; else attributesBatchAction"
+              type="button"
+              [disabled]="detailsWorkspaceTargetCount(surface) === 0"
+              (click)="editDetailsWorkspaceCursorField('modified-time')">
+              Set Modified…
+            </button>
+            <ng-template #attributesBatchAction>
+              <button
+                type="button"
+                [disabled]="detailsWorkspaceTargetCount(surface) === 0"
+                (click)="editDetailsWorkspaceCursorField('attributes')">
+                Attributes…
+              </button>
+            </ng-template>
+          </span>
 
           <span class="surface-actions">
             <span
@@ -422,21 +469,23 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       gap: 6px;
     }
 
-    .surface-actions {
+    .surface-actions,
+    .details-batch-controls {
       display: inline-flex;
       align-items: center;
       gap: 6px;
     }
 
-    .surface-actions button {
+    .surface-actions button,
+    .details-batch-controls button {
       min-height: 24px;
       padding: 2px 7px;
     }
 
-    .details-view-select {
+    .details-view-select,
+    .details-target-select {
       height: 24px;
       min-width: 104px;
-      margin-left: auto;
       padding: 0 24px 0 7px;
       border: 1px solid var(--vsc-dropdown-border, var(--vsc-border));
       border-radius: 3px;
@@ -447,10 +496,16 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       cursor: pointer;
     }
 
+    .details-view-select {
+      margin-left: auto;
+    }
+
     .details-view-select:focus-visible,
+    .details-target-select:focus-visible,
     [data-details-workspace-pane]:focus-visible,
     .workspace-header button:focus-visible,
-    .surface-actions button:focus-visible {
+    .surface-actions button:focus-visible,
+    .details-batch-controls button:focus-visible {
       outline: 1px solid var(--vsc-focus-border);
       outline-offset: -1px;
     }
@@ -739,8 +794,11 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
 export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy {
   @Input({ required: true }) presentation!: WorkspacePresentation;
   @Input() showHidden = false;
+  @Input() selectionBasketPaths: readonly string[] = [];
   @Output() close = new EventEmitter<void>();
   @Output() pin = new EventEmitter<void>();
+  @Output() addSelectionToBasket = new EventEmitter<string[]>();
+  @Output() openSelectionBasket = new EventEmitter<void>();
   @Output() surfaceAction = new EventEmitter<{
     surface: WorkspaceSurface;
     action: string;
@@ -772,6 +830,7 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     this.focusDetailsWorkspacePane(event.shiftKey ? -1 : 1);
   };
   detailsWorkspacePane: DetailsWorkspacePane = 'tree';
+  detailsWorkspaceTarget: DetailsWorkspaceTarget = 'selection';
 
   detailsWorkspaceViewPreset: DetailsWorkspaceViewPresetId = 'security';
 
@@ -839,6 +898,42 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     for (const commandId of Object.values(DETAILS_WORKSPACE_COMMANDS)) {
       this.input.unregisterCommand(commandId, DETAILS_WORKSPACE_INPUT_OWNER);
     }
+  }
+
+  setDetailsWorkspaceTarget(value: string): void {
+    if (value !== 'selection' && value !== 'basket') return;
+    if (value === 'basket' && this.selectionBasketPaths.length === 0) return;
+    this.detailsWorkspaceTarget = value;
+    this.cdr.markForCheck();
+  }
+
+  detailsWorkspaceSelectionCount(surface: WorkspaceSurface): number {
+    return this.detailsWorkspaceSelectionPaths(surface).length;
+  }
+
+  detailsWorkspaceTargetCount(surface: WorkspaceSurface): number {
+    return this.detailsWorkspaceTargetPaths(surface).length;
+  }
+
+  addDetailsSelectionToBasket(surface: WorkspaceSurface): boolean {
+    const paths = this.detailsWorkspaceSelectionPaths(surface);
+    if (paths.length === 0) return false;
+    this.addSelectionToBasket.emit(paths);
+    return true;
+  }
+
+  private detailsWorkspaceSelectionPaths(surface: WorkspaceSurface): string[] {
+    return Array.from(this.selectedPathSet(surface))
+      .filter(path => !!path && path !== PARENT_ENTRY_PATH);
+  }
+
+  private detailsWorkspaceTargetPaths(surface: WorkspaceSurface): string[] {
+    if (this.detailsWorkspaceTarget === 'basket') {
+      return Array.from(new Set(this.selectionBasketPaths))
+        .map(path => String(path ?? '').trim())
+        .filter(path => !!path && path !== PARENT_ENTRY_PATH);
+    }
+    return this.detailsWorkspaceSelectionPaths(surface);
   }
 
   setDetailsWorkspaceViewPreset(value: string): void {
@@ -967,17 +1062,21 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
     return !!path;
   }
 
-  /** Keyboard entry points (Ctrl+Shift+A / Ctrl+M) for cursor-row field edits. */
+  /** Keyboard/header entry points for single- or multi-target field edits. */
   editDetailsWorkspaceCursorField(action: 'attributes' | 'modified-time'): boolean {
     if (!this.isDetailsWorkspaceSplit(this.presentation.layout)) return false;
     const surface = this.findSurfaceById(this.presentation.layout, 'details-workspace');
     if (!surface) return false;
 
-    const path = this.selectedCursorPath(surface);
-    if (!path || path === PARENT_ENTRY_PATH) return false;
+    const paths = this.detailsWorkspaceTargetPaths(surface);
+    if (paths.length === 0) return false;
 
     this.activateDetailsWorkspacePane('details');
-    this.emitNamedAction(surface, action, { path });
+    this.emitNamedAction(surface, action, {
+      path: paths[0],
+      paths,
+      target: this.detailsWorkspaceTarget,
+    });
     return true;
   }
 

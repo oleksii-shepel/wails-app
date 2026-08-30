@@ -94,11 +94,24 @@ export class BuiltinWorkspaceSurfaceActionsService {
     ];
   }
 
-  /** Row-targeted actions pass { path } in the payload; toolbar actions pass
-    nothing and fall back to the inspected folder (surface.state.path). */
+  /** Row-targeted actions pass { path }; Details batch actions pass { paths }.
+    Old callers remain compatible and toolbar actions still fall back to the
+    inspected folder (surface.state.path). */
+  private targetPaths(context: WorkspaceSurfaceActionContext): string[] {
+    const payload = context.event.payload as { path?: string; paths?: readonly string[] } | undefined;
+    const batch = Array.isArray(payload?.paths) ? payload.paths : [];
+    const paths = batch
+      .map(path => String(path ?? '').trim())
+      .filter(path => !!path && path !== '__parent__');
+    if (paths.length > 0) return Array.from(new Set(paths));
+
+    const payloadPath = String(payload?.path ?? '').trim();
+    const fallback = payloadPath || String(context.event.surface.state?.['path'] ?? '').trim();
+    return fallback && fallback !== '__parent__' ? [fallback] : [];
+  }
+
   private targetPath(context: WorkspaceSurfaceActionContext): string {
-    const payloadPath = String((context.event.payload as { path?: string } | undefined)?.path ?? '');
-    return payloadPath || String(context.event.surface.state?.['path'] ?? '');
+    return this.targetPaths(context)[0] ?? '';
   }
 
   private async copyDetailsPath(
@@ -313,14 +326,16 @@ export class BuiltinWorkspaceSurfaceActionsService {
     context: WorkspaceSurfaceActionContext,
   ): Promise<void> {
     const surface = context.event.surface;
-    const path = this.targetPath(context);
-    if (!path) return;
+    const paths = this.targetPaths(context);
+    if (paths.length === 0) return;
 
     try {
       const value = await this.confirmDialog.prompt({
-        title: 'Modified Time',
-        message: 'Enter YYYY-MM-DDTHH:mm:ss or "now".',
-        confirmText: 'Apply',
+        title: paths.length === 1 ? 'Modified Time' : `Modified Time — ${paths.length} items`,
+        message: paths.length === 1
+          ? 'Enter YYYY-MM-DDTHH:mm:ss or "now".'
+          : `Set the modified time for ${paths.length} items. Enter YYYY-MM-DDTHH:mm:ss or "now".`,
+        confirmText: paths.length === 1 ? 'Apply' : `Apply to ${paths.length}`,
         defaultValue: formatLocalDateTimeInput(),
         historyKey: 'reassembly.workspace.details.modified',
       });
@@ -328,16 +343,10 @@ export class BuiltinWorkspaceSurfaceActionsService {
       if (!value) return;
 
       const raw = String(value).trim();
-      const timestamp =
-        raw.toLowerCase() === 'now'
-          ? Date.now()
-          : new Date(raw).getTime();
+      const timestamp = raw.toLowerCase() === 'now' ? Date.now() : new Date(raw).getTime();
+      if (!Number.isFinite(timestamp)) throw new Error('Invalid date/time.');
 
-      if (!Number.isFinite(timestamp)) {
-        throw new Error('Invalid date/time.');
-      }
-
-      await this.api.setModifiedTime(path, timestamp);
+      await Promise.all(paths.map(path => this.api.setModifiedTime(path, timestamp)));
       await context.services.refreshSurface(surface);
     } catch (error) {
       context.services.patchSurface(surface.id, {
@@ -351,69 +360,88 @@ export class BuiltinWorkspaceSurfaceActionsService {
     context: WorkspaceSurfaceActionContext,
   ): Promise<void> {
     const surface = context.event.surface;
-    const path = this.targetPath(context);
-    if (!path) return;
+    const paths = this.targetPaths(context);
+    if (paths.length === 0) return;
 
     try {
-      const [osInfo, attributes] = await Promise.all([
-        this.api.getOSInfo(),
-        this.api.getPathAttributes(path),
-      ]);
+      const osInfo = await this.api.getOSInfo();
+      const allAttributes = await Promise.all(paths.map(path => this.api.getPathAttributes(path)));
 
       if (String(osInfo?.os).toLowerCase() === 'windows') {
-        const current = [
-          attributes.readOnly ? 'readonly' : '',
-          attributes.hidden ? 'hidden' : '',
-          attributes.system ? 'system' : '',
-          attributes.archive ? 'archive' : '',
-        ].filter(Boolean).join(',');
+        if (paths.length === 1) {
+          const attributes = allAttributes[0];
+          const current = [
+            attributes.readOnly ? 'readonly' : '',
+            attributes.hidden ? 'hidden' : '',
+            attributes.system ? 'system' : '',
+            attributes.archive ? 'archive' : '',
+          ].filter(Boolean).join(',');
 
-        const value = await this.confirmDialog.prompt({
-          title: 'Attributes',
-          message: 'Comma-separated: readonly, hidden, system, archive',
-          confirmText: 'Apply',
-          defaultValue: current,
-          historyKey: 'reassembly.workspace.details.attributes',
-        });
+          const value = await this.confirmDialog.prompt({
+            title: 'Attributes',
+            message: 'Comma-separated: readonly, hidden, system, archive',
+            confirmText: 'Apply',
+            defaultValue: current,
+            historyKey: 'reassembly.workspace.details.attributes',
+          });
+          if (value === null || value === undefined) return;
 
-        if (value === null || value === undefined) return;
+          const tokens = new Set(String(value).split(',').map(token => token.trim().toLowerCase()).filter(Boolean));
+          await this.api.setPathAttributes(paths[0], {
+            readOnly: tokens.has('readonly'),
+            hidden: tokens.has('hidden'),
+            system: tokens.has('system'),
+            archive: tokens.has('archive'),
+          });
+        } else {
+          const value = await this.confirmDialog.prompt({
+            title: `Attributes — ${paths.length} items`,
+            message: 'Enter only changes: +readonly, -readonly, +hidden, -hidden, +system, -system, +archive, -archive. Unspecified attributes stay unchanged.',
+            confirmText: `Apply to ${paths.length}`,
+            defaultValue: '',
+            historyKey: 'reassembly.workspace.details.batchAttributes',
+          });
+          if (value === null || value === undefined || !String(value).trim()) return;
 
-        const tokens = new Set(
-          String(value)
-            .split(',')
-            .map(token => token.trim().toLowerCase())
-            .filter(Boolean),
-        );
+          const allowed = new Set(['readonly', 'hidden', 'system', 'archive']);
+          const patches = new Map<string, boolean>();
+          for (const token of String(value).split(',').map(item => item.trim().toLowerCase()).filter(Boolean)) {
+            const match = /^([+-])(readonly|hidden|system|archive)$/.exec(token);
+            if (!match || !allowed.has(match[2])) {
+              throw new Error(`Invalid batch attribute token: ${token}`);
+            }
+            patches.set(match[2], match[1] === '+');
+          }
+          if (patches.size === 0) return;
 
-        await this.api.setPathAttributes(path, {
-          readOnly: tokens.has('readonly'),
-          hidden: tokens.has('hidden'),
-          system: tokens.has('system'),
-          archive: tokens.has('archive'),
-        });
+          await Promise.all(paths.map((path, index) => {
+            const current = allAttributes[index];
+            return this.api.setPathAttributes(path, {
+              readOnly: patches.get('readonly') ?? !!current.readOnly,
+              hidden: patches.get('hidden') ?? !!current.hidden,
+              system: patches.get('system') ?? !!current.system,
+              archive: patches.get('archive') ?? !!current.archive,
+            });
+          }));
+        }
       } else {
-        const currentMode = (attributes.unixMode || 0)
-          .toString(8)
-          .padStart(4, '0');
-
+        const modes = allAttributes.map(attributes => (attributes.unixMode || 0).toString(8).padStart(4, '0'));
+        const defaultMode = modes.every(mode => mode === modes[0]) ? modes[0] : '';
         const value = await this.confirmDialog.prompt({
-          title: 'Permissions',
-          message: 'Unix permission mode, e.g. 0644 or 0755:',
-          confirmText: 'Apply',
-          defaultValue: currentMode,
+          title: paths.length === 1 ? 'Permissions' : `Permissions — ${paths.length} items`,
+          message: paths.length === 1
+            ? 'Unix permission mode, e.g. 0644 or 0755:'
+            : `Set one Unix permission mode for ${paths.length} items, e.g. 0644 or 0755:`,
+          confirmText: paths.length === 1 ? 'Apply' : `Apply to ${paths.length}`,
+          defaultValue: defaultMode,
           historyKey: 'reassembly.workspace.details.permissions',
         });
-
         if (!value) return;
 
         const normalized = String(value).trim();
-        if (!/^[0-7]{3,4}$/.test(normalized)) {
-          throw new Error('Invalid Unix permission mode.');
-        }
-
-        await this.api.setPathAttributes(path, {
-          unixMode: Number.parseInt(normalized, 8),
-        });
+        if (!/^[0-7]{3,4}$/.test(normalized)) throw new Error('Invalid Unix permission mode.');
+        const unixMode = Number.parseInt(normalized, 8);
+        await Promise.all(paths.map(path => this.api.setPathAttributes(path, { unixMode })));
       }
 
       await context.services.refreshSurface(surface);

@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 describe('DualPaneComponent shortcut ownership', () => {
   const source = readFileSync(new URL('./dual-pane.component.ts', import.meta.url), 'utf8');
 
-  it('does not keep Ctrl+/ as an alternate shortcut-reference binding', () => {
-    expect(source).not.toContain("id:'reassembly.help.shortcutReference.ctrlSlash'");
-    expect(source).not.toContain("id:'reassembly.help.shortcutReference.ctrlShiftSlash'");
+  it('keeps shortcut reference reachable from F1, Ctrl+/, and shifted slash layouts', () => {
+    expect(source).toContain("id:'reassembly.help.shortcutReference.ctrlSlash'");
+    expect(source).toContain("id:'reassembly.help.shortcutReference.ctrlShiftSlash'");
+    expect(source).toContain("id:'reassembly.help.shortcutReference.shiftSlash'");
   });
 
   it('mounts the shortcut reference independently from the input center', () => {

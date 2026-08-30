@@ -45,6 +45,24 @@ describe('InputEngineService native keyboard boundary', () => {
     expect(event.defaultPrevented).toBeTrue();
   });
 
+  it('dispatches Ctrl+Shift+/ exactly once from the real window keydown listener', () => {
+    const engine = createEngine();
+    const execute = registerNativeShortcut(engine, 'test.native.help.shifted', '/', ['ctrl', 'shift']);
+
+    const event = new KeyboardEvent('keydown', {
+      key: '?',
+      code: 'Slash',
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    window.dispatchEvent(event);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBeTrue();
+  });
+
   it('dispatches Ctrl+Shift+P exactly once from the real window keydown listener', () => {
     const engine = createEngine();
     const execute = registerNativeShortcut(engine, 'test.native.palette', 'p', ['ctrl', 'shift']);

@@ -2428,7 +2428,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   showShortcutReference(): void {
-    this.overlays.showKeyboardHelp();
+    this.overlays.showKeyboardHelp({
+      contextIds: this.shortcutReferenceContextIds(),
+      includeGlobal: false,
+    });
   }
 
   toggleShortcutHelp(): void {
@@ -5489,6 +5492,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       candidate.trigger.device === 'keyboard',
     );
     return binding ? this.formatKeyboardBinding(binding) : undefined;
+  }
+
+  private shortcutReferenceContextIds(): string[] {
+    const activeContextIds = Array.from(this.input.getActiveContextIds())
+      .filter(contextId => contextId !== 'global' && contextId !== 'dialog.keyboardHelp');
+    const workspaceContextIds = activeContextIds
+      .filter(contextId => contextId.startsWith('reassembly.workspace.'));
+    return workspaceContextIds.length > 0 ? workspaceContextIds : [CONTEXT_ID];
   }
 
   private formatKeyboardBinding(

@@ -54,7 +54,7 @@ describe('KeyboardHelpComponent', () => {
     );
   }
 
-  it('shows the preserved active context before keyboard-help and global bindings', () => {
+  it('shows dialog shortcuts before preserved context and global bindings', () => {
     const component = createComponent({
       activeContextIds: ['global', 'overlay.quickAccess'],
       contexts: [
@@ -72,11 +72,11 @@ describe('KeyboardHelpComponent', () => {
     component.show();
 
     expect(component.sections.map(section => section.title)).toEqual([
-      'Current Context: Quick Access',
       'This Dialog',
+      'Current Context: Quick Access',
       'Global',
     ]);
-    expect(component.sections[0].categories[0].bindings.map(binding => binding.description)).toEqual(['Open item']);
+    expect(component.sections[1].categories[0].bindings.map(binding => binding.description)).toEqual(['Open item']);
   });
 
   it('filters all sections by search text', () => {
@@ -100,5 +100,28 @@ describe('KeyboardHelpComponent', () => {
 
     expect(component.filteredSections.map(section => section.title)).toEqual(['Global']);
     expect(component.hasSearchResults).toBeTrue();
+  });
+
+  it('can scope the dialog to the current workspace and hide global bindings', () => {
+    const component = createComponent({
+      activeContextIds: ['global', 'overlay.quickAccess'],
+      contexts: [
+        { id: 'global', kind: 'global', priority: 0, description: 'Global' },
+        { id: 'overlay.quickAccess', kind: 'overlay', priority: 380, description: 'Quick Access' },
+        { id: 'dialog.keyboardHelp', kind: 'dialog', priority: 970, description: 'Keyboard help dialog' },
+      ],
+      bindings: [
+        keyboardBinding('context.open', 'overlay.quickAccess', 'Navigation', 'Open item', 'enter'),
+        keyboardBinding('help.focus', 'dialog.keyboardHelp', 'Navigation', 'Focus shortcut search', 'f'),
+        keyboardBinding('global.refresh', 'global', 'Navigation', 'Refresh current pane', 'r'),
+      ],
+    });
+
+    component.show({ contextIds: ['overlay.quickAccess'], includeGlobal: false });
+
+    expect(component.sections.map(section => section.title)).toEqual([
+      'This Dialog',
+      'Current Context: Quick Access',
+    ]);
   });
 });

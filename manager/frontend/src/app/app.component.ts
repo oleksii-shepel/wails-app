@@ -53,6 +53,7 @@ import {
   type ApplicationOverlayHost,
   type AppOverlayHistoryMode,
   type AppOverlayToolsPage,
+  type KeyboardHelpRequest,
 } from './services/application-overlay-host.service';
 
 @Component({
@@ -315,7 +316,7 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
   openPathHistory(mode: AppOverlayHistoryMode): void { this.pathHistory?.open(mode); }
   openQuickAccess(sectionId?: string): void { void this.quickAccess?.open(sectionId); }
   openRemoteConnections(): void { this.remoteConnections?.open(); }
-  showKeyboardHelp(): void { this.keyboardHelp?.show(); }
+  showKeyboardHelp(request?: KeyboardHelpRequest): void { this.keyboardHelp?.show(request); }
   toggleInputCenter(): void { this.inputCenterVisible = !this.inputCenterVisible; this.cdr.markForCheck(); }
   showOperationJournal(): void { this.operationJournalVisible = true; this.cdr.markForCheck(); }
   showClosedTabs(): void { this.closedTabsVisible = true; this.cdr.markForCheck(); }

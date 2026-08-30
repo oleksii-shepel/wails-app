@@ -21,6 +21,11 @@ interface BindingSection {
   emptyMessage: string;
 }
 
+interface KeyboardHelpShowOptions {
+  contextIds?: Iterable<string>;
+  includeGlobal?: boolean;
+}
+
 @Component({
   selector: 'app-keyboard-help',
   standalone: true,
@@ -55,6 +60,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
 
   private releaseDialogContext: (() => void) | null = null;
   private preservedContextIds = new Set<string>();
+  private includeGlobalSection = true;
 
   constructor(
     private inputContexts: InputContextService,
@@ -87,6 +93,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
       !!binding.category
     );
 
+    const dialogSection = this.buildDialogSection(live);
     const contextualSections = this.buildContextualSections(live, contexts);
     const globalCategories = this.groupBindings(
       live.filter(binding => binding.contextId === 'global'),
@@ -94,13 +101,14 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
 
     this.categories = globalCategories;
     this.sections = [
+      ...(dialogSection ? [dialogSection] : []),
       ...contextualSections,
-      {
+      ...(this.includeGlobalSection ? [{
         title: 'Global',
         subtitle: 'Available across the app when nothing more specific takes over.',
         categories: globalCategories,
         emptyMessage: 'No global shortcuts are currently available.',
-      },
+      }] : []),
     ];
 
     this.applySearch();
@@ -109,11 +117,19 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   /**
    * Show help modal
    */
-  show(): void {
-    this.preservedContextIds = new Set(
+  show(options: KeyboardHelpShowOptions = {}): void {
+    const scopedContextIds = options.contextIds
+      ? new Set(
+          Array.from(options.contextIds)
+            .map(contextId => String(contextId))
+            .filter(contextId => contextId !== 'global' && contextId !== 'dialog.keyboardHelp'),
+        )
+      : null;
+    this.preservedContextIds = scopedContextIds ?? new Set(
       Array.from(this.inputEngine.getActiveContextIds())
         .filter(contextId => contextId !== 'global' && contextId !== 'dialog.keyboardHelp'),
     );
+    this.includeGlobalSection = options.includeGlobal ?? scopedContextIds === null;
     this.isVisible = true;
     this.renderVisible = true;
     this.isClosing = false;
@@ -228,6 +244,20 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     return keyMatch || descMatch;
   }
 
+  private buildDialogSection(bindings: InputBindingDefinition[]): BindingSection | null {
+    const helpBindings = bindings.filter(binding => binding.contextId === 'dialog.keyboardHelp');
+    if (helpBindings.length === 0) {
+      return null;
+    }
+
+    return {
+      title: 'This Dialog',
+      subtitle: 'Shortcuts for navigating the keyboard help window itself.',
+      categories: this.groupBindings(helpBindings),
+      emptyMessage: 'No keyboard-help shortcuts are registered.',
+    };
+  }
+
   private buildContextualSections(
     bindings: InputBindingDefinition[],
     contexts: Map<string, InputContextDefinition>,
@@ -248,16 +278,6 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
           emptyMessage: 'No shortcuts are registered for this context.',
         });
       }
-    }
-
-    const helpBindings = bindings.filter(binding => binding.contextId === 'dialog.keyboardHelp');
-    if (helpBindings.length > 0) {
-      sections.push({
-        title: 'This Dialog',
-        subtitle: 'Shortcuts for navigating the keyboard help window itself.',
-        categories: this.groupBindings(helpBindings),
-        emptyMessage: 'No keyboard-help shortcuts are registered.',
-      });
     }
 
     return sections;

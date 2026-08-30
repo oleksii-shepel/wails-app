@@ -15,6 +15,8 @@ describe('DualPaneComponent shortcut ownership', () => {
     expect(source).toContain("descriptor(COMMAND.showShortcutReference, 'Shortcut Reference', 'Help', () => this.showShortcutReference())");
     expect(source).toContain('this.shortcutReferenceVisible = !this.shortcutReferenceVisible');
     expect(source).toContain('[visible]="shortcutHelpVisible"');
+    expect(source).toContain('this.overlays.showKeyboardHelp({');
+    expect(source).toContain('includeGlobal: false');
   });
 
   it('keeps the command palette global and API-compatible', () => {

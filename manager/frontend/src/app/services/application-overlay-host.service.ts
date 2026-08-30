@@ -2,6 +2,10 @@ import { Injectable } from '@angular/core';
 
 export type AppOverlayToolsPage = 'operations' | 'disk' | 'duplicates';
 export type AppOverlayHistoryMode = 'pane' | 'all' | 'frequent';
+export interface KeyboardHelpRequest {
+  contextIds?: readonly string[];
+  includeGlobal?: boolean;
+}
 
 export interface ApplicationOverlayHost {
   openCommandPalette(commands: readonly unknown[]): void;
@@ -14,7 +18,7 @@ export interface ApplicationOverlayHost {
   openPathHistory(mode: AppOverlayHistoryMode): void;
   openQuickAccess(sectionId?: string): void;
   openRemoteConnections(): void;
-  showKeyboardHelp(): void;
+  showKeyboardHelp(request?: KeyboardHelpRequest): void;
   toggleInputCenter(): void;
   showOperationJournal(): void;
   showClosedTabs(): void;
@@ -44,7 +48,7 @@ export class ApplicationOverlayHostService {
   openPathHistory(mode: AppOverlayHistoryMode): void { this.host?.openPathHistory(mode); }
   openQuickAccess(sectionId?: string): void { this.host?.openQuickAccess(sectionId); }
   openRemoteConnections(): void { this.host?.openRemoteConnections(); }
-  showKeyboardHelp(): void { this.host?.showKeyboardHelp(); }
+  showKeyboardHelp(request?: KeyboardHelpRequest): void { this.host?.showKeyboardHelp(request); }
   toggleInputCenter(): void { this.host?.toggleInputCenter(); }
   showOperationJournal(): void { this.host?.showOperationJournal(); }
   showClosedTabs(): void { this.host?.showClosedTabs(); }

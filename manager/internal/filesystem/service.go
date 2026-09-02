@@ -229,7 +229,7 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 			Path:       path,
 			ShowHidden: showHidden,
 		})
-		if elevErr != nil {
+		if elevErr != nil || !resp.Success || resp.DirListing == nil {
 			return nil, err
 		}
 		return resp.DirListing, nil
@@ -251,7 +251,7 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 		Path:       resolvedPath,
 		ShowHidden: showHidden,
 	})
-	if elevErr != nil {
+	if elevErr != nil || !resp.Success || resp.DirListing == nil {
 		return nil, err
 	}
 	return s.mapListing(resp.DirListing, path), nil

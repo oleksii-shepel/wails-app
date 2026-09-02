@@ -3203,6 +3203,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       // fallback, so requiring it here made Details reject protected folders
       // that the main window can otherwise open.
       const listing = await this.api.listDirectory(path, this.showHidden);
+      if (!listing) {
+        throw new Error('The directory service returned no listing.');
+      }
       const resolvedPath = listing.path || path;
       const entries = (listing.entries ?? []).filter(entry => entry.path !== '__parent__');
       if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;

@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
+import { EventsOn } from 'wailsjs/runtime';
 
 import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
@@ -3198,16 +3199,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         );
       }
 
-      // Match normal directory panes: a listing is sufficient to present a
-      // folder. getFileInfo() does not have the listing operation's elevated
-      // fallback, so requiring it here made Details reject protected folders
-      // that the main window can otherwise open.
-      const listing = await this.api.listDirectory(path, this.showHidden);
-      if (!listing) {
-        throw new Error('The directory service returned no listing.');
-      }
+      // Use the same streamed listing backend as ordinary panes. In addition
+      // to keeping large folders responsive, it carries the pane path's
+      // elevated-list retry for protected folders.
+      const listing = await this.listDetailsWorkspaceDirectory(path, refreshSequence);
       const resolvedPath = listing.path || path;
-      const entries = (listing.entries ?? []).filter(entry => entry.path !== '__parent__');
+      const entries = listing.entries.filter(entry => entry.path !== '__parent__');
       if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;
 
       const selectedPath = requestedSelectedPath && entries.some(entry => entry.path === requestedSelectedPath)
@@ -3246,6 +3243,51 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private async listDetailsWorkspaceDirectory(
+    path: string,
+    refreshSequence: number,
+  ): Promise<{ path: string; entries: FileInfo[] }> {
+    const paneId = `details-workspace-${refreshSequence}`;
+    const entries: FileInfo[] = [];
+    let streamId = '';
+
+    return new Promise<{ path: string; entries: FileInfo[] }>((resolve, reject) => {
+      const disposeMeta = EventsOn('fs:listStream:meta', (event: any) => {
+        if (event?.paneId !== paneId || event.streamId !== streamId) return;
+      });
+      const disposeBatch = EventsOn('fs:listStream:batch', (event: any) => {
+        if (event?.paneId !== paneId || event.streamId !== streamId) return;
+        entries.push(...(event.entries ?? []));
+      });
+      const disposeDone = EventsOn('fs:listStream:done', (event: any) => {
+        if (event?.paneId !== paneId || event.streamId !== streamId) return;
+        disposeMeta();
+        disposeBatch();
+        disposeDone();
+        disposeError();
+        resolve({ path: String(event.path ?? path), entries });
+      });
+      const disposeError = EventsOn('fs:listStream:error', (event: any) => {
+        if (event?.paneId !== paneId || event.streamId !== streamId) return;
+        disposeMeta();
+        disposeBatch();
+        disposeDone();
+        disposeError();
+        reject(new Error(String(event.error ?? 'Failed to list directory')));
+      });
+
+      void this.api.startListDirectoryStream(paneId, path, this.showHidden)
+        .then(id => { streamId = id; })
+        .catch(error => {
+          disposeMeta();
+          disposeBatch();
+          disposeDone();
+          disposeError();
+          reject(error);
+        });
+    });
   }
 
   private async selectDetailsTreeFolder(

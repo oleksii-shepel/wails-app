@@ -38,6 +38,16 @@ export class CommandRegistryService {
   constructor(private readonly ngZone: NgZone) {}
 
   register(commandId: string, handler: InputCommandHandler, ownerId = 'default'): void {
+    this.applyRegistration(commandId, handler, ownerId);
+    this.emit();
+  }
+
+  registerBatch(entries: ReadonlyArray<{ commandId: string; handler: InputCommandHandler; ownerId?: string }>): void {
+    for (const entry of entries) this.applyRegistration(entry.commandId, entry.handler, entry.ownerId ?? 'default');
+    this.emit();
+  }
+
+  private applyRegistration(commandId: string, handler: InputCommandHandler, ownerId: string): void {
     const definitions = this.registrations.get(commandId) ?? new Map<string, RegisteredCommand>();
     const previous = definitions.get(ownerId);
     definitions.set(ownerId, {
@@ -66,11 +76,23 @@ export class CommandRegistryService {
   }
 
   unregister(commandId: string, ownerId = 'default'): void {
+    if (this.applyUnregistration(commandId, ownerId)) this.emit();
+  }
+
+  unregisterBatch(entries: ReadonlyArray<{ commandId: string; ownerId?: string }>): void {
+    let changed = false;
+    for (const entry of entries) {
+      if (this.applyUnregistration(entry.commandId, entry.ownerId ?? 'default')) changed = true;
+    }
+    if (changed) this.emit();
+  }
+
+  private applyUnregistration(commandId: string, ownerId: string): boolean {
     const registrations = this.registrations.get(commandId);
-    if (!registrations) return;
+    if (!registrations) return false;
     registrations.delete(ownerId);
     if (registrations.size === 0) this.registrations.delete(commandId);
-    this.emit();
+    return true;
   }
 
   registerDefinition(definition: CommandDefinition): void {

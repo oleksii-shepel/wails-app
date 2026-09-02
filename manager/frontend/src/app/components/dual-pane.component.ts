@@ -25,6 +25,7 @@ import {
   type WorkspaceSurface,
 } from '../services/workspace-surface.model';
 import { ToolWorkspaceHostComponent } from './tool-workspace-host.component';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { CommandInvocation, InputBindingDefinition } from '../services/input-system.types';
@@ -90,6 +91,11 @@ import {
 } from '../services/pane-sync-review-dialog.service';
 
 type PaneId = 'left' | 'right';
+
+interface DetailsWorkspacePerformanceSample {
+  readonly startedAt: number;
+  readonly label: string;
+}
 
 const CONTEXT_ID = 'reassembly.manager';
 const OWNER_ID = 'reassembly.manager';
@@ -426,7 +432,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       <div
         class="pane-intelligence"
-        *ngIf="workspacePresentation?.kind !== 'tool'"
+        [hidden]="workspacePresentation?.kind === 'tool'"
+        [attr.inert]="workspacePresentation?.kind === 'tool' ? '' : null"
+        [attr.aria-hidden]="workspacePresentation?.kind === 'tool'"
         [class.linked]="linkedNavigation"
         [class.same]="paneLocationRelation === 'same'">
         <span class="relation" [title]="paneRelationTitle">
@@ -542,7 +550,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
       </div>
 
-      <div class="pane-slot left-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (click)="activate('left')">
+      <div
+        class="pane-slot left-pane-slot"
+        [hidden]="workspacePresentation?.kind === 'tool'"
+        [attr.inert]="workspacePresentation?.kind === 'tool' ? '' : null"
+        [attr.aria-hidden]="workspacePresentation?.kind === 'tool'"
+        (click)="activate('left')">
         <app-pane-host
           #leftPane
           paneId="left"
@@ -562,8 +575,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <div
-        *ngIf="workspacePresentation?.kind !== 'tool'"
         class="divider"
+        [hidden]="workspacePresentation?.kind === 'tool'"
+        [attr.inert]="workspacePresentation?.kind === 'tool' ? '' : null"
+        [attr.aria-hidden]="workspacePresentation?.kind === 'tool'"
         role="separator"
         tabindex="0"
         aria-label="Resize file panes"
@@ -580,7 +595,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="divider-grip" aria-hidden="true"></span>
       </div>
 
-      <div class="pane-slot right-pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'" (click)="activate('right')">
+      <div
+        class="pane-slot right-pane-slot"
+        [hidden]="workspacePresentation?.kind === 'tool'"
+        [attr.inert]="workspacePresentation?.kind === 'tool' ? '' : null"
+        [attr.aria-hidden]="workspacePresentation?.kind === 'tool'"
+        (click)="activate('right')">
         <app-pane-host
           #rightPane
           paneId="right"
@@ -2772,6 +2792,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   async openDetailsWorkspace(): Promise<void> {
+    const performanceSample: DetailsWorkspacePerformanceSample = {
+      startedAt: performance.now(),
+      label: 'open',
+    };
     const pane = this.activePane;
     const entry = pane?.selection.cursorEntry;
     if (!pane || !entry) return;
@@ -2780,28 +2804,25 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       // The Details workspace is folder-centric: the tree selects a directory
       // and the inspector describes that directory plus its immediate contents.
       // Opening Details from a file therefore starts at its containing folder.
-      const folderPath = entry.type === FileType.DIRECTORY
+      const isParentEntry = entry.path === PARENT_ENTRY_PATH;
+      const folderPath = isParentEntry
+        ? pane.contextState.path
+        : entry.type === FileType.DIRECTORY
         ? entry.path
         : this.parentLocation(entry.path);
-      const initialSelectedPath = entry.type === FileType.DIRECTORY ? '' : entry.path;
+      const initialSelectedPath = !isParentEntry && entry.type !== FileType.DIRECTORY
+        ? entry.path
+        : '';
       if (!folderPath) return;
 
-      const folderInfo = pane.contextState.isInArchive
-        ? entry
-        : await this.api.getFileInfo(folderPath);
-      const treeNode = {
-        path: folderPath,
-        name: folderInfo.name || folderPath,
-        expanded: true,
-        loaded: false,
-        loading: false,
-        children: [] as any[],
-      };
+      const folderLabel = !isParentEntry && entry.type === FileType.DIRECTORY
+        ? (entry.name || this.leafName(folderPath) || folderPath)
+        : (this.leafName(folderPath) || folderPath);
       const stamp = Date.now();
       const sourceKind = pane.contextState.activePanelSource.source.kind;
 
       this.workspacePresentation = this.workspaceSurfaces.openToolWorkspace(
-        `Details: ${folderInfo.name || folderPath}`,
+        `Details: ${folderLabel}`,
         splitLayout(
           'horizontal',
           surfaceLayout(
@@ -2826,7 +2847,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
             workspaceSurface(
               `details:${stamp}`,
               'details-workspace',
-              folderInfo.name || folderPath,
+              folderLabel,
               'primary',
               {
                 path: folderPath,
@@ -2854,13 +2875,23 @@ export class DualPaneComponent implements OnInit, OnDestroy {
           25,
         ),
       );
+      this.reportDetailsWorkspacePerformance(performanceSample, 'workspace-created');
 
-      const treeSurface = this.findWorkspaceSurfaceByKind('details-tree');
-      const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
-      if (detailsSurface) {
-        await this.refreshDetailsWorkspaceSurface(detailsSurface);
-      }
+      // Yield to the browser before starting backend work. Calling an async
+      // function directly executes everything through its first await in this
+      // event turn, which can still delay the first Details paint.
       this.cdr.markForCheck();
+      window.requestAnimationFrame(() => {
+        this.reportDetailsWorkspacePerformance(performanceSample, 'first-frame');
+        // A second frame guarantees that the empty workspace can paint before
+        // the backend bridge begins its refresh work.
+        window.requestAnimationFrame(() => {
+          const detailsSurface = this.findWorkspaceSurfaceByKind('details-workspace');
+          if (!detailsSurface) return;
+          this.reportDetailsWorkspacePerformance(performanceSample, 'refresh-started');
+          void this.refreshDetailsWorkspaceSurface(detailsSurface, performanceSample);
+        });
+      });
     } catch (error) {
       await this.confirmDialog.alert({
         title: 'Open Details Workspace Failed',
@@ -3162,6 +3193,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
   private async refreshDetailsWorkspaceSurface(
     surface: WorkspaceSurface,
+    performanceSample?: DetailsWorkspacePerformanceSample,
   ): Promise<void> {
     const workspace = this.workspacePresentation;
     if (!workspace || workspace.kind !== 'tool') return;
@@ -3189,6 +3221,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.api.getFileInfo(path),
         this.api.listDirectory(path, this.showHidden),
       ]);
+      if (performanceSample) {
+        this.reportDetailsWorkspacePerformance(performanceSample, 'backend-complete');
+      }
       const entries = (listing.entries ?? []).filter(entry => entry.path !== '__parent__');
       if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;
 
@@ -3220,6 +3255,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
           treePatch['entries'] = entries.map(entry => ({ ...entry }));
         }
         this.patchLiveSurface(treeSurface.id, treePatch);
+      }
+      if (performanceSample) {
+        this.reportDetailsWorkspacePerformance(performanceSample, 'ready');
       }
     } catch (error) {
       if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;
@@ -3276,6 +3314,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const candidate = normalize(path);
     const root = normalize(rootPath);
     return candidate === root || candidate.startsWith(`${root}/`);
+  }
+
+  private reportDetailsWorkspacePerformance(
+    sample: DetailsWorkspacePerformanceSample,
+    phase: string,
+  ): void {
+    const elapsedMs = performance.now() - sample.startedAt;
+    console.info(`[Details workspace] ${sample.label} ${phase}: ${elapsedMs.toFixed(1)} ms`);
   }
 
 
@@ -5718,7 +5764,13 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       'Open Full Details Workspace',
       'Workspace',
       () => this.openDetailsWorkspace(),
-      () => !!this.activePane?.selection.cursorEntry,
+      () => {
+        const entry = this.activePane?.selection.cursorEntry;
+        return !!entry && (
+          entry.path !== PARENT_ENTRY_PATH ||
+          !!this.activePane?.contextState.path
+        );
+      },
     );
     descriptor(COMMAND.deletePermanent, 'Delete Permanently', 'File Operations', () => this.activePane?.commands?.deleteSelected(true), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.commands?.newFolder(), () => !!this.activePane?.mutationState.canCreate);

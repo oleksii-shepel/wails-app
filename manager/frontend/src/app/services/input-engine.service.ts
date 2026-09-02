@@ -163,8 +163,16 @@ export class InputEngineService {
     this.commandRegistry.register(commandId, handler, ownerId);
   }
 
+  registerCommands(entries: ReadonlyArray<{ commandId: string; handler: InputCommandHandler }>, ownerId = 'default'): void {
+    this.commandRegistry.registerBatch(entries.map(entry => ({ ...entry, ownerId })));
+  }
+
   unregisterCommand(commandId: string, ownerId = 'default'): void {
     this.commandRegistry.unregister(commandId, ownerId);
+  }
+
+  unregisterCommands(commandIds: readonly string[], ownerId = 'default'): void {
+    this.commandRegistry.unregisterBatch(commandIds.map(commandId => ({ commandId, ownerId })));
   }
 
   registerCommandDescriptor(descriptor: CommandDescriptor, ownerId = 'default'): void {
@@ -289,6 +297,16 @@ export class InputEngineService {
   }
 
   registerBinding(binding: InputBindingDefinition, ownerId = 'default'): void {
+    this.applyBindingRegistration(binding, ownerId);
+    this.emitBindings();
+  }
+
+  registerBindings(bindings: readonly InputBindingDefinition[], ownerId = 'default'): void {
+    for (const binding of bindings) this.applyBindingRegistration(binding, ownerId);
+    this.emitBindings();
+  }
+
+  private applyBindingRegistration(binding: InputBindingDefinition, ownerId: string): void {
     const registrations = this.bindingRegistrations.get(binding.id) ?? new Map<string, RegisteredBinding>();
     registrations.set(ownerId, {
       ...binding,
@@ -299,23 +317,33 @@ export class InputEngineService {
     });
     this.bindingRegistrations.set(binding.id, registrations);
     this.bindings.set(binding.id, this.getActiveBindingRegistration(registrations));
-    this.emitBindings();
   }
 
   unregisterBinding(bindingId: string, ownerId = 'default'): void {
+    if (this.applyBindingUnregistration(bindingId, ownerId)) this.emitBindings();
+  }
+
+  unregisterBindings(bindingIds: readonly string[], ownerId = 'default'): void {
+    let changed = false;
+    for (const bindingId of bindingIds) {
+      if (this.applyBindingUnregistration(bindingId, ownerId)) changed = true;
+    }
+    if (changed) this.emitBindings();
+  }
+
+  private applyBindingUnregistration(bindingId: string, ownerId: string): boolean {
     const registrations = this.bindingRegistrations.get(bindingId);
-    if (!registrations) return;
+    if (!registrations) return false;
 
     registrations.delete(ownerId);
     if (registrations.size === 0) {
       this.bindingRegistrations.delete(bindingId);
       this.bindings.delete(bindingId);
-      this.emitBindings();
-      return;
+      return true;
     }
 
     this.bindings.set(bindingId, this.getActiveBindingRegistration(registrations));
-    this.emitBindings();
+    return true;
   }
 
   setBindingEnabled(bindingId: string, enabled: boolean): void {

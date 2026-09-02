@@ -135,8 +135,8 @@ import {
         #selectionBasket
         [leftDestination]="managerRef?.leftPane?.contextState?.path ?? ''"
         [rightDestination]="managerRef?.rightPane?.contextState?.path ?? ''"
-        [leftDestinationWritable]="!!managerRef?.leftPane?.contextState?.isDirectoryTab && !!managerRef?.leftPane?.contextState?.sourceCapabilities?.create"
-        [rightDestinationWritable]="!!managerRef?.rightPane?.contextState?.isDirectoryTab && !!managerRef?.rightPane?.contextState?.sourceCapabilities?.create"
+        [leftDestinationWritable]="!!managerRef?.leftPane?.contextState.isDirectoryTab && !!managerRef?.leftPane?.contextState.sourceCapabilities.create"
+        [rightDestinationWritable]="!!managerRef?.rightPane?.contextState.isDirectoryTab && !!managerRef?.rightPane?.contextState.sourceCapabilities.create"
         (copyTo)="managerRef?.copyBasketTo($event)"
         (moveTo)="managerRef?.moveBasketTo($event)"
         (deleteRequested)="managerRef?.deleteBasket()"

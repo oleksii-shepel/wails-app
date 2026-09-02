@@ -947,25 +947,23 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
       parentId: 'reassembly.manager',
       description: 'Details workspace input context',
     });
-    for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
-      this.input.registerBinding(binding, DETAILS_WORKSPACE_INPUT_OWNER);
-    }
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.nextPane, () => { this.focusDetailsWorkspacePane(1); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.previousPane, () => { this.focusDetailsWorkspacePane(-1); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.cursorUp, () => { this.navigateDetailsWorkspace(-1); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.cursorDown, () => { this.navigateDetailsWorkspace(1); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.firstItem, () => { this.navigateDetailsWorkspace('first'); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.lastItem, () => { this.navigateDetailsWorkspace('last'); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.pageUp, () => { this.navigateDetailsWorkspace('page-up'); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.pageDown, () => { this.navigateDetailsWorkspace('page-down'); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.open, () => { this.openDetailsWorkspaceCursor(); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.parent, () => {
-      if (this.detailsWorkspacePane === 'details') this.navigateDetailsWorkspaceParent();
-    }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.rename, () => { this.startDetailsWorkspaceRename(); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.rowMenu, () => { this.openDetailsWorkspaceRowMenu(); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.attributes, () => { this.editDetailsWorkspaceCursorField('attributes'); }, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.modifiedTime, () => { this.editDetailsWorkspaceCursorField('modified-time'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerBindings(DETAILS_WORKSPACE_INPUT_BINDINGS, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommands([
+      { commandId: DETAILS_WORKSPACE_COMMANDS.nextPane, handler: () => { this.focusDetailsWorkspacePane(1); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.previousPane, handler: () => { this.focusDetailsWorkspacePane(-1); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.cursorUp, handler: () => { this.navigateDetailsWorkspace(-1); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.cursorDown, handler: () => { this.navigateDetailsWorkspace(1); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.firstItem, handler: () => { this.navigateDetailsWorkspace('first'); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.lastItem, handler: () => { this.navigateDetailsWorkspace('last'); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.pageUp, handler: () => { this.navigateDetailsWorkspace('page-up'); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.pageDown, handler: () => { this.navigateDetailsWorkspace('page-down'); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.open, handler: () => { this.openDetailsWorkspaceCursor(); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.parent, handler: () => { if (this.detailsWorkspacePane === 'details') this.navigateDetailsWorkspaceParent(); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.rename, handler: () => { this.startDetailsWorkspaceRename(); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.rowMenu, handler: () => { this.openDetailsWorkspaceRowMenu(); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.attributes, handler: () => { this.editDetailsWorkspaceCursorField('attributes'); } },
+      { commandId: DETAILS_WORKSPACE_COMMANDS.modifiedTime, handler: () => { this.editDetailsWorkspaceCursorField('modified-time'); } },
+    ], DETAILS_WORKSPACE_INPUT_OWNER);
     this.detailsWorkspaceInputRegistered = true;
     this.syncDetailsWorkspaceInputContext();
     window.addEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
@@ -979,12 +977,8 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
   ngOnDestroy(): void {
     window.removeEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
     this.input.deactivateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
-    for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
-      this.input.unregisterBinding(binding.id, DETAILS_WORKSPACE_INPUT_OWNER);
-    }
-    for (const commandId of Object.values(DETAILS_WORKSPACE_COMMANDS)) {
-      this.input.unregisterCommand(commandId, DETAILS_WORKSPACE_INPUT_OWNER);
-    }
+    this.input.unregisterBindings(DETAILS_WORKSPACE_INPUT_BINDINGS.map(binding => binding.id), DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.unregisterCommands(Object.values(DETAILS_WORKSPACE_COMMANDS), DETAILS_WORKSPACE_INPUT_OWNER);
   }
 
   setDetailsWorkspaceTarget(value: string): void {

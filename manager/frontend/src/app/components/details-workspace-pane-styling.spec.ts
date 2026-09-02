@@ -9,21 +9,22 @@ describe('Details workspace pane styling', () => {
   it('styles Tree and Details as pane surfaces rather than cards', () => {
     expect(source).toContain('[class.details-workspace-pane-surface]="isDetailsWorkspaceSurface(surface)"');
     expect(source).toContain('.details-workspace-pane-surface {');
-    expect(source).toContain('border-radius: 0;');
+    expect(source).toContain('border-radius: 5px;');
+    expect(source).toContain('border: 1px solid var(--vsc-border, var(--vsc-control-background));');
     expect(source).toContain('background: var(--vsc-editor-background, var(--vsc-panel-background));');
   });
 
   it('uses the same blue active-pane palette as the main window', () => {
     expect(source).toContain('.details-workspace-pane-surface.workspace-pane-active {');
     expect(source).toContain('var(--vsc-accent-blue, var(--vsc-focus-border)) 62%');
-    expect(source).toContain('var(--vsc-foreground-dim, var(--vsc-border-bright)) 22%');
+    expect(source).toContain('var(--vsc-border, transparent)');
   });
 
-  it('uses a one-pixel pane separator instead of card spacing', () => {
+  it('keeps five-pixel workspace gutters around framed panes', () => {
     expect(source).toContain('.split.details-workspace-split {');
-    expect(source).toContain('gap: 1px;');
-    expect(source).toContain('padding: 0;');
-    expect(source).toContain('background: var(--vsc-border, var(--vsc-control-background));');
+    expect(source).toContain('gap: 5px;');
+    expect(source).toContain('padding: 5px;');
+    expect(source).toContain('background: var(--vsc-editor-background, var(--vsc-panel-background));');
   });
 
   it('keeps focus on the pane state instead of drawing a second focus rectangle', () => {

@@ -594,10 +594,10 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .split.details-workspace-split {
-      gap: 1px;
-      padding: 0;
+      gap: 5px;
+      padding: 5px;
       box-sizing: border-box;
-      background: var(--vsc-border, var(--vsc-control-background));
+      background: var(--vsc-panel-background, var(--vsc-side-bar-background));
     }
 
     .split.horizontal {
@@ -626,7 +626,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
 
     .split.details-workspace-split > .split-first,
     .split.details-workspace-split > .split-second {
-      background: var(--vsc-editor-background, var(--vsc-panel-background));
+      background: transparent;
     }
 
     .stack {
@@ -657,25 +657,21 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       background: var(--vsc-side-bar-background, var(--vsc-panel-background));
     }
 
-    /* Details is a pane workspace, not a pair of cards/dialogs. */
+    /* Details uses the same framed-pane language as the main file panes. */
     .details-workspace-pane-surface {
       position: relative;
-      border: 0;
-      border-radius: 0;
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
+      border-radius: 5px;
       background: var(--vsc-editor-background, var(--vsc-panel-background));
-      box-shadow: inset 0 0 0 1px color-mix(
-        in srgb,
-        var(--vsc-foreground-dim, var(--vsc-border-bright)) 22%,
-        transparent
-      );
-      transition: box-shadow 80ms ease;
+      box-shadow: none;
+      transition: border-color 80ms ease;
     }
 
     .details-workspace-pane-surface.workspace-pane-active {
-      box-shadow: inset 0 0 0 1px color-mix(
+      border-color: color-mix(
         in srgb,
         var(--vsc-accent-blue, var(--vsc-focus-border)) 62%,
-        transparent
+        var(--vsc-border, transparent)
       );
     }
 
@@ -832,6 +828,54 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     .unknown-surface {
       padding: 16px;
     }
+
+    /* Details workspace: card surface on a neutral tool canvas. */
+    .split.details-workspace-split .surface {
+      border: 1px solid var(--vsc-border, var(--vsc-border-subtle));
+      border-radius: 6px;
+      background: var(--vsc-editor-background);
+      box-shadow: 0 1px 2px color-mix(in srgb, black 8%, transparent);
+    }
+
+    .split.details-workspace-split .surface:has([data-details-workspace-pane].workspace-pane-active) {
+      border-color: color-mix(
+        in srgb,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 70%,
+        var(--vsc-border)
+      );
+      box-shadow:
+        0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 12%,
+          transparent
+        ),
+        0 1px 3px color-mix(in srgb, black 10%, transparent);
+    }
+
+    /* Toolbar actions follow the main-window flat command style. */
+    .workspace-header button,
+    .surface-header button,
+    .details-batch-controls button,
+    .surface-actions button {
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .workspace-header button:hover:not(:disabled),
+    .surface-header button:hover:not(:disabled),
+    .details-batch-controls button:hover:not(:disabled),
+    .surface-actions button:hover:not(:disabled) {
+      background: var(--vsc-list-hover-background);
+    }
+
+    .workspace-header button:active:not(:disabled),
+    .surface-header button:active:not(:disabled),
+    .details-batch-controls button:active:not(:disabled),
+    .surface-actions button:active:not(:disabled) {
+      background: var(--vsc-list-active-background);
+    }
+
   `],
 })
 export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy {

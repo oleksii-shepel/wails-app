@@ -77,6 +77,8 @@ export function CancelOperation(arg1:string):Promise<boolean>;
 
 export function CancelReadFileStream(arg1:string):Promise<void>;
 
+export function ChooseDirectory(arg1:string):Promise<string>;
+
 export function CloseArchiveCache():Promise<void>;
 
 export function ClosePaneWatch():Promise<void>;

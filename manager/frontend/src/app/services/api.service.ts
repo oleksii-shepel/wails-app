@@ -236,6 +236,14 @@ export class ApiService {
       return response.schemes || [];
     }
 
+    /** Opens the native OS folder picker and returns a canonical public path. */
+    async chooseDirectory(defaultPath = ''): Promise<string> {
+      const selected = await window.go.app.App.ChooseDirectory(
+        defaultPath ? this.normalizeCanonicalPath(defaultPath) : '',
+      );
+      return selected ? this.normalizeCanonicalPath(selected) : '';
+    }
+
     /** Returns backend-registered plugin metadata exposed through Wails. */
     async listBackendPlugins(): Promise<plugin.Info[]> {
       return await window.go.app.App.ListPlugins();

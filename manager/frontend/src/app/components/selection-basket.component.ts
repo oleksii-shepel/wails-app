@@ -14,6 +14,7 @@ import { CommonModule } from '@angular/common';
 
 import { FileType } from '../shared/protocol';
 import { SelectionBasketService, type SelectionBasketEntry } from '../services/selection-basket.service';
+import { ApiService } from '../services/api.service';
 import type {
   SelectionBasketDestination,
   SelectionBasketOperation,
@@ -95,11 +96,26 @@ import type {
 
             <div class="batch-section" *ngIf="operation !== 'delete'">
               <label class="section-label" for="basket-destination">Destination</label>
-              <select id="basket-destination" [value]="destinationSide" (change)="setDestination($any($event.target).value)">
-                <option value="left" [disabled]="!leftDestinationWritable">Left pane — {{ leftDestination || 'Unavailable' }}</option>
-                <option value="right" [disabled]="!rightDestinationWritable">Right pane — {{ rightDestination || 'Unavailable' }}</option>
-              </select>
-              <div class="section-note" *ngIf="!destinationWritable">Choose a writable directory pane.</div>
+              <div class="destination-row">
+                <select id="basket-destination" [value]="destinationMode" (change)="setDestination($any($event.target).value)">
+                  <option value="left" [disabled]="!leftDestinationWritable">Left pane — {{ leftDestination || 'Unavailable' }}</option>
+                  <option value="right" [disabled]="!rightDestinationWritable">Right pane — {{ rightDestination || 'Unavailable' }}</option>
+                  <option *ngIf="customDestination" value="custom">Folder — {{ customDestination }}</option>
+                </select>
+                <button
+                  type="button"
+                  class="browse-button"
+                  [disabled]="pickingDestination"
+                  (click)="browseDestination()">
+                  {{ pickingDestination ? 'Opening…' : 'Browse…' }}
+                </button>
+              </div>
+              <div class="destination-path" *ngIf="destinationMode === 'custom' && customDestination" [title]="customDestination">
+                {{ customDestination }}
+              </div>
+              <div class="section-note" *ngIf="!destinationWritable">
+                Choose a writable pane or select any local folder with Browse….
+              </div>
             </div>
 
             <div class="batch-section">
@@ -194,6 +210,10 @@ import type {
     .section-label { color:var(--vsc-description-foreground, var(--vsc-foreground-dim)); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
     .section-note { font-size:10px; }
     .operation-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+    .destination-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; align-items:center; }
+    .browse-button { min-height:28px; padding:3px 9px; border:1px solid var(--vsc-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-button-secondary-background, transparent); color:inherit; cursor:pointer; white-space:nowrap; }
+    .browse-button:hover:not(:disabled) { background:var(--vsc-list-hover-background, var(--vsc-list-hover-background)); }
+    .destination-path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--vsc-font-family-mono, ui-monospace, monospace); font-size:10px; color:var(--vsc-description-foreground, var(--vsc-foreground-dim)); }
     .operation-tabs button { border-color:var(--vsc-border-subtle, var(--vsc-border)); }
     .operation-tabs button.active { border-color:var(--vsc-focus-border, var(--vsc-accent-blue)); background:var(--vsc-list-active-background, var(--vsc-list-hover-background)); }
     .operation-tabs .danger-tab.active,.execute-button.danger { color:var(--vsc-error-foreground, var(--vsc-error)); }
@@ -240,6 +260,9 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   entries: SelectionBasketEntry[] = [];
   operation: SelectionBasketOperation = 'copy';
   destinationSide: SelectionBasketDestination = 'right';
+  destinationMode: SelectionBasketDestination | 'custom' = 'right';
+  customDestination = '';
+  pickingDestination = false;
   recursive = true;
   useTrash = true;
 
@@ -247,6 +270,7 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
 
   constructor(
     public readonly basket: SelectionBasketService,
+    private readonly api: ApiService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -294,7 +318,37 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   }
 
   setDestination(value: string): void {
-    if (value === 'left' || value === 'right') this.destinationSide = value;
+    if (value === 'custom' && this.customDestination) {
+      this.destinationMode = 'custom';
+      return;
+    }
+    if (value === 'left' || value === 'right') {
+      this.destinationSide = value;
+      this.destinationMode = value;
+    }
+  }
+
+  async browseDestination(): Promise<void> {
+    if (this.pickingDestination) return;
+    this.pickingDestination = true;
+    this.cdr.markForCheck();
+
+    try {
+      const fallback =
+        this.customDestination ||
+        (this.destinationSide === 'left' ? this.leftDestination : this.rightDestination) ||
+        this.rightDestination ||
+        this.leftDestination ||
+        '';
+      const selected = (await this.api.chooseDirectory(fallback)).trim();
+      if (!selected) return;
+
+      this.customDestination = selected;
+      this.destinationMode = 'custom';
+    } finally {
+      this.pickingDestination = false;
+      this.cdr.markForCheck();
+    }
   }
 
   execute(): void {
@@ -302,13 +356,17 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
     this.executeRequested.emit({
       operation: this.operation,
       destinationSide: this.destinationSide,
+      destinationPath: this.destinationMode === 'custom' ? this.customDestination : undefined,
       recursive: this.recursive,
       useTrash: this.useTrash,
     });
   }
 
   get destinationWritable(): boolean {
-    return this.destinationSide === 'left' ? this.leftDestinationWritable : this.rightDestinationWritable;
+    if (this.destinationMode === 'custom') return !!this.customDestination;
+    return this.destinationMode === 'left'
+      ? this.leftDestinationWritable
+      : this.rightDestinationWritable;
   }
 
   get canExecute(): boolean {
@@ -326,8 +384,12 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   get operationSummary(): string {
     const count = `${this.entries.length} item${this.entries.length === 1 ? '' : 's'}`;
     if (this.operation === 'delete') return count;
-    const path = this.destinationSide === 'left' ? this.leftDestination : this.rightDestination;
-    return `${count} → ${path || `${this.destinationSide} pane`}`;
+    const path = this.destinationMode === 'custom'
+      ? this.customDestination
+      : this.destinationMode === 'left'
+        ? this.leftDestination
+        : this.rightDestination;
+    return `${count} → ${path || `${this.destinationMode} pane`}`;
   }
 
   get executeLabel(): string {
@@ -379,7 +441,14 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
 
   private normalizeDestination(): void {
     if (this.destinationWritable) return;
-    if (this.rightDestinationWritable) this.destinationSide = 'right';
-    else if (this.leftDestinationWritable) this.destinationSide = 'left';
+    if (this.rightDestinationWritable) {
+      this.destinationSide = 'right';
+      this.destinationMode = 'right';
+    } else if (this.leftDestinationWritable) {
+      this.destinationSide = 'left';
+      this.destinationMode = 'left';
+    } else if (this.customDestination) {
+      this.destinationMode = 'custom';
+    }
   }
 }

@@ -252,7 +252,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [title]="tab.path"
           (click)="activateTab(tab.id)"
           (auxclick)="onTabAuxClick(tab, $event)">
-          <span class="tab-title">
+          <span class="tab-title pane-shell-caption">
             <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '\u25C9' : (tab.kind === 'surface' ? '\u25C6' : '\u25A3') }}</span>
             <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">&#x25CF;</span>
             {{ tab.title }}

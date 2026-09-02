@@ -88,3 +88,22 @@
 .pane-shell-header.pane-shell-header button:active:not(:disabled) {
   background: var(--vsc-list-active-background, var(--vsc-list-focus-background));
 }
+
+/* Shared inactive-caption language. Inactive pane/dialog captions should read
+ * like disabled chrome, while the active surface keeps full emphasis. */
+.pane-shell-caption {
+  color: color-mix(
+    in srgb,
+    var(--vsc-description-foreground, var(--vsc-foreground-dim)) 68%,
+    transparent
+  );
+  opacity: .68;
+  transition: color 80ms ease, opacity 80ms ease;
+}
+
+.tab.active .pane-shell-caption,
+.pane-shell.pane-shell-active > .pane-shell-header .pane-shell-caption,
+.surface.pane-shell.pane-shell-active > .pane-shell-header .pane-shell-caption {
+  color: var(--vsc-foreground, var(--vsc-foreground-bright));
+  opacity: 1;
+}

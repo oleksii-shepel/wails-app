@@ -3198,10 +3198,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         );
       }
 
-      const [info, listing] = await Promise.all([
-        this.api.getFileInfo(path),
-        this.api.listDirectory(path, this.showHidden),
-      ]);
+      // Match normal directory panes: a listing is sufficient to present a
+      // folder. getFileInfo() does not have the listing operation's elevated
+      // fallback, so requiring it here made Details reject protected folders
+      // that the main window can otherwise open.
+      const listing = await this.api.listDirectory(path, this.showHidden);
+      const resolvedPath = listing.path || path;
       const entries = (listing.entries ?? []).filter(entry => entry.path !== '__parent__');
       if (refreshSequence !== this.detailsWorkspaceRefreshSequence) return;
 
@@ -3209,8 +3211,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         ? requestedSelectedPath
         : '';
       this.patchLiveSurface(surface.id, {
-        path: info.path,
-        title: this.detailsWorkspaceTitle(info.path),
+        path: resolvedPath,
+        title: this.detailsWorkspaceTitle(resolvedPath),
         containment: entries.map(entry => ({ ...entry })),
         sections: [],
         selectedPath,
@@ -3221,15 +3223,15 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
       if (treeSurface) {
         const treePatch: Record<string, unknown> = {
-          currentPath: info.path,
-          selectedPath: info.path,
+          currentPath: resolvedPath,
+          selectedPath: resolvedPath,
           busy: false,
           error: '',
         };
         // Keep the workspace tree anchored at the folder it was opened for.
         // Child navigation is handled by PaneTree's lazy hierarchy instead of
         // replacing the tree root with every inspected folder.
-        if (!rootPath || info.path === rootPath) {
+        if (!rootPath || resolvedPath === rootPath) {
           treePatch['entries'] = entries.map(entry => ({ ...entry }));
         }
         this.patchLiveSurface(treeSurface.id, treePatch);
@@ -3719,6 +3721,15 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       await this.deleteBasket(request.recursive, request.useTrash);
       return;
     }
+    if (request.destinationPath) {
+      await this.transferBasketToPath(
+        request.operation,
+        request.destinationPath,
+        'selected folder',
+        request.recursive,
+      );
+      return;
+    }
     await this.transferBasket(request.operation, request.destinationSide, request.recursive);
   }
 
@@ -3784,11 +3795,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     recursive = true,
   ): Promise<void> {
     const destination = destinationSide === 'left' ? this.leftPane : this.rightPane;
-
     if (!destination?.contextState.isDirectoryTab || !destination.contextState.path) return;
-
-    const paths = this.selectionBasketService.paths;
-    if (paths.length === 0) return;
 
     if (!destination.contextState.sourceCapabilities.create) {
       await this.confirmDialog.alert({
@@ -3798,8 +3805,54 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    await this.transferBasketToPath(
+      operation,
+      destination.contextState.path,
+      `${destinationSide} pane`,
+      recursive,
+      destination,
+    );
+  }
+
+  private async transferBasketToPath(
+    operation: 'copy' | 'move',
+    destinationPath: string,
+    destinationLabel: string,
+    recursive = true,
+    destinationPane?: PaneHostComponent,
+  ): Promise<void> {
+    const path = destinationPath.trim();
+    if (!path) return;
+
+    const paths = this.selectionBasketService.paths;
+    if (paths.length === 0) return;
+
+    try {
+      const info = await this.api.getFileInfo(path);
+      if (info.type !== FileType.DIRECTORY) {
+        await this.confirmDialog.alert({
+          title: 'Basket Transfer',
+          message: 'Choose a destination folder.',
+        });
+        return;
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Basket Transfer',
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    const destinationCapabilities = destinationPane?.contextState.sourceCapabilities
+      ?? getSourceCapabilities(path);
+
     for (const sourcePath of paths) {
-      const decision = canTransferBetween(operation, getSourceCapabilities(sourcePath), destination.contextState.sourceCapabilities);
+      const decision = canTransferBetween(
+        operation,
+        getSourceCapabilities(sourcePath),
+        destinationCapabilities,
+      );
       if (!decision.allowed) {
         await this.confirmDialog.alert(transferBlockedMessage(operation, decision));
         return;
@@ -3810,7 +3863,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       title: operation === 'copy' ? 'Copy Basket' : 'Move Basket',
       message:
         `${operation === 'copy' ? 'Copy' : 'Move'} ${paths.length} basket item${paths.length === 1 ? '' : 's'} ` +
-        `to the ${destinationSide} pane? Successful items will be removed from the basket.`,
+        `to ${destinationLabel === 'selected folder' ? path : `the ${destinationLabel}`}? ` +
+        'Successful items will be removed from the basket.',
       confirmText: operation === 'copy' ? 'Copy' : 'Move',
     });
     if (!confirmed) return;
@@ -3820,7 +3874,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         paths.map(async source => ({
           source,
           destination: await this.api.joinPaths([
-            destination.contextState.path,
+            path,
             this.leafName(source),
           ]),
         })),
@@ -3838,10 +3892,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         0,
       );
 
+      // A custom picker destination may currently be visible in either pane.
+      // Refreshing both is cheap and also keeps move source panes coherent.
       await Promise.all([
-        destination.navigation?.refresh(),
-        operation === 'move' ? this.leftPane?.navigation?.refresh() : Promise.resolve(),
-        operation === 'move' ? this.rightPane?.navigation?.refresh() : Promise.resolve(),
+        this.leftPane?.navigation?.refresh(),
+        this.rightPane?.navigation?.refresh(),
       ]);
 
       if (result.failed > 0 || result.skipped > 0) {

@@ -135,8 +135,8 @@ import {
         #selectionBasket
         [leftDestination]="managerRef?.leftPane?.contextState?.path ?? ''"
         [rightDestination]="managerRef?.rightPane?.contextState?.path ?? ''"
-        [leftDestinationWritable]="!!managerRef?.leftPane.contextState.isDirectoryTab && !!managerRef?.leftPane.contextState.sourceCapabilities.create"
-        [rightDestinationWritable]="!!managerRef?.rightPane.contextState.isDirectoryTab && !!managerRef?.rightPane.contextState.sourceCapabilities.create"
+        [leftDestinationWritable]="isDestinationWritable('left')"
+        [rightDestinationWritable]="isDestinationWritable('right')"
         (copyTo)="managerRef?.copyBasketTo($event)"
         (moveTo)="managerRef?.moveBasketTo($event)"
         (deleteRequested)="managerRef?.deleteBasket()"
@@ -335,6 +335,12 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
     this.diskUsageDialogVisible = false;
     this.diskUsageDialogPath = '';
     this.cdr.markForCheck();
+  }
+
+  isDestinationWritable(paneId: 'left' | 'right'): boolean {
+    const pane = paneId === 'left' ? this.managerRef?.leftPane : this.managerRef?.rightPane;
+    const context = pane?.contextState;
+    return !!context?.isDirectoryTab && !!context?.sourceCapabilities?.create;
   }
 
   private async bootstrapPlugins(): Promise<void> {

@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"strings"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
@@ -18,6 +21,29 @@ func (a *App) GetOSInfo() contracts.OSInfoResponse {
 
 func (a *App) ListDrives() contracts.DrivesList {
 	return internalplatform.ListDrives()
+}
+
+// ChooseDirectory opens the native folder picker. The frontend supplies a
+// public/canonical path; Wails requires a native directory for DefaultDirectory.
+func (a *App) ChooseDirectory(defaultPath string) (string, error) {
+	defaultDirectory := ""
+	if clean := strings.TrimSpace(defaultPath); clean != "" && a.State != nil && a.State.Filesystem != nil {
+		if nativePath, err := a.State.Filesystem.RealPath(pathref.Normalize(clean)); err == nil {
+			defaultDirectory = nativePath
+		}
+	}
+
+	selected, err := wailsruntime.OpenDirectoryDialog(a.Ctx, wailsruntime.OpenDialogOptions{
+		Title:            "Choose destination folder",
+		DefaultDirectory: defaultDirectory,
+	})
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(selected) == "" {
+		return "", nil
+	}
+	return pathref.FromNativePath(selected), nil
 }
 
 // Deprecated: use ListDrives instead.

@@ -170,7 +170,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
         [class.pane-shell-active]="isActiveDetailsWorkspaceSurface(surface)"
         [attr.data-surface-id]="surface.surfaceId">
         <header class="surface-header" [class.pane-shell-header]="isDetailsWorkspaceSurface(surface)">
-          <strong>{{ text(surface, 'title') || surface.title }}</strong>
+          <strong class="pane-shell-caption">{{ text(surface, 'title') || surface.title }}</strong>
 
           <select
             *ngIf="surface.surfaceId === 'details-workspace'"
@@ -346,9 +346,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               [paneId]="'left'"
               [showHidden]="showHidden"
               [entries]="treeEntries(surface)"
-              [currentPath]="treeEntries(surface).length > 0
-                ? (text(surface, 'currentPath') || text(surface, 'selectedPath') || text(surface, 'rootPath'))
-                : ''"
+              [currentPath]="text(surface, 'currentPath') || text(surface, 'selectedPath') || text(surface, 'rootPath')"
               [selectedFiles]="treeSelectedPathSet(surface)"
               [cursorPath]="treeCursorPath(surface)"
               [currentView]="'tree'"
@@ -459,7 +457,6 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .surface-header > strong {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
       font-weight: 600;
       letter-spacing: .06em;

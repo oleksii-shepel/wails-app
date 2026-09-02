@@ -134,6 +134,10 @@ export function CancelReadFileStream(arg1) {
   return window['go']['app']['App']['CancelReadFileStream'](arg1);
 }
 
+export function ChooseDirectory(arg1) {
+  return window['go']['app']['App']['ChooseDirectory'](arg1);
+}
+
 export function CloseArchiveCache() {
   return window['go']['app']['App']['CloseArchiveCache']();
 }

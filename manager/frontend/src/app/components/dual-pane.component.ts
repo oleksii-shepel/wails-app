@@ -37,6 +37,7 @@ import {
 } from '../services/pane-comparison.service';
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
+import type { SelectionBasketOperationRequest } from './selection-basket-operation';
 import {
   BatchRenameDialogService,
   type BatchRenameItem,
@@ -3700,50 +3701,58 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  async executeBasketOperation(request: SelectionBasketOperationRequest): Promise<void> {
+    if (request.operation === 'delete') {
+      await this.deleteBasket(request.recursive, request.useTrash);
+      return;
+    }
+    await this.transferBasket(request.operation, request.destinationSide, request.recursive);
+  }
+
   async copyBasketTo(side: PaneId): Promise<void> {
-    await this.transferBasket('copy', side);
+    await this.transferBasket('copy', side, true);
   }
 
   async moveBasketTo(side: PaneId): Promise<void> {
-    await this.transferBasket('move', side);
+    await this.transferBasket('move', side, true);
   }
 
-  async deleteBasket(): Promise<void> {
+  async deleteBasket(recursive = true, useTrash = true): Promise<void> {
     const paths = this.selectionBasketService.paths;
     if (paths.length === 0) return;
 
+    const permanent = !useTrash;
     const confirmed = await this.confirmDialog.confirm({
-      title: 'Delete Selection Basket',
+      title: permanent ? 'Permanently Delete Selection Basket' : 'Recycle Selection Basket',
       message:
-        `Delete ${paths.length} basket item${paths.length === 1 ? '' : 's'}? ` +
+        `${permanent ? 'Permanently delete' : 'Move to the Recycle Bin'} ${paths.length} basket item${paths.length === 1 ? '' : 's'}? ` +
         'Successful items will be removed from the basket; failed items will remain.',
-      confirmText: 'Delete',
-      danger: true,
+      confirmText: permanent ? 'Delete' : 'Recycle',
+      danger: permanent,
     });
     if (!confirmed) return;
 
     try {
-      const result = await this.api.batchDelete(paths, true, true);
+      const result = await this.api.batchDelete(paths, recursive, useTrash);
+      this.removeSuccessfulBasketSources(
+        result.affectedPaths?.map(item => item.source) ?? [],
+        paths,
+        result.errors?.map(item => item.source) ?? [],
+        result.succeeded,
+      );
 
-      // The batch result does not expose per-path successes in the lightweight
-      // reassembly seam, so only clear automatically on complete success.
-      if (result.failed === 0) {
-        this.selectionBasketService.clear();
-      }
-
-      this.lastTransfer =
-        `basket delete: ${result.succeeded}/${result.total}`;
+      this.lastTransfer = `basket delete: ${result.succeeded}/${result.total}`;
 
       await Promise.all([
         this.leftPane?.navigation?.refresh(),
         this.rightPane?.navigation?.refresh(),
       ]);
 
-      if (result.failed > 0) {
+      if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
           title: 'Basket Delete Completed with Errors',
           message:
-            `${result.failed} item${result.failed === 1 ? '' : 's'} failed and remain in the basket.`,
+            `${result.failed + result.skipped} item${result.failed + result.skipped === 1 ? '' : 's'} could not be processed and remain in the basket.`,
         });
       }
     } catch (error) {
@@ -3759,9 +3768,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private async transferBasket(
     operation: 'copy' | 'move',
     destinationSide: PaneId,
+    recursive = true,
   ): Promise<void> {
-    const destination =
-      destinationSide === 'left' ? this.leftPane : this.rightPane;
+    const destination = destinationSide === 'left' ? this.leftPane : this.rightPane;
 
     if (!destination?.contextState.isDirectoryTab || !destination.contextState.path) return;
 
@@ -3787,9 +3796,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const confirmed = await this.confirmDialog.confirm({
       title: operation === 'copy' ? 'Copy Basket' : 'Move Basket',
       message:
-        `${operation === 'copy' ? 'Copy' : 'Move'} ${paths.length} basket item${
-          paths.length === 1 ? '' : 's'
-        } to the ${destinationSide} pane?`,
+        `${operation === 'copy' ? 'Copy' : 'Move'} ${paths.length} basket item${paths.length === 1 ? '' : 's'} ` +
+        `to the ${destinationSide} pane? Successful items will be removed from the basket.`,
       confirmText: operation === 'copy' ? 'Copy' : 'Move',
     });
     if (!confirmed) return;
@@ -3806,30 +3814,28 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       );
 
       const result = operation === 'copy'
-        ? await this.api.batchCopy(items, true)
-        : await this.api.batchMove(items, true);
+        ? await this.api.batchCopy(items, recursive)
+        : await this.api.batchMove(items, recursive);
 
-      this.lastTransfer =
-        `basket ${operation}: ${result.succeeded}/${result.total}`;
+      this.lastTransfer = `basket ${operation}: ${result.succeeded}/${result.total}`;
+      this.removeSuccessfulBasketSources(
+        result.affectedPaths?.map(item => item.source) ?? [],
+        paths,
+        result.errors?.map(item => item.source) ?? [],
+        0,
+      );
 
-      await destination.navigation?.refresh();
+      await Promise.all([
+        destination.navigation?.refresh(),
+        operation === 'move' ? this.leftPane?.navigation?.refresh() : Promise.resolve(),
+        operation === 'move' ? this.rightPane?.navigation?.refresh() : Promise.resolve(),
+      ]);
 
-      // On a complete move, the basket no longer represents existing source
-      // locations. Copies intentionally remain in the working set.
-      if (operation === 'move' && result.failed === 0) {
-        this.selectionBasketService.clear();
-        await Promise.all([
-          this.leftPane?.navigation?.refresh(),
-          this.rightPane?.navigation?.refresh(),
-        ]);
-      }
-
-      if (result.failed > 0) {
+      if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
           title: `${operation === 'copy' ? 'Copy' : 'Move'} Completed with Errors`,
           message:
-            `${result.failed} item${result.failed === 1 ? '' : 's'} could not be transferred. ` +
-            'The basket has been kept intact.',
+            `${result.failed + result.skipped} item${result.failed + result.skipped === 1 ? '' : 's'} could not be transferred and remain in the basket.`,
         });
       }
     } catch (error) {
@@ -3840,6 +3846,28 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.cdr.markForCheck();
+  }
+
+  private removeSuccessfulBasketSources(
+    affectedSources: readonly string[],
+    requestedSources: readonly string[],
+    failedSources: readonly string[],
+    fallbackSuccessfulCount: number,
+  ): void {
+    const explicit = affectedSources.filter(Boolean);
+    if (explicit.length > 0) {
+      this.selectionBasketService.removePaths(explicit);
+      return;
+    }
+    if (fallbackSuccessfulCount <= 0) return;
+
+    // Compatibility for older delete backends that did not report affectedPaths.
+    // Limit reconciliation to the reported success count so skipped items remain.
+    const failed = new Set(failedSources.filter(Boolean));
+    const successful = requestedSources
+      .filter(path => !failed.has(path))
+      .slice(0, fallbackSuccessfulCount);
+    if (successful.length > 0) this.selectionBasketService.removePaths(successful);
   }
 
   canComparePanes(): boolean {

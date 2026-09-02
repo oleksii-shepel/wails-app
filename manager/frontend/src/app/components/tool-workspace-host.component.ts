@@ -161,7 +161,11 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     </ng-template>
 
     <ng-template #renderSurface let-surface>
-      <article class="surface" [attr.data-surface-id]="surface.surfaceId">
+      <article
+        class="surface"
+        [class.details-workspace-pane-surface]="isDetailsWorkspaceSurface(surface)"
+        [class.workspace-pane-active]="isActiveDetailsWorkspaceSurface(surface)"
+        [attr.data-surface-id]="surface.surfaceId">
         <header class="surface-header">
           <strong>{{ text(surface, 'title') || surface.title }}</strong>
 
@@ -502,7 +506,6 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
 
     .details-view-select:focus-visible,
     .details-target-select:focus-visible,
-    [data-details-workspace-pane]:focus-visible,
     .workspace-header button:focus-visible,
     .surface-actions button:focus-visible,
     .details-batch-controls button:focus-visible {
@@ -513,10 +516,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     [data-details-workspace-pane] {
       min-width: 0;
       min-height: 0;
-    }
-
-    [data-details-workspace-pane].workspace-pane-active {
-      border-color: var(--vsc-focus-border, var(--vsc-accent-blue));
+      outline: none;
     }
 
     .live-state {
@@ -594,9 +594,10 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .split.details-workspace-split {
-      gap: 5px;
-      padding: 5px;
+      gap: 1px;
+      padding: 0;
       box-sizing: border-box;
+      background: var(--vsc-border, var(--vsc-control-background));
     }
 
     .split.horizontal {
@@ -621,6 +622,11 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
 
     .split.details-workspace-split.horizontal {
       grid-template-columns: minmax(220px, 25%) minmax(0, 1fr);
+    }
+
+    .split.details-workspace-split > .split-first,
+    .split.details-workspace-split > .split-second {
+      background: var(--vsc-editor-background, var(--vsc-panel-background));
     }
 
     .stack {
@@ -649,6 +655,43 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       padding: 5px 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-side-bar-background, var(--vsc-panel-background));
+    }
+
+    /* Details is a pane workspace, not a pair of cards/dialogs. */
+    .details-workspace-pane-surface {
+      position: relative;
+      border: 0;
+      border-radius: 0;
+      background: var(--vsc-editor-background, var(--vsc-panel-background));
+      box-shadow: inset 0 0 0 1px color-mix(
+        in srgb,
+        var(--vsc-foreground-dim, var(--vsc-border-bright)) 22%,
+        transparent
+      );
+      transition: box-shadow 80ms ease;
+    }
+
+    .details-workspace-pane-surface.workspace-pane-active {
+      box-shadow: inset 0 0 0 1px color-mix(
+        in srgb,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 62%,
+        transparent
+      );
+    }
+
+    .details-workspace-pane-surface > .surface-header {
+      min-height: 31px;
+      padding: 3px 8px;
+      border-bottom-color: var(--vsc-border, var(--vsc-control-background));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+    }
+
+    .details-workspace-pane-surface:not(.workspace-pane-active) > .surface-header {
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+    }
+
+    .details-workspace-pane-surface.workspace-pane-active > .surface-header > strong {
+      color: var(--vsc-foreground, var(--vsc-foreground-bright));
     }
 
     .search-surface,
@@ -1274,6 +1317,16 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
   trackEntry = (index: number, entry: any) => entry?.path ?? `${index}`;
   trackCompareRow = (index: number, row: any) => row?.key ?? `${index}`;
   trackSummary = (index: number, item: any) => item?.label ?? `${index}`;
+
+  isDetailsWorkspaceSurface(surface: WorkspaceSurface): boolean {
+    return surface.surfaceId === 'details-tree' || surface.surfaceId === 'details-workspace';
+  }
+
+  isActiveDetailsWorkspaceSurface(surface: WorkspaceSurface): boolean {
+    if (surface.surfaceId === 'details-tree') return this.detailsWorkspacePane === 'tree';
+    if (surface.surfaceId === 'details-workspace') return this.detailsWorkspacePane === 'details';
+    return false;
+  }
 
   isDetailsWorkspaceSplit(layout: WorkspaceLayout): boolean {
     if (layout.kind !== 'split' || layout.direction !== 'horizontal') {

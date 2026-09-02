@@ -324,6 +324,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 					success, elevErr := r.callbacks.RunElevatedMove(resolvedSource, finalDst)
 					if elevErr == nil && success {
 						result.Succeeded++
+						result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{
+							Source: item.Source, Destination: publicDst,
+						})
 						continue
 					}
 				}
@@ -337,6 +340,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 					success, elevErr := r.callbacks.RunElevatedDelete(resolvedSource, true, &useTrash)
 					if elevErr == nil && success {
 						result.Succeeded++
+						result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{
+							Source: item.Source, Destination: publicDst,
+						})
 						continue
 					}
 				}
@@ -410,6 +416,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 							true,
 						)
 						result.Succeeded++
+						result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{Source: path})
 						continue
 					}
 					if elevErr != nil {
@@ -429,6 +436,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 				true,
 			)
 			result.Succeeded++
+			result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{Source: path})
 			continue
 		}
 
@@ -446,6 +454,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 					success, elevErr := r.callbacks.RunElevatedDelete(resolvedPath, true, &useTrashElev)
 					if elevErr == nil && success {
 						result.Succeeded++
+						result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{Source: path})
 						continue
 					}
 				}
@@ -462,6 +471,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 					if elevErr == nil && success {
 						progress.Advance(1, size, filepath.Base(path), size, false)
 						result.Succeeded++
+						result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{Source: path})
 						continue
 					}
 				}
@@ -472,6 +482,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 			progress.Advance(1, size, filepath.Base(path), size, false)
 		}
 		result.Succeeded++
+		result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{Source: path})
 	}
 
 	progress.Flush()

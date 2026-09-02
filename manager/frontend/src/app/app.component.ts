@@ -133,9 +133,14 @@ import {
       </app-disk-usage-dialog>
       <app-selection-basket
         #selectionBasket
+        [leftDestination]="managerRef?.leftPane?.contextState?.path ?? ''"
+        [rightDestination]="managerRef?.rightPane?.contextState?.path ?? ''"
+        [leftDestinationWritable]="!!managerRef?.leftPane?.contextState?.isDirectoryTab && !!managerRef?.leftPane?.contextState?.sourceCapabilities?.create"
+        [rightDestinationWritable]="!!managerRef?.rightPane?.contextState?.isDirectoryTab && !!managerRef?.rightPane?.contextState?.sourceCapabilities?.create"
         (copyTo)="managerRef?.copyBasketTo($event)"
         (moveTo)="managerRef?.moveBasketTo($event)"
-        (deleteRequested)="managerRef?.deleteBasket()">
+        (deleteRequested)="managerRef?.deleteBasket()"
+        (executeRequested)="managerRef?.executeBasketOperation($event)">
       </app-selection-basket>
       <app-workspace-switcher
         #workspaceSwitcher

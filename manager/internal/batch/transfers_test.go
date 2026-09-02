@@ -157,3 +157,46 @@ func TestBatchCopyUsesCallbackForVirtualSource(t *testing.T) {
 		t.Fatalf("destination content mismatch\nwant: %q\n got: %q", content, string(data))
 	}
 }
+func TestBatchDeleteReportsAffectedSources(t *testing.T) {
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "first.txt")
+	second := filepath.Join(tempDir, "second.txt")
+	if err := os.WriteFile(first, []byte("one"), 0o644); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if err := os.WriteFile(second, []byte("two"), 0o644); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	manager := internalops.NewManager()
+	service := NewService(ServiceConfig{
+		StartOperation: manager.StartOperation,
+		BatchErr: func(source, destination string, err error) contracts.BatchItemError {
+			return contracts.BatchItemError{Source: source, Destination: destination, Error: err.Error(), Code: "unknown"}
+		},
+		CalculateSize:                  func(path string) (int64, int64) { return 1, 3 },
+		ResolvePath:                    func(path string) (string, error) { return path, nil },
+		ToPublicPath:                   func(path string) string { return path },
+		ShouldRetryDeleteWithElevation: func(error) bool { return false },
+		RunElevatedDelete:              func(path string, recursive bool, useTrash *bool) (bool, error) { return false, nil },
+	})
+
+	useTrash := false
+	result, err := service.BatchDelete(contracts.BatchDeleteRequest{
+		Paths:     []string{first, second},
+		Recursive: true,
+		UseTrash:  &useTrash,
+	})
+	if err != nil {
+		t.Fatalf("BatchDelete returned error: %v", err)
+	}
+	if result.Succeeded != 2 || result.Failed != 0 {
+		t.Fatalf("unexpected batch result: %+v", result)
+	}
+	if len(result.AffectedPaths) != 2 {
+		t.Fatalf("affected paths = %d, want 2", len(result.AffectedPaths))
+	}
+	if result.AffectedPaths[0].Source != first || result.AffectedPaths[1].Source != second {
+		t.Fatalf("unexpected affected paths: %+v", result.AffectedPaths)
+	}
+}

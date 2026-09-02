@@ -1,0 +1,90 @@
+/*
+ * Shared main/tool pane shell.
+ *
+ * Keep structural layout in the owning component. This file owns the visual
+ * frame so main file panes and tool-workspace panes cannot drift apart.
+ */
+
+.pane-shell-layout {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vsc-panel-background) 84%, transparent),
+      color-mix(in srgb, var(--vsc-editor-background) 96%, black 4%)
+    );
+}
+
+.pane-shell-slot.pane-shell-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  contain: layout paint;
+  isolation: isolate;
+  border: 1px solid var(--vsc-border, var(--vsc-control-background));
+  border-radius: 8px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vsc-editor-background) 96%, white 4%),
+      var(--vsc-editor-background)
+    );
+  box-shadow:
+    0 10px 24px color-mix(
+      in srgb,
+      var(--vsc-shadow-soft) 60%,
+      transparent
+    );
+}
+
+.pane-shell.pane-shell,
+.surface.pane-shell {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: var(--vsc-editor-background, var(--vsc-editor-background));
+  color: var(--vsc-foreground, var(--vsc-foreground));
+  box-shadow: none;
+  overscroll-behavior: none;
+}
+
+.pane-shell.pane-shell.pane-shell-active,
+.surface.pane-shell.pane-shell-active {
+  border-color:
+    color-mix(
+      in srgb,
+      var(--vsc-accent-blue, var(--vsc-focus-border)) 62%,
+      transparent
+    );
+}
+
+.pane-shell-header.pane-shell-header {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 31px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
+  background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+}
+
+.pane-shell-header.pane-shell-header button {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.pane-shell-header.pane-shell-header button:hover:not(:disabled) {
+  background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+}
+
+.pane-shell-header.pane-shell-header button:active:not(:disabled) {
+  background: var(--vsc-list-active-background, var(--vsc-list-focus-background));
+}

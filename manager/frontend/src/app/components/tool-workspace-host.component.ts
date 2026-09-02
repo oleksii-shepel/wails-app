@@ -123,17 +123,18 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
         *ngIf="layout.kind === 'split'; else nonSplit"
         class="layout split"
         [class.details-workspace-split]="isDetailsWorkspaceSplit(layout)"
+        [class.pane-shell-layout]="isDetailsWorkspaceSplit(layout)"
         [class.horizontal]="layout.direction === 'horizontal'"
         [class.vertical]="layout.direction === 'vertical'"
         [style.--workspace-ratio.%]="layout.ratio ?? 50">
 
-        <div class="split-first">
+        <div class="split-first" [class.pane-shell-slot]="isDetailsWorkspaceSplit(layout)">
           <ng-container
             *ngTemplateOutlet="renderLayout; context: { $implicit: layout.first }">
           </ng-container>
         </div>
 
-        <div class="split-second">
+        <div class="split-second" [class.pane-shell-slot]="isDetailsWorkspaceSplit(layout)">
           <ng-container
             *ngTemplateOutlet="renderLayout; context: { $implicit: layout.second }">
           </ng-container>
@@ -164,9 +165,11 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       <article
         class="surface"
         [class.details-workspace-pane-surface]="isDetailsWorkspaceSurface(surface)"
+        [class.pane-shell]="isDetailsWorkspaceSurface(surface)"
         [class.workspace-pane-active]="isActiveDetailsWorkspaceSurface(surface)"
+        [class.pane-shell-active]="isActiveDetailsWorkspaceSurface(surface)"
         [attr.data-surface-id]="surface.surfaceId">
-        <header class="surface-header">
+        <header class="surface-header" [class.pane-shell-header]="isDetailsWorkspaceSurface(surface)">
           <strong>{{ text(surface, 'title') || surface.title }}</strong>
 
           <select
@@ -343,7 +346,9 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
               [paneId]="'left'"
               [showHidden]="showHidden"
               [entries]="treeEntries(surface)"
-              [currentPath]="text(surface, 'currentPath') || text(surface, 'selectedPath') || text(surface, 'rootPath')"
+              [currentPath]="treeEntries(surface).length > 0
+                ? (text(surface, 'currentPath') || text(surface, 'selectedPath') || text(surface, 'rootPath'))
+                : ''"
               [selectedFiles]="treeSelectedPathSet(surface)"
               [cursorPath]="treeCursorPath(surface)"
               [currentView]="'tree'"
@@ -394,6 +399,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       </article>
     </ng-template>
   `,
+  styleUrls: ['./pane-shell.shared.css'],
   styles: [`
     :host {
       display: block;
@@ -597,7 +603,6 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       gap: 5px;
       padding: 5px;
       box-sizing: border-box;
-      background: var(--vsc-panel-background, var(--vsc-side-bar-background));
     }
 
     .split.horizontal {
@@ -657,38 +662,6 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       background: var(--vsc-side-bar-background, var(--vsc-panel-background));
     }
 
-    /* Details uses the same framed-pane language as the main file panes. */
-    .details-workspace-pane-surface {
-      position: relative;
-      border: 1px solid var(--vsc-border, var(--vsc-control-background));
-      border-radius: 5px;
-      background: var(--vsc-editor-background, var(--vsc-panel-background));
-      box-shadow: none;
-      transition: border-color 80ms ease;
-    }
-
-    .details-workspace-pane-surface.workspace-pane-active {
-      border-color: color-mix(
-        in srgb,
-        var(--vsc-accent-blue, var(--vsc-focus-border)) 62%,
-        var(--vsc-border, transparent)
-      );
-    }
-
-    .details-workspace-pane-surface > .surface-header {
-      min-height: 31px;
-      padding: 3px 8px;
-      border-bottom-color: var(--vsc-border, var(--vsc-control-background));
-      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-    }
-
-    .details-workspace-pane-surface:not(.workspace-pane-active) > .surface-header {
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-    }
-
-    .details-workspace-pane-surface.workspace-pane-active > .surface-header > strong {
-      color: var(--vsc-foreground, var(--vsc-foreground-bright));
-    }
 
     .search-surface,
     .compare-surface,
@@ -829,32 +802,8 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       padding: 16px;
     }
 
-    /* Details workspace: card surface on a neutral tool canvas. */
-    .split.details-workspace-split .surface {
-      border: 1px solid var(--vsc-border, var(--vsc-border-subtle));
-      border-radius: 6px;
-      background: var(--vsc-editor-background);
-      box-shadow: 0 1px 2px color-mix(in srgb, black 8%, transparent);
-    }
 
-    .split.details-workspace-split .surface:has([data-details-workspace-pane].workspace-pane-active) {
-      border-color: color-mix(
-        in srgb,
-        var(--vsc-accent-blue, var(--vsc-focus-border)) 70%,
-        var(--vsc-border)
-      );
-      box-shadow:
-        0 0 0 1px color-mix(
-          in srgb,
-          var(--vsc-accent-blue, var(--vsc-focus-border)) 12%,
-          transparent
-        ),
-        0 1px 3px color-mix(in srgb, black 10%, transparent);
-    }
-
-    /* Toolbar actions follow the main-window flat command style. */
     .workspace-header button,
-    .surface-header button,
     .details-batch-controls button,
     .surface-actions button {
       border: 0;
@@ -863,17 +812,9 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .workspace-header button:hover:not(:disabled),
-    .surface-header button:hover:not(:disabled),
     .details-batch-controls button:hover:not(:disabled),
     .surface-actions button:hover:not(:disabled) {
       background: var(--vsc-list-hover-background);
-    }
-
-    .workspace-header button:active:not(:disabled),
-    .surface-header button:active:not(:disabled),
-    .details-batch-controls button:active:not(:disabled),
-    .surface-actions button:active:not(:disabled) {
-      background: var(--vsc-list-active-background);
     }
 
   `],
@@ -947,23 +888,25 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
       parentId: 'reassembly.manager',
       description: 'Details workspace input context',
     });
-    this.input.registerBindings(DETAILS_WORKSPACE_INPUT_BINDINGS, DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.registerCommands([
-      { commandId: DETAILS_WORKSPACE_COMMANDS.nextPane, handler: () => { this.focusDetailsWorkspacePane(1); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.previousPane, handler: () => { this.focusDetailsWorkspacePane(-1); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.cursorUp, handler: () => { this.navigateDetailsWorkspace(-1); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.cursorDown, handler: () => { this.navigateDetailsWorkspace(1); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.firstItem, handler: () => { this.navigateDetailsWorkspace('first'); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.lastItem, handler: () => { this.navigateDetailsWorkspace('last'); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.pageUp, handler: () => { this.navigateDetailsWorkspace('page-up'); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.pageDown, handler: () => { this.navigateDetailsWorkspace('page-down'); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.open, handler: () => { this.openDetailsWorkspaceCursor(); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.parent, handler: () => { if (this.detailsWorkspacePane === 'details') this.navigateDetailsWorkspaceParent(); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.rename, handler: () => { this.startDetailsWorkspaceRename(); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.rowMenu, handler: () => { this.openDetailsWorkspaceRowMenu(); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.attributes, handler: () => { this.editDetailsWorkspaceCursorField('attributes'); } },
-      { commandId: DETAILS_WORKSPACE_COMMANDS.modifiedTime, handler: () => { this.editDetailsWorkspaceCursorField('modified-time'); } },
-    ], DETAILS_WORKSPACE_INPUT_OWNER);
+    for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
+      this.input.registerBinding(binding, DETAILS_WORKSPACE_INPUT_OWNER);
+    }
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.nextPane, () => { this.focusDetailsWorkspacePane(1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.previousPane, () => { this.focusDetailsWorkspacePane(-1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.cursorUp, () => { this.navigateDetailsWorkspace(-1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.cursorDown, () => { this.navigateDetailsWorkspace(1); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.firstItem, () => { this.navigateDetailsWorkspace('first'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.lastItem, () => { this.navigateDetailsWorkspace('last'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.pageUp, () => { this.navigateDetailsWorkspace('page-up'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.pageDown, () => { this.navigateDetailsWorkspace('page-down'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.open, () => { this.openDetailsWorkspaceCursor(); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.parent, () => {
+      if (this.detailsWorkspacePane === 'details') this.navigateDetailsWorkspaceParent();
+    }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.rename, () => { this.startDetailsWorkspaceRename(); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.rowMenu, () => { this.openDetailsWorkspaceRowMenu(); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.attributes, () => { this.editDetailsWorkspaceCursorField('attributes'); }, DETAILS_WORKSPACE_INPUT_OWNER);
+    this.input.registerCommand(DETAILS_WORKSPACE_COMMANDS.modifiedTime, () => { this.editDetailsWorkspaceCursorField('modified-time'); }, DETAILS_WORKSPACE_INPUT_OWNER);
     this.detailsWorkspaceInputRegistered = true;
     this.syncDetailsWorkspaceInputContext();
     window.addEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
@@ -977,8 +920,12 @@ export class ToolWorkspaceHostComponent implements OnInit, OnChanges, OnDestroy 
   ngOnDestroy(): void {
     window.removeEventListener('keydown', this.detailsWorkspaceTabFallback, { capture: true });
     this.input.deactivateContext(DETAILS_WORKSPACE_INPUT_CONTEXT);
-    this.input.unregisterBindings(DETAILS_WORKSPACE_INPUT_BINDINGS.map(binding => binding.id), DETAILS_WORKSPACE_INPUT_OWNER);
-    this.input.unregisterCommands(Object.values(DETAILS_WORKSPACE_COMMANDS), DETAILS_WORKSPACE_INPUT_OWNER);
+    for (const binding of DETAILS_WORKSPACE_INPUT_BINDINGS) {
+      this.input.unregisterBinding(binding.id, DETAILS_WORKSPACE_INPUT_OWNER);
+    }
+    for (const commandId of Object.values(DETAILS_WORKSPACE_COMMANDS)) {
+      this.input.unregisterCommand(commandId, DETAILS_WORKSPACE_INPUT_OWNER);
+    }
   }
 
   setDetailsWorkspaceTarget(value: string): void {

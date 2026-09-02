@@ -222,10 +222,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
   template: `
     <section
       #paneRoot
-      class="pane"
+      class="pane pane-shell"
       tabindex="-1"
       role="region"
       [class.active-pane]="active"
+      [class.pane-shell-active]="active"
       [attr.data-pane-active]="active ? 'true' : null"
       [attr.aria-label]="paneId === 'left' ? 'Left file pane' : 'Right file pane'"
       [attr.aria-busy]="loading"
@@ -551,6 +552,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       </ng-template>
     </section>
   `,
+  styleUrls: ['./pane-shell.shared.css'],
   styles: [`
     /* Universal entry-name clipping. */
     .entry .name,

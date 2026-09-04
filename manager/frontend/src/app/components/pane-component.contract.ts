@@ -1,1 +1,1 @@
-export type { DirectoryView, SortField, SortDirection, PanePresentation, PaneViewportSnapshot, PaneState, PaneNavigation, PaneSelection, PanePresentationPort, PaneViewportPort, PaneTabs, PaneViewerCommands, PaneCommands, PaneComponent } from '@reassembly/core/contracts/panes';
+export type { DirectoryView, SortField, SortDirection, PanePresentation, PaneViewportSnapshot, PaneState, PaneNavigation, PaneSelection, PanePresentationPort, PaneViewportPort, PaneTabs, PaneViewerCommands, PaneCommands, PaneComponent, QuickViewSource } from '@reassembly/core/contracts/panes';

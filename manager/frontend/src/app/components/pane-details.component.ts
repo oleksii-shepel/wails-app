@@ -144,7 +144,7 @@ interface DetailsRowVm {
             [style.grid-template-columns]="columnGridTemplate"
             [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
-            [class.selected]="row.selected"
+            [class.selected]="paneActive && row.selected"
             [class.cursor]="paneActive && row.cursor"
             [class.parent-dir]="row.parentDir"
             [class.drag-over]="row.dragOverInside"
@@ -383,16 +383,12 @@ interface DetailsRowVm {
         cursor: pointer;
         user-select: none;
         
-        &:hover {
-          background: var(--vsc-list-hover-background);
-        }
-        
         &.selected {
           background: var(--vsc-list-active-background);
           color: var(--vsc-foreground-bright);
         }
         
-        /* Same cursor language as List view: subtle hover fill + left accent. */
+        /* Keyboard cursor language: subtle fill + left accent. */
         &.cursor:not(.selected) {
           background: color-mix(
             in srgb,

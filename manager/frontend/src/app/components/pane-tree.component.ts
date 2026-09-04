@@ -83,7 +83,7 @@ export interface DropTarget {
 
           <div
             class="tree-node"
-            [class.selected]="isSelected(node)"
+            [class.selected]="paneActive && isSelected(node)"
             [class.focused-node]="paneActive && isFocusedNode(node)"
             [class.dragging-node]="isDraggingNode(node)"
             [attr.role]="'treeitem'"
@@ -267,11 +267,6 @@ export interface DropTarget {
         var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
       );
     }
-
-    .tree-node:hover:not(.selected) {
-      background-color: var(--vsc-list-hover-background);
-    }
-
 
     .tree-node.dragging-node {
       opacity: 0.5;

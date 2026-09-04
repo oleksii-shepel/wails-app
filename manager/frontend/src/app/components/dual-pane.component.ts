@@ -2401,6 +2401,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   onLinkedPaneCursorChange(paneId: PaneId, entry: FileInfo | null): void {
+    this.syncQuickViewForCursor(paneId, entry);
+
     if (!this.followSelection || !entry || this.linkedSelectionGuard) return;
 
     void this.ensurePaneIntelligenceHealth('follow selection');
@@ -2504,7 +2506,70 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const entry = pane?.selection.cursorEntry;
     if (!pane?.contextState.isDirectoryTab || !entry) return;
     if (entry.type === FileType.DIRECTORY) return;
-    pane.viewerCommands?.openQuickView(entry);
+    this.openQuickViewInOtherPane(this.activePaneId, entry);
+  }
+
+  /**
+   * Quick View is a companion to the active file list: keep the file list in
+   * focus and render the preview in the opposite pane.  Its source metadata
+   * remains tied to the list pane, rather than the pane hosting the viewer.
+   */
+  private openQuickViewInOtherPane(sourcePaneId: PaneId, entry: FileInfo): void {
+    const sourcePane = sourcePaneId === 'left' ? this.leftPane : this.rightPane;
+    const targetPaneId: PaneId = sourcePaneId === 'left' ? 'right' : 'left';
+    const targetPane = targetPaneId === 'left' ? this.leftPane : this.rightPane;
+    if (!sourcePane?.contextState.isDirectoryTab || !targetPane) return;
+
+    const fileList = sourcePane.contextState.entries
+      .filter(candidate => candidate.type !== FileType.DIRECTORY)
+      .map(candidate => ({ path: candidate.path, name: candidate.name }));
+    const sourceTab = this.workspaceService.getActiveTab(sourcePaneId);
+    if (!sourceTab) return;
+
+    targetPane.viewerCommands?.openQuickView(entry, {
+      sourcePane: sourcePaneId,
+      sourceTabId: sourceTab.id,
+      sourceDir: sourcePane.contextState.path,
+      fileList,
+    });
+
+    const preview = this.workspaceService.getTabs(targetPaneId).find(
+      tab => tab.kind === 'viewer' && tab.viewer?.autoFollow,
+    );
+    if (!preview) return;
+
+    this.workspaceService.updateViewerTabTargetPath(
+      targetPaneId,
+      preview.id,
+      entry.path,
+      {
+        sourcePane: sourcePaneId,
+        sourceTabId: sourceTab.id,
+        sourceDir: sourcePane.contextState.path,
+        fileList,
+      },
+    );
+    this.cdr.markForCheck();
+  }
+
+  private syncQuickViewForCursor(
+    sourcePaneId: PaneId,
+    entry: FileInfo | null,
+  ): void {
+    if (!entry || entry.type === FileType.DIRECTORY) return;
+
+    const targetPaneId: PaneId = sourcePaneId === 'left' ? 'right' : 'left';
+    const preview = this.workspaceService.getTabs(targetPaneId).find(
+      tab =>
+        tab.kind === 'viewer' &&
+        tab.viewer?.autoFollow &&
+        tab.viewer.sourcePane === sourcePaneId,
+    );
+    if (!preview || preview.viewer?.targetPath === entry.path) return;
+
+    // Reuse the target pane's Quick View implementation so its local tab
+    // state and mounted viewer update immediately, then restore its source.
+    this.openQuickViewInOtherPane(sourcePaneId, entry);
   }
 
   async openActiveExternally(): Promise<void> {

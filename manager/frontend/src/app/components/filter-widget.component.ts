@@ -393,7 +393,6 @@ export class FindWidgetComponent implements OnDestroy {
     switch (e.key) {
       case 'Escape':    e.preventDefault(); this.close(); break;
       case 'Enter':     e.preventDefault(); e.shiftKey ? this.onPrev() : this.onNext(); break;
-      case 'F3':        e.preventDefault(); e.shiftKey ? this.onPrev() : this.onNext(); break;
     }
   }
 

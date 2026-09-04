@@ -1,5 +1,6 @@
 import type {
   ContextMenuContribution,
+  DocumentRendererContribution,
   FileCategoryResolver,
   PluginRegistryAPI,
   ToolbarActionContribution,
@@ -74,6 +75,13 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterViewer(contribution.id));
   }
   unregisterViewer(id: string): void { this.host.unregisterViewer(id); }
+
+  registerDocumentRenderer(contribution: DocumentRendererContribution): void {
+    this.assertActive(); this.require('viewers');
+    this.host.registerDocumentRenderer(contribution);
+    this.cleanups.push(() => this.host.unregisterDocumentRenderer(contribution.id));
+  }
+  unregisterDocumentRenderer(id: string): void { this.host.unregisterDocumentRenderer(id); }
 
   registerSurface(contribution: SurfaceContribution): void {
     this.assertActive(); this.require('surfaces');

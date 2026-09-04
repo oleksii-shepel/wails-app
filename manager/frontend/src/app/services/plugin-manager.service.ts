@@ -13,10 +13,12 @@ import type {
   PanelPresentationContribution,
   PanelPresentationContext,
   PluginResultsCollection,
+  DocumentRendererContribution,
 } from '../plugin/plugin-registry-api';
 import type { ViewerContribution } from '../viewers/viewer-contribution';
 import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import { ViewerRegistryService } from '../viewers/viewer-registry.service';
+import { DocumentRendererRegistryService } from '../viewers/document-renderer-registry.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { InputEngineService } from './input-engine.service';
 import type { CommandDescriptor, CommandInvocation, PluginInputContribution } from './input-system.types';
@@ -55,6 +57,7 @@ export interface PluginBackend {
 @Injectable({ providedIn: 'root' })
 export class PluginManagerService implements PluginRegistryAPI {
   private readonly viewerRegistry = inject(ViewerRegistryService);
+  private readonly documentRenderers = inject(DocumentRendererRegistryService);
   private readonly surfaceRegistry = inject(SurfaceRegistryService);
   private readonly inputEngine = inject(InputEngineService);
   private readonly relatedLocations = inject(RelatedLocationService);
@@ -168,6 +171,14 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   unregisterViewer(id: string): void {
     this.viewerRegistry.unregister(id);
+  }
+
+  registerDocumentRenderer(contribution: DocumentRendererContribution): void {
+    this.documentRenderers.register(contribution);
+  }
+
+  unregisterDocumentRenderer(id: string): void {
+    this.documentRenderers.unregister(id);
   }
 
   registerSurface(contribution: SurfaceContribution): void {

@@ -202,12 +202,6 @@ function truncateFileName(name: string, maxLength: number): string {
       position: relative; /* Add positioning context */
       color: var(--vsc-foreground);
 
-      &:hover {
-        background: var(--vsc-list-hover-background);
-        color: var(--vsc-foreground);
-        border-left-color: var(--vsc-border-bright);
-      }
-
       &.selected {
         background: var(--vsc-list-active-background);
         color: var(--vsc-list-active-foreground);
@@ -221,7 +215,6 @@ function truncateFileName(name: string, maxLength: number): string {
 
         .file-details { color: var(--vsc-list-active-foreground-dim); }
 
-        &:hover { background: var(--vsc-list-focus-background); }
       }
 
       /* TC-style cursor: position indicator separate from marks */
@@ -240,11 +233,6 @@ function truncateFileName(name: string, maxLength: number): string {
         opacity: 0.65;
         border-left-color: transparent !important;
 
-        &:hover {
-          opacity: 0.9;
-          background: var(--vsc-list-hover-background);
-          border-left-color: var(--vsc-border-bright) !important;
-        }
         &.selected { background: transparent; color: inherit; }
         .file-name { font-style: italic; letter-spacing: 0.02em; }
         .file-details { visibility: hidden; }

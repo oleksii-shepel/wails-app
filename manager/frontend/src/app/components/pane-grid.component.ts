@@ -82,7 +82,7 @@ import {
           class="grid-item"
           [attr.data-path]="entry.path"
           [class.dragging-source]="draggingPaths.has(entry.path)"
-          [class.selected]="isSelected(entry)"
+          [class.selected]="paneActive && isSelected(entry)"
           [class.cursor]="paneActive && isCursor(entry)"
           [class.directory]="entry.type === FileType.DIRECTORY"
           [class.parent-dir]="isParentEntry(entry)"
@@ -105,7 +105,7 @@ import {
           <div class="grid-info" *ngIf="!draggingPaths.has(entry.path)">
             <app-file-entry
               [entry]="entry"
-              [selected]="isSelected(entry)"
+              [selected]="paneActive && isSelected(entry)"
               [cursor]="paneActive && isCursor(entry)"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
               [colorizeByMime]="colorizeByMime"
@@ -228,10 +228,6 @@ import {
       border: none;
       position: relative;
       contain: layout style paint;
-      
-      &:hover {
-        background: var(--vsc-list-hover-background);
-      }
       
       &.selected {
         background: var(--vsc-list-active-background);

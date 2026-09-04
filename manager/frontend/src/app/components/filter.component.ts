@@ -49,29 +49,6 @@ function bindings(
       trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
     },
     {
-      id: `${base}.next.f3`,
-      commandId: `${base}.${COMMAND.next}`,
-      contextId,
-      source: 'default',
-      description: 'Next filter match',
-      category: 'Search & Filter',
-      when: 'typing',
-      trigger: { device: 'keyboard', chord: { steps: [{ key: 'f3' }] } },
-    },
-    {
-      id: `${base}.previous.shiftF3`,
-      commandId: `${base}.${COMMAND.previous}`,
-      contextId,
-      source: 'default',
-      description: 'Previous filter match',
-      category: 'Search & Filter',
-      when: 'typing',
-      trigger: {
-        device: 'keyboard',
-        chord: { steps: [{ key: 'f3', modifiers: ['shift'] }] },
-      },
-    },
-    {
       id: `${base}.previous.shiftEnter`,
       commandId: `${base}.${COMMAND.previous}`,
       contextId,
@@ -110,8 +87,8 @@ function bindings(
         {{ matchCount }}<ng-container *ngIf="totalCount >= 0"> / {{ totalCount }}</ng-container>
       </span>
 
-      <button type="button" title="Previous (Shift+F3)" (click)="previous.emit()">↑</button>
-      <button type="button" title="Next (F3)" (click)="next.emit()">↓</button>
+      <button type="button" title="Previous match (Shift+Enter)" (click)="previous.emit()">↑</button>
+      <button type="button" title="Next match (Enter)" (click)="next.emit()">↓</button>
       <button type="button" title="Close (Escape)" (click)="close.emit()">×</button>
     </div>
   `,

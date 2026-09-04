@@ -14,11 +14,18 @@ export interface ArchiveTransferResult {
   readonly errors?: readonly ArchiveTransferError[];
 }
 
+export interface QuickViewSource {
+  readonly sourcePane: 'left' | 'right';
+  readonly sourceTabId: string;
+  readonly sourceDir: string;
+  readonly fileList: readonly { path: string; name: string }[];
+}
+
 export interface PaneViewerCommands {
   openEntry(entry: FileInfo): void | Promise<void>;
   openViewer(entry: FileInfo, viewerId?: string | null, autoFollow?: boolean): any;
   openSelectedWithViewer(viewerId: string): Promise<void>;
-  openQuickView(entry: FileInfo): void;
+  openQuickView(entry: FileInfo, source?: QuickViewSource): void;
   openActiveViewerExternally(): Promise<void>;
   returnToViewerSource(): Promise<void>;
   openResultsPanel(

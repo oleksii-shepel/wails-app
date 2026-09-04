@@ -25,6 +25,17 @@ export interface PluginDescriptor {
   commands?: PluginCommandInfo[];
 }
 
+/**
+ * A renderer supplied by a universal plugin. The host supplies the Angular
+ * viewer chrome and displays the returned HTML in a sandboxed document.
+ */
+export interface DocumentRendererContribution {
+  id: string;
+  title?: string;
+  score(request: ViewerRequest): number;
+  render(request: ViewerRequest): Promise<{ html: string }>;
+}
+
 
 export interface PluginResultsCollection {
   /** Host-owned when called through a ScopedPluginRegistry. */
@@ -178,6 +189,9 @@ export interface PluginRegistryAPI {
 
   registerViewer(contribution: ViewerContribution): void;
   unregisterViewer(id: string): void;
+
+  registerDocumentRenderer(contribution: DocumentRendererContribution): void;
+  unregisterDocumentRenderer(id: string): void;
 
   registerSurface(contribution: SurfaceContribution): void;
   unregisterSurface(id: string): void;

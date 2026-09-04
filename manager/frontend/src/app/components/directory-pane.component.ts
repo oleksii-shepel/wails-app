@@ -60,7 +60,7 @@ import { FilterComponent } from './filter.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { PaneViewHostComponent } from './pane-view-host.component';
 import { NavigationController } from './navigation.controller';
-import type { DirectoryView, PanePresentation, SortDirection, SortField } from './pane-component.contract';
+import type { DirectoryView, PanePresentation, QuickViewSource, SortDirection, SortField } from './pane-component.contract';
 import type { PresentedCommand } from './presented-command';
 import { ResponsiveToolbarComponent, type ResponsiveToolbarCommand } from './responsive-toolbar.component';
 import { PaneArrangeControlsComponent, type PaneSortChange } from './pane-arrange-controls.component';
@@ -1205,36 +1205,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .entry.cursor.selected {
       box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
-    }
-
-    /*
-     * The active pane is the command/transfer source. Make its cursor visually
-     * dominant while keeping the destination pane's cursor and selections
-     * present but neutral.
-     */
-    .pane:not(.active-pane) .entry.selected,
-    .pane:not(.active-pane) .tree-row.selected {
-      background: var(
-        --vsc-list-inactive-selection,
-        color-mix(in srgb, var(--vsc-list-active-background) 48%, transparent)
-      );
-      color: var(--vsc-foreground);
-    }
-
-    .pane:not(.active-pane) .entry.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
-        in srgb,
-        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
-        transparent
-      );
-    }
-
-    .pane:not(.active-pane) .tree-row.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
-        in srgb,
-        var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
-        transparent
-      );
     }
 
     .pane.active-pane .entry.cursor {
@@ -3176,17 +3146,35 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // A Quick View tab is an overlay for its source directory tab. Return to
+    // that exact tab when it still exists; selecting a positional neighbour
+    // can reload a different tab and makes the original session look recreated.
+    const sourceTab = closing.kind === 'viewer' && closing.sourceTabId
+      ? this.tabs.find(tab => tab.id === closing.sourceTabId)
+      : undefined;
     const nextIndex = Math.min(index, this.tabs.length - 1);
-    const next = this.tabs[nextIndex];
+    const next = sourceTab ?? this.tabs[nextIndex];
     this.activeTabId = next.id;
     this.lastAction = `close tab -> ${next.title}`;
     this.revealActiveTab(next.id);
     this.cdr.markForCheck();
 
     if (next.kind === 'dir') {
+      // Quick View leaves the directory tab in place. Restore its persisted
+      // cursor/selection session instead of treating the return as a fresh
+      // directory load, which would select the first visible entry.
+      this.applyDirSessionBeforeLoad(next);
       this.restoreArchiveStateForTab(next.id, next.path);
       this.workspaceService.switchTab(this.paneId, next.id);
-      await this.load(next.path, { history: 'record', syncTab: false });
+      const interactionGeneration = this.interactionGeneration;
+      const loaded = await this.load(next.path, {
+        history: 'record',
+        syncTab: false,
+        restoreSession: true,
+      });
+      if (loaded) {
+        await this.finalizeDirSessionAfterLoad(next, interactionGeneration);
+      }
     } else {
       this.workspaceService.switchTab(this.paneId, next.id);
       this.loading = false;
@@ -4418,11 +4406,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  openQuickView(entry: FileInfo): void {
+  openQuickView(entry: FileInfo, source?: QuickViewSource): void {
     if (entry.type === FileType.DIRECTORY) return;
 
     const archiveContext = this.viewerArchiveContextFor(entry);
-    const fileList = archiveContext ? [] : this.buildViewerFileList();
+    const fileList = archiveContext ? [] : [...(source?.fileList ?? this.buildViewerFileList())];
+    const previewSource = source ?? {
+      sourcePane: this.paneId,
+      sourceTabId: this.activeTabId ?? '',
+      sourceDir: this.path,
+      fileList,
+    };
 
     if (!archiveContext) {
       const preview = this.tabs.find(
@@ -4435,9 +4429,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
           preview.id,
           entry.path,
           {
-            sourcePane: this.paneId,
-            sourceTabId: this.activeTabId ?? '',
-            sourceDir: this.path,
+            sourcePane: previewSource.sourcePane,
+            sourceTabId: previewSource.sourceTabId,
+            sourceDir: previewSource.sourceDir,
             fileList,
           },
         );
@@ -4459,9 +4453,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         title: archiveContext ? entry.name : 'Preview',
         autoFollow: !archiveContext,
         closable: true,
-        sourcePane: this.paneId,
-        sourceTabId: this.activeTabId ?? undefined,
-        sourceDir: this.path,
+        sourcePane: previewSource.sourcePane,
+        sourceTabId: previewSource.sourceTabId,
+        sourceDir: previewSource.sourceDir,
         fileList,
         archiveContext: archiveContext ?? undefined,
       },

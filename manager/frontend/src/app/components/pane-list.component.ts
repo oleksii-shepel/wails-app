@@ -79,7 +79,7 @@ type VisibleRowVm = {
           (contextmenu)="onContextMenu($event, parentEntry)">
           <app-file-entry
             [entry]="parentEntry"
-            [selected]="isSelected(parentEntry)"
+            [selected]="paneActive && isSelected(parentEntry)"
             [cursor]="paneActive && parentEntry.path === cursorPath"
             [directorySizePending]="isDirectorySizePending(parentEntry.path)"
             [colorizeByMime]="colorizeByMime"
@@ -116,7 +116,7 @@ type VisibleRowVm = {
             <div *ngIf="row.dragOverAfter" class="drop-indicator drop-indicator-after"></div>
             <app-file-entry
               [entry]="row.entry"
-              [selected]="row.selected"
+              [selected]="paneActive && row.selected"
               [cursor]="paneActive && row.cursor"
               [displayNameOverride]="row.displayNameOverride"
               [directorySizePending]="row.directorySizePending"

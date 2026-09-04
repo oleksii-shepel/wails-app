@@ -192,8 +192,6 @@ export const BUILTIN_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('widget.filterInline.close.escape', 'widget.filterInline', 'widget.filterInline.close', 'escape', 'Close filter widget'),
       keyBinding('widget.filterInline.next.enter', 'widget.filterInline', 'widget.filterInline.nextMatch', 'enter', 'Jump to next match'),
       keyBinding('widget.filterInline.prev.shiftEnter', 'widget.filterInline', 'widget.filterInline.prevMatch', 'enter', 'Jump to previous match', ['shift']),
-      keyBinding('widget.filterInline.next.f3', 'widget.filterInline', 'widget.filterInline.nextMatch', 'f3', 'Jump to next match'),
-      keyBinding('widget.filterInline.prev.shiftF3', 'widget.filterInline', 'widget.filterInline.prevMatch', 'f3', 'Jump to previous match', ['shift']),
     ],
   },
   {

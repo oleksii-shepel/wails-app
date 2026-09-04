@@ -1,8 +1,9 @@
-import { Injectable, Type } from '@angular/core';
+import { Injectable, Type, inject } from '@angular/core';
 import { ContributionRegistry } from '../plugin/contribution-registry';
 import { ViewerSurfaceComponent } from '../surfaces/viewer/viewer-surface.component';
 import { AudioViewerComponent } from './builtins/audio-viewer.component';
 import { ViewerContribution, ViewerRequest } from './viewer-contribution';
+import { DocumentRendererRegistryService } from './document-renderer-registry.service';
 
 function extLower(path: string): string {
   const p = (path ?? '').replace(/\\/g, '/');
@@ -52,6 +53,7 @@ function probeLooksBinary(req: ViewerRequest): boolean {
 @Injectable({ providedIn: 'root' })
 export class ViewerRegistryService {
   readonly registry = new ContributionRegistry<ViewerContribution, ViewerRequest>();
+  private readonly documentRenderers = inject(DocumentRendererRegistryService);
 
   constructor() {
     // Built-ins. This is the "spine" we can extend later with external bundles.
@@ -108,6 +110,13 @@ export class ViewerRegistryService {
         return probeLooksFont(req) ? 72 : 0;
       },
       load: async () => (await import('./builtins/font-viewer.component')).FontViewerComponent,
+    });
+
+    this.register({
+      id: 'plugin-document',
+      title: 'Plugin Document Viewer',
+      score: req => this.documentRenderers.resolve(req) ? 90 : 0,
+      load: async () => (await import('./builtins/plugin-document-viewer.component')).PluginDocumentViewerComponent,
     });
 
     this.register({

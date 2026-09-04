@@ -16,23 +16,31 @@ describe('Arrange animation and inactive pane cursor', () => {
 
   it('does not render List cursor in an inactive pane', () => {
     const source = read('pane-list.component.ts');
+    expect(source).toContain('[selected]="paneActive && row.selected"');
+    expect(source).toContain('[selected]="paneActive && isSelected(parentEntry)"');
     expect(source).toContain('[cursor]="paneActive && row.cursor"');
     expect(source).toContain('[cursor]="paneActive && parentEntry.path === cursorPath"');
   });
 
   it('does not render Grid cursor in an inactive pane', () => {
-    expect(read('pane-grid.component.ts'))
+    const source = read('pane-grid.component.ts');
+    expect(source).toContain('[class.selected]="paneActive && isSelected(entry)"');
+    expect(source)
       .toContain('[class.cursor]="paneActive && isCursor(entry)"');
   });
 
   it('does not render Tree focused cursor in an inactive pane', () => {
-    expect(read('pane-tree.component.ts'))
+    const source = read('pane-tree.component.ts');
+    expect(source).toContain('[class.selected]="paneActive && isSelected(node)"');
+    expect(source)
       .toContain('[class.focused-node]="paneActive && isFocusedNode(node)"');
   });
 
   it('does not render Details cursor in an inactive pane', () => {
     const source = read('pane-details.component.ts');
+    expect(source).toContain('[class.selected]="paneActive && row.selected"');
     expect(source).toContain('[class.cursor]="paneActive && row.cursor"');
     expect(source).not.toContain(':host-context(.pane:not(.active-pane)) .details-row.cursor');
   });
+
 });

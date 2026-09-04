@@ -1,0 +1,14 @@
+{
+  "name": "@aether/office-renderer-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:backend": "node scripts/build-backend.mjs",
+    "build:plugin": "npm run build:backend",
+    "pack:plugin": "npm run build:plugin && node scripts/pack-plugin.mjs"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
+  }
+}

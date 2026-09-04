@@ -1,0 +1,418 @@
+// Package raster provides a zero-dependency pixel-drawing layer used by
+// internal image-processing helpers and raster-oriented tests.
+package raster
+
+import (
+	"image"
+	"image/color"
+	"image/draw"
+	"math"
+)
+
+const (
+	GlyphW = 5 // pixels per glyph column
+	GlyphH = 7 // pixels per glyph row
+)
+
+// font5x7 is an embedded 5×7 bitmap font covering ASCII 32–126.
+// Each entry is [GlyphH]byte where bits 4:0 of each byte encode columns 0:4
+// (bit 4 = leftmost pixel).
+var font5x7 = [95][GlyphH]byte{
+	/* 32 ' ' */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	/* 33 '!' */ {0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04},
+	/* 34 '"' */ {0x0A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00},
+	/* 35 '#' */ {0x0A, 0x0A, 0x1F, 0x0A, 0x1F, 0x0A, 0x0A},
+	/* 36 '$' */ {0x04, 0x0F, 0x14, 0x0E, 0x05, 0x1E, 0x04},
+	/* 37 '%' */ {0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03},
+	/* 38 '&' */ {0x0C, 0x12, 0x14, 0x08, 0x15, 0x12, 0x0D},
+	/* 39 ''' */ {0x04, 0x04, 0x08, 0x00, 0x00, 0x00, 0x00},
+	/* 40 '(' */ {0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02},
+	/* 41 ')' */ {0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08},
+	/* 42 '*' */ {0x00, 0x04, 0x15, 0x0E, 0x15, 0x04, 0x00},
+	/* 43 '+' */ {0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00},
+	/* 44 ',' */ {0x00, 0x00, 0x00, 0x00, 0x06, 0x04, 0x08},
+	/* 45 '-' */ {0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00},
+	/* 46 '.' */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x06},
+	/* 47 '/' */ {0x01, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10},
+	/* 48 '0' */ {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E},
+	/* 49 '1' */ {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E},
+	/* 50 '2' */ {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
+	/* 51 '3' */ {0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E},
+	/* 52 '4' */ {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02},
+	/* 53 '5' */ {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E},
+	/* 54 '6' */ {0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E},
+	/* 55 '7' */ {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},
+	/* 56 '8' */ {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E},
+	/* 57 '9' */ {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x11, 0x0E},
+	/* 58 ':' */ {0x00, 0x06, 0x06, 0x00, 0x06, 0x06, 0x00},
+	/* 59 ';' */ {0x00, 0x06, 0x06, 0x00, 0x06, 0x04, 0x08},
+	/* 60 '<' */ {0x02, 0x04, 0x08, 0x10, 0x08, 0x04, 0x02},
+	/* 61 '=' */ {0x00, 0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00},
+	/* 62 '>' */ {0x08, 0x04, 0x02, 0x01, 0x02, 0x04, 0x08},
+	/* 63 '?' */ {0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04},
+	/* 64 '@' */ {0x0E, 0x11, 0x01, 0x0D, 0x15, 0x15, 0x0E},
+	/* 65 'A' */ {0x04, 0x0A, 0x11, 0x11, 0x1F, 0x11, 0x11},
+	/* 66 'B' */ {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E},
+	/* 67 'C' */ {0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E},
+	/* 68 'D' */ {0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C},
+	/* 69 'E' */ {0x1F, 0x10, 0x10, 0x1C, 0x10, 0x10, 0x1F},
+	/* 70 'F' */ {0x1F, 0x10, 0x10, 0x1C, 0x10, 0x10, 0x10},
+	/* 71 'G' */ {0x0E, 0x11, 0x10, 0x10, 0x13, 0x11, 0x0F},
+	/* 72 'H' */ {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11},
+	/* 73 'I' */ {0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E},
+	/* 74 'J' */ {0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C},
+	/* 75 'K' */ {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11},
+	/* 76 'L' */ {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F},
+	/* 77 'M' */ {0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11},
+	/* 78 'N' */ {0x11, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11},
+	/* 79 'O' */ {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
+	/* 80 'P' */ {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10},
+	/* 81 'Q' */ {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D},
+	/* 82 'R' */ {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11},
+	/* 83 'S' */ {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E},
+	/* 84 'T' */ {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},
+	/* 85 'U' */ {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
+	/* 86 'V' */ {0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04},
+	/* 87 'W' */ {0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11},
+	/* 88 'X' */ {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11},
+	/* 89 'Y' */ {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04},
+	/* 90 'Z' */ {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F},
+	/* 91 '[' */ {0x0E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x0E},
+	/* 92 '\' */ {0x10, 0x10, 0x08, 0x04, 0x02, 0x01, 0x01},
+	/* 93 ']' */ {0x0E, 0x02, 0x02, 0x02, 0x02, 0x02, 0x0E},
+	/* 94 '^' */ {0x04, 0x0A, 0x11, 0x00, 0x00, 0x00, 0x00},
+	/* 95 '_' */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F},
+	/* 96 '`' */ {0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00},
+	/* 97 'a' */ {0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F},
+	/* 98 'b' */ {0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x1E},
+	/* 99 'c' */ {0x00, 0x00, 0x0E, 0x10, 0x10, 0x11, 0x0E},
+	/* 100 'd' */ {0x01, 0x01, 0x0F, 0x11, 0x11, 0x11, 0x0F},
+	/* 101 'e' */ {0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0F},
+	/* 102 'f' */ {0x03, 0x04, 0x04, 0x0E, 0x04, 0x04, 0x04},
+	/* 103 'g' */ {0x00, 0x0F, 0x11, 0x11, 0x0F, 0x01, 0x0E},
+	/* 104 'h' */ {0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x11},
+	/* 105 'i' */ {0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E},
+	/* 106 'j' */ {0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x0C},
+	/* 107 'k' */ {0x10, 0x10, 0x11, 0x12, 0x1C, 0x12, 0x11},
+	/* 108 'l' */ {0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E},
+	/* 109 'm' */ {0x00, 0x00, 0x1A, 0x15, 0x15, 0x11, 0x11},
+	/* 110 'n' */ {0x00, 0x00, 0x1E, 0x11, 0x11, 0x11, 0x11},
+	/* 111 'o' */ {0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E},
+	/* 112 'p' */ {0x00, 0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10},
+	/* 113 'q' */ {0x00, 0x0F, 0x11, 0x11, 0x0F, 0x01, 0x01},
+	/* 114 'r' */ {0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10},
+	/* 115 's' */ {0x00, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E},
+	/* 116 't' */ {0x08, 0x08, 0x1C, 0x08, 0x08, 0x09, 0x06},
+	/* 117 'u' */ {0x00, 0x00, 0x11, 0x11, 0x11, 0x11, 0x0F},
+	/* 118 'v' */ {0x00, 0x00, 0x11, 0x11, 0x11, 0x0A, 0x04},
+	/* 119 'w' */ {0x00, 0x00, 0x11, 0x11, 0x15, 0x15, 0x0A},
+	/* 120 'x' */ {0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11},
+	/* 121 'y' */ {0x00, 0x11, 0x11, 0x11, 0x0F, 0x01, 0x0E},
+	/* 122 'z' */ {0x00, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F},
+	/* 123 '{' */ {0x02, 0x04, 0x04, 0x08, 0x04, 0x04, 0x02},
+	/* 124 '|' */ {0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},
+	/* 125 '}' */ {0x08, 0x04, 0x04, 0x02, 0x04, 0x04, 0x08},
+	/* 126 '~' */ {0x00, 0x00, 0x09, 0x15, 0x12, 0x00, 0x00},
+}
+
+// Canvas wraps an image.RGBA with primitive drawing operations.
+type Canvas struct {
+	img *image.RGBA
+}
+
+// NewCanvas allocates a white RGBA canvas of the given pixel dimensions.
+func NewCanvas(w, h int) *Canvas {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(img, img.Bounds(), image.White, image.Point{}, draw.Src)
+	return &Canvas{img: img}
+}
+
+// Image returns the underlying image.
+func (c *Canvas) Image() *image.RGBA { return c.img }
+
+// FillRect draws a filled axis-aligned rectangle.
+func (c *Canvas) FillRect(x, y, w, h int, col color.RGBA) {
+	r := image.Rect(x, y, x+w, y+h).Intersect(c.img.Bounds())
+	draw.Draw(c.img, r, image.NewUniform(col), image.Point{}, draw.Src)
+}
+
+// StrokeRect draws the outline of a rectangle with a 1-pixel border.
+func (c *Canvas) StrokeRect(x, y, w, h int, col color.RGBA) {
+	c.HLine(x, y, w, col)
+	c.HLine(x, y+h-1, w, col)
+	c.VLine(x, y, h, col)
+	c.VLine(x+w-1, y, h, col)
+}
+
+// HLine draws a horizontal 1-pixel line.
+func (c *Canvas) HLine(x, y, w int, col color.RGBA) {
+	c.FillRect(x, y, w, 1, col)
+}
+
+// VLine draws a vertical 1-pixel line.
+func (c *Canvas) VLine(x, y, h int, col color.RGBA) {
+	c.FillRect(x, y, 1, h, col)
+}
+
+// DrawLine draws a 1-pixel-wide line between (x0,y0) and (x1,y1) using Bresenham's algorithm.
+func (c *Canvas) DrawLine(x0, y0, x1, y1 int, col color.RGBA) {
+	dx := x1 - x0
+	if dx < 0 {
+		dx = -dx
+	}
+	dy := y1 - y0
+	if dy < 0 {
+		dy = -dy
+	}
+	sx := 1
+	if x0 > x1 {
+		sx = -1
+	}
+	sy := 1
+	if y0 > y1 {
+		sy = -1
+	}
+	err := dx - dy
+	bounds := c.img.Bounds()
+	for {
+		if x0 >= bounds.Min.X && x0 < bounds.Max.X && y0 >= bounds.Min.Y && y0 < bounds.Max.Y {
+			c.img.SetRGBA(x0, y0, col)
+		}
+		if x0 == x1 && y0 == y1 {
+			break
+		}
+		e2 := 2 * err
+		if e2 > -dy {
+			err -= dy
+			x0 += sx
+		}
+		if e2 < dx {
+			err += dx
+			y0 += sy
+		}
+	}
+}
+
+// DrawPolyline draws connected line segments through the given points.
+func (c *Canvas) DrawPolyline(points [][2]int, col color.RGBA, closed bool) {
+	if len(points) < 2 {
+		return
+	}
+	for i := 1; i < len(points); i++ {
+		c.DrawLine(points[i-1][0], points[i-1][1], points[i][0], points[i][1], col)
+	}
+	if closed {
+		c.DrawLine(points[len(points)-1][0], points[len(points)-1][1], points[0][0], points[0][1], col)
+	}
+}
+
+// FillPolygon fills a simple polygon using an even-odd point-in-polygon test.
+func (c *Canvas) FillPolygon(points [][2]int, col color.RGBA) {
+	if len(points) < 3 {
+		return
+	}
+	minX, minY := points[0][0], points[0][1]
+	maxX, maxY := minX, minY
+	for _, pt := range points[1:] {
+		if pt[0] < minX {
+			minX = pt[0]
+		}
+		if pt[0] > maxX {
+			maxX = pt[0]
+		}
+		if pt[1] < minY {
+			minY = pt[1]
+		}
+		if pt[1] > maxY {
+			maxY = pt[1]
+		}
+	}
+	bounds := c.img.Bounds()
+	if minX < bounds.Min.X {
+		minX = bounds.Min.X
+	}
+	if minY < bounds.Min.Y {
+		minY = bounds.Min.Y
+	}
+	if maxX >= bounds.Max.X {
+		maxX = bounds.Max.X - 1
+	}
+	if maxY >= bounds.Max.Y {
+		maxY = bounds.Max.Y - 1
+	}
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			if pointInPolygon(x, y, points) {
+				c.img.SetRGBA(x, y, col)
+			}
+		}
+	}
+}
+
+// FillEllipse fills an axis-aligned ellipse centered at (cx, cy).
+func (c *Canvas) FillEllipse(cx, cy, rx, ry int, col color.RGBA) {
+	if rx <= 0 || ry <= 0 {
+		return
+	}
+	bounds := c.img.Bounds()
+	minX := maxInt(cx-rx, bounds.Min.X)
+	maxX := minInt(cx+rx, bounds.Max.X-1)
+	minY := maxInt(cy-ry, bounds.Min.Y)
+	maxY := minInt(cy+ry, bounds.Max.Y-1)
+	rx2 := float64(rx * rx)
+	ry2 := float64(ry * ry)
+	for y := minY; y <= maxY; y++ {
+		dy := float64(y - cy)
+		for x := minX; x <= maxX; x++ {
+			dx := float64(x - cx)
+			if dx*dx/rx2+dy*dy/ry2 <= 1 {
+				c.img.SetRGBA(x, y, col)
+			}
+		}
+	}
+}
+
+func pointInPolygon(x, y int, points [][2]int) bool {
+	inside := false
+	px := float64(x) + 0.5
+	py := float64(y) + 0.5
+	for i, j := 0, len(points)-1; i < len(points); j, i = i, i+1 {
+		xi := float64(points[i][0])
+		yi := float64(points[i][1])
+		xj := float64(points[j][0])
+		yj := float64(points[j][1])
+		intersects := (yi > py) != (yj > py)
+		if !intersects {
+			continue
+		}
+		xCross := (xj-xi)*(py-yi)/(yj-yi) + xi
+		if px < xCross || math.Abs(px-xCross) < 1e-9 {
+			inside = !inside
+		}
+	}
+	return inside
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// DrawImageAt blits src onto the canvas at (x, y), scaled to fit (w, h) pixels.
+// If w or h is zero the image is drawn at its natural size.
+func (c *Canvas) DrawImageAt(x, y, w, h int, src image.Image) {
+	if src == nil {
+		return
+	}
+	sb := src.Bounds()
+	sw, sh := sb.Dx(), sb.Dy()
+	if sw == 0 || sh == 0 {
+		return
+	}
+	if w <= 0 {
+		w = sw
+	}
+	if h <= 0 {
+		h = sh
+	}
+	dst := image.Rect(x, y, x+w, y+h).Intersect(c.img.Bounds())
+	if dst.Empty() {
+		return
+	}
+	// Scale by nearest-neighbour.
+	for py := dst.Min.Y; py < dst.Max.Y; py++ {
+		sy := sb.Min.Y + (py-y)*sh/h
+		for px := dst.Min.X; px < dst.Max.X; px++ {
+			sx := sb.Min.X + (px-x)*sw/w
+			c.img.Set(px, py, src.At(sx, sy))
+		}
+	}
+}
+
+// DrawText renders a string starting at (x, y) using the embedded 5×7 font.
+// scale=1 renders at native size; scale=2 doubles each pixel, etc.
+func (c *Canvas) DrawText(x, y int, text string, col color.RGBA, scale int) {
+	if scale < 1 {
+		scale = 1
+	}
+	cx := x
+	for _, ch := range text {
+		if ch == '\n' {
+			cx = x
+			y += (GlyphH + 1) * scale
+			continue
+		}
+		if ch < 32 || ch > 126 {
+			ch = '?'
+		}
+		drawGlyph(c.img, cx, y, font5x7[ch-32], col, scale)
+		cx += (GlyphW + 1) * scale
+	}
+}
+
+// TextWidth returns the pixel width of text at the given scale.
+func TextWidth(text string, scale int) int {
+	if scale < 1 {
+		scale = 1
+	}
+	return len([]rune(text)) * (GlyphW + 1) * scale
+}
+
+func drawGlyph(img *image.RGBA, x, y int, glyph [GlyphH]byte, col color.RGBA, scale int) {
+	bounds := img.Bounds()
+	for row := 0; row < GlyphH; row++ {
+		bits := glyph[row]
+		for col2 := 0; col2 < GlyphW; col2++ {
+			if bits&(1<<uint(GlyphW-1-col2)) == 0 {
+				continue
+			}
+			px := x + col2*scale
+			py := y + row*scale
+			for dy := 0; dy < scale; dy++ {
+				for dx := 0; dx < scale; dx++ {
+					p := image.Point{px + dx, py + dy}
+					if p.In(bounds) {
+						img.SetRGBA(p.X, p.Y, col)
+					}
+				}
+			}
+		}
+	}
+}
+
+// HexToRGBA parses a 6-digit hex color string (e.g. "FF0000") into color.RGBA.
+// Returns black on parse error.
+func HexToRGBA(hex string, alpha uint8) color.RGBA {
+	if len(hex) == 6 {
+		r := hexByte(hex[0], hex[1])
+		g := hexByte(hex[2], hex[3])
+		b := hexByte(hex[4], hex[5])
+		return color.RGBA{R: r, G: g, B: b, A: alpha}
+	}
+	return color.RGBA{A: alpha}
+}
+
+func hexByte(hi, lo byte) uint8 {
+	return hexNibble(hi)<<4 | hexNibble(lo)
+}
+
+func hexNibble(b byte) uint8 {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0'
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10
+	}
+	return 0
+}

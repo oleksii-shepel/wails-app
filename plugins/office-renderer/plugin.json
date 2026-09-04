@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "id": "aether.office-renderer",
+  "name": "Office Document Renderer",
+  "version": "0.1.0",
+  "apiVersion": "^2.0.0",
+  "description": "Renders Word, Excel, and PowerPoint documents through the Office parser package.",
+  "target": { "os": "windows", "arch": "x64" },
+  "frontend": { "entry": "frontend/index.js" },
+  "backend": { "entry": "backend/plugin.exe", "protocol": 1, "privilege": "elevated" },
+  "permissions": ["viewers", "backend.execute"],
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "extensions": ["doc", "docx", "xls", "xlsx", "ppt", "pptx"]
+  }
+}

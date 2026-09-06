@@ -5,6 +5,7 @@ import {
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../../services/api.service';
+import { ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../../services/canvas-video-player.service';
@@ -12,6 +13,7 @@ import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
 import { SegmentVideoLoader } from '../../viewers/builtins/segment-video-loader';
 import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from '../../viewers/builtins/builtin-viewer.shared';
+import { withViewerFrameScrollbars } from '../../viewers/viewer-frame-scrollbars';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -1302,6 +1304,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   wordWrap = false;
   private mediaProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private lastAutoplayKey: string | null = null;
+  private readonly themeSubscription: { unsubscribe(): void };
 
 
 
@@ -1414,7 +1417,15 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     private cdr: ChangeDetectorRef,
     private sanitizer: DomSanitizer,
     @Inject(CanvasVideoPlayerService) private videoPlayerService: CanvasVideoPlayerService,
-  ) {}
+    private themeService: ThemeService,
+  ) {
+    this.themeSubscription = this.themeService.getTheme$().subscribe(() => {
+      if (this.kind === 'html' && this.textContent !== null) {
+        this.renderedHtmlDocument = this.renderHTMLDocument(this.textContent);
+        this.cdr.markForCheck();
+      }
+    });
+  }
 
   async ngOnChanges(): Promise<void> {
     this.resetState();
@@ -1444,6 +1455,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.themeSubscription.unsubscribe();
     this.clearMediaProbe();
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
@@ -2503,11 +2515,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private renderHTMLDocument(source: string): string {
-    if (/<!doctype/i.test(source) || /<html[\s>]/i.test(source)) {
-      return source;
-    }
-
-    return `<!doctype html>
+    const document = /<!doctype/i.test(source) || /<html[\s>]/i.test(source)
+      ? source
+      : `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
@@ -2522,5 +2532,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   </head>
   <body>${source}</body>
 </html>`;
+
+    return withViewerFrameScrollbars(document);
   }
 }

@@ -379,12 +379,7 @@ export const VIEWER_PRODUCTION_CHROME_STYLES = `
     flex: 0 0 auto;
     overflow-x: auto;
     overflow-y: hidden;
-    scrollbar-width: none;
     white-space: nowrap;
-  }
-
-  .viewer-toolbar::-webkit-scrollbar {
-    display: none;
   }
 
   .viewer-toolbar > * {

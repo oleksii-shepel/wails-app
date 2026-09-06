@@ -433,19 +433,12 @@ interface CarouselVirtualFrame {
       overflow-y: hidden;
       min-width: 0;
       padding-bottom: 12px;
-      scrollbar-width: none;
-      -ms-overflow-style: none;
       scroll-snap-type: x mandatory;
 padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
       scroll-padding-inline: max(16px, calc((100% - 112px) / 2 + 8px));
       position: relative;
       z-index: 0;
       align-items: flex-start;
-    }
-    .carousel-list::-webkit-scrollbar {
-      display: none;
-      height: 0;
-      width: 0;
     }
     .carousel-virtual-spacer {
       flex: 0 0 auto;

@@ -31,3 +31,20 @@ func TestShapeTextPathStylesKeepVMLDefaultsWhenFormattingAbsent(t *testing.T) {
 		}
 	}
 }
+
+func TestShapeTextPathStylesAcceptsExtendedWordArtIR(t *testing.T) {
+	path := &resolve.TextPath{
+		On: "t", String: "Extended", Font: "Arial Black", SizePt: 28,
+		Spacing: 1.125, Align: 2, Warp: "textWave",
+		Kerning: true, Stretch: true, BestFit: true,
+		Underline: true, Shadow: true, SmallCaps: true, Strikethrough: true,
+	}
+	// The rectangular fallback style helper intentionally handles only the
+	// properties that make sense outside the SVG WordArt path. This test is a
+	// compile/compatibility contract for the extended shared TextPath IR.
+	styles := strings.Join(shapeTextPathStyles(path), ";")
+	if !strings.Contains(styles, `font-family:"Arial Black"`) ||
+		!strings.Contains(styles, "font-size:28.00pt") {
+		t.Fatalf("extended TextPath lost base styling: %q", styles)
+	}
+}

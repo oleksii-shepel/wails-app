@@ -1285,11 +1285,12 @@ type Image struct {
 type Shape struct {
 	// LegacyShapeID preserves the binary OfficeArt FSP.spid used for DOC ownership.
 	LegacyShapeID uint32
-	// LegacyFlowAnchor marks a DOC SHAPE field whose Spa is column/paragraph
-	// relative and non-wrapping. Word lays consecutive results of these fields
-	// through the anchor line instead of stacking every zero-offset Spa at the
-	// paragraph origin.
+	// LegacyFlowAnchor marks a Word binary SHAPE field whose FSPA coordinates
+	// are local to the anchor-line packing flow rather than page-absolute.
 	LegacyFlowAnchor bool
+	// LegacyFlowOrder is the authoritative FSPA CP. It must not be replaced by
+	// OfficeArt drawing/z-order when packing consecutive SHAPE fields.
+	LegacyFlowOrder int
 	// OfficeArt is the canonical cross-format drawing representation.
 	OfficeArt     *officeartir.Shape
 	Kind          string
@@ -1344,13 +1345,32 @@ type Shape struct {
 
 // TextPath carries VML textpath data for rendering text along a shape's path.
 type TextPath struct {
-	On       string  // "t" / "true" / "1" or empty
-	String   string  // the text to render
-	Font     string  // geometry-text font family when authored
-	SizePt   float64 // geometry-text size in points when authored
-	Bold     bool
-	Italic   bool
-	Vertical bool
+	On     string  // "t" / "true" / "1" or empty
+	String string  // the text to render
+	Font   string  // geometry-text font family when authored
+	SizePt float64 // geometry-text size in points when authored
+
+	// Legacy OfficeArt GeoText/WordArt semantics. These are also harmless for
+	// ordinary VML text paths, where they remain at their zero values.
+	Spacing float64 // 16.16 gtextSpacing normalized to a multiplier
+	Align   uint32  // OfficeArt geometry-text alignment enum
+	Warp    string  // normalized OfficeArt text-effect shape name
+
+	ReverseRows   bool
+	Vertical      bool
+	Kerning       bool
+	Tight         bool
+	Stretch       bool
+	ShrinkFit     bool
+	BestFit       bool
+	Normalize     bool
+	DxMeasure     bool
+	Bold          bool
+	Italic        bool
+	Underline     bool
+	Shadow        bool
+	SmallCaps     bool
+	Strikethrough bool
 }
 
 // ParagraphFormat is the effective semantic paragraph formatting model.

@@ -19,10 +19,17 @@ func ShapeFromEscher(node *escher.ShapeNode) *ir.Shape {
 			Kind:   ir.GeometryPreset,
 			Preset: ShapeTypeToPreset(node.ShapeType),
 		},
+		Transform: ir.Transform{
+			FlipV: node.Flags&0x40 != 0,
+			FlipH: node.Flags&0x80 != 0,
+		},
 		Source: ir.SourceRef{
 			Record:  escher.RecordSpContainer,
 			ShapeID: node.ShapeID,
 		},
+	}
+	if custom := DecodeCustomGeometry(node.Properties); custom.Kind == ir.GeometryCustom {
+		shape.Geometry = custom
 	}
 	if node.HasClientTextbox {
 		shape.Kind = ir.ShapeTextBox
@@ -56,11 +63,25 @@ func ShapeFromEscher(node *escher.ShapeNode) *ir.Shape {
 			shape.Line.Dash = visual.LineDash
 		}
 	}
-	if visual.HasCrop {
+	if visual.HasCrop || visual.HasPictureBrightness || visual.HasPictureContrast || visual.HasPictureGrayscale || visual.HasPictureBiLevel {
 		if shape.Image == nil {
 			shape.Image = &ir.Image{}
 		}
-		shape.Image.Crop = visual.Crop
+		if visual.HasCrop {
+			shape.Image.Crop = visual.Crop
+		}
+		if visual.HasPictureBrightness {
+			shape.Image.Brightness = visual.PictureBrightness
+		}
+		if visual.HasPictureContrast {
+			shape.Image.Contrast = visual.PictureContrast
+		}
+		if visual.HasPictureGrayscale {
+			shape.Image.Grayscale = visual.PictureGrayscale
+		}
+		if visual.HasPictureBiLevel {
+			shape.Image.BiLevel = visual.PictureBiLevel
+		}
 	}
 
 	text := visual.Text
@@ -97,6 +118,31 @@ func ShapeFromEscher(node *escher.ShapeNode) *ir.Shape {
 		}
 	}
 
+	if geometryText.Present {
+		shape.GeometryText = &ir.GeometryText{
+			Text:          geometryText.Text,
+			FontFamily:    geometryText.Font,
+			FontSizePt:    legacyGeometryTextSizePt(geometryText.Size),
+			Spacing:       float64(geometryText.Spacing) / 65536.0,
+			Align:         geometryText.Align,
+			Warp:          WordArtWarpName(node.ShapeType),
+			ReverseRows:   geometryText.ReverseRows,
+			Vertical:      geometryText.Vertical,
+			Kerning:       geometryText.Kerning,
+			Tight:         geometryText.Tight,
+			Stretch:       geometryText.Stretch,
+			ShrinkFit:     geometryText.ShrinkFit,
+			BestFit:       geometryText.BestFit,
+			Normalize:     geometryText.Normalize,
+			DxMeasure:     geometryText.DxMeasure,
+			Bold:          geometryText.Bold,
+			Italic:        geometryText.Italic,
+			Underline:     geometryText.Underline,
+			Shadow:        geometryText.Shadow,
+			SmallCaps:     geometryText.SmallCaps,
+			Strikethrough: geometryText.Strikethrough,
+		}
+	}
 	if geometryText.Present && geometryText.Text != "" {
 		if shape.Text == nil {
 			shape.Text = &ir.TextBody{}

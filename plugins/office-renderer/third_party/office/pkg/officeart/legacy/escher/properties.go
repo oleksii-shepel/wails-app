@@ -28,6 +28,28 @@ const (
 	PropCropLeft   uint16 = 0x0104
 	PropCropRight  uint16 = 0x0105
 
+	PropPictureContrast   uint16 = 0x0108
+	PropPictureBrightness uint16 = 0x0109
+	PropPictureGray       uint16 = 0x013D
+	PropPictureBiLevel    uint16 = 0x013E
+	PropPictureBooleans   uint16 = 0x013F
+
+	PropGeoLeft     uint16 = 0x0140
+	PropGeoTop      uint16 = 0x0141
+	PropGeoRight    uint16 = 0x0142
+	PropGeoBottom   uint16 = 0x0143
+	PropShapePath   uint16 = 0x0144
+	PropVertices    uint16 = 0x0145
+	PropSegmentInfo uint16 = 0x0146
+	PropAdjust1     uint16 = 0x0147
+	PropAdjust2     uint16 = 0x0148
+	PropAdjust3     uint16 = 0x0149
+	PropAdjust4     uint16 = 0x014A
+	PropAdjust5     uint16 = 0x014B
+	PropAdjust6     uint16 = 0x014C
+	PropAdjust7     uint16 = 0x014D
+	PropAdjust8     uint16 = 0x014E
+
 	PropFillType     uint16 = 0x0180
 	PropFillColor    uint16 = 0x0181
 	PropFillBooleans uint16 = 0x01BF

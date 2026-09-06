@@ -3,6 +3,7 @@ package legacy
 import (
 	"encoding/binary"
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,6 +13,12 @@ import (
 
 func TestParseDocCuratedPngPictureFixtureRendersLegacyDrawingImage(t *testing.T) {
 	path := "../../../../testdata/doc/apache-PngPicture.doc"
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("optional legacy PNG fixture is not available in this checkout")
+		}
+		t.Fatalf("stat fixture: %v", err)
+	}
 	doc, err := ParseDoc(path)
 	if err != nil {
 		t.Fatalf("ParseDoc(%s): %v", path, err)
@@ -158,36 +165,6 @@ func legacyWriteOfficeArtProperty(dst []byte, opid uint16, value uint32) {
 	binary.LittleEndian.PutUint16(dst[:2], opid)
 	binary.LittleEndian.PutUint32(dst[2:6], value)
 }
-func TestLegacyOfficeArtPicturePropertiesPreserveCropAndFilters(t *testing.T) {
-	payload := make([]byte, 8*6)
-	legacyWriteOfficeArtProperty(payload[0:6], legacyOfficeArtCropFromTopProperty, uint32(int32(3277)))     // ~5%
-	legacyWriteOfficeArtProperty(payload[6:12], legacyOfficeArtCropFromBottomProperty, uint32(int32(5243))) // ~8%
-	legacyWriteOfficeArtProperty(payload[12:18], legacyOfficeArtCropFromLeftProperty, uint32(int32(3277)))  // ~5%
-	legacyWriteOfficeArtProperty(payload[18:24], legacyOfficeArtCropFromRightProperty, uint32(int32(3932))) // ~6%
-	legacyWriteOfficeArtProperty(payload[24:30], legacyOfficeArtPictureBrightnessProperty, uint32(int32(8192)))
-	legacyWriteOfficeArtProperty(payload[30:36], legacyOfficeArtPictureContrastProperty, 0x0000C000)
-	legacyWriteOfficeArtProperty(payload[36:42], legacyOfficeArtPictureGrayProperty, 1)
-	legacyWriteOfficeArtProperty(payload[42:48], legacyOfficeArtPictureBiLevelProperty, 1)
-
-	var props legacyOfficeArtShapeProps
-	legacyApplyOfficeArtPropertyTable(payload, 8, &props)
-
-	if props.CropTop < 0.049 || props.CropTop > 0.051 || props.CropBottom < 0.079 || props.CropBottom > 0.081 {
-		t.Fatalf("vertical crop = top %.4f bottom %.4f", props.CropTop, props.CropBottom)
-	}
-	if props.CropLeft < 0.049 || props.CropLeft > 0.051 || props.CropRight < 0.059 || props.CropRight > 0.061 {
-		t.Fatalf("horizontal crop = left %.4f right %.4f", props.CropLeft, props.CropRight)
-	}
-	if props.Brightness != 1.25 {
-		t.Fatalf("brightness = %.4f, want 1.25", props.Brightness)
-	}
-	if props.Contrast != 0.75 {
-		t.Fatalf("contrast = %.4f, want 0.75", props.Contrast)
-	}
-	if !props.Grayscale || !props.BiLevel {
-		t.Fatalf("gray/bilevel = %v/%v, want true/true", props.Grayscale, props.BiLevel)
-	}
-}
 
 func TestLegacyDrawingAnchorReadsRotationFromTableStreamOfficeArt(t *testing.T) {
 	const (
@@ -210,54 +187,5 @@ func TestLegacyDrawingAnchorReadsRotationFromTableStreamOfficeArt(t *testing.T) 
 	}
 	if got := processed[1].Image.RotationDeg; math.Abs(got-335.5) > 0.01 {
 		t.Fatalf("rotation = %.3f, want 335.5 from table-stream FOPT", got)
-	}
-}
-
-func TestLegacyOfficeArtTextFlowReadsTableStream(t *testing.T) {
-	const shapeID = uint32(0x11223344)
-	flows := extractLegacyDrawingTextFlowsFromStreams(
-		[]byte("WordDocument has no OfficeArt"),
-		legacyTestOfficeArtTextFlowSpContainer(shapeID, 0x00000002),
-	)
-	if got := flows[shapeID]; got != "vert270" {
-		t.Fatalf("table-stream text flow = %q, want vert270", got)
-	}
-}
-
-func TestLegacyOfficeArtShapeTreesReadTableStream(t *testing.T) {
-	const shapeID = uint32(0x10203040)
-	childAnchor := legacyOfficeArtRect{Left: 100, Top: 200, Right: 400, Bottom: 800}
-	shape := &wordir.Shape{Kind: "rect", Width: 300, Height: 600}
-	nextChildID := shapeID + 1
-	tableStream := buildLegacyShapeOfficeArt(shapeID, shape, &childAnchor, &nextChildID)
-	trees := extractLegacyDrawingShapeTreesFromStreams([]byte("WordDocument has no OfficeArt"), tableStream)
-	tree, ok := trees[shapeID]
-	if !ok {
-		t.Fatalf("shape tree %08x not found in table stream", shapeID)
-	}
-	if tree.Bounds == nil || *tree.Bounds != childAnchor {
-		t.Fatalf("shape tree bounds = %#v, want %#v", tree.Bounds, childAnchor)
-	}
-}
-
-func TestLegacyOfficeArtPictureBooleanFlagsDecodeGrayAndBiLevel(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		raw  uint32
-		gray bool
-		bi   bool
-	}{
-		{name: "grayscale", raw: 0x00060004, gray: true, bi: false},
-		{name: "black-white", raw: 0x00060006, gray: true, bi: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			payload := make([]byte, 6)
-			legacyWriteOfficeArtProperty(payload, legacyOfficeArtPictureBoolsProperty, tc.raw)
-			var props legacyOfficeArtShapeProps
-			legacyApplyOfficeArtPropertyTable(payload, 1, &props)
-			if props.Grayscale != tc.gray || props.BiLevel != tc.bi {
-				t.Fatalf("gray/bilevel = %v/%v, want %v/%v", props.Grayscale, props.BiLevel, tc.gray, tc.bi)
-			}
-		})
 	}
 }

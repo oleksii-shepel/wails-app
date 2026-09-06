@@ -197,6 +197,7 @@ type htmlRenderer struct {
 	assets               []HTMLAsset
 	nextImageIndex       int
 	nextFontIndex        int
+	nextWordArtIndex     int
 	buf                  bytes.Buffer
 	overlay              bytes.Buffer
 	behindOverlay        bytes.Buffer
@@ -258,32 +259,33 @@ type htmlRenderer struct {
 	textAnimations map[string]bool
 	// Layout-backed position maps (populated once in render()).
 	// All coordinates are page-absolute (from page top-left) in points.
-	floatByImage       map[*resolve.Image]layout.FloatBox
-	floatByTextBox     map[*resolve.TextBox]layout.FloatBox
-	floatByShape       map[*resolve.Shape]layout.FloatBox
-	floatByFramePara   map[*resolve.Paragraph]layout.FloatBox
-	floatByTable       map[*resolve.Table]layout.FloatBox
-	paraBoxes          map[int]layout.BlockBox
-	paraHeights        map[int]float64 // paragraph.Index → computed height in points
-	bookmarkPages      map[string]int
-	bookmarkText       map[string]string
-	bookmarkNoteRefs   map[string]noteFieldTarget
-	bookmarkParaIndex  map[string]int // bookmark name → paragraph.Index
-	bookmarkScopes     map[string]bookmarkScope
-	footnoteNumbers    map[int]string
-	endnoteNumbers     map[int]string
-	sectionPageCounts  map[int]int
-	seqCounters        map[string]int
-	autonumCounter     int
-	seqRunValues       map[seqRunKey]int
-	seqValuesByName    map[string][]seqPositionValue
-	headingParagraphs  []headingPara
-	currentMergeRecord int
-	mergeSeqCount      int
-	paragraphNumbers   map[int]string // paragraph.Index → full context number (e.g. "1.2.3")
-	paragraphLevelNum  map[int]string // paragraph.Index → current level number only (e.g. "3")
-	paragraphSeq       []*resolve.Paragraph
-	paragraphSeqByIdx  map[int]int // paragraph.Index → position in paragraphSeq
+	floatByImage         map[*resolve.Image]layout.FloatBox
+	floatByTextBox       map[*resolve.TextBox]layout.FloatBox
+	floatByShape         map[*resolve.Shape]layout.FloatBox
+	floatByLegacyShapeID map[uint32]layout.FloatBox
+	floatByFramePara     map[*resolve.Paragraph]layout.FloatBox
+	floatByTable         map[*resolve.Table]layout.FloatBox
+	paraBoxes            map[int]layout.BlockBox
+	paraHeights          map[int]float64 // paragraph.Index → computed height in points
+	bookmarkPages        map[string]int
+	bookmarkText         map[string]string
+	bookmarkNoteRefs     map[string]noteFieldTarget
+	bookmarkParaIndex    map[string]int // bookmark name → paragraph.Index
+	bookmarkScopes       map[string]bookmarkScope
+	footnoteNumbers      map[int]string
+	endnoteNumbers       map[int]string
+	sectionPageCounts    map[int]int
+	seqCounters          map[string]int
+	autonumCounter       int
+	seqRunValues         map[seqRunKey]int
+	seqValuesByName      map[string][]seqPositionValue
+	headingParagraphs    []headingPara
+	currentMergeRecord   int
+	mergeSeqCount        int
+	paragraphNumbers     map[int]string // paragraph.Index → full context number (e.g. "1.2.3")
+	paragraphLevelNum    map[int]string // paragraph.Index → current level number only (e.g. "3")
+	paragraphSeq         []*resolve.Paragraph
+	paragraphSeqByIdx    map[int]int // paragraph.Index → position in paragraphSeq
 	// Line numbering state (from current section's LineNumbering setting).
 	lineNumbering     *resolve.LineNumbering // nil when disabled
 	lineNumber        int                    // current line number (1-based)
@@ -1706,6 +1708,7 @@ func (r *htmlRenderer) initLayoutMaps() {
 	r.floatByImage = make(map[*resolve.Image]layout.FloatBox)
 	r.floatByTextBox = make(map[*resolve.TextBox]layout.FloatBox)
 	r.floatByShape = make(map[*resolve.Shape]layout.FloatBox)
+	r.floatByLegacyShapeID = make(map[uint32]layout.FloatBox)
 	r.floatByFramePara = make(map[*resolve.Paragraph]layout.FloatBox)
 	r.floatByTable = make(map[*resolve.Table]layout.FloatBox)
 	r.paraBoxes = make(map[int]layout.BlockBox)
@@ -1722,6 +1725,9 @@ func (r *htmlRenderer) initLayoutMaps() {
 				r.floatByTextBox[fb.TextBox] = fb
 			case fb.Shape != nil:
 				r.floatByShape[fb.Shape] = fb
+				if fb.Shape.LegacyShapeID != 0 {
+					r.floatByLegacyShapeID[fb.Shape.LegacyShapeID] = fb
+				}
 			case fb.FrameParagraph != nil:
 				r.floatByFramePara[fb.FrameParagraph] = fb
 			case fb.FloatTable != nil:
@@ -1773,6 +1779,7 @@ func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageG
 	savedFloatByImage := r.floatByImage
 	savedFloatByTextBox := r.floatByTextBox
 	savedFloatByShape := r.floatByShape
+	savedFloatByLegacyShapeID := r.floatByLegacyShapeID
 	savedFloatByFramePara := r.floatByFramePara
 	savedFloatByTable := r.floatByTable
 	savedParaBoxes := r.paraBoxes
@@ -1791,6 +1798,7 @@ func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageG
 	r.floatByImage = make(map[*resolve.Image]layout.FloatBox)
 	r.floatByTextBox = make(map[*resolve.TextBox]layout.FloatBox)
 	r.floatByShape = make(map[*resolve.Shape]layout.FloatBox)
+	r.floatByLegacyShapeID = make(map[uint32]layout.FloatBox)
 	r.floatByFramePara = make(map[*resolve.Paragraph]layout.FloatBox)
 	r.floatByTable = make(map[*resolve.Table]layout.FloatBox)
 	r.paraBoxes = make(map[int]layout.BlockBox)
@@ -1805,6 +1813,9 @@ func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageG
 			r.floatByTextBox[fb.TextBox] = fb
 		case fb.Shape != nil:
 			r.floatByShape[fb.Shape] = fb
+			if fb.Shape.LegacyShapeID != 0 {
+				r.floatByLegacyShapeID[fb.Shape.LegacyShapeID] = fb
+			}
 		case fb.FrameParagraph != nil:
 			r.floatByFramePara[fb.FrameParagraph] = fb
 		case fb.FloatTable != nil:
@@ -1838,6 +1849,7 @@ func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageG
 		r.floatByImage = savedFloatByImage
 		r.floatByTextBox = savedFloatByTextBox
 		r.floatByShape = savedFloatByShape
+		r.floatByLegacyShapeID = savedFloatByLegacyShapeID
 		r.floatByFramePara = savedFloatByFramePara
 		r.floatByTable = savedFloatByTable
 		r.paraBoxes = savedParaBoxes
@@ -4021,6 +4033,16 @@ func (r *htmlRenderer) renderRun(run resolve.Run) {
 	if run.Kind == "break" && run.BreakType == "page" {
 		return
 	}
+	if run.Kind == "break" && run.BreakType == "line" {
+		if run.BreakClear != "" && run.BreakClear != "none" {
+			if clearCSS := breakClearCSS(run.BreakClear); clearCSS != "" {
+				fmt.Fprintf(&r.buf, `<br style=%q>`, clearCSS)
+				return
+			}
+		}
+		r.buf.WriteString("<br>")
+		return
+	}
 	if run.Kind == "image" && run.Image != nil {
 		if run.Image.Floating {
 			if r.renderParagraphFloatImage(run.Image) {
@@ -5542,7 +5564,7 @@ func (r *htmlRenderer) paragraphBlockFloatShapeStyleAttrs(shape *resolve.Shape) 
 	widthPt := emuToPoints(shape.Width)
 	heightPt := emuToPoints(shape.Height)
 	styleAttrs := []string{"display:block", "clear:both", "position:relative"}
-	if fb, ok := r.floatByShape[shape]; ok {
+	if fb, ok := r.shapeFloatBox(shape); ok {
 		widthPt = boxWidthPt(fb.Width, widthPt)
 		heightPt = boxHeightPt(fb.Height, heightPt)
 	}
@@ -5553,7 +5575,7 @@ func (r *htmlRenderer) paragraphBlockFloatShapeStyleAttrs(shape *resolve.Shape) 
 		styleAttrs = append(styleAttrs, fmt.Sprintf("margin-bottom:%.1fpt", shape.DistBottom))
 	}
 
-	fb, ok := r.floatByShape[shape]
+	fb, ok := r.shapeFloatBox(shape)
 	if !ok {
 		if strings.EqualFold(shape.XAlign, "center") {
 			styleAttrs = append(styleAttrs, "margin-left:auto", "margin-right:auto")
@@ -8308,6 +8330,14 @@ func (r *htmlRenderer) renderShapeWithStyleAttrs(buf *bytes.Buffer, shape *resol
 		return
 	}
 	r.withOutputBuffer(buf, func() {
+		// Geometry text/WordArt is not a rectangular textbox. It is painted as
+		// text following a geometry path, so it owns the shape host before the
+		// ordinary vector/rect fallbacks get a chance to draw a box behind it.
+		if shape.TextBox == nil && shape.TextPath != nil && shape.TextPath.String != "" {
+			if r.renderWordArtShapeWithStyleAttrs(&r.buf, shape, styleAttrs, widthPt, heightPt) {
+				return
+			}
+		}
 		if r.renderVectorShapeWithStyleAttrs(&r.buf, shape, styleAttrs, widthPt, heightPt) {
 			// Vector renderer owns the positioned host and renders shape text inside
 			// that same host. Rendering text here would make it a page-level sibling.
@@ -8464,6 +8494,148 @@ func (r *htmlRenderer) renderShapeWithStyleAttrs(buf *bytes.Buffer, shape *resol
 	})
 }
 
+// renderWordArtShapeWithStyleAttrs renders OfficeArt geometry text as SVG
+// text-on-path. This is deliberately separate from textbox rendering: WordArt
+// follows/deforms with the shape geometry instead of treating the shape as a
+// rectangular text viewport.
+func (r *htmlRenderer) renderWordArtShapeWithStyleAttrs(buf *bytes.Buffer, shape *resolve.Shape, styleAttrs []string, widthPt, heightPt float64) bool {
+	if shape == nil || shape.TextPath == nil || strings.TrimSpace(shape.TextPath.String) == "" {
+		return false
+	}
+	path := shape.TextPath
+	if widthPt <= 0 {
+		widthPt = 1
+	}
+	if heightPt <= 0 {
+		heightPt = 1
+	}
+
+	hostStyles := append([]string{}, styleAttrs...)
+	hostStyles = append(hostStyles,
+		fmt.Sprintf("width:%.1fpt", widthPt),
+		fmt.Sprintf("height:%.1fpt", heightPt),
+		"overflow:visible",
+	)
+	plan := buildShapeEffectRenderPlan(shape)
+	hostStyles = appendEffectTransformStyles(hostStyles, boxTransformCSS(shape.RotationDeg, shape.FlipH, shape.FlipV), effectStylePropsFromEffects(plan.OriginalEffects))
+
+	pathID := fmt.Sprintf("wordart-path-%d", r.nextWordArtIndex)
+	r.nextWordArtIndex++
+	pathData := wordArtPathData(path.Warp, path.Vertical)
+	startOffset, textAnchor := wordArtAlignment(path.Align)
+
+	textStyles := []string{"dominant-baseline:middle", "paint-order:stroke fill"}
+	if path.Font != "" {
+		textStyles = append(textStyles, "font-family:'"+strings.ReplaceAll(path.Font, "'", "\\'")+"'")
+	}
+	if path.SizePt > 0 {
+		// The viewBox is 100x100. Keep authored size as CSS points so the
+		// browser preserves Word's font metrics before path deformation.
+		textStyles = append(textStyles, fmt.Sprintf("font-size:%.2fpt", path.SizePt))
+	}
+	if path.Bold {
+		textStyles = append(textStyles, "font-weight:bold")
+	}
+	if path.Italic {
+		textStyles = append(textStyles, "font-style:italic")
+	}
+	if path.SmallCaps {
+		textStyles = append(textStyles, "font-variant:small-caps")
+	}
+	decorations := make([]string, 0, 2)
+	if path.Underline {
+		decorations = append(decorations, "underline")
+	}
+	if path.Strikethrough {
+		decorations = append(decorations, "line-through")
+	}
+	if len(decorations) > 0 {
+		textStyles = append(textStyles, "text-decoration:"+strings.Join(decorations, " "))
+	}
+	if path.Kerning {
+		textStyles = append(textStyles, "font-kerning:normal")
+	}
+	if path.Spacing > 0 && math.Abs(path.Spacing-1) > 0.0001 {
+		// gtextSpacing is a 16.16 scaling factor. CSS has no direct equivalent;
+		// tracking is best represented as an em-relative delta around 1.0.
+		textStyles = append(textStyles, fmt.Sprintf("letter-spacing:%.4fem", path.Spacing-1))
+	}
+	if path.Shadow {
+		textStyles = append(textStyles, "filter:drop-shadow(1px 1px 1px rgba(0,0,0,.45))")
+	}
+
+	fill := "#000000"
+	if shape.FillColor != "" {
+		fill = "#" + shape.FillColor
+	}
+	stroke := ""
+	if shape.StrokeColor != "" {
+		stroke = "#" + shape.StrokeColor
+	}
+
+	fmt.Fprintf(buf, `<div class="shape-wordart-host" style=%q>`, strings.Join(hostStyles, ";"))
+	fmt.Fprintf(buf, `<svg class="shape-wordart" viewBox="0 0 100 100" width="100%%" height="100%%" preserveAspectRatio="none" role="img" aria-label=%q xmlns="http://www.w3.org/2000/svg">`, path.String)
+	fmt.Fprintf(buf, `<defs><path id=%q d=%q pathLength="100"/></defs>`, pathID, pathData)
+	fmt.Fprintf(buf, `<text fill=%q text-anchor=%q style=%q`, fill, textAnchor, strings.Join(textStyles, ";"))
+	if stroke != "" {
+		fmt.Fprintf(buf, ` stroke=%q stroke-width="0.6"`, stroke)
+	}
+	buf.WriteString(`>`)
+	fmt.Fprintf(buf, `<textPath href="#%s" startOffset=%q`, pathID, startOffset)
+	if path.Stretch || path.BestFit {
+		buf.WriteString(` textLength="90" lengthAdjust="spacingAndGlyphs"`)
+	}
+	buf.WriteString(`>`)
+	buf.WriteString(html.EscapeString(path.String))
+	buf.WriteString(`</textPath></text></svg></div>`)
+	return true
+}
+
+func wordArtAlignment(align uint32) (startOffset, textAnchor string) {
+	// OfficeArt geometry-text documents encountered in Word use 1=center,
+	// 2=left/start and 3=right/end. Other modes (stretch/letter/word justify)
+	// are centered here and are further approximated by textLength when the
+	// authored best-fit/stretch flags are present.
+	switch align {
+	case 2:
+		return "5%", "start"
+	case 3:
+		return "95%", "end"
+	default:
+		return "50%", "middle"
+	}
+}
+
+func wordArtPathData(warp string, vertical bool) string {
+	if vertical {
+		return "M 50 5 L 50 95"
+	}
+	switch strings.ToLower(strings.TrimSpace(warp)) {
+	case "textarchupcurve", "textarchuppour", "textcurveup", "textoncurve":
+		return "M 5 78 Q 50 5 95 78"
+	case "textarchdowncurve", "textarchdownpour", "textcurvedown":
+		return "M 5 22 Q 50 95 95 22"
+	case "textcirclecurve", "textcirclepour", "textring", "textonring", "textringinside", "textringoutside":
+		return "M 5 55 A 45 45 0 0 1 95 55"
+	case "textbuttoncurve", "textbuttonpour", "textcanup":
+		return "M 5 62 Q 50 18 95 62"
+	case "textcandown":
+		return "M 5 38 Q 50 82 95 38"
+	case "textwave", "textwave1", "textwave2", "textwave3", "textwave4":
+		return "M 3 52 C 18 18 32 86 50 52 C 68 18 82 86 97 52"
+	case "textcascadeup", "textslantup", "textfadeup":
+		return "M 5 78 L 95 22"
+	case "textcascadedown", "textslantdown", "textfadedown":
+		return "M 5 22 L 95 78"
+	case "texttriangle", "textchevron":
+		return "M 5 75 L 50 20 L 95 75"
+	case "texttriangleinverted", "textchevroninverted":
+		return "M 5 25 L 50 80 L 95 25"
+	default:
+		return "M 5 50 L 95 50"
+	}
+}
+
 // renderShapeText renders the text content of a shape inside its geometry.
 //
 // The shape owns geometric placement/rotation. The textbox story gets a local
@@ -8598,6 +8770,23 @@ func replaceCSSDeclaration(styles []string, prefix, replacement string) []string
 	return append(styles, replacement)
 }
 
+func (r *htmlRenderer) shapeFloatBox(shape *resolve.Shape) (layout.FloatBox, bool) {
+	if shape == nil {
+		return layout.FloatBox{}, false
+	}
+	if fb, ok := r.floatByShape[shape]; ok {
+		return fb, true
+	}
+	// Layout can walk copied paragraph/run slices while rendering walks the
+	// canonical document blocks. Pointer identity is not stable across that
+	// boundary; the legacy OfficeArt FSP.spid is.
+	if shape.LegacyShapeID != 0 {
+		fb, ok := r.floatByLegacyShapeID[shape.LegacyShapeID]
+		return fb, ok
+	}
+	return layout.FloatBox{}, false
+}
+
 // renderShapeTo writes a shape to buf. Floating shapes use layout-computed
 // page-absolute coordinates.
 func (r *htmlRenderer) renderShapeTo(buf *bytes.Buffer, shape *resolve.Shape) {
@@ -8615,7 +8804,7 @@ func (r *htmlRenderer) renderShapeTo(buf *bytes.Buffer, shape *resolve.Shape) {
 	if shape.SimplePosAttr {
 		styleAttrs = append(styleAttrs, fmt.Sprintf("left:%.1fpt", emuToPoints(shape.SimplePosX)))
 		styleAttrs = append(styleAttrs, fmt.Sprintf("top:%.1fpt", emuToPoints(shape.SimplePosY)))
-	} else if fb, ok := r.floatByShape[shape]; ok {
+	} else if fb, ok := r.shapeFloatBox(shape); ok {
 		styleAttrs = append(styleAttrs, fmt.Sprintf("left:%.1fpt", fb.X))
 		styleAttrs = append(styleAttrs, fmt.Sprintf("top:%.1fpt", fb.Y))
 		widthPt = boxWidthPt(fb.Width, widthPt)

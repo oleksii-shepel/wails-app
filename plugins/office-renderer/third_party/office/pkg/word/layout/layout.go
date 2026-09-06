@@ -580,6 +580,13 @@ func Paginate(doc *resolve.Document) []Page {
 			return true
 		}
 		pendingPrelude := false
+		// Consecutive legacy SHAPE-field paragraphs belong to one anchor-line
+		// sequence. Some DOC producers/parser paths expose each field as a separate
+		// paragraph, so resetting the packing cursor per paragraph collapses every
+		// zero-offset shape onto the same page-margin origin.
+		var legacyFlowSequence *legacyShapeFlowState
+		legacyFlowPage := -1
+		legacyFlowColumn := -1
 		for i := range blockList {
 			block := &blockList[i]
 			if pendingPrelude {
@@ -682,7 +689,33 @@ func Paginate(doc *resolve.Document) []Page {
 			}
 
 			if block != nil && block.Paragraph != nil {
+				if paragraphHasLegacyShapeFlow(block.Paragraph) {
+					if legacyFlowSequence == nil || legacyFlowPage != currentPage || legacyFlowColumn != currentColumn {
+						legacyFlowSequence = &legacyShapeFlowState{
+							left:  columnLeftPt(geom, currentColumn),
+							width: columnWidthPt(geom, currentColumn),
+							y:     currentY + geom.MarginTop + height,
+						}
+						if legacyFlowSequence.width <= 0 {
+							legacyFlowSequence.width = geom.Width - geom.MarginLeft - geom.MarginRight
+						}
+						legacyFlowPage = currentPage
+						legacyFlowColumn = currentColumn
+					}
+					blockFloats = appendParagraphFloatsWithLegacyFlowState(
+						nil, block.Paragraph.Runs, geom, currentColumn,
+						currentY+geom.MarginTop, height, legacyFlowSequence,
+					)
+				} else {
+					legacyFlowSequence = nil
+					legacyFlowPage = -1
+					legacyFlowColumn = -1
+				}
 				addFootnotesForRuns(block.Paragraph.Runs, geom)
+			} else {
+				legacyFlowSequence = nil
+				legacyFlowPage = -1
+				legacyFlowColumn = -1
 			}
 			if endnoteCollector != nil {
 				endnoteCollector(block)
@@ -2181,14 +2214,22 @@ func TableRowHeights(doc *resolve.Document, t *resolve.Table, availableWidthPt f
 // paraPageY is the paragraph's top edge in page-absolute coordinates
 // (i.e., already includes the page margin-top).
 func appendParagraphFloats(floats []FloatBox, runs []resolve.Run, geom PageGeometry, column int, paraPageY, paraHeight float64) []FloatBox {
-	legacyFlow := legacyShapeFlowState{
-		left:  columnLeftPt(geom, column),
-		width: columnWidthPt(geom, column),
-		y:     paraPageY + paraHeight,
+	return appendParagraphFloatsWithLegacyFlowState(floats, runs, geom, column, paraPageY, paraHeight, nil)
+}
+
+func appendParagraphFloatsWithLegacyFlowState(floats []FloatBox, runs []resolve.Run, geom PageGeometry, column int, paraPageY, paraHeight float64, sharedLegacyFlow *legacyShapeFlowState) []FloatBox {
+	legacyFlow := sharedLegacyFlow
+	if legacyFlow == nil {
+		legacyFlow = &legacyShapeFlowState{
+			left:  columnLeftPt(geom, column),
+			width: columnWidthPt(geom, column),
+			y:     paraPageY + paraHeight,
+		}
+		if legacyFlow.width <= 0 {
+			legacyFlow.width = geom.Width - geom.MarginLeft - geom.MarginRight
+		}
 	}
-	if legacyFlow.width <= 0 {
-		legacyFlow.width = geom.Width - geom.MarginLeft - geom.MarginRight
-	}
+	legacyFlowPositions := legacyShapeFlowPositions(runs, legacyFlow)
 	for i := range runs {
 		run := &runs[i]
 		switch run.Kind {
@@ -2255,7 +2296,11 @@ func appendParagraphFloats(floats []FloatBox, runs []resolve.Run, geom PageGeome
 			}
 			var x, y float64
 			if sh.LegacyFlowAnchor {
-				x, y = legacyFlow.place(sh, widthPt, heightPt)
+				if pos, ok := legacyFlowPositions[sh]; ok {
+					x, y = pos.X, pos.Y
+				} else {
+					x, y = legacyFlow.place(sh, widthPt, heightPt)
+				}
 			} else {
 				x = resolveX(sh.X, sh.XRelative, sh.XAlign, geom, column, widthPt)
 				y = resolveY(sh.Y, sh.YRelative, sh.YAlign, geom, paraPageY, paraHeight, heightPt)
@@ -2272,6 +2317,67 @@ func appendParagraphFloats(floats []FloatBox, runs []resolve.Run, geom PageGeome
 		}
 	}
 	return floats
+}
+
+func paragraphHasLegacyShapeFlow(p *resolve.Paragraph) bool {
+	if p == nil {
+		return false
+	}
+	for i := range p.Runs {
+		run := &p.Runs[i]
+		if run.Kind == "shape" && run.Shape != nil && run.Shape.Floating && run.Shape.LegacyFlowAnchor {
+			return true
+		}
+	}
+	return false
+}
+
+type legacyShapeFlowPosition struct {
+	X float64
+	Y float64
+}
+
+type legacyShapeFlowItem struct {
+	shape    *resolve.Shape
+	widthPt  float64
+	heightPt float64
+	order    int
+	runIndex int
+}
+
+// legacyShapeFlowPositions separates story order from paint order. OfficeArt
+// z-order controls which shape is painted on top; FSPA CP controls where each
+// consecutive Word SHAPE field participates in anchor-line flow.
+func legacyShapeFlowPositions(runs []resolve.Run, state *legacyShapeFlowState) map[*resolve.Shape]legacyShapeFlowPosition {
+	items := make([]legacyShapeFlowItem, 0)
+	for i := range runs {
+		sh := runs[i].Shape
+		if runs[i].Kind != "shape" || sh == nil || !sh.Floating || !sh.LegacyFlowAnchor {
+			continue
+		}
+		items = append(items, legacyShapeFlowItem{
+			shape:    sh,
+			widthPt:  emuToPoints(sh.Width),
+			heightPt: emuToPoints(sh.Height),
+			order:    sh.LegacyFlowOrder,
+			runIndex: i,
+		})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].order <= 0 || items[j].order <= 0 || items[i].order == items[j].order {
+			return items[i].runIndex < items[j].runIndex
+		}
+		return items[i].order < items[j].order
+	})
+	out := make(map[*resolve.Shape]legacyShapeFlowPosition, len(items))
+	for _, item := range items {
+		x, y := state.place(item.shape, item.widthPt, item.heightPt)
+		out[item.shape] = legacyShapeFlowPosition{X: x, Y: y}
+	}
+	return out
 }
 
 type legacyShapeFlowState struct {

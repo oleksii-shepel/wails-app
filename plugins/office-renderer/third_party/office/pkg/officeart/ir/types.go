@@ -40,8 +40,9 @@ type Shape struct {
 	Line     Line
 	Effects  Effects
 
-	Text  *TextBody
-	Image *Image
+	Text         *TextBody
+	GeometryText *GeometryText
+	Image        *Image
 
 	Connector *Connector
 	Children  []*Shape
@@ -61,7 +62,9 @@ type SourceRef struct {
 	ShapeID uint32
 }
 
-// Image describes picture content and source cropping.
+// Image describes picture content, source cropping and OfficeArt picture
+// adjustments. These semantics are shared by DOC/XLS/PPT and should not be
+// re-decoded by application adapters.
 type Image struct {
 	Data     []byte
 	MIMEType string
@@ -70,6 +73,11 @@ type Image struct {
 	DPI      int
 
 	Crop Crop
+
+	Brightness float64 // CSS-style multiplier; 1 = unchanged, 0 = unset
+	Contrast   float64 // CSS-style multiplier; 1 = unchanged, 0 = unset
+	Grayscale  bool
+	BiLevel    bool
 }
 
 // Crop stores normalized [0,1] crop fractions from each source edge.

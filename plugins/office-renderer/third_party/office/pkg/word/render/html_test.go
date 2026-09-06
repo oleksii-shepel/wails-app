@@ -2162,8 +2162,11 @@ func TestHTMLVMLShapeTextPathRendersText(t *testing.T) {
 	if !strings.Contains(out, "Curved Text") {
 		t.Fatalf("expected textpath text 'Curved Text' in output, got:\n%s", out)
 	}
-	if !strings.Contains(out, "display:flex") {
-		t.Fatalf("expected flex centering for textpath fallback, got:\n%s", out)
+	if !strings.Contains(out, `class="shape-wordart"`) || !strings.Contains(out, `<textPath`) {
+		t.Fatalf("expected SVG geometry-text rendering, got:\n%s", out)
+	}
+	if strings.Contains(out, `class="shape-rect"`) {
+		t.Fatalf("geometry text should not fall through to rectangular textbox rendering, got:\n%s", out)
 	}
 }
 

@@ -2166,7 +2166,7 @@ func TestParseWorksheetExtractsLegacyOfficeArtShapes(t *testing.T) {
 	data = appendBiffRecord(data, biffMsoDrawing, legacyControlDrawing(
 		legacyControlShape(1, 1, 2, 2),
 		legacyOfficeArtShape(3, 3, 3, 6, 7, 0x0000FF00, 0x00FF0000, 25400),
-		legacyOfficeArtShape(34, 8, 2, 8, 6, 0, 0x000000FF, 12700),
+		legacyOfficeArtShape(32, 8, 2, 8, 6, 0, 0x000000FF, 12700),
 	))
 	data = appendBiffRecord(data, biffEOF, nil)
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	presax "office/pkg/presentation/parsers/ooxml/sax"
+	"office/pkg/render/textsafe"
 	sheetsax "office/pkg/sheet/parsers/ooxml/sax"
 	wordsax "office/pkg/word/parsers/ooxml/sax"
 )
@@ -149,7 +150,7 @@ func (h wordHandler) HandleEvent(ev wordsax.Event) error {
 		Format:   FormatWord,
 		Type:     string(ev.Type),
 		PartName: ev.PartName,
-		Text:     ev.Text,
+		Text:     textsafe.Visible(ev.Text),
 		Story:    string(ev.Story),
 		Word:     &copyEv,
 	})
@@ -168,7 +169,7 @@ func (h spreadsheetHandler) HandleEvent(ev sheetsax.Event) error {
 		Format:      FormatSpreadsheet,
 		Type:        string(ev.Type),
 		PartName:    ev.PartName,
-		Text:        ev.Text,
+		Text:        textsafe.Visible(ev.Text),
 		SheetIndex:  ev.SheetIndex,
 		SheetID:     ev.SheetID,
 		SheetName:   ev.SheetName,
@@ -192,7 +193,7 @@ func (h presentationHandler) HandleEvent(ev presax.Event) error {
 		Format:       FormatPresentation,
 		Type:         string(ev.Type),
 		PartName:     ev.PartName,
-		Text:         ev.Text,
+		Text:         textsafe.Visible(ev.Text),
 		SlideIndex:   ev.SlideIndex,
 		ShapeID:      ev.ShapeID,
 		ShapeName:    ev.ShapeName,

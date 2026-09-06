@@ -35,6 +35,9 @@ func TestOpenBytesDOCXFacade(t *testing.T) {
 		t.Fatalf("OpenBytes DOCX: %v", err)
 	}
 	assertDocumentContainsText(t, doc, "hello docx")
+	if doc.Filename != "fixture.docx" {
+		t.Fatalf("Filename = %q, want fixture.docx", doc.Filename)
+	}
 
 	html, err := HTML(doc)
 	if err != nil {
@@ -45,20 +48,20 @@ func TestOpenBytesDOCXFacade(t *testing.T) {
 	}
 }
 
-func TestOpenBytesDOCFacadePreservesLegacySource(t *testing.T) {
+func TestOpenBytesDOCFacadeUsesSemanticStreamingIR(t *testing.T) {
 	data := makeDOCFixture(t, "hello doc")
 	doc, err := OpenBytes("fixture.doc", data)
 	if err != nil {
 		t.Fatalf("OpenBytes DOC: %v", err)
 	}
 	assertDocumentContainsText(t, doc, "hello doc")
-	if doc.Source == nil {
-		t.Fatal("OpenBytes DOC lost legacy Document.Source")
-	}
-	if doc.Source.Version == 0 {
-		t.Fatal("OpenBytes DOC lost legacy FIB version")
+	if doc.Filename != "fixture.doc" {
+		t.Fatalf("Filename = %q, want fixture.doc", doc.Filename)
 	}
 
+	// The public Open/OpenBytes contract is semantic and streaming by default.
+	// Raw FIB/DOP/CLX provenance belongs to the explicit lossless conversion
+	// path and is intentionally not required here.
 	html, err := HTML(doc)
 	if err != nil {
 		t.Fatalf("HTML legacy DOC: %v", err)

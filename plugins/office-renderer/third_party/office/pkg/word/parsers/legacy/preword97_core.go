@@ -1,13 +1,13 @@
 package legacy
 
 import (
-	"encoding/binary"
-	"sort"
+	pre97 "office/pkg/word/parsers/doc/pre97"
 
 	"golang.org/x/text/encoding/charmap"
 )
 
 type preWord97DocCore struct {
+	Canonical         *pre97.Core
 	Span              PreWord97BodySpan
 	Fonts             []PreWord97FontEntry
 	PreferredCharset  *charmap.Charmap
@@ -16,65 +16,121 @@ type preWord97DocCore struct {
 	ListTables        *legacyListTables
 	ComplexFileTable  *legacyComplexFileTable
 	SyntheticPiecePlc []byte
+	PiecePlc          []byte
 }
 
 func loadPreWord97DocCore(wordStream []byte) (*preWord97DocCore, bool) {
-	span, ok := InspectPreWord97BodySpan(wordStream)
+	canonical, ok := pre97.OpenCore(wordStream)
 	if !ok {
 		return nil, false
 	}
-	papxEntries := convertPreWord97PapxEntries(loadPreWord97PapxEntries(wordStream, span))
+	span := legacyPreWord97Span(canonical.Span)
+	fonts := convertCanonicalPreWord97Fonts(canonical.Fonts)
+	papxEntries := convertCanonicalPreWord97PAPX(canonical.PAPX)
 	core := &preWord97DocCore{
-		Span:             span,
-		Fonts:            LoadPreWord97FontTable(wordStream, span.FontTableOffset, span.FontTableSize),
-		PreferredCharset: guessPreWord97Charset(wordStream, span),
-		ChpxEntries:      loadPreWord97ChpxEntries(wordStream, span),
-		PapxEntries:      papxEntries,
-		ListTables:       preWord97SynthesizeListTables(papxEntries),
-	}
-	if span.FComplex && span.ComplexTableOffset > 0 && span.ComplexTableOffset < len(wordStream) {
-		core.ComplexFileTable = loadLegacyComplexFileTable(wordStream[span.ComplexTableOffset:])
+		Canonical:         canonical,
+		Span:              span,
+		Fonts:             fonts,
+		PreferredCharset:  canonical.PreferredCharset,
+		ChpxEntries:       convertCanonicalPreWord97CHPX(canonical.CHPX, canonical.FontNames),
+		PapxEntries:       papxEntries,
+		ListTables:        preWord97SynthesizeListTables(papxEntries),
+		ComplexFileTable:  canonical.Complex,
+		PiecePlc:          append([]byte(nil), canonical.PiecePLC...),
 	}
 	if !span.FComplex {
-		core.SyntheticPiecePlc = buildPreWord97SinglePiecePlcPcd(span)
+		core.SyntheticPiecePlc = append([]byte(nil), canonical.PiecePLC...)
 	}
 	return core, true
 }
 
+func convertCanonicalPreWord97Fonts(fonts []pre97.FontEntry) []PreWord97FontEntry {
+	if len(fonts) == 0 {
+		return nil
+	}
+	out := make([]PreWord97FontEntry, len(fonts))
+	for i, font := range fonts {
+		out[i] = PreWord97FontEntry{Charset: font.Charset, Name: font.Name, AltName: font.AltName}
+	}
+	return out
+}
+
+func legacyPreWord97Span(span pre97.Span) PreWord97BodySpan {
+	return PreWord97BodySpan{
+		Signature: span.Signature, NFib: span.NFib, Start: span.Start, FcMac: span.FcMac,
+		CcpText: span.CcpText, BodyEnd: span.BodyEnd, SecondaryStart: span.SecondaryStart,
+		SecondarySize: span.SecondarySize, FComplex: span.FComplex,
+		CcpFtn: span.CcpFtn, CcpHdd: span.CcpHdd, CcpMcr: span.CcpMcr, CcpAtn: span.CcpAtn,
+		CcpEdn: span.CcpEdn, CcpTxbx: span.CcpTxbx, CcpHdrTxbx: span.CcpHdrTxbx,
+		SedTableOffset: span.SedTableOffset, SedTableSize: span.SedTableSize,
+		FtnRefTableOffset: span.FtnRefTableOffset, FtnRefTableSize: span.FtnRefTableSize,
+		FtnTxtTableOffset: span.FtnTxtTableOffset, FtnTxtTableSize: span.FtnTxtTableSize,
+		AtnRefTableOffset: span.AtnRefTableOffset, AtnRefTableSize: span.AtnRefTableSize,
+		AtnTxtTableOffset: span.AtnTxtTableOffset, AtnTxtTableSize: span.AtnTxtTableSize,
+		HddTableOffset: span.HddTableOffset, HddTableSize: span.HddTableSize,
+		ChpTableOffset: span.ChpTableOffset, ChpTableSize: span.ChpTableSize,
+		PapTableOffset: span.PapTableOffset, PapTableSize: span.PapTableSize,
+		FontTableOffset: span.FontTableOffset, FontTableSize: span.FontTableSize,
+		BkmkNameTableOffset: span.BkmkNameTableOffset, BkmkNameTableSize: span.BkmkNameTableSize,
+		BkmkStartTableOffset: span.BkmkStartTableOffset, BkmkStartTableSize: span.BkmkStartTableSize,
+		BkmkEndTableOffset: span.BkmkEndTableOffset, BkmkEndTableSize: span.BkmkEndTableSize,
+		EdnRefTableOffset: span.EdnRefTableOffset, EdnRefTableSize: span.EdnRefTableSize,
+		EdnTxtTableOffset: span.EdnTxtTableOffset, EdnTxtTableSize: span.EdnTxtTableSize,
+		ComplexTableOffset: span.ComplexTableOffset,
+	}
+}
+
 func (core *preWord97DocCore) assembleMainStoryRuns(wordStream []byte) []docRun {
-	var plc []byte
-	if core.Span.FComplex {
-		if core.ComplexFileTable == nil {
-			return nil
+	if core == nil || core.Canonical == nil {
+		return nil
+	}
+	cursor, err := pre97.NewPieceCursor(wordStream, core.Canonical)
+	if err != nil {
+		return nil
+	}
+	var runs []docRun
+	for {
+		run, ok, err := cursor.Next()
+		if err != nil || !ok {
+			if err != nil {
+				return nil
+			}
+			break
 		}
-		plc = core.ComplexFileTable.PlcPcd
-	} else {
-		plc = core.SyntheticPiecePlc
-	}
-	if len(plc) == 0 {
-		return nil
-	}
-	runs, ok := assembleDocRunsFromPlcPcdWithCharset(wordStream, plc, core.ChpxEntries, core.PapxEntries, core.PreferredCharset)
-	if !ok {
-		return nil
+		runs = append(runs, docRun{
+			Text:                run.Text,
+			Kind:                run.Kind,
+			Format:              run.Format,
+			ParaFormat:          run.ParagraphFormat,
+			TableDepth:          run.TableDepth,
+			LegacyInTableHint:   run.LegacyInTableHint,
+			LegacyRowMarkHint:   run.LegacyRowMarkHint,
+			TableProps:          legacyTableRowPropsFromCanonical(run.TableProps),
+			StartCP:             run.StartCP,
+			FieldKind:           run.FieldKind,
+			FieldInstr:          run.FieldInstr,
+			FieldArg:            run.FieldArg,
+			Target:              run.Target,
+			Anchor:              run.Anchor,
+			NoteID:              run.NoteID,
+			CommentID:           run.CommentID,
+			Image:               run.Image,
+			Shape:               run.Shape,
+			Spec:                run.Spec,
+			Data:                run.Data,
+			Obj:                 run.Obj,
+			ChpxSprms:           append([]byte(nil), run.ChpxSprms...),
+			PapxSprms:           append([]byte(nil), run.PapxSprms...),
+		})
 	}
 	return runs
 }
 
 func buildPreWord97SinglePiecePlcPcd(span PreWord97BodySpan) []byte {
-	charCount := span.BodyEnd - span.Start
-	if span.Start <= 0 || charCount <= 0 {
-		return nil
-	}
-	plc := make([]byte, 16)
-	binary.LittleEndian.PutUint32(plc[0:4], 0)
-	binary.LittleEndian.PutUint32(plc[4:8], uint32(charCount))
-	fcRaw := uint32(0x40000000) | uint32(span.Start*2)
-	binary.LittleEndian.PutUint32(plc[10:14], fcRaw)
-	return plc
+	return pre97.BuildSinglePiecePLC(pre97.Span{Start: span.Start, BodyEnd: span.BodyEnd})
 }
 
-func convertPreWord97PapxEntries(entries []preWord97PapxEntry) []papxEntry {
+func convertCanonicalPreWord97PAPX(entries []pre97.PAPXEntry) []papxEntry {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -83,12 +139,34 @@ func convertPreWord97PapxEntries(entries []preWord97PapxEntry) []papxEntry {
 		if entry.EndFC <= entry.StartFC {
 			continue
 		}
+		format, semantic := pre97.DecodePAPXGrpprl(entry.Sprms)
+		if entry.StyleIndex != nil {
+			styleIndex := *entry.StyleIndex
+			format.BinaryStyleIndex = &styleIndex
+		}
+		meta := papxMetadata{PreWord97ListStart: semantic.ListStart}
 		out = append(out, papxEntry{
 			FC:                uint32(entry.StartFC),
-			Format:            entry.Format,
-			Meta:              entry.Meta,
-			LegacyInTableHint: entry.LegacyInTableHint,
-			LegacyRowMarkHint: entry.LegacyRowMarkHint,
+			Format:            format,
+			Meta:              meta,
+			LegacyInTableHint: semantic.InTable,
+			LegacyRowMarkHint: semantic.RowMark,
+			Sprms:             append([]byte(nil), entry.Sprms...),
+		})
+	}
+	return out
+}
+
+func convertCanonicalPreWord97CHPX(entries []pre97.CHPXEntry, fontNames []string) []chpxEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]chpxEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, chpxEntry{
+			FC:     entry.FC,
+			Format: pre97.DecodeCHPXGrpprl(entry.Sprms, fontNames),
+			Sprms:  append([]byte(nil), entry.Sprms...),
 		})
 	}
 	return out
@@ -150,47 +228,35 @@ func preWord97SynthesizeListTables(entries []papxEntry) *legacyListTables {
 	}
 }
 
-func loadPreWord97ChpxEntries(wordStream []byte, span PreWord97BodySpan) []chpxEntry {
-	if span.ChpTableOffset <= 0 || span.ChpTableSize < 10 || span.ChpTableOffset+span.ChpTableSize > len(wordStream) {
-		return nil
-	}
-	plc := wordStream[span.ChpTableOffset : span.ChpTableOffset+span.ChpTableSize]
-	n := (len(plc) - 4) / 6
-	if n <= 0 {
-		return nil
-	}
-	cpBytes := (n + 1) * 4
-	if cpBytes+n*2 > len(plc) {
-		return nil
-	}
-	fontEntries := LoadPreWord97FontTable(wordStream, span.FontTableOffset, span.FontTableSize)
-	fontNames := make([]string, len(fontEntries))
-	for i, fe := range fontEntries {
-		fontNames[i] = fe.Name
-	}
-
-	var entries []chpxEntry
-	for index := 0; index < n; index++ {
-		pageNum := int(binary.LittleEndian.Uint16(plc[cpBytes+index*2 : cpBytes+index*2+2]))
-		pageOff := pageNum * 512
-		if pageOff < 0 || pageOff+512 > len(wordStream) {
-			continue
-		}
-		entries = append(entries, parsePreWord97ChpxFKPPage(wordStream[pageOff:pageOff+512], fontNames)...)
-	}
+// These wrappers remain for legacy tests/callers during migration. Production
+// pre-97 core construction above consumes canonical Core state directly.
+func convertPreWord97PapxEntries(entries []preWord97PapxEntry) []papxEntry {
 	if len(entries) == 0 {
 		return nil
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].FC < entries[j].FC
-	})
-	write := 0
+	out := make([]papxEntry, 0, len(entries))
 	for _, entry := range entries {
-		if write > 0 && entries[write-1].FC == entry.FC {
+		if entry.EndFC <= entry.StartFC {
 			continue
 		}
-		entries[write] = entry
-		write++
+		out = append(out, papxEntry{
+			FC:                uint32(entry.StartFC),
+			Format:            entry.Format,
+			Meta:              entry.Meta,
+			LegacyInTableHint: entry.LegacyInTableHint,
+			LegacyRowMarkHint: entry.LegacyRowMarkHint,
+			Sprms:             append([]byte(nil), entry.Sprms...),
+		})
 	}
-	return entries[:write]
+	return out
+}
+
+func loadPreWord97ChpxEntries(wordStream []byte, span PreWord97BodySpan) []chpxEntry {
+	canonical := pre97.Span{
+		Start: span.Start, BodyEnd: span.BodyEnd,
+		ChpTableOffset: span.ChpTableOffset, ChpTableSize: span.ChpTableSize,
+		FontTableOffset: span.FontTableOffset, FontTableSize: span.FontTableSize,
+	}
+	fonts := pre97.LoadFontTable(wordStream, span.FontTableOffset, span.FontTableSize)
+	return convertCanonicalPreWord97CHPX(pre97.LoadCHPXEntries(wordStream, canonical), pre97.FontNames(fonts))
 }

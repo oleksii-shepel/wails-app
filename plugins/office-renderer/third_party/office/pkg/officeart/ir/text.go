@@ -58,6 +58,33 @@ type TextBody struct {
 	Paragraphs []Paragraph
 }
 
+// GeometryText preserves the shared OfficeArt geometry-text/WordArt semantics
+// that cannot be represented by an ordinary text body alone.
+type GeometryText struct {
+	Text       string
+	FontFamily string
+	FontSizePt float64
+	Spacing    float64
+	Align      uint32
+	Warp       string
+
+	ReverseRows   bool
+	Vertical      bool
+	Kerning       bool
+	Tight         bool
+	Stretch       bool
+	ShrinkFit     bool
+	BestFit       bool
+	Normalize     bool
+	DxMeasure     bool
+	Bold          bool
+	Italic        bool
+	Underline     bool
+	Shadow        bool
+	SmallCaps     bool
+	Strikethrough bool
+}
+
 type Paragraph struct {
 	Runs          []TextRun
 	Align         string

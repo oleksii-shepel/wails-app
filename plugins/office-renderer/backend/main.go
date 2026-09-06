@@ -96,26 +96,26 @@ func render(path string) (string, error) {
 		return "", fmt.Errorf("%s is a directory", path)
 	}
 
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".doc":
+	switch documentKind(filepath.Ext(path)) {
+	case "doc":
 		doc, err := wordlegacy.ParseDoc(path)
 		if err != nil {
 			return "", err
 		}
 		return wordrender.HTML(doc)
-	case ".xls":
+	case "xls":
 		book, err := sheetlegacy.ParseXls(path)
 		if err != nil {
 			return "", err
 		}
 		return sheetrender.HTML(book)
-	case ".ppt":
+	case "ppt":
 		presentation, err := pptlegacy.ParsePpt(path)
 		if err != nil {
 			return "", err
 		}
 		return pptrender.HTML(presentation)
-	case ".docx":
+	case "docx":
 		pkg, err := opc.Open(path)
 		if err != nil {
 			return "", err
@@ -130,7 +130,7 @@ func render(path string) (string, error) {
 			return "", err
 		}
 		return wordrender.HTML(doc)
-	case ".xlsx":
+	case "xlsx":
 		pkg, err := opc.Open(path)
 		if err != nil {
 			return "", err
@@ -144,7 +144,7 @@ func render(path string) (string, error) {
 			return "", err
 		}
 		return sheetrender.HTML(book)
-	case ".pptx":
+	case "pptx":
 		pkg, err := opc.Open(path)
 		if err != nil {
 			return "", err
@@ -161,6 +161,27 @@ func render(path string) (string, error) {
 		return html, err
 	default:
 		return "", fmt.Errorf("unsupported Office format %q", filepath.Ext(path))
+	}
+}
+
+// documentKind maps legacy formats and all supported Word, Excel, and
+// PowerPoint OOXML variants to the parser that understands their package.
+func documentKind(extension string) string {
+	switch strings.ToLower(extension) {
+	case ".doc":
+		return "doc"
+	case ".xls":
+		return "xls"
+	case ".ppt":
+		return "ppt"
+	case ".docx", ".docm", ".dotx", ".dotm":
+		return "docx"
+	case ".xlsx", ".xlsm", ".xltx", ".xltm", ".xlam":
+		return "xlsx"
+	case ".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm":
+		return "pptx"
+	default:
+		return ""
 	}
 }
 

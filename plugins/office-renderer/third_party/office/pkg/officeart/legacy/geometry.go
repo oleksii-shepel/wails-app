@@ -1,7 +1,8 @@
 package legacy
 
-// ShapeTypeToPreset maps MS-ODRAW OfficeArt shape type IDs to DrawingML preset
-// geometry names. Unknown types intentionally return "".
+// ShapeTypeToPreset maps [MS-ODRAW] MSOSPT values to DrawingML preset
+// geometry names. Values that are text-effect-only or explicitly deprecated
+// intentionally return "" and are handled by the GeoText/WordArt path instead.
 func ShapeTypeToPreset(shapeType uint16) string {
 	switch shapeType {
 	case 1:
@@ -30,176 +31,232 @@ func ShapeTypeToPreset(shapeType uint16) string {
 		return "star5"
 	case 13:
 		return "rightArrow"
-	case 14:
-		return "leftArrow"
 	case 15:
-		return "upArrow"
-	case 16:
-		return "downArrow"
-	case 17:
 		return "homePlate"
-	case 18:
+	case 16:
 		return "cube"
-	case 22:
+	case 19:
+		return "arc"
+	case 20:
 		return "line"
-	case 24:
+	case 21:
+		return "plaque"
+	case 22:
 		return "can"
-	case 25:
+	case 23:
 		return "donut"
-	case 34, 130:
+
+	// 24..31 are legacy text-effect shapes and are handled by WordArtWarpName.
+
+	case 32:
 		return "straightConnector1"
-	case 35, 131:
+	case 33:
 		return "bentConnector2"
-	case 36:
+	case 34:
 		return "bentConnector3"
-	case 37:
+	case 35:
 		return "bentConnector4"
-	case 38, 132:
+	case 36:
+		return "bentConnector5"
+	case 37:
 		return "curvedConnector2"
-	case 39:
+	case 38:
 		return "curvedConnector3"
-	case 40:
+	case 39:
 		return "curvedConnector4"
-	case 41:
+	case 40:
 		return "curvedConnector5"
-	case 42:
+	case 41:
 		return "callout1"
-	case 43:
+	case 42:
 		return "callout2"
-	case 44:
+	case 43:
 		return "callout3"
-	case 45:
+	case 44:
 		return "accentCallout1"
-	case 46:
+	case 45:
 		return "accentCallout2"
-	case 47:
+	case 46:
 		return "accentCallout3"
-	case 48:
+	case 47:
 		return "borderCallout1"
-	case 49:
+	case 48:
 		return "borderCallout2"
-	case 50:
+	case 49:
 		return "borderCallout3"
-	case 51:
+	case 50:
 		return "accentBorderCallout1"
-	case 52:
+	case 51:
 		return "accentBorderCallout2"
-	case 53:
+	case 52:
 		return "accentBorderCallout3"
-	case 54:
+	case 53:
 		return "ribbon"
-	case 55:
+	case 54:
 		return "ribbon2"
-	case 56:
+	case 55:
 		return "chevron"
-	case 57:
+	case 56:
 		return "pentagon"
-	case 58:
+	case 57:
 		return "noSmoking"
-	case 59:
+	case 58:
 		return "star8"
-	case 60:
+	case 59:
 		return "star16"
-	case 61:
+	case 60:
 		return "star32"
-	case 62:
+	case 61:
 		return "wedgeRectCallout"
-	case 63:
+	case 62:
 		return "wedgeRoundRectCallout"
-	case 64:
+	case 63:
 		return "wedgeEllipseCallout"
-	case 65:
+	case 64:
 		return "wave"
-	case 66:
+	case 65:
 		return "foldedCorner"
-	case 67:
+	case 66:
 		return "leftArrow"
-	case 68:
+	case 67:
 		return "downArrow"
-	case 69:
+	case 68:
 		return "upArrow"
+	case 69:
+		return "leftRightArrow"
 	case 70:
-		return "leftRightUpArrow"
+		return "upDownArrow"
 	case 71:
-		return "quadArrow"
+		return "irregularSeal1"
 	case 72:
-		return "leftRightArrowCallout"
+		return "irregularSeal2"
 	case 73:
-		return "upDownArrowCallout"
+		return "lightningBolt"
 	case 74:
-		return "leftRightUpArrowCallout"
+		return "heart"
 	case 75:
-		return "quadArrowCallout"
+		// PictureFrame has rectangular geometry; picture semantics come from BLIP.
+		return "rect"
 	case 76:
-		return "bentArrow"
+		return "quadArrow"
 	case 77:
-		return "uturnArrow"
+		return "leftArrowCallout"
 	case 78:
-		return "circularArrow"
+		return "rightArrowCallout"
 	case 79:
-		return "leftCircularArrow"
+		return "upArrowCallout"
 	case 80:
-		return "curvedLeftArrow"
+		return "downArrowCallout"
 	case 81:
-		return "curvedRightArrow"
+		return "leftRightArrowCallout"
 	case 82:
-		return "curvedUpArrow"
+		return "upDownArrowCallout"
 	case 83:
-		return "curvedDownArrow"
+		return "quadArrowCallout"
 	case 84:
-		return "cloudCallout"
+		return "bevel"
 	case 85:
-		return "cloud"
+		return "leftBracket"
+	case 86:
+		return "rightBracket"
+	case 87:
+		return "leftBrace"
 	case 88:
-		return "verticalScroll"
+		return "rightBrace"
 	case 89:
+		return "leftUpArrow"
+	case 90:
+		return "bentUpArrow"
+	case 91:
+		return "bentArrow"
+	case 92:
+		return "star24"
+	case 93:
+		return "stripedRightArrow"
+	case 94:
+		return "notchedRightArrow"
+	case 95:
+		return "blockArc"
+	case 96:
+		return "smileyFace"
+	case 97:
+		return "verticalScroll"
+	case 98:
 		return "horizontalScroll"
 	case 99:
-		return "funnel"
-	case 100:
-		return "mathPlus"
+		return "circularArrow"
 	case 101:
-		return "mathMinus"
+		return "uturnArrow"
 	case 102:
-		return "mathMultiply"
+		return "curvedRightArrow"
 	case 103:
-		return "mathDivide"
+		return "curvedLeftArrow"
 	case 104:
-		return "mathEqual"
+		return "curvedUpArrow"
 	case 105:
-		return "mathNotEqual"
+		return "curvedDownArrow"
+	case 106:
+		return "cloudCallout"
+	case 107:
+		return "ellipseRibbon"
+	case 108:
+		return "ellipseRibbon2"
 	case 109:
-		return "heart"
+		return "flowChartProcess"
 	case 110:
-		return "lightningBolt"
+		return "flowChartDecision"
 	case 111:
-		return "sun"
+		return "flowChartInputOutput"
 	case 112:
-		return "moon"
+		return "flowChartPredefinedProcess"
 	case 113:
-		return "smileyFace"
+		return "flowChartInternalStorage"
+	case 114:
+		return "flowChartDocument"
+	case 115:
+		return "flowChartMultidocument"
+	case 116:
+		return "flowChartTerminator"
 	case 117:
-		return "bevel"
+		return "flowChartPreparation"
 	case 118:
-		return "frame"
+		return "flowChartManualInput"
 	case 119:
-		return "halfFrame"
+		return "flowChartManualOperation"
 	case 120:
-		return "corner"
+		return "flowChartConnector"
+	case 121:
+		return "flowChartPunchedCard"
 	case 122:
-		return "chord"
+		return "flowChartPunchedTape"
+	case 123:
+		return "flowChartSummingJunction"
 	case 124:
-		return "leftBracket"
+		return "flowChartOr"
 	case 125:
-		return "rightBracket"
+		return "flowChartCollate"
 	case 126:
-		return "leftBrace"
+		return "flowChartSort"
 	case 127:
-		return "rightBrace"
+		return "flowChartExtract"
 	case 128:
-		return "bracketPair"
+		return "flowChartMerge"
 	case 129:
-		return "bracePair"
+		return "flowChartOfflineStorage"
+	case 130:
+		return "flowChartOnlineStorage"
+	case 131:
+		return "flowChartMagneticTape"
+	case 132:
+		return "flowChartMagneticDisk"
+	case 133:
+		return "flowChartMagneticDrum"
+	case 134:
+		return "flowChartDisplay"
+	case 135:
+		return "flowChartDelay"
+
+	// 136..175 are WordArt/text-effect shapes and are handled by WordArtWarpName.
 	default:
 		return ""
 	}

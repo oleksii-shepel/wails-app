@@ -11,6 +11,7 @@ package cfb
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"unicode/utf16"
@@ -60,7 +61,10 @@ type entry struct {
 // File is a parsed Compound File Binary archive.
 // Use Stream to access named streams embedded in the archive.
 type File struct {
-	raw              []byte   // entire file content, kept for sector reads
+	raw              []byte   // in-memory source used by OpenBytes / compatibility Open
+	reader           io.ReaderAt
+	readerSize       int64
+	closer           io.Closer
 	sectorSize       int      // 512 (v3) or 4096 (v4)
 	miniSectorSize   int      // always 64
 	miniStreamCutoff uint32   // streams smaller than this use the mini stream
@@ -70,7 +74,19 @@ type File struct {
 	entries          []*entry // flat slice of all directory entries; index 0 = root
 }
 
-// Open reads a CFB archive from disk.
+// Close releases a backing resource created by OpenFileBacked. It is a no-op
+// for byte-backed archives and callers may safely call it unconditionally.
+func (f *File) Close() error {
+	if f == nil || f.closer == nil {
+		return nil
+	}
+	err := f.closer.Close()
+	f.closer = nil
+	return err
+}
+
+// Open reads a CFB archive from disk using the historical in-memory path.
+// Streaming consumers should prefer OpenFileBacked.
 func Open(path string) (*File, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -306,12 +322,22 @@ func (f *File) readStreamBestEffort(e *entry) ([]byte, error) {
 		return data, fmt.Errorf("cfb: mini stream %q: expected %d bytes, got %d", e.name, e.size, len(data))
 	}
 
-	data, lastSect := chainReadWithLastSector(f.raw, f.sectorSize, f.fat, e.startSect)
+	var data []byte
+	var lastSect uint32
+	if f.reader != nil {
+		data, lastSect = chainReadReaderWithLastSector(f.reader, f.readerSize, f.sectorSize, f.fat, e.startSect)
+	} else {
+		data, lastSect = chainReadWithLastSector(f.raw, f.sectorSize, f.fat, e.startSect)
+	}
 	if uint64(len(data)) >= e.size {
 		return data[:e.size], nil
 	}
 	if lastSect != secFree {
-		data = append(data, contiguousSectorRead(f.raw, f.sectorSize, lastSect+1, int(e.size)-len(data))...)
+		if f.reader != nil {
+			data = append(data, contiguousSectorReadReader(f.reader, f.readerSize, f.sectorSize, lastSect+1, int(e.size)-len(data))...)
+		} else {
+			data = append(data, contiguousSectorRead(f.raw, f.sectorSize, lastSect+1, int(e.size)-len(data))...)
+		}
 		if uint64(len(data)) >= e.size {
 			return data[:e.size], fmt.Errorf("cfb: stream %q: FAT chain truncated, recovered %d contiguous bytes", e.name, e.size)
 		}
@@ -321,7 +347,12 @@ func (f *File) readStreamBestEffort(e *entry) ([]byte, error) {
 
 // readRegularStream reads a stream from the main FAT chain.
 func (f *File) readRegularStream(e *entry) ([]byte, error) {
-	data := chainRead(f.raw, f.sectorSize, f.fat, e.startSect)
+	var data []byte
+	if f.reader != nil {
+		data = chainReadReader(f.reader, f.readerSize, f.sectorSize, f.fat, e.startSect)
+	} else {
+		data = chainRead(f.raw, f.sectorSize, f.fat, e.startSect)
+	}
 	if uint64(len(data)) < e.size {
 		return nil, fmt.Errorf("cfb: stream %q: expected %d bytes, got %d", e.name, e.size, len(data))
 	}

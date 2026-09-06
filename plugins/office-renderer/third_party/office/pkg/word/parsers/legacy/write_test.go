@@ -1862,3 +1862,26 @@ func TestLegacySpaAnchorOriginWriterUsesNativeMSDOCValues(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacyWriterBuildsAuthoritativeTextboxOwnerPLCForNestedGroup(t *testing.T) {
+	makeBox := func(text string) *wordir.TextBox {
+		p := wordir.Paragraph{Runs: []wordir.Run{{Kind: "run", Text: text}}}
+		return &wordir.TextBox{Vert: "vert", Blocks: []wordir.Block{{Kind: "paragraph", Paragraph: &p}}}
+	}
+	group := &wordir.Shape{Kind: "group", Children: []wordir.Shape{
+		{Kind: "rect", TextBox: makeBox("first")},
+		{Kind: "group", Children: []wordir.Shape{
+			{Kind: "ellipse", TextBox: makeBox("second")},
+		}},
+	}}
+	shapes := []legacyFloatingShapeWrite{{ShapeID: 0x801, Shape: group}}
+	owners := legacyTextBoxOwnerShapeIDs(shapes)
+	if len(owners) != 2 || owners[0] != 0x10000 || owners[1] != 0x10002 {
+		t.Fatalf("textbox owner IDs = %#v, want [0x10000 0x10002]", owners)
+	}
+	plc := buildLegacyPlcftxbxTxt("first\r\fsecond\r", owners)
+	ranges := parseLegacyTextboxPLC(plc, false)
+	if len(ranges) != 2 || ranges[0].ShapeID != owners[0] || ranges[1].ShapeID != owners[1] {
+		t.Fatalf("textbox ownership ranges = %#v", ranges)
+	}
+}

@@ -25,7 +25,7 @@ func TestShapeFromEscherBuildsTextBox(t *testing.T) {
 	if got.Transform.RotationDeg != 30 {
 		t.Fatalf("rotation = %g", got.Transform.RotationDeg)
 	}
-	if got.Text.Insets.Left != 25400 || got.Text.Wrap != ir.TextWrapNone {
+	if got.Text.Insets.Left != 25400 || got.Text.Wrap != ir.TextWrapSquare {
 		t.Fatalf("text = %#v", got.Text)
 	}
 }

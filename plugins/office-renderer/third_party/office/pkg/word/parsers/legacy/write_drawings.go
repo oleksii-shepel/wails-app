@@ -123,6 +123,29 @@ func legacyFSPAFlags(xRelative, yRelative, wrapType, wrapSide string, behindDoc 
 	return flags
 }
 
+func legacyTextBoxOwnerShapeIDs(shapes []legacyFloatingShapeWrite) []uint32 {
+	nextChildID := uint32(0x10000)
+	owners := make([]uint32, 0)
+	var walk func(uint32, *wordir.Shape)
+	walk = func(shapeID uint32, shape *wordir.Shape) {
+		if shape == nil {
+			return
+		}
+		if shape.TextBox != nil && len(shape.TextBox.Blocks) > 0 {
+			owners = append(owners, shapeID)
+		}
+		for i := range shape.Children {
+			childID := nextChildID
+			nextChildID++
+			walk(childID, &shape.Children[i])
+		}
+	}
+	for _, item := range shapes {
+		walk(item.ShapeID, item.Shape)
+	}
+	return owners
+}
+
 func buildLegacyFloatingShapeOfficeArt(shapes []legacyFloatingShapeWrite) []byte {
 	var out bytes.Buffer
 	nextChildID := uint32(0x10000)
@@ -475,7 +498,7 @@ func legacyOfficeArtTextFlowFromTextBox(tb *wordir.TextBox) uint32 {
 	case "vert270", "wordartvert", "eavert":
 		return 2
 	case "vert", "mongolianvert", "wordartvertrtl":
-		return 5
+		return 1 // canonical msotxflTtoBA; 3 and 5 are accepted on read
 	default:
 		return 0
 	}

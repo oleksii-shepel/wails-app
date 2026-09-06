@@ -1,6 +1,7 @@
 package word
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -11,10 +12,11 @@ import (
 	"office/pkg/ooxml/opc"
 	"office/pkg/word/edit"
 	"office/pkg/word/ir"
-	"office/pkg/word/parsers/legacy"
+	docparser "office/pkg/word/parsers/doc"
 	"office/pkg/word/parsers/ooxml/parts"
 	"office/pkg/word/parsers/ooxml/resolve"
 	"office/pkg/word/render"
+	wordstream "office/pkg/word/stream"
 )
 
 // Format identifies the Word container family used by an input document.
@@ -83,23 +85,35 @@ func DetectFormat(name string, data []byte) Format {
 	return FormatUnknown
 }
 
-// Open reads and resolves a Word document from path into the shared semantic
-// IR. Legacy DOC files remain on their native lossless IR path so binary
-// provenance needed by layout/rendering is preserved.
+// Open reads a Word document from path into the shared semantic IR. The default
+// read path is streaming for both DOCX (SAX) and DOC (sequential binary cursors).
+// Callers that explicitly need raw binary provenance should use the DOC parser's
+// lossless preservation APIs rather than paying that cost on every open.
 func Open(path string) (*Document, error) {
 	format := DetectFormat(path, nil)
 	switch format {
 	case FormatDOCX:
-		pkg, err := opc.Open(path)
+		file, err := os.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("word: open OOXML %q: %w", path, err)
 		}
-		return resolveOPCPackage(pkg, path)
-	case FormatDOC:
-		doc, err := legacy.ParseDocLossless(path)
+		defer file.Close()
+		info, err := file.Stat()
 		if err != nil {
-			return nil, fmt.Errorf("word: open DOC %q: %w", path, err)
+			return nil, fmt.Errorf("word: stat OOXML %q: %w", path, err)
 		}
+		doc, err := wordstream.ReadDOCXDocument(file, info.Size(), wordstream.DOCXOptions{IncludeFieldInstructions: true})
+		if err != nil {
+			return nil, fmt.Errorf("word: stream OOXML %q: %w", path, err)
+		}
+		doc.Filename = filepath.Base(path)
+		return doc, nil
+	case FormatDOC:
+		doc, err := wordstream.ReadDOCFileDocument(path)
+		if err != nil {
+			return nil, fmt.Errorf("word: stream DOC %q: %w", path, err)
+		}
+		doc.Filename = filepath.Base(path)
 		return doc, nil
 	}
 
@@ -110,22 +124,23 @@ func Open(path string) (*Document, error) {
 	return OpenBytes(filepath.Base(path), data)
 }
 
-// OpenBytes resolves an in-memory Word document. name is used for format
-// selection and diagnostics and should normally include the original file
-// extension.
+// OpenBytes resolves an in-memory Word document through the same shared stream
+// pipeline as Open. name is used for format selection and document identity.
 func OpenBytes(name string, data []byte) (*Document, error) {
 	switch DetectFormat(name, data) {
 	case FormatDOCX:
-		pkg, err := opc.OpenBytes(data)
+		doc, err := wordstream.ReadDOCXDocument(bytes.NewReader(data), int64(len(data)), wordstream.DOCXOptions{IncludeFieldInstructions: true})
 		if err != nil {
-			return nil, fmt.Errorf("word: open OOXML %q: %w", displayName(name), err)
+			return nil, fmt.Errorf("word: stream OOXML %q: %w", displayName(name), err)
 		}
-		return resolveOPCPackage(pkg, "")
+		doc.Filename = filepath.Base(name)
+		return doc, nil
 	case FormatDOC:
-		doc, err := legacy.ParseDocBytesLossless(data, name)
+		doc, err := wordstream.ReadDOCDocument(data)
 		if err != nil {
-			return nil, fmt.Errorf("word: open DOC %q: %w", displayName(name), err)
+			return nil, fmt.Errorf("word: stream DOC %q: %w", displayName(name), err)
 		}
+		doc.Filename = filepath.Base(name)
 		return doc, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedFormat, displayName(name))
@@ -133,10 +148,23 @@ func OpenBytes(name string, data []byte) (*Document, error) {
 }
 
 // ConvertToDOCX opens a Word document from path and writes a DOCX package to w.
-// Legacy DOC input is parsed into the native lossless IR first; conversion to
-// OOXML happens only at this explicit export boundary.
+// Conversion is an explicit preservation boundary: binary DOC uses the DOC
+// parser's lossless path so provenance needed by conversion remains available.
 func ConvertToDOCX(path string, w io.Writer) error {
-	doc, err := Open(path)
+	var doc *Document
+	var err error
+	switch DetectFormat(path, nil) {
+	case FormatDOC:
+		doc, err = docparser.ParseLossless(path)
+	case FormatDOCX:
+		pkg, openErr := opc.Open(path)
+		if openErr != nil {
+			return fmt.Errorf("word: open OOXML %q: %w", path, openErr)
+		}
+		doc, err = resolveOPCPackage(pkg, path)
+	default:
+		doc, err = Open(path)
+	}
 	if err != nil {
 		return err
 	}
@@ -146,10 +174,24 @@ func ConvertToDOCX(path string, w io.Writer) error {
 	return nil
 }
 
-// ConvertBytesToDOCX converts an in-memory Word document to DOCX. name should
-// normally contain the original extension so the input format can be selected.
+// ConvertBytesToDOCX converts an in-memory Word document to DOCX. Conversion
+// keeps the explicit lossless/materialized path so it can preserve source data
+// that is intentionally omitted by the streaming read API.
 func ConvertBytesToDOCX(name string, data []byte, w io.Writer) error {
-	doc, err := OpenBytes(name, data)
+	var doc *Document
+	var err error
+	switch DetectFormat(name, data) {
+	case FormatDOC:
+		doc, err = docparser.ParseBytesLossless(data, name)
+	case FormatDOCX:
+		pkg, openErr := opc.OpenBytes(data)
+		if openErr != nil {
+			return fmt.Errorf("word: open OOXML %q: %w", displayName(name), openErr)
+		}
+		doc, err = resolveOPCPackage(pkg, "")
+	default:
+		return fmt.Errorf("%w: %q", ErrUnsupportedFormat, displayName(name))
+	}
 	if err != nil {
 		return err
 	}

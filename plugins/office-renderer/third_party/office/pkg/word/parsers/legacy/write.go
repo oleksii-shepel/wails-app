@@ -89,6 +89,14 @@ func WriteDocument(doc *wordir.Document, w io.Writer) error {
 	plcfSpaData := buildLegacyPlcfSpaDataWithShapes(plan.FloatingImages, plan.FloatingShapes, len(mainTextRunes))
 	tableStream.Write(plcfSpaData)
 
+	// PlcftxbxTxt binds textbox story ranges to the exact FSP.spid owner.
+	// Nested group children do not have their own PlcfSpaMom entry, so this
+	// authoritative lid mapping is required for round-tripping their stories.
+	txbxOwnerIDs := legacyTextBoxOwnerShapeIDs(plan.FloatingShapes)
+	plcfTxbxOffset := tableStream.Len()
+	plcfTxbxData := buildLegacyPlcftxbxTxt(plan.TextBoxText, txbxOwnerIDs)
+	tableStream.Write(plcfTxbxData)
+
 	// FKP pages live in WordDocument at 512-byte page boundaries. The table
 	// stream carries PlcBte* indexes pointing at those pages.
 	papxPageNumber := uint32((fibSize + len(textBytes) + 511) / 512)
@@ -123,6 +131,7 @@ func WriteDocument(doc *wordir.Document, w io.Writer) error {
 	setLegacyFibEntry(&fib, 5, atnTxtOffset, len(atnTxtData))
 	setLegacyFibEntry(&fib, 46, ednRefOffset, len(ednRefData))
 	setLegacyFibEntry(&fib, 47, ednTxtOffset, len(ednTxtData))
+	setLegacyFibEntry(&fib, legacyFibPlcftxbxTxt, plcfTxbxOffset, len(plcfTxbxData))
 	fib.fibRgFcLcb.entries[15*2] = uint32(fontOffset)
 	fib.fibRgFcLcb.entries[15*2+1] = uint32(len(fontData))
 
@@ -158,6 +167,34 @@ func WriteDocument(doc *wordir.Document, w io.Writer) error {
 	}
 	_, err = w.Write(cfbData)
 	return err
+}
+
+func buildLegacyPlcftxbxTxt(text string, ownerShapeIDs []uint32) []byte {
+	if text == "" || len(ownerShapeIDs) == 0 {
+		return nil
+	}
+	stories := strings.Split(text, "\f")
+	if len(stories) != len(ownerShapeIDs) {
+		return nil
+	}
+	n := len(stories)
+	out := make([]byte, 4*(n+1)+legacyFTXBXSSize*n)
+	cpBytes := 4 * (n + 1)
+	cp := 0
+	for i, story := range stories {
+		binary.LittleEndian.PutUint32(out[i*4:(i+1)*4], uint32(cp))
+		recOff := cpBytes + i*legacyFTXBXSSize
+		binary.LittleEndian.PutUint32(
+			out[recOff+legacyFTXBXSLidOffset:recOff+legacyFTXBXSLidOffset+4],
+			ownerShapeIDs[i],
+		)
+		cp += len([]rune(story))
+		if i+1 < n {
+			cp++ // skip the \f separator before the next textbox story
+		}
+	}
+	binary.LittleEndian.PutUint32(out[n*4:(n+1)*4], uint32(cp))
+	return out
 }
 
 type legacyCharacterWriteRun struct {

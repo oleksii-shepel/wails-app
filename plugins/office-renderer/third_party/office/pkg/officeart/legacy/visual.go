@@ -53,6 +53,15 @@ type VisualProperties struct {
 	HasCropRight  bool
 	Crop          ir.Crop
 
+	HasPictureBrightness bool
+	PictureBrightness    float64
+	HasPictureContrast   bool
+	PictureContrast      float64
+	HasPictureGrayscale  bool
+	PictureGrayscale     bool
+	HasPictureBiLevel    bool
+	PictureBiLevel       bool
+
 	HasShadowColor    bool
 	ShadowColor       string
 	HasShadowOpacity  bool
@@ -150,6 +159,30 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 			out.HasCropRight = true
 			out.Crop.Right = Fixed16ToFraction(v)
 
+		case escher.PropPictureBrightness:
+			out.HasPictureBrightness = true
+			out.PictureBrightness = math.Max(0, math.Min(2, 1+float64(int32(v))/32768.0))
+		case escher.PropPictureContrast:
+			out.HasPictureContrast = true
+			out.PictureContrast = math.Max(0, float64(int32(v))/65536.0)
+		case escher.PropPictureGray:
+			out.HasPictureGrayscale = true
+			out.PictureGrayscale = v != 0
+		case escher.PropPictureBiLevel:
+			out.HasPictureBiLevel = true
+			out.PictureBiLevel = v != 0
+		case escher.PropPictureBooleans:
+			valueBits := v & 0xFFFF
+			useBits := (v >> 16) & 0xFFFF
+			if useBits&0x0004 != 0 {
+				out.HasPictureGrayscale = true
+				out.PictureGrayscale = valueBits&0x0004 != 0
+			}
+			if useBits&0x0002 != 0 {
+				out.HasPictureBiLevel = true
+				out.PictureBiLevel = valueBits&0x0002 != 0
+			}
+
 		case escher.PropShadowColor:
 			out.HasShadowColor = true
 			out.ShadowColor = resolve(v)
@@ -244,6 +277,22 @@ func MergeVisualProperties(base, incoming VisualProperties) VisualProperties {
 			base.HasCropRight = true
 			base.Crop.Right = incoming.Crop.Right
 		}
+	}
+	if incoming.HasPictureBrightness {
+		base.HasPictureBrightness = true
+		base.PictureBrightness = incoming.PictureBrightness
+	}
+	if incoming.HasPictureContrast {
+		base.HasPictureContrast = true
+		base.PictureContrast = incoming.PictureContrast
+	}
+	if incoming.HasPictureGrayscale {
+		base.HasPictureGrayscale = true
+		base.PictureGrayscale = incoming.PictureGrayscale
+	}
+	if incoming.HasPictureBiLevel {
+		base.HasPictureBiLevel = true
+		base.PictureBiLevel = incoming.PictureBiLevel
 	}
 	if incoming.HasShadowColor {
 		base.HasShadowColor = true

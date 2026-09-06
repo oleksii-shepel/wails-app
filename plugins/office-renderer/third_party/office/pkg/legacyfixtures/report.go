@@ -14,8 +14,8 @@ import (
 	sheetir "office/pkg/sheet/ir"
 	sheetlegacy "office/pkg/sheet/parsers/legacy"
 	sheetrender "office/pkg/sheet/render"
+	word "office/pkg/word"
 	wordir "office/pkg/word/ir"
-	wordlegacy "office/pkg/word/parsers/legacy"
 	wordrender "office/pkg/word/render"
 )
 
@@ -135,7 +135,7 @@ func inspectFixture(fixture Fixture) FixtureRow {
 	row.OpenOK = true
 	switch fixture.Format {
 	case FormatDOC:
-		doc, err := wordlegacy.ParseDoc(path)
+		doc, err := word.Open(path)
 		if err != nil {
 			row.ExtractError = err.Error()
 			return row

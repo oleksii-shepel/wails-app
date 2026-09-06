@@ -1,4 +1,11 @@
-const EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']);
+// OOXML variants use the same Word, Excel, and PowerPoint packages as their
+// base document types. The plugin must claim them too so they do not fall back
+// to Manager's converter-based document viewer.
+const EXTENSIONS = new Set([
+  'doc', 'docx', 'docm', 'dotx', 'dotm',
+  'xls', 'xlsx', 'xlsm', 'xltx', 'xltm', 'xlam',
+  'ppt', 'pptx', 'pptm', 'ppsx', 'ppsm', 'potx', 'potm',
+]);
 
 function extension(path) {
   const name = String(path ?? '').replace(/\\/g, '/').split('/').pop() ?? '';

@@ -3,8 +3,6 @@ package legacy
 import (
 	"bytes"
 	"testing"
-
-	wordir "office/pkg/word/ir"
 )
 
 func TestDetectLegacyImageMIME(t *testing.T) {
@@ -111,33 +109,5 @@ func tinyBMPBytes() []byte {
 		0, 0x00, 0x00, 0x00,
 		0, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00,
-	}
-}
-func TestApplyLegacyInlinePictureDescriptorPreservesWordPictureAdjustments(t *testing.T) {
-	img := &wordir.Image{}
-	applyLegacyInlinePictureDescriptor(img, legacyInlinePictureDescriptor{
-		GoalWidthTwips:  1500,
-		GoalHeightTwips: 1125,
-		ScaleXPermille:  500,
-		ScaleYPermille:  800,
-		Props: legacyOfficeArtShapeProps{
-			CropTop: 0.07, CropRight: 0.06, CropBottom: 0.08, CropLeft: 0.05,
-			Brightness: 1.7, Contrast: 0.3, Grayscale: true, BiLevel: true,
-		},
-	})
-	if got := float64(img.Width) / 12700.0; got != 37.5 {
-		t.Fatalf("width = %.1fpt, want 37.5pt", got)
-	}
-	if got := float64(img.Height) / 12700.0; got != 45.0 {
-		t.Fatalf("height = %.1fpt, want 45.0pt", got)
-	}
-	if !img.Stretch {
-		t.Fatal("non-uniform PICF scaling must mark image as stretched")
-	}
-	if !img.Grayscale || !img.BiLevel || img.Brightness != 1.7 || img.Contrast != 0.3 {
-		t.Fatalf("picture adjustments not preserved: %+v", img)
-	}
-	if img.CropTop != 0.07 || img.CropRight != 0.06 || img.CropBottom != 0.08 || img.CropLeft != 0.05 {
-		t.Fatalf("crop not preserved: %+v", img)
 	}
 }

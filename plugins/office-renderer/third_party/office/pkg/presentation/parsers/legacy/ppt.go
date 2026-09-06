@@ -7245,6 +7245,27 @@ func parseLegacyPptFOPTPropertiesTransform(props []officeartescher.Property, col
 		out.ArrowHeadLength = string(visual.EndArrowLength)
 	}
 
+	// PowerPoint's binary arrow enum compatibility differs from the generic
+	// OfficeArt interpretation for several raw values. Preserve the raw PPT
+	// contract after shared visual decoding; shared fill/line/text semantics
+	// remain authoritative for all non-arrow properties.
+	for _, prop := range props {
+		switch prop.ID {
+		case officeartescher.PropLineStartArrow:
+			out.ArrowTail = legacyPptArrowStyle(prop.Value)
+		case officeartescher.PropLineEndArrow:
+			out.ArrowHead = legacyPptArrowStyle(prop.Value)
+		case officeartescher.PropLineStartArrowWidth:
+			out.ArrowTailWidth = legacyPptArrowSize(prop.Value)
+		case officeartescher.PropLineStartArrowLength:
+			out.ArrowTailLength = legacyPptArrowSize(prop.Value)
+		case officeartescher.PropLineEndArrowWidth:
+			out.ArrowHeadWidth = legacyPptArrowSize(prop.Value)
+		case officeartescher.PropLineEndArrowLength:
+			out.ArrowHeadLength = legacyPptArrowSize(prop.Value)
+		}
+	}
+
 	text := visual.Text
 	if text.HasLeft || text.HasTop || text.HasRight || text.HasBottom {
 		out.HasTextInsets = true

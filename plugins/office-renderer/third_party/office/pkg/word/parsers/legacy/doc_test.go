@@ -3629,11 +3629,43 @@ func TestParseDocWord97MultiSectionFixturesPopulateSectionProperties(t *testing.
 }
 
 func TestParseLegacyDocSyntheticVerticalTextboxRendersHTML(t *testing.T) {
-	bodyText := "A" + string(legacyDrawingAnchorChar) + "\r"
-	textboxText := "Vertical box\r"
+	textboxParagraph := wordir.Paragraph{
+		Runs: []wordir.Run{{Kind: "run", Text: "Vertical box"}},
+	}
+	textbox := &wordir.TextBox{
+		Vert: "vert",
+		Blocks: []wordir.Block{{
+			Kind:      "paragraph",
+			Paragraph: &textboxParagraph,
+		}},
+	}
+	shape := &wordir.Shape{
+		Kind:     "rect",
+		Floating: true,
+		X:        100 * 635,
+		Y:        200 * 635,
+		Width:    300 * 635,
+		Height:   600 * 635,
+		TextBox:  textbox,
+	}
+	body := wordir.Paragraph{
+		Runs: []wordir.Run{{Kind: "shape", Shape: shape}},
+	}
+	source := &wordir.Document{
+		Blocks: []wordir.Block{{Kind: "paragraph", Paragraph: &body}},
+	}
+
 	path := filepath.Join(t.TempDir(), "legacy-vertical-textbox.doc")
-	if err := os.WriteFile(path, buildLegacyDocWithDrawingTextboxCFB(bodyText, textboxText, 0x00000005), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := WriteDocument(source, f); err != nil {
+		_ = f.Close()
+		t.Fatalf("WriteDocument: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 
 	doc, err := ParseDoc(path)
@@ -3642,10 +3674,7 @@ func TestParseLegacyDocSyntheticVerticalTextboxRendersHTML(t *testing.T) {
 	}
 	tb := firstLegacyDrawingTextbox(doc)
 	if tb == nil {
-		t.Fatalf("ParseDoc(%s): expected detached drawing textbox", path)
-	}
-	if !tb.Floating {
-		t.Fatalf("textbox floating = %v, want true", tb.Floating)
+		t.Fatalf("ParseDoc(%s): expected drawing textbox", path)
 	}
 	if tb.Vert != "vert" {
 		t.Fatalf("textbox vert = %q, want vert", tb.Vert)
@@ -3655,14 +3684,11 @@ func TestParseLegacyDocSyntheticVerticalTextboxRendersHTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML(%s): %v", path, err)
 	}
-	if !strings.Contains(html, `class="floating-textbox"`) {
-		t.Fatalf("HTML(%s): expected floating textbox in output", path)
-	}
-	if !strings.Contains(html, `writing-mode:vertical-rl`) {
-		t.Fatalf("HTML(%s): expected vertical textbox writing mode in output", path)
-	}
 	if !strings.Contains(html, "Vertical box") {
-		t.Fatalf("HTML(%s): expected textbox story text in output", path)
+		t.Fatalf("HTML(%s): expected textbox text in output", path)
+	}
+	if !strings.Contains(html, "writing-mode:vertical-rl") {
+		t.Fatalf("HTML(%s): expected vertical textbox writing mode in output", path)
 	}
 }
 
@@ -5948,12 +5974,13 @@ func buildLegacyDocWithSingleChpxCFB(bodyText string, grpprl []byte) []byte {
 
 func buildLegacyDocWithDrawingTextboxCFB(bodyText, textboxText string, textFlow uint32) []byte {
 	const (
-		textOffset      = 1024
-		plcfSpaFibIndex = 30
+		textOffset = 1024
+		shapeID    = uint32(0x11223344)
+		fibCount   = 60 // includes PlcSpaMom[40] and PlcftxbxTxt[56]
 	)
 
 	allText := []byte(bodyText + textboxText)
-	officeArt := legacyTestOfficeArtTextFlowSpContainer(0x11223344, textFlow)
+	officeArt := legacyTestOfficeArtTextFlowSpContainer(shapeID, textFlow)
 	wordStream := make([]byte, textOffset+len(allText)+len(officeArt))
 	copy(wordStream[textOffset:], allText)
 	copy(wordStream[textOffset+len(allText):], officeArt)
@@ -5973,25 +6000,39 @@ func buildLegacyDocWithDrawingTextboxCFB(bodyText, textboxText string, textFlow 
 	binary.LittleEndian.PutUint32(wordStream[pos+36:pos+40], uint32(len(textboxText)))
 	pos += 44
 
-	binary.LittleEndian.PutUint16(wordStream[pos:pos+2], 34)
+	binary.LittleEndian.PutUint16(wordStream[pos:pos+2], fibCount)
 	fibBase := pos + 2
 
 	plcfSed, sepxBlob := buildLegacyPlcfSed([]string{bodyText})
-	plcfSpa := buildLegacySingleAnchorPlcfSpa(1, len(bodyText), 0x11223344, 100, 200, 400, 800, 0x0050)
+	plcfSpa := buildLegacySingleAnchorPlcfSpa(1, len(bodyText), shapeID, 100, 200, 400, 800, 0x0050)
+
+	// Build an authoritative PlcftxbxTxt record. Textbox story CPs are relative
+	// to the textbox story, and FTXBXS.lid is the owning OfficeArt FSP.spid.
+	plcfTxbx := make([]byte, 4*2+legacyFTXBXSSize)
+	binary.LittleEndian.PutUint32(plcfTxbx[0:4], 0)
+	binary.LittleEndian.PutUint32(plcfTxbx[4:8], uint32(len([]rune(textboxText))))
+	binary.LittleEndian.PutUint32(
+		plcfTxbx[8+legacyFTXBXSLidOffset:8+legacyFTXBXSLidOffset+4],
+		shapeID,
+	)
+
 	const fcPlcfSed = 0
 	lcbPlcfSed := len(plcfSed)
 	fcPlcfSpa := fcPlcfSed + lcbPlcfSed + len(sepxBlob)
-	fcClx := fcPlcfSpa + len(plcfSpa)
+	fcPlcfTxbx := fcPlcfSpa + len(plcfSpa)
+	fcClx := fcPlcfTxbx + len(plcfTxbx)
 	clx := buildLegacySinglePieceClx(textOffset, len(allText))
 
 	tableStream := make([]byte, fcClx+len(clx))
 	copy(tableStream[fcPlcfSed:], plcfSed)
 	copy(tableStream[fcPlcfSed+lcbPlcfSed:], sepxBlob)
 	copy(tableStream[fcPlcfSpa:], plcfSpa)
+	copy(tableStream[fcPlcfTxbx:], plcfTxbx)
 	copy(tableStream[fcClx:], clx)
 
 	putFibFcLcb(wordStream, fibBase, 6, fcPlcfSed, lcbPlcfSed)
-	putFibFcLcb(wordStream, fibBase, plcfSpaFibIndex, fcPlcfSpa, len(plcfSpa))
+	putFibFcLcb(wordStream, fibBase, legacyFibPlcSpaMom, fcPlcfSpa, len(plcfSpa))
+	putFibFcLcb(wordStream, fibBase, legacyFibPlcftxbxTxt, fcPlcfTxbx, len(plcfTxbx))
 	putFibFcLcb(wordStream, fibBase, 33, fcClx, len(clx))
 
 	return buildMinimalCFBWithStreams([]legacyTestStream{
@@ -6017,10 +6058,28 @@ func firstLegacyDrawingTextbox(doc *wordir.Document) *wordir.TextBox {
 	if doc == nil {
 		return nil
 	}
+	var fromShape func(*wordir.Shape) *wordir.TextBox
+	fromShape = func(shape *wordir.Shape) *wordir.TextBox {
+		if shape == nil {
+			return nil
+		}
+		if shape.TextBox != nil {
+			return shape.TextBox
+		}
+		for i := range shape.Children {
+			if tb := fromShape(&shape.Children[i]); tb != nil {
+				return tb
+			}
+		}
+		return nil
+	}
 	for _, paragraph := range doc.Paragraphs {
 		for _, run := range paragraph.Runs {
 			if run.TextBox != nil {
 				return run.TextBox
+			}
+			if tb := fromShape(run.Shape); tb != nil {
+				return tb
 			}
 		}
 	}

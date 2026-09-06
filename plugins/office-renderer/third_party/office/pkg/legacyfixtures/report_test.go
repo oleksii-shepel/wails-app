@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	word "office/pkg/word"
 	wordir "office/pkg/word/ir"
-	wordlegacy "office/pkg/word/parsers/legacy"
 )
 
 func TestExtractOKLegacyDocRejectsUnexpectedBlankDocument(t *testing.T) {
@@ -66,6 +66,21 @@ func TestReportObservedMetricConsistentAcrossOverlappingCuratedAndCorpusDocs(t *
 			t.Fatalf("missing corpus row for %s", corpus.ID)
 		}
 
+		// Both rows inspect the same physical DOC. Reporting expectations may
+		// differ, but extraction outcome and any observed structural metric must
+		// not depend on whether the file was reached through Curated or Corpus.
+		if curatedRow.ObservedMetric != corpusRow.ObservedMetric {
+			t.Fatalf("observed metric mismatch for %s: curated=%q corpus=%q", curated.RelativePath, curatedRow.ObservedMetric, corpusRow.ObservedMetric)
+		}
+		if curatedRow.ObservedMetric == "" {
+			if curatedRow.ExtractError != corpusRow.ExtractError {
+				t.Fatalf("extract error mismatch for %s: curated=%q corpus=%q", curated.RelativePath, curatedRow.ExtractError, corpusRow.ExtractError)
+			}
+			// A report is allowed to contain parser failures; those are represented
+			// by ExtractError rather than a fabricated numeric observed metric.
+			continue
+		}
+
 		var curatedParagraphs, curatedTables int
 		if _, err := fmt.Sscanf(curatedRow.ObservedMetric, "paragraphs=%d tables=%d", &curatedParagraphs, &curatedTables); err != nil {
 			t.Fatalf("parse curated observed metric %q: %v", curatedRow.ObservedMetric, err)
@@ -75,9 +90,9 @@ func TestReportObservedMetricConsistentAcrossOverlappingCuratedAndCorpusDocs(t *
 			t.Fatalf("parse corpus observed metric %q: %v", corpusRow.ObservedMetric, err)
 		}
 
-		doc, err := wordlegacy.ParseDoc(Path(curated.RelativePath))
+		doc, err := word.Open(Path(curated.RelativePath))
 		if err != nil {
-			t.Fatalf("ParseDoc(%s): %v", curated.RelativePath, err)
+			t.Fatalf("word.Open(%s): %v", curated.RelativePath, err)
 		}
 		metrics := CollectDocMetrics(doc)
 

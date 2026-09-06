@@ -49,7 +49,12 @@ func DecodeTextProperties(props []escher.Property) TextProperties {
 			out.Insets.Bottom = int64(int32(prop.Value))
 		case escher.PropWrapText:
 			out.HasWrap = true
-			if prop.Value == 0 || prop.Value == 2 || prop.Value == 4 {
+			// OfficeArt TEXT__WRAPTEXT/MSOWRAPMODE uses 0 for square wrapping,
+			// 1 for wrap-by-points and 2 for no-wrap. Values beyond the classic
+			// set are wrapping modes as well; only the explicit NONE value disables
+			// wrapping. Treating 0 as no-wrap made ordinary Word textboxes render
+			// as a single clipped line instead of preserving Word's line breaks.
+			if prop.Value == 2 {
 				out.Wrap = ir.TextWrapNone
 			} else {
 				out.Wrap = ir.TextWrapSquare
@@ -85,13 +90,14 @@ func DecodeTextProperties(props []escher.Property) TextProperties {
 }
 
 func TextVerticalFromFlow(raw uint32) ir.TextVertical {
+	// [MS-ODRAW] MSOTXFL:
+	// 0 HorzN, 1 TtoBA, 2 BtoT, 3 TtoBN, 4 HorzA, 5 VertN.
+	// GeometryText has its own WordArt vertical flag; txflTextFlow=3 is not it.
 	switch raw & 0xF {
-	case 1:
+	case 1, 3, 5:
 		return ir.TextVerticalRL
 	case 2:
 		return ir.TextVertical270
-	case 3:
-		return ir.TextWordArtVertical
 	default:
 		return ir.TextHorizontal
 	}

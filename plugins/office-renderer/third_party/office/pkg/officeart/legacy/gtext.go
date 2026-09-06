@@ -9,16 +9,32 @@ import (
 )
 
 // GeometryText is the common OfficeArt GeoText / WordArt payload.
+//
+// Size and Spacing preserve the authored 16.16 fixed-point values. Align keeps
+// the OfficeArt enumeration value losslessly; application adapters can decide
+// how closely their target renderer can reproduce the alignment mode.
 type GeometryText struct {
-	Present  bool
-	Text     string
-	Font     string
-	Align    uint32
-	Size     int32
-	Spacing  int32
-	Vertical bool
-	Bold     bool
-	Italic   bool
+	Present       bool
+	Text          string
+	Font          string
+	Align         uint32
+	Size          int32
+	Spacing       int32
+	ReverseRows   bool
+	Vertical      bool
+	Kerning       bool
+	Tight         bool
+	Stretch       bool
+	ShrinkFit     bool
+	BestFit       bool
+	Normalize     bool
+	DxMeasure     bool
+	Bold          bool
+	Italic        bool
+	Underline     bool
+	Shadow        bool
+	SmallCaps     bool
+	Strikethrough bool
 }
 
 func DecodeGeometryText(props []escher.Property) GeometryText {
@@ -52,19 +68,62 @@ func DecodeGeometryText(props []escher.Property) GeometryText {
 			if prop.IsComplex || prop.IsBlip {
 				continue
 			}
-			values := prop.Value & 0xffff
-			use := prop.Value >> 16
-			if use&(1<<1) != 0 && values&(1<<1) != 0 {
+			values := uint16(prop.Value)
+			use := uint16(prop.Value >> 16)
+			get := func(bit uint) (bool, bool) {
+				mask := uint16(1 << bit)
+				if use&mask == 0 {
+					return false, false
+				}
+				return values&mask != 0, true
+			}
+			if value, authored := get(0); authored {
+				out.ReverseRows = value
+			}
+			if value, authored := get(1); authored && value {
 				out.Present = true
 			}
-			if use&(1<<2) != 0 {
-				out.Vertical = values&(1<<2) != 0
+			if value, authored := get(2); authored {
+				out.Vertical = value
 			}
-			if use&(1<<10) != 0 {
-				out.Bold = values&(1<<10) != 0
+			if value, authored := get(3); authored {
+				out.Kerning = value
 			}
-			if use&(1<<11) != 0 {
-				out.Italic = values&(1<<11) != 0
+			if value, authored := get(4); authored {
+				out.Tight = value
+			}
+			if value, authored := get(5); authored {
+				out.Stretch = value
+			}
+			if value, authored := get(6); authored {
+				out.ShrinkFit = value
+			}
+			if value, authored := get(7); authored {
+				out.BestFit = value
+			}
+			if value, authored := get(8); authored {
+				out.Normalize = value
+			}
+			if value, authored := get(9); authored {
+				out.DxMeasure = value
+			}
+			if value, authored := get(10); authored {
+				out.Bold = value
+			}
+			if value, authored := get(11); authored {
+				out.Italic = value
+			}
+			if value, authored := get(12); authored {
+				out.Underline = value
+			}
+			if value, authored := get(13); authored {
+				out.Shadow = value
+			}
+			if value, authored := get(14); authored {
+				out.SmallCaps = value
+			}
+			if value, authored := get(15); authored {
+				out.Strikethrough = value
 			}
 		}
 	}
@@ -72,6 +131,37 @@ func DecodeGeometryText(props []escher.Property) GeometryText {
 		out.Present = true
 	}
 	return out
+}
+
+// WordArtWarpName normalizes the OfficeArt text-effect shape range into stable
+// semantic names. Non-WordArt shape types return an empty string.
+func WordArtWarpName(shapeType uint16) string {
+	// [MS-ODRAW] has two text-effect ranges:
+	//   24..31  : TextSimple .. TextOnRing
+	//   136..175: TextPlainText .. TextCanDown
+	if shapeType >= 24 && shapeType <= 31 {
+		names := [...]string{
+			"textSimple", "textOctagon", "textHexagon", "textCurve",
+			"textWave", "textRing", "textOnCurve", "textOnRing",
+		}
+		return names[shapeType-24]
+	}
+	if shapeType >= 136 && shapeType <= 175 {
+		names := [...]string{
+			"textPlain", "textStop", "textTriangle", "textTriangleInverted",
+			"textChevron", "textChevronInverted", "textRingInside", "textRingOutside",
+			"textArchUpCurve", "textArchDownCurve", "textCircleCurve", "textButtonCurve",
+			"textArchUpPour", "textArchDownPour", "textCirclePour", "textButtonPour",
+			"textCurveUp", "textCurveDown", "textCascadeUp", "textCascadeDown",
+			"textWave1", "textWave2", "textWave3", "textWave4",
+			"textInflate", "textDeflate", "textInflateBottom", "textDeflateBottom",
+			"textInflateTop", "textDeflateTop", "textDeflateInflate", "textDeflateInflateDeflate",
+			"textFadeRight", "textFadeLeft", "textFadeUp", "textFadeDown",
+			"textSlantUp", "textSlantDown", "textCanUp", "textCanDown",
+		}
+		return names[shapeType-136]
+	}
+	return ""
 }
 
 func decodeGeometryTextUTF16(data []byte) string {

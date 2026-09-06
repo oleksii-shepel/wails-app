@@ -1,83 +1,10 @@
 package legacy
 
 import (
-	"encoding/binary"
 	"fmt"
-	"unicode/utf16"
 
 	wordir "office/pkg/word/ir"
 )
-
-// loadLegacySttbfRMark reads SttbfRMark from FibRgFcLcb97[51] and returns the
-// indexed list of revision-mark author names. Returns nil if the FIB index,
-// table-stream pointer, or STTB header is too short to be trustworthy.
-//
-// SttbfRMark layout (MS-DOC §2.7.5 + extended STTB format §2.7.4):
-//
-//	2 bytes : 0xFFFF marker (extended/Unicode strings)
-//	2 bytes : cData (number of strings, uint16; cDataLength = 2 for SttbfRMark)
-//	2 bytes : cbExtra (per-string trailing extra-data byte count; usually 0)
-//	for each cData entries:
-//	    2 bytes : cchData (string length in UTF-16 chars)
-//	    cchData * 2 bytes : UTF-16LE string body
-//	    cbExtra bytes : trailing extra data (skipped)
-//
-// Non-extended (8-bit) STTBs are not produced by Word for SttbfRMark in
-// practice; we still tolerate the case by returning an empty slice rather than
-// erroring.
-func loadLegacySttbfRMark(wordStream, tableStream []byte, fibBase, cbRgFcLcb int) []string {
-	const sttbfRMarkFibIndex = 51
-	if sttbfRMarkFibIndex >= cbRgFcLcb || fibBase+(sttbfRMarkFibIndex+1)*8 > len(wordStream) {
-		return nil
-	}
-	fc := int(binary.LittleEndian.Uint32(wordStream[fibBase+sttbfRMarkFibIndex*8:]))
-	lcb := int(binary.LittleEndian.Uint32(wordStream[fibBase+sttbfRMarkFibIndex*8+4:]))
-	if lcb < 6 || fc < 0 || fc+lcb > len(tableStream) {
-		return nil
-	}
-	buf := tableStream[fc : fc+lcb]
-	pos := 0
-	if binary.LittleEndian.Uint16(buf[pos:]) != 0xFFFF {
-		return nil
-	}
-	pos += 2
-	if pos+2 > len(buf) {
-		return nil
-	}
-	cData := int(binary.LittleEndian.Uint16(buf[pos:]))
-	pos += 2
-	if pos+2 > len(buf) {
-		return nil
-	}
-	cbExtra := int(binary.LittleEndian.Uint16(buf[pos:]))
-	pos += 2
-	out := make([]string, 0, cData)
-	for i := 0; i < cData; i++ {
-		if pos+2 > len(buf) {
-			break
-		}
-		cch := int(int16(binary.LittleEndian.Uint16(buf[pos:])))
-		pos += 2
-		if cch < 0 {
-			out = append(out, "")
-			continue
-		}
-		if pos+cch*2 > len(buf) {
-			break
-		}
-		runes := make([]uint16, cch)
-		for j := 0; j < cch; j++ {
-			runes[j] = binary.LittleEndian.Uint16(buf[pos+j*2:])
-		}
-		out = append(out, string(utf16.Decode(runes)))
-		pos += cch * 2
-		if pos+cbExtra > len(buf) {
-			break
-		}
-		pos += cbExtra
-	}
-	return out
-}
 
 // formatLegacyRevisionDate decodes a 32-bit Word DTTM into ISO-8601 date.
 // MS-DOC §2.9.51 DTTM packed bit layout (LSB → MSB):

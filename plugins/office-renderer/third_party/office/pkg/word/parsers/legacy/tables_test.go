@@ -1,7 +1,6 @@
 package legacy
 
 import (
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,15 +16,15 @@ func TestBuildLegacyDocFromRunsBinaryTableUsesRowMergeMetadata(t *testing.T) {
 	rowMark := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
 	props := &legacyTableRowProps{}
 	props.setHMerge(1, 3)
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
 		{Text: "B\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
 		{Text: "C\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: props},
-		{Text: "\r", ParaFormat: rowMark, TableProps: props},
+		{Text: "\a", ParaFormat: rowMark, TableProps: props.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: props.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -52,13 +51,13 @@ func TestBuildLegacyDocFromRunsBinaryTableUsesMetadataWithoutInTableFlag(t *test
 	width := 1200
 	rowProps.setCellFormat(0, wordir.TableCellFormat{Width: &width, WidthType: "dxa"})
 	rowProps.setCellFormat(1, wordir.TableCellFormat{Width: &width, WidthType: "dxa"})
-	runs := []docRun{
-		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "B\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
+	runs := []binaryWordRun{
+		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "B\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -88,11 +87,11 @@ func TestCollectLegacyBinaryTableRowGroupsSplitsMetadataOnlyRowsOnRowPropChange(
 	height := 240
 	secondRowProps.rowHeight = &height
 
-	lineSlices := [][]docRun{
-		{{Text: "A\a", NativeCellMarks: true, TableProps: firstRowProps}},
-		{{Text: "B\a", NativeCellMarks: true, TableProps: firstRowProps}},
-		{{Text: "C\a", NativeCellMarks: true, TableProps: secondRowProps}},
-		{{Text: "D\a", NativeCellMarks: true, TableProps: secondRowProps}},
+	lineSlices := [][]binaryWordRun{
+		{{Text: "A\a", NativeCellMarks: true, TableProps: firstRowProps.canonical()}},
+		{{Text: "B\a", NativeCellMarks: true, TableProps: firstRowProps.canonical()}},
+		{{Text: "C\a", NativeCellMarks: true, TableProps: secondRowProps.canonical()}},
+		{{Text: "D\a", NativeCellMarks: true, TableProps: secondRowProps.canonical()}},
 	}
 
 	rowGroups := collectLegacyBinaryTableRowGroups(lineSlices)
@@ -117,9 +116,9 @@ func TestCollectLegacyBinaryTableRowGroupsKeepsCompatibleMetadataInSameRow(t *te
 	lineAProps := &legacyTableRowProps{tableJc: "center"}
 	indent := 360
 	lineBProps := &legacyTableRowProps{tableDxaLeft: &indent}
-	lineSlices := [][]docRun{
-		{{Text: "A\a", NativeCellMarks: true, TableProps: lineAProps}},
-		{{Text: "B\a", NativeCellMarks: true, TableProps: lineBProps}},
+	lineSlices := [][]binaryWordRun{
+		{{Text: "A\a", NativeCellMarks: true, TableProps: lineAProps.canonical()}},
+		{{Text: "B\a", NativeCellMarks: true, TableProps: lineBProps.canonical()}},
 	}
 
 	rowGroups := collectLegacyBinaryTableRowGroups(lineSlices)
@@ -136,9 +135,9 @@ func TestCollectLegacyBinaryTableRowGroupsSplitsOnConflictingRowMetadata(t *test
 	notHeader := false
 	lineAProps := &legacyTableRowProps{tableHeader: &header}
 	lineBProps := &legacyTableRowProps{tableHeader: &notHeader}
-	lineSlices := [][]docRun{
-		{{Text: "A\a", NativeCellMarks: true, TableProps: lineAProps}},
-		{{Text: "B\a", NativeCellMarks: true, TableProps: lineBProps}},
+	lineSlices := [][]binaryWordRun{
+		{{Text: "A\a", NativeCellMarks: true, TableProps: lineAProps.canonical()}},
+		{{Text: "B\a", NativeCellMarks: true, TableProps: lineBProps.canonical()}},
 	}
 
 	rowGroups := collectLegacyBinaryTableRowGroups(lineSlices)
@@ -154,11 +153,11 @@ func TestBuildLegacyDocFromRunsBinaryTableMergesRowMarkAndLineProps(t *testing.T
 	indent := 720
 	gapHalf := 24
 	lineProps := &legacyTableRowProps{tableJc: "center", tableDxaLeft: &indent, tableDxaGap: &gapHalf}
-	runs := []docRun{
-		{Text: "A\a", NativeCellMarks: true, TableProps: lineProps},
-		{Text: "\r", TableProps: lineProps},
-		{Text: "\a", ParaFormat: rowMark, TableProps: rowMarkProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: rowMarkProps},
+	runs := []binaryWordRun{
+		{Text: "A\a", NativeCellMarks: true, TableProps: lineProps.canonical()},
+		{Text: "\r", TableProps: lineProps.canonical()},
+		{Text: "\a", ParaFormat: rowMark, TableProps: rowMarkProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: rowMarkProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -189,11 +188,11 @@ func TestBuildLegacyDocFromRunsBinaryTablePromotesRowMarkPropertyRevision(t *tes
 	width := 1200
 	rowProps.setCellFormat(0, wordir.TableCellFormat{Width: &width, WidthType: "dxa"})
 	revision := &wordir.RevisionMark{Author: "Alice", Date: "2026-05-08"}
-	runs := []docRun{
-		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "\a", ParaFormat: rowMark, TableProps: rowProps, PropertyRevision: revision},
-		{Text: "\r", ParaFormat: rowMark, TableProps: rowProps, PropertyRevision: revision},
+	runs := []binaryWordRun{
+		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "\a", ParaFormat: rowMark, TableProps: rowProps.canonical(), PropertyRevision: revision},
+		{Text: "\r", ParaFormat: rowMark, TableProps: rowProps.canonical(), PropertyRevision: revision},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -224,11 +223,11 @@ func TestBuildLegacyDocFromRunsBinaryTablePrefersTapxPropertyRevision(t *testing
 	// over the paragraph-level PropertyRevision on the row-mark runs.
 	rowProps.resolvedPropertyRevision = &wordir.RevisionMark{Author: "TAPxAuthor", Date: "2026-01-01"}
 	papxRevision := &wordir.RevisionMark{Author: "PAPxAuthor", Date: "2026-02-02"}
-	runs := []docRun{
-		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "\a", ParaFormat: rowMark, TableProps: rowProps, PropertyRevision: papxRevision},
-		{Text: "\r", ParaFormat: rowMark, TableProps: rowProps, PropertyRevision: papxRevision},
+	runs := []binaryWordRun{
+		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "\a", ParaFormat: rowMark, TableProps: rowProps.canonical(), PropertyRevision: papxRevision},
+		{Text: "\r", ParaFormat: rowMark, TableProps: rowProps.canonical(), PropertyRevision: papxRevision},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -266,10 +265,10 @@ func TestExtractDocRunsViaPreWord97FIBWord95ErrPreservesNativeCellMarks(t *testi
 		t.Fatal("missing WordDocument")
 	}
 	data := extractDocRunsViaPreWord97FIB(wordStream, f)
-	if data == nil || len(data.Runs) == 0 {
+	if data == nil || len(data.Assembly.Runs) == 0 {
 		t.Fatal("extractDocRunsViaPreWord97FIB = nil")
 	}
-	for _, run := range data.Runs {
+	for _, run := range data.Assembly.Runs {
 		if run.NativeCellMarks {
 			return
 		}
@@ -590,13 +589,13 @@ func TestBuildLegacyDocFromRunsBinaryTableAppliesCellFormattingMetadata(t *testi
 	props.setCellFormat(1, wordir.TableCellFormat{
 		Shading: "00FF00",
 	})
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
 		{Text: "B\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: props},
-		{Text: "\r", ParaFormat: rowMark, TableProps: props},
+		{Text: "\a", ParaFormat: rowMark, TableProps: props.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: props.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -636,15 +635,15 @@ func TestBuildLegacyDocFromRunsBinaryTableUsesVerticalMergeMetadata(t *testing.T
 	firstRowProps.setVMerge(0, 3)
 	secondRowProps.setVMerge(0, 1)
 
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Top\\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\\a", ParaFormat: rowMark, TableProps: firstRowProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: firstRowProps},
+		{Text: "\\a", ParaFormat: rowMark, TableProps: firstRowProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: firstRowProps.canonical()},
 		{Text: "Bottom\\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\\a", ParaFormat: rowMark, TableProps: secondRowProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: secondRowProps},
+		{Text: "\\a", ParaFormat: rowMark, TableProps: secondRowProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: secondRowProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -676,15 +675,15 @@ func TestBuildLegacyDocFromRunsBinaryTableUsesRowHeightMetadata(t *testing.T) {
 	exactRowProps.rowHeight = &exactHeight
 	atLeastRowProps.rowHeight = &atLeastHeight
 
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Exact\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: exactRowProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: exactRowProps},
+		{Text: "\a", ParaFormat: rowMark, TableProps: exactRowProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: exactRowProps.canonical()},
 		{Text: "AtLeast\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: atLeastRowProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: atLeastRowProps},
+		{Text: "\a", ParaFormat: rowMark, TableProps: atLeastRowProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: atLeastRowProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -719,11 +718,11 @@ func TestBuildLegacyDocFromRunsBinaryTableUsesDefaultCellPaddingMetadata(t *test
 		cellPadLeft:   &padding,
 		cellPadRight:  &padding,
 	}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: props},
-		{Text: "\r", ParaFormat: rowMark, TableProps: props},
+		{Text: "\a", ParaFormat: rowMark, TableProps: props.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: props.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("padding.doc", runs)
@@ -742,7 +741,7 @@ func TestBuildLegacyBinaryTablePreservesNestedTablesByDepth(t *testing.T) {
 	innerCell := wordir.ParagraphFormat{InTable: true, IsTableCellTrailingParagraph: true}
 	innerRow := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
 	rowGroups := []legacyBinaryTableRow{{
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "1", ParaFormat: innerCell, TableDepth: 2}},
 			{{Text: "", ParaFormat: innerRow, TableDepth: 2}},
 			{{Text: "2", ParaFormat: innerCell, TableDepth: 2}},
@@ -751,7 +750,7 @@ func TestBuildLegacyBinaryTablePreservesNestedTablesByDepth(t *testing.T) {
 			{{Text: "4", ParaFormat: innerCell, TableDepth: 2}},
 			{{Text: "", ParaFormat: innerRow, TableDepth: 2}},
 		},
-		RowMark: []docRun{{Text: "\t\t", ParaFormat: outerRowMark, TableDepth: 1}},
+		RowMark: []binaryWordRun{{Text: "\t\t", ParaFormat: outerRowMark, TableDepth: 1}},
 	}}
 
 	table, _ := buildLegacyBinaryTable(0, rowGroups, 0)
@@ -787,7 +786,7 @@ func TestBuildLegacyDocFromRunsBinaryTableRespectsNestedRowMarkDepth(t *testing.
 	outerRowMark := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
 	innerCell := wordir.ParagraphFormat{InTable: true, IsTableCellTrailingParagraph: true}
 	innerRow := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "1", ParaFormat: innerCell, TableDepth: 2},
 		{Text: "\r", ParaFormat: innerCell, TableDepth: 2},
 		{Text: "", ParaFormat: innerRow, TableDepth: 2},
@@ -837,10 +836,10 @@ func TestBuildLegacyBinaryTableFallsBackWhenRowPropsHideNestedToken(t *testing.T
 	props.hMerge[2] = 2
 	props.hMerge[3] = 2
 	rowGroups := []legacyBinaryTableRow{{
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "1", ParaFormat: wordir.ParagraphFormat{InTable: true, IsTableCellTrailingParagraph: true}, TableDepth: 2}},
 		},
-		RowMark: []docRun{{Text: "", ParaFormat: wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}, TableDepth: 2, TableProps: props}},
+		RowMark: []binaryWordRun{{Text: "", ParaFormat: wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}, TableDepth: 2, TableProps: props.canonical()}},
 	}}
 
 	table, _ := buildLegacyBinaryTable(0, rowGroups, 0)
@@ -1053,15 +1052,15 @@ func TestBuildLegacyDocFromRunsBinaryTableAppliesRowAndTableLevelProps(t *testin
 		cantSplit:    &cantSplitTrue,
 	}
 	secondRowProps := &legacyTableRowProps{}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Header\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: headerProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: headerProps},
+		{Text: "\a", ParaFormat: rowMark, TableProps: headerProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: headerProps.canonical()},
 		{Text: "Body\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: secondRowProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: secondRowProps},
+		{Text: "\a", ParaFormat: rowMark, TableProps: secondRowProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: secondRowProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -1107,13 +1106,13 @@ func TestBuildLegacyDocFromRunsBinaryTableAppliesPropsWithoutRowMarkRuns(t *test
 	rowProps.tableHeader = &header
 	rowProps.cantSplit = &cantSplit
 
-	runs := []docRun{
-		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "B\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
+	runs := []binaryWordRun{
+		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "B\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -1148,13 +1147,13 @@ func TestBuildLegacyDocFromRunsBinaryTableSynthesizesColumnWidthsAndWidth(t *tes
 	rowProps.setCellFormat(0, wordir.TableCellFormat{Width: &left, WidthType: "dxa"})
 	rowProps.setCellFormat(1, wordir.TableCellFormat{Width: &right, WidthType: "dxa"})
 
-	runs := []docRun{
-		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "B\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
-		{Text: "\a", NativeCellMarks: true, TableProps: rowProps},
-		{Text: "\r", TableProps: rowProps},
+	runs := []binaryWordRun{
+		{Text: "A\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "B\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
+		{Text: "\a", NativeCellMarks: true, TableProps: rowProps.canonical()},
+		{Text: "\r", TableProps: rowProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -1178,11 +1177,11 @@ func TestBuildLegacyDocFromRunsBinaryTableIgnoresRunawayMetadataWidthOnTokenRows
 	runawayProps := &legacyTableRowProps{}
 	runawayProps.setHMerge(200, 201)
 
-	runs := []docRun{
-		{Text: "A\aB\a", NativeCellMarks: true, TableProps: runawayProps},
-		{Text: "\r", TableProps: runawayProps},
-		{Text: "\a", ParaFormat: rowMark, NativeCellMarks: true, TableProps: runawayProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: runawayProps},
+	runs := []binaryWordRun{
+		{Text: "A\aB\a", NativeCellMarks: true, TableProps: runawayProps.canonical()},
+		{Text: "\r", TableProps: runawayProps.canonical()},
+		{Text: "\a", ParaFormat: rowMark, NativeCellMarks: true, TableProps: runawayProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: runawayProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -1276,8 +1275,8 @@ func TestApplyLegacyHeuristicTablePropsPreservesMetadata(t *testing.T) {
 		Shading:   "00AACC",
 	})
 
-	lineSlices := [][]docRun{
-		{{Text: "A\tB", TableProps: rowProps, PropertyRevision: rowRevision}},
+	lineSlices := [][]binaryWordRun{
+		{{Text: "A\tB", TableProps: rowProps.canonical(), PropertyRevision: rowRevision}},
 		{{Text: "C\tD"}},
 	}
 
@@ -1411,11 +1410,11 @@ func TestBuildLegacyDocFromRunsBinaryTableAppliesTableBorders(t *testing.T) {
 			InsideV: &wordir.BorderSide{Val: "dotted", SizePt: 1, Color: "00FFFF"},
 		},
 	}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A\aB\a", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
-		{Text: "\a", ParaFormat: rowMark, TableProps: borderProps},
-		{Text: "\r", ParaFormat: rowMark, TableProps: borderProps},
+		{Text: "\a", ParaFormat: rowMark, TableProps: borderProps.canonical()},
+		{Text: "\r", ParaFormat: rowMark, TableProps: borderProps.canonical()},
 	}
 
 	doc := buildLegacyDocFromRuns("test.doc", runs)
@@ -1435,107 +1434,6 @@ func TestBuildLegacyDocFromRunsBinaryTableAppliesTableBorders(t *testing.T) {
 
 // loadLegacyDocDefaultTabStop reads dxaTab from DOP at FibRgFcLcb97[31].
 // MS-DOC §2.7.5: dxaTab is a SHORT at offset 0x0A in the DOP record.
-func TestLoadLegacyDocDefaultTabStopReadsDopDxaTab(t *testing.T) {
-	const dopFibIndex = 31
-	cbRgFcLcb := dopFibIndex + 1
-	fibBase := 0
-	wordStream := make([]byte, fibBase+cbRgFcLcb*8)
-	// Point FibRgFcLcb97[31] at table-stream offset 0, length 12 (DOP minimum).
-	wordStream[fibBase+dopFibIndex*8+4] = 12
-	tableStream := make([]byte, 12)
-	// dxaTab = 480 twips at offset 0x0A.
-	tableStream[0x0A] = 0xE0
-	tableStream[0x0B] = 0x01
-
-	if got := loadLegacyDocDefaultTabStop(wordStream, tableStream, fibBase, cbRgFcLcb); got != 480 {
-		t.Fatalf("dxaTab = %d, want 480", got)
-	}
-}
-
-func TestLoadLegacyDocDefaultTabStopReturnsZeroWhenDopMissing(t *testing.T) {
-	cbRgFcLcb := 32
-	wordStream := make([]byte, cbRgFcLcb*8)
-	tableStream := make([]byte, 0)
-	if got := loadLegacyDocDefaultTabStop(wordStream, tableStream, 0, cbRgFcLcb); got != 0 {
-		t.Fatalf("dxaTab = %d, want 0 when DOP record absent", got)
-	}
-}
-
-func TestLoadLegacyDocSettingsReadsWord97EndnoteSettingsFromDop(t *testing.T) {
-	const dopFibIndex = 31
-	cbRgFcLcb := dopFibIndex + 1
-	fibBase := 0
-	wordStream := make([]byte, fibBase+cbRgFcLcb*8)
-	tableStream := make([]byte, 0x1F0)
-	binary.LittleEndian.PutUint32(wordStream[fibBase+dopFibIndex*8+4:], uint32(len(tableStream)))
-	binary.LittleEndian.PutUint16(tableStream[0x02:0x04], uint16((7<<2)|2))
-	binary.LittleEndian.PutUint16(tableStream[0x0A:0x0C], 720)
-	binary.LittleEndian.PutUint16(tableStream[0x34:0x36], uint16((5<<2)|1))
-	binary.LittleEndian.PutUint16(tableStream[0x36:0x38], uint16(3|(2<<6)))
-	binary.LittleEndian.PutUint16(tableStream[0x1EC:0x1EE], 3)
-	binary.LittleEndian.PutUint16(tableStream[0x1EE:0x1F0], 2)
-
-	settings := loadLegacyDocSettings(wordStream, tableStream, fibBase, cbRgFcLcb)
-	if settings.DefaultTabStop != 720 {
-		t.Fatalf("DefaultTabStop = %d, want 720", settings.DefaultTabStop)
-	}
-	if settings.FootnoteNumberFormat != "upperLetter" {
-		t.Fatalf("FootnoteNumberFormat = %q, want upperLetter", settings.FootnoteNumberFormat)
-	}
-	if settings.FootnoteNumberStart != 7 {
-		t.Fatalf("FootnoteNumberStart = %d, want 7", settings.FootnoteNumberStart)
-	}
-	if settings.FootnoteRestart != "eachPage" {
-		t.Fatalf("FootnoteRestart = %q, want eachPage", settings.FootnoteRestart)
-	}
-	if settings.EndnotePosition != "docEnd" {
-		t.Fatalf("EndnotePosition = %q, want docEnd", settings.EndnotePosition)
-	}
-	if settings.EndnoteNumberFormat != "lowerRoman" {
-		t.Fatalf("EndnoteNumberFormat = %q, want lowerRoman", settings.EndnoteNumberFormat)
-	}
-	if settings.EndnoteNumberStart != 5 {
-		t.Fatalf("EndnoteNumberStart = %d, want 5", settings.EndnoteNumberStart)
-	}
-	if settings.EndnoteRestart != "eachSect" {
-		t.Fatalf("EndnoteRestart = %q, want eachSect", settings.EndnoteRestart)
-	}
-}
-
-func TestLoadLegacyDocSettingsFallsBackToEdn1FormatBits(t *testing.T) {
-	const dopFibIndex = 31
-	cbRgFcLcb := dopFibIndex + 1
-	wordStream := make([]byte, cbRgFcLcb*8)
-	tableStream := make([]byte, 0x38)
-	binary.LittleEndian.PutUint32(wordStream[dopFibIndex*8+4:], uint32(len(tableStream)))
-	binary.LittleEndian.PutUint16(tableStream[0x02:0x04], uint16(4<<2))
-	binary.LittleEndian.PutUint16(tableStream[0x34:0x36], uint16(9<<2))
-	binary.LittleEndian.PutUint16(tableStream[0x36:0x38], uint16((4<<2)|(4<<6)))
-
-	settings := loadLegacyDocSettings(wordStream, tableStream, 0, cbRgFcLcb)
-	if settings.FootnoteNumberFormat != "lowerLetter" {
-		t.Fatalf("FootnoteNumberFormat = %q, want lowerLetter", settings.FootnoteNumberFormat)
-	}
-	if settings.FootnoteNumberStart != 4 {
-		t.Fatalf("FootnoteNumberStart = %d, want 4", settings.FootnoteNumberStart)
-	}
-	if settings.FootnoteRestart != "continuous" {
-		t.Fatalf("FootnoteRestart = %q, want continuous", settings.FootnoteRestart)
-	}
-	if settings.EndnotePosition != "sectEnd" {
-		t.Fatalf("EndnotePosition = %q, want sectEnd", settings.EndnotePosition)
-	}
-	if settings.EndnoteNumberFormat != "lowerLetter" {
-		t.Fatalf("EndnoteNumberFormat = %q, want lowerLetter", settings.EndnoteNumberFormat)
-	}
-	if settings.EndnoteNumberStart != 9 {
-		t.Fatalf("EndnoteNumberStart = %d, want 9", settings.EndnoteNumberStart)
-	}
-	if settings.EndnoteRestart != "continuous" {
-		t.Fatalf("EndnoteRestart = %q, want continuous", settings.EndnoteRestart)
-	}
-}
-
 func TestParseDocFloatingPicturesPopulatesDefaultTabStopFromDop(t *testing.T) {
 	t.Skip("retired: superseded by the maintained legacy-* DOC corpus")
 	path := filepath.Join("..", "..", "..", "..", "testdata", "doc", "apache-FloatingPictures.doc")
@@ -1735,13 +1633,13 @@ func TestCollectLegacyBinaryTableRowGroupsUsesPreWord97RowMarkAsDelimiter(t *tes
 
 	// Two content lines followed by a pre-97 row mark that terminates the first
 	// row, then two more content lines.
-	lineSlices := [][]docRun{
-		{{Text: "A\t", NativeCellMarks: true, TableProps: rowProps}},
-		{{Text: "B\t", NativeCellMarks: true, TableProps: rowProps}},
+	lineSlices := [][]binaryWordRun{
+		{{Text: "A\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
+		{{Text: "B\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
 		// Pre-97 row mark: LegacyRowMarkHint distinguishes it from Word 97+ marks.
-		{{Text: "", ParaFormat: pre97RowMark, LegacyRowMarkHint: true, TableProps: rowProps}},
-		{{Text: "C\t", NativeCellMarks: true, TableProps: rowProps}},
-		{{Text: "D\t", NativeCellMarks: true, TableProps: rowProps}},
+		{{Text: "", ParaFormat: pre97RowMark, LegacyRowMarkHint: true, TableProps: rowProps.canonical()}},
+		{{Text: "C\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
+		{{Text: "D\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
 	}
 
 	rowGroups := collectLegacyBinaryTableRowGroups(lineSlices)
@@ -1766,7 +1664,7 @@ func TestCollectLegacyBinaryTableRowGroupsUsesPreWord97RowMarkAsDelimiter(t *tes
 func TestBuildLegacyBinaryTablePromotesPreWord97ContentRowMarkPropertyRevision(t *testing.T) {
 	revision := &wordir.RevisionMark{Author: "Bob", Date: "2026-05-09"}
 	rowGroups := []legacyBinaryTableRow{{
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "A", NativeCellMarks: true, TableDepth: 1}},
 			{{Text: "B", LegacyRowMarkHint: true, NativeCellMarks: true, TableDepth: 1, PropertyRevision: revision}},
 		},
@@ -1799,7 +1697,7 @@ func TestBuildLegacyBinaryTablePromotesPreWord97ContentRowMarkPropertyRevision(t
 func TestLineSliceIsPreWord97RowMarkContentDetectsContentBearingRowMarks(t *testing.T) {
 	// Content-bearing row mark: LegacyRowMarkHint=true, NativeCellMarks=true,
 	// IsTableTrailingParagraph=false (ends in \r not \a after PAP collapsing).
-	contentRowMarkSlice := []docRun{
+	contentRowMarkSlice := []binaryWordRun{
 		{Text: "Cell1\tCell2", LegacyRowMarkHint: true, NativeCellMarks: true},
 	}
 	if !lineSliceIsPreWord97RowMarkContent(contentRowMarkSlice) {
@@ -1808,7 +1706,7 @@ func TestLineSliceIsPreWord97RowMarkContentDetectsContentBearingRowMarks(t *test
 
 	// Explicit row mark (ends in \a): IsTableTrailingParagraph=true, LegacyRowMarkHint=true.
 	// Also matches lineSliceIsPreWord97RowMarkContent (NativeCellMarks is set).
-	explicitRowMarkSlice := []docRun{
+	explicitRowMarkSlice := []binaryWordRun{
 		{
 			Text:              "",
 			ParaFormat:        wordir.ParagraphFormat{IsTableTrailingParagraph: true},
@@ -1822,7 +1720,7 @@ func TestLineSliceIsPreWord97RowMarkContentDetectsContentBearingRowMarks(t *test
 
 	// Word 97+ row mark: IsTableTrailingParagraph=true, LegacyRowMarkHint=false.
 	// Should NOT match lineSliceIsPreWord97RowMarkContent.
-	word97RowMarkSlice := []docRun{
+	word97RowMarkSlice := []binaryWordRun{
 		{
 			Text:       "",
 			ParaFormat: wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true},
@@ -1833,7 +1731,7 @@ func TestLineSliceIsPreWord97RowMarkContentDetectsContentBearingRowMarks(t *test
 	}
 
 	// Regular in-table line without row mark hint.
-	regularSlice := []docRun{
+	regularSlice := []binaryWordRun{
 		{Text: "A\tB", NativeCellMarks: true, LegacyInTableHint: true},
 	}
 	if lineSliceIsPreWord97RowMarkContent(regularSlice) {
@@ -1843,7 +1741,7 @@ func TestLineSliceIsPreWord97RowMarkContentDetectsContentBearingRowMarks(t *test
 
 func TestLineSliceHasPreWord97CellMarkDetectsPreWord97CellMarkSlices(t *testing.T) {
 	// A pre-Word97 cell mark has IsTableCellTrailingParagraph=true AND LegacyInTableHint=true.
-	cellMarkSlice := []docRun{
+	cellMarkSlice := []binaryWordRun{
 		{
 			Text:              "A\t",
 			LegacyInTableHint: true,
@@ -1855,7 +1753,7 @@ func TestLineSliceHasPreWord97CellMarkDetectsPreWord97CellMarkSlices(t *testing.
 	}
 
 	// Without LegacyInTableHint the cell mark is NOT pre-Word97.
-	word97CellMarkSlice := []docRun{
+	word97CellMarkSlice := []binaryWordRun{
 		{
 			Text:       "B\t",
 			ParaFormat: wordir.ParagraphFormat{IsTableCellTrailingParagraph: true},
@@ -1866,7 +1764,7 @@ func TestLineSliceHasPreWord97CellMarkDetectsPreWord97CellMarkSlices(t *testing.
 	}
 
 	// LegacyInTableHint alone (no IsTableCellTrailingParagraph) is not a cell mark.
-	legacyInTableOnly := []docRun{
+	legacyInTableOnly := []binaryWordRun{
 		{Text: "C\t", LegacyInTableHint: true},
 	}
 	if lineSliceHasPreWord97CellMark(legacyInTableOnly) {
@@ -1894,14 +1792,14 @@ func TestCollectLegacyBinaryTableRowGroupsContentBearingPreWord97RowMarkClosesRo
 
 	// Row 1: two cell slices + a content-bearing row mark (ends in \r, not \a).
 	// Row 2: two cell slices (no explicit row mark — closed by end-of-input).
-	lineSlices := [][]docRun{
-		{{Text: "A\t", NativeCellMarks: true, TableProps: rowProps}},
-		{{Text: "B\t", NativeCellMarks: true, TableProps: rowProps}},
+	lineSlices := [][]binaryWordRun{
+		{{Text: "A\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
+		{{Text: "B\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
 		// Content-bearing pre-97 row mark: LegacyRowMarkHint+NativeCellMarks but
 		// no IsTableTrailingParagraph (paragraph ends in \r after PAP collapsing).
-		{{Text: "extra\r", LegacyRowMarkHint: true, NativeCellMarks: true, TableProps: rowProps}},
-		{{Text: "C\t", NativeCellMarks: true, TableProps: rowProps}},
-		{{Text: "D\t", NativeCellMarks: true, TableProps: rowProps}},
+		{{Text: "extra\r", LegacyRowMarkHint: true, NativeCellMarks: true, TableProps: rowProps.canonical()}},
+		{{Text: "C\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
+		{{Text: "D\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
 	}
 
 	rowGroups := collectLegacyBinaryTableRowGroups(lineSlices)
@@ -1925,13 +1823,13 @@ func TestCollectLegacyBinaryTableRowGroupsContentBearingPreWord97RowMarkClosesRo
 
 	// A regular in-table run with LegacyRowMarkHint but no NativeCellMarks must
 	// NOT close the row — this is the CHPX-propagation guard.
-	legacyHintOnlySlice := []docRun{
+	legacyHintOnlySlice := []binaryWordRun{
 		{Text: "plain\r", LegacyRowMarkHint: true},
 	}
-	lineSlicesWithFalseHint := [][]docRun{
-		{{Text: "A\t", NativeCellMarks: true, TableProps: rowProps}},
+	lineSlicesWithFalseHint := [][]binaryWordRun{
+		{{Text: "A\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
 		legacyHintOnlySlice,
-		{{Text: "B\t", NativeCellMarks: true, TableProps: rowProps}},
+		{{Text: "B\t", NativeCellMarks: true, TableProps: rowProps.canonical()}},
 	}
 	rowGroupsFalse := collectLegacyBinaryTableRowGroups(lineSlicesWithFalseHint)
 	if len(rowGroupsFalse) != 1 {
@@ -1946,12 +1844,12 @@ func TestBuildLegacyBinaryTablePreservesCellSpecificRevisionAttribution(t *testi
 	props := &legacyTableRowProps{resolvedPropertyRevision: rowRevision}
 
 	group := legacyBinaryTableRow{
-		LineSlices: [][]docRun{{
+		LineSlices: [][]binaryWordRun{{
 			{Text: "A", PropertyRevision: cellARevision, Revision: "inserted", RevisionAuthor: "Alice", RevisionDate: "2026-05-01"},
 			{Text: "\t"},
 			{Text: "B", PropertyRevision: cellBRevision, Revision: "deleted", RevisionAuthor: "Bob", RevisionDate: "2026-05-02"},
 		}},
-		RowMark: []docRun{{TableProps: props}},
+		RowMark: []binaryWordRun{{TableProps: props.canonical()}},
 	}
 
 	table, trailing := buildLegacyBinaryTable(0, []legacyBinaryTableRow{group}, 0)
@@ -1981,7 +1879,7 @@ func TestBuildLegacyBinaryTablePreservesCellSpecificRevisionAttribution(t *testi
 }
 
 func TestLegacyCellRevisionConsensusDoesNotAttributeMixedContent(t *testing.T) {
-	meta := legacyCellRevisionMetadata([]docRun{
+	meta := legacyCellRevisionMetadata([]binaryWordRun{
 		{Text: "old", PropertyRevision: &wordir.RevisionMark{Author: "Alice", Date: "2026-05-01"}, Revision: "deleted", RevisionAuthor: "Alice", RevisionDate: "2026-05-01"},
 		{Text: "new", PropertyRevision: &wordir.RevisionMark{Author: "Bob", Date: "2026-05-02"}, Revision: "inserted", RevisionAuthor: "Bob", RevisionDate: "2026-05-02"},
 	})
@@ -1995,12 +1893,12 @@ func TestBuildLegacyBinaryTableInfersMergeRevisionFromCellSpecificPropertyRevisi
 	props := &legacyTableRowProps{}
 	props.setHMerge(0, 2)
 	group := legacyBinaryTableRow{
-		LineSlices: [][]docRun{{
+		LineSlices: [][]binaryWordRun{{
 			{Text: "Merged", PropertyRevision: cellRevision},
 			{Text: "\t"},
 			{Text: "", PropertyRevision: cellRevision},
 		}},
-		RowMark: []docRun{{TableProps: props}},
+		RowMark: []binaryWordRun{{TableProps: props.canonical()}},
 	}
 	table, _ := buildLegacyBinaryTable(0, []legacyBinaryTableRow{group}, 0)
 	if table == nil || len(table.Rows) != 1 || len(table.Rows[0].Cells) != 1 {

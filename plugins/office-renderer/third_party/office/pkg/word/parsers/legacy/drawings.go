@@ -71,7 +71,7 @@ const (
 // extractLegacyDrawingImages remains only as the explicit lossless/rescue-path
 // adapter. BLIP discovery and raster projection are canonical; only EMF/WMF
 // conversion still delegates to the narrow legacy metafile adapter.
-func extractLegacyDrawingImages(streams ...[]byte) []*wordir.Image {
+func extractPreWord97DrawingImages(streams ...[]byte) []*wordir.Image {
 	blips := docofficeart.ExtractBLIPs(streams...)
 	if len(blips) == 0 {
 		return nil
@@ -114,11 +114,11 @@ func extractLegacyDrawingMetafileImages(streams ...[]byte) []*wordir.Image {
 	return images
 }
 
-func appendLegacyDetachedDrawingImages(doc *wordir.Document, images []*wordir.Image) {
+func appendPreWord97DetachedDrawingImages(doc *wordir.Document, images []*wordir.Image) {
 	if doc == nil || len(images) == 0 {
 		return
 	}
-	seen := existingLegacyDocImageDigests(doc)
+	seen := existingPreWord97DocImageDigests(doc)
 	for _, img := range images {
 		if img == nil || len(img.Data) == 0 {
 			continue
@@ -147,7 +147,7 @@ func appendLegacyDetachedDrawingImages(doc *wordir.Document, images []*wordir.Im
 	}
 }
 
-func existingLegacyDocImageDigests(doc *wordir.Document) map[[20]byte]struct{} {
+func existingPreWord97DocImageDigests(doc *wordir.Document) map[[20]byte]struct{} {
 	seen := map[[20]byte]struct{}{}
 	if doc == nil {
 		return seen

@@ -10,23 +10,18 @@ import (
 func TestValidateLegacyStreamRunsRejectsLossyConstructs(t *testing.T) {
 	tests := []struct {
 		name        string
-		runs        []docRun
+		runs        []binaryWordRun
 		textboxes   int
 		wantFeature string
 	}{
 		{
-			name:        "unresolved picture anchor",
-			runs:        []docRun{{Text: "\x01", Spec: true, Data: true}},
-			wantFeature: "picture/data anchor",
-		},
-		{
 			name:        "ole anchor",
-			runs:        []docRun{{Text: "\x01", Spec: true, Obj: true}},
+			runs:        []binaryWordRun{{Text: "\x01", Spec: true, Obj: true}},
 			wantFeature: "OLE object anchor",
 		},
 		{
 			name:        "textbox",
-			runs:        []docRun{{Text: "body"}},
+			runs:        []binaryWordRun{{Text: "body"}},
 			textboxes:   1,
 			wantFeature: "textbox",
 		},
@@ -47,9 +42,13 @@ func TestValidateLegacyStreamRunsRejectsLossyConstructs(t *testing.T) {
 }
 
 func TestValidateLegacyStreamRunsAcceptsResolvedContent(t *testing.T) {
-	tests := [][]docRun{
+	tests := [][]binaryWordRun{
 		{{Text: "hello", ParaFormat: wordir.ParagraphFormat{}}},
 		{{Text: "cell\a", ParaFormat: wordir.ParagraphFormat{InTable: true, IsTableCellTrailingParagraph: true}, TableDepth: 1}},
+		// fData is a generic data-bearing run flag, not picture identity. Word97
+		// fixed pictures are resolved earlier from fSpec + sprmCPicLocation, so a
+		// generic fData run must not be rejected by this compatibility validator.
+		{{Text: "form-data", Spec: true, Data: true}},
 		{{Text: "\x01", Spec: true, Data: true, Image: &wordir.Image{MIMEType: "image/png", Data: []byte{1}}}},
 		{{Text: string(legacyDrawingAnchorChar), Spec: true, Shape: &wordir.Shape{Kind: "shape"}}},
 	}
@@ -61,16 +60,16 @@ func TestValidateLegacyStreamRunsAcceptsResolvedContent(t *testing.T) {
 }
 
 func TestLegacyStreamTableDepthUsesBinaryHints(t *testing.T) {
-	if got := legacyStreamTableDepth(docRun{TableDepth: 2}); got != 2 {
+	if got := legacyStreamTableDepth(binaryWordRun{TableDepth: 2}); got != 2 {
 		t.Fatalf("TableDepth = %d, want 2", got)
 	}
-	if got := legacyStreamTableDepth(docRun{ParaFormat: wordir.ParagraphFormat{InTable: true}}); got != 1 {
+	if got := legacyStreamTableDepth(binaryWordRun{ParaFormat: wordir.ParagraphFormat{InTable: true}}); got != 1 {
 		t.Fatalf("InTable depth = %d, want 1", got)
 	}
-	if got := legacyStreamTableDepth(docRun{Text: "cell\a"}); got != 1 {
+	if got := legacyStreamTableDepth(binaryWordRun{Text: "cell\a"}); got != 1 {
 		t.Fatalf("cell marker depth = %d, want 1", got)
 	}
-	if got := legacyStreamTableDepth(docRun{Text: "body"}); got != 0 {
+	if got := legacyStreamTableDepth(binaryWordRun{Text: "body"}); got != 0 {
 		t.Fatalf("plain depth = %d, want 0", got)
 	}
 }

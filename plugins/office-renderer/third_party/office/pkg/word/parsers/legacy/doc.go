@@ -2,6 +2,7 @@ package legacy
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +13,9 @@ import (
 	"unicode"
 	"unicode/utf16"
 
-	"office/pkg/diag"
 	"office/pkg/ooxml/cfb"
 	wordir "office/pkg/word/ir"
+	docformat "office/pkg/word/parsers/doc/format"
 
 	"golang.org/x/text/encoding/charmap"
 )
@@ -45,8 +46,19 @@ func legacyDocLooksPreWord97(wordStream []byte) bool {
 // ParseDoc parses a legacy .doc file and returns a fully resolved semantic
 // Document suitable for rendering. It is a convenience wrapper that populates
 // both lossless Source fields and resolved semantic fields.
+type ParseOptions struct {
+	Password string
+}
+
 func ParseDoc(path string) (*wordir.Document, error) {
-	return ParseDocLossless(path)
+	return ParseDocWithOptions(path, ParseOptions{})
+}
+
+// ParseDocWithOptions parses a legacy DOC with per-call options. Password is
+// scoped to this parse and does not mutate the package-level compatibility
+// password.
+func ParseDocWithOptions(path string, options ParseOptions) (*wordir.Document, error) {
+	return ParseDocLosslessWithOptions(path, options)
 }
 
 // ParseDocLossless parses a legacy .doc file and returns a Document whose
@@ -62,32 +74,49 @@ func ParseDoc(path string) (*wordir.Document, error) {
 //	Document → ProjectDocument → Document (refreshed semantic view)
 //	Document → Renderer
 func ParseDocLossless(path string) (*wordir.Document, error) {
+	return ParseDocLosslessWithOptions(path, ParseOptions{})
+}
+
+func ParseDocLosslessWithOptions(path string, options ParseOptions) (*wordir.Document, error) {
 	data, readErr := os.ReadFile(path)
 	if readErr != nil {
 		return nil, readErr
 	}
-	return ParseDocBytesLossless(data, filepath.Base(path))
+	return ParseDocBytesLosslessWithOptions(data, filepath.Base(path), options)
 }
 
 // ParseDocBytes parses an in-memory legacy .doc document. It is equivalent to
 // ParseDocBytesLossless and is provided as the concise default entry point.
 func ParseDocBytes(data []byte, name string) (*wordir.Document, error) {
-	return ParseDocBytesLossless(data, name)
+	return ParseDocBytesWithOptions(data, name, ParseOptions{})
+}
+
+func ParseDocBytesWithOptions(data []byte, name string, options ParseOptions) (*wordir.Document, error) {
+	return ParseDocBytesLosslessWithOptions(data, name, options)
 }
 
 // ParseDocBytesLossless parses an in-memory legacy .doc document while
 // retaining raw binary provenance in the IR Source fields. name is used only
 // for document identity and diagnostics; when empty, "document.doc" is used.
 func ParseDocBytesLossless(data []byte, name string) (*wordir.Document, error) {
+	return ParseDocBytesLosslessWithOptions(data, name, ParseOptions{})
+}
+
+func ParseDocBytesLosslessWithOptions(data []byte, name string, options ParseOptions) (*wordir.Document, error) {
 	name = filepath.Base(strings.TrimSpace(name))
 	if name == "." || name == "" {
 		name = "document.doc"
 	}
 	f, err := cfb.OpenBytes(data)
 	if err == nil {
-		doc, parseErr := parseDocFile(f, name)
+		doc, parseErr := parseDocFileWithOptions(f, name, options)
 		if parseErr == nil {
 			return doc, nil
+		}
+		// Encryption failures are authoritative. Never let raw-text recovery turn
+		// a missing or invalid password into a seemingly successful parse.
+		if isLegacyDocEncryptionError(parseErr) {
+			return nil, parseErr
 		}
 		// Some old OLE Word.Document.7 fixtures carry only table/control streams.
 		// If the main WordDocument stream is absent, try a filtered raw-text
@@ -114,10 +143,19 @@ func ParseDocBytesLossless(data []byte, name string) (*wordir.Document, error) {
 	return nil, fmt.Errorf("legacy doc: open cfb: %w", err)
 }
 
+func isLegacyDocEncryptionError(err error) bool {
+	var encryptionErr *legacyDocEncryptionError
+	return errors.As(err, &encryptionErr)
+}
+
 func parseDocFile(f *cfb.File, filename string) (*wordir.Document, error) {
+	return parseDocFileWithOptions(f, filename, ParseOptions{})
+}
+
+func parseDocFileWithOptions(f *cfb.File, filename string, options ParseOptions) (*wordir.Document, error) {
 	// Check for encryption and decrypt streams if needed.
 	var decryptErr error
-	f, decryptErr = maybeDecryptDocStreams(f)
+	f, decryptErr = maybeDecryptDocStreamsWithPassword(f, options.Password)
 	if decryptErr != nil {
 		return nil, decryptErr
 	}
@@ -140,93 +178,31 @@ func parseDocFile(f *cfb.File, filename string) (*wordir.Document, error) {
 		return nil, fmt.Errorf("legacy doc: missing WordDocument stream (available streams: %s)", strings.Join(quoted, ", "))
 	}
 
-	// Word 97+ uses the structured FibRgFcLcb97 path. Pre-Word-97 files get an
-	// explicit dispatch hook here so later header/FIB-like mapping work can land
-	// behind a stable version boundary; until then it still falls back below.
-	if data := extractDocRunsByVersion(wordStream, f); data != nil {
+	// Word97+ enters through the canonical snapshot adapter explicitly. Pre-97
+	// remains behind its dedicated compatibility dispatcher; it must not become
+	// an alternate Word97 binary path.
+	if nFib, ok := legacyDocFibVersion(wordStream); ok && nFib >= legacyDocFibWord97 {
+		doc, err := loadCanonicalWord97Document(filename, wordStream, f)
+		if err != nil {
+			return nil, err
+		}
+		return doc, nil
+	} else if data := extractPreWord97ParseDataByVersion(wordStream, f); data != nil {
 		var dataStream []byte
 		if ds, ok := f.Stream("Data"); ok && len(ds) > 0 {
 			dataStream = ds
 		} else if ds, ok = f.Stream("DataStream"); ok && len(ds) > 0 {
 			dataStream = ds
 		}
-		runs := applyDocFieldsToRunsWithDataStream(data.Runs, dataStream)
+		runs := applyPreWord97FieldsToRunsWithDataStream(data.Assembly.Runs, dataStream)
 		if data.Version > 0 && data.Version < legacyDocFibWord97 {
 			runs = normalizePreWord97GridTableRuns(runs)
 		}
-		doc := buildLegacyDocFromRunsWithContext(filename, runs, data.BookmarkStarts, data.BookmarkEnds, data.ListTables, data.StyleSheet, data.StyleNameByIstd)
+		data.Assembly.Runs = runs
+		doc := buildBinaryWordDocument(filename, data.Assembly)
 		applyLegacyDocProperties(doc, loadLegacyDocProperties(f))
-		if data.DocSettings.FootnoteNumberFormat != "" {
-			doc.FootnoteNumberFormat = data.DocSettings.FootnoteNumberFormat
-		}
-		if data.DocSettings.FootnoteNumberStart > 0 {
-			doc.FootnoteNumberStart = data.DocSettings.FootnoteNumberStart
-		}
-		if data.DocSettings.FootnoteRestart != "" {
-			doc.FootnoteRestart = data.DocSettings.FootnoteRestart
-		}
-		if data.DocSettings.EndnotePosition != "" {
-			doc.EndnotePosition = data.DocSettings.EndnotePosition
-		}
-		if data.DocSettings.EndnoteNumberFormat != "" {
-			doc.EndnoteNumberFormat = data.DocSettings.EndnoteNumberFormat
-		}
-		if data.DocSettings.EndnoteNumberStart > 0 {
-			doc.EndnoteNumberStart = data.DocSettings.EndnoteNumberStart
-		}
-		if data.DocSettings.EndnoteRestart != "" {
-			doc.EndnoteRestart = data.DocSettings.EndnoteRestart
-		}
-		if data.DocSettings.DefaultTabStop > 0 {
-			doc.DefaultTabStop = data.DocSettings.DefaultTabStop
-		}
-		if data.DocSettings.ZoomPercent > 0 {
-			doc.ZoomPercent = data.DocSettings.ZoomPercent
-		}
-		if data.DocSettings.ViewMode != "" {
-			doc.ViewMode = data.DocSettings.ViewMode
-		}
-		if data.DocSettings.ProtectionEnabled {
-			doc.ProtectionEnabled = data.DocSettings.ProtectionEnabled
-		}
-		if data.DocSettings.DocumentProtection != nil {
-			doc.DocumentProtection = data.DocSettings.DocumentProtection
-		}
-		if data.DocSettings.CreatedAt != "" {
-			doc.CreatedAt = data.DocSettings.CreatedAt
-		}
-		if data.DocSettings.ModifiedAt != "" {
-			doc.ModifiedAt = data.DocSettings.ModifiedAt
-		}
-		if data.DocSettings.LastPrintedAt != "" {
-			doc.LastPrintedAt = data.DocSettings.LastPrintedAt
-		}
-		if data.DocSettings.WordCount > 0 {
-			doc.WordCount = data.DocSettings.WordCount
-		}
-		if data.DocSettings.CharCount > 0 {
-			doc.CharCount = data.DocSettings.CharCount
-		}
-		if data.DocSettings.PageCount > 0 {
-			doc.PageCount = data.DocSettings.PageCount
-		}
-		if data.DocSettings.ParagraphCount > 0 {
-			doc.ParagraphCount = data.DocSettings.ParagraphCount
-		}
-		if data.DocSettings.MirrorMargins {
-			doc.MirrorMargins = data.DocSettings.MirrorMargins
-		}
-		if data.DocSettings.TrackChangesEnabled {
-			doc.TrackChangesEnabled = data.DocSettings.TrackChangesEnabled
-		}
-		if len(data.FontFamilies) > 0 {
-			doc.FontFamilies = data.FontFamilies
-		}
-		if len(data.EmbeddedFonts) > 0 {
-			doc.EmbeddedFonts = data.EmbeddedFonts
-		}
-		if len(data.BookmarkEnds) > 0 {
-			doc.BookmarkEnds = data.BookmarkEnds
+		if len(data.Assembly.BookmarkEnds) > 0 {
+			doc.BookmarkEnds = data.Assembly.BookmarkEnds
 		}
 		if len(data.Footnotes) > 0 {
 			doc.Footnotes = data.Footnotes
@@ -237,12 +213,7 @@ func parseDocFile(f *cfb.File, filename string) (*wordir.Document, error) {
 		if len(data.Comments) > 0 {
 			doc.Comments = data.Comments
 		}
-		doc.Source = &wordir.DocumentSource{
-			DOP:              data.RawDOP,
-			Version:          data.Version,
-			ComplexFileTable: data.ClxData,
-		}
-		doc.Compatibility = data.Compatibility
+		doc.Source = &wordir.DocumentSource{Version: data.Version}
 		if secs := loadLegacyDocSections(wordStream, f); len(secs) > 0 {
 			doc.Sections = secs
 			insertLegacySectionBoundaryBlocks(doc)
@@ -300,13 +271,11 @@ func parseDocFile(f *cfb.File, filename string) (*wordir.Document, error) {
 				doc.Sections[i].Footers = append([]wordir.Reference(nil), hf.SectionFooters[i]...)
 			}
 		}
-		appendLegacyDetachedDrawingImages(doc, extractLegacyDrawingImages(wordStream))
-		appendLegacyDetachedDrawingTextBoxes(doc, data.TextBoxes)
-		resolveDocCrossReferenceFields(doc, data.BookmarkStarts)
-		applyLegacyPreservationMeta(f, doc)
-		applyLegacyOLECompoundRecovery(f, doc)
-		applyLegacyOLEMetafilePreviews(f, doc)
-		doc.Diagnostics = data.Diagnostics
+		appendPreWord97DetachedDrawingImages(doc, extractPreWord97DrawingImages(wordStream))
+		resolveDocCrossReferenceFields(doc, data.Assembly.BookmarkStarts)
+		applyPreWord97PreservationMeta(f, doc)
+		applyPreWord97OLECompoundRecovery(f, doc)
+		applyPreWord97OLEMetafilePreviews(f, doc)
 		for _, sec := range doc.Sections {
 			doc.Diagnostics = append(doc.Diagnostics, sec.Diagnostics...)
 		}
@@ -391,13 +360,12 @@ func applyLegacyDocProperties(doc *wordir.Document, props legacyDocProperties) {
 	}
 }
 
-func extractDocRunsByVersion(wordStream []byte, f *cfb.File) *legacyDocParseData {
-	nFib, ok := legacyDocFibVersion(wordStream)
-	if ok {
-		switch {
-		case nFib >= legacyDocFibWord97:
-			return extractDocRunsViaFIB(wordStream, f)
-		case nFib == legacyDocFibWord95:
+func extractPreWord97ParseDataByVersion(wordStream []byte, f *cfb.File) *preWord97ParseData {
+	if nFib, ok := legacyDocFibVersion(wordStream); ok {
+		if nFib >= legacyDocFibWord97 {
+			return nil
+		}
+		if nFib == legacyDocFibWord95 {
 			return extractDocRunsViaPreWord97FIB(wordStream, f)
 		}
 	}
@@ -911,7 +879,7 @@ func scoreLegacyText(text string) int {
 }
 
 func buildLegacyDoc(filename, text string) *wordir.Document {
-	return buildLegacyDocFromRuns(filename, []docRun{{Text: text}})
+	return buildLegacyDocFromRuns(filename, []binaryWordRun{{Text: text}})
 }
 
 func buildLegacyParagraph(index int, line string) wordir.Paragraph {
@@ -1754,19 +1722,19 @@ func legacyAlphaMarkerFormat(marker string) string {
 // Run-aware document assembly (CHPx character formatting)
 // ---------------------------------------------------------------------------
 
-// docField represents a field at the docRun level, before conversion to wordir.Field.
-type docField struct {
+// binaryWordField represents a field at the binaryWordRun level, before conversion to wordir.Field.
+type binaryWordField struct {
 	Kind      string
 	Instr     string
 	Arg       string
 	Anchor    string
 	Target    string
-	Children  []docRun
-	InstrRuns []docRun
+	Children  []binaryWordRun
+	InstrRuns []binaryWordRun
 }
 
-// docRun holds a decoded text segment together with its character and paragraph formatting.
-type docRun struct {
+// binaryWordRun holds a decoded text segment together with its character and paragraph formatting.
+type binaryWordRun struct {
 	Text              string
 	Format            wordir.RunFormat
 	ParaFormat        wordir.ParagraphFormat
@@ -1774,18 +1742,19 @@ type docRun struct {
 	LegacyInTableHint bool
 	LegacyRowMarkHint bool
 	NativeCellMarks   bool
-	TableProps        *legacyTableRowProps
-	Target            string // non-empty for runs that are the display text of a HYPERLINK field
-	FieldKind         string
-	FieldInstr        string
-	FieldArg          string
-	Anchor            string
-	Kind              string
-	BreakType         string
-	NoteID            int
-	StartCP           int
-	CommentID         int
-	Revision          string
+	// TableProps is the canonical table metadata consumed by the shared binary Word assembler.
+	TableProps *docformat.TableRowProps
+	Target     string // non-empty for runs that are the display text of a HYPERLINK field
+	FieldKind  string
+	FieldInstr string
+	FieldArg   string
+	Anchor     string
+	Kind       string
+	BreakType  string
+	NoteID     int
+	StartCP    int
+	CommentID  int
+	Revision   string
 	// RevisionAuthor / RevisionDate are resolved when CHPx carried sprmCIbstRMark
 	// (or its deletion variant) and the FIB pointed at a non-empty SttbfRMark.
 	RevisionAuthor string
@@ -1800,28 +1769,28 @@ type docRun struct {
 	// CHPX sprmCDispFldRMark when present on this run.
 	DisplayFieldRevision *wordir.RevisionMark
 	// Raw revision-mark indices captured from CHPx; resolved later in
-	// extractDocRunsViaFIB once SttbfRMark has been loaded. Kept on docRun (not
+	// the canonical Word97 materializer. Kept on binaryWordRun (not
 	// exposed via wordir.Run) so the resolver can stay a single post-pass.
 	IbstRMark    uint16
 	HasIbstRMark bool
 	DttmRMark    uint32
 	HasDttmRMark bool
 	// Raw paragraph property-revision metadata from PAPX; resolved later in
-	// extractDocRunsViaFIB once SttbfRMark has been loaded.
+	// the canonical Word97 materializer.
 	PropRMarkIbst    uint16
 	HasPropRMarkIbst bool
 	PropRMarkDttm    uint32
 	HasPropRMarkDttm bool
 	HasPropRMark     bool
 	// Raw run property-revision metadata from CHPX; resolved later in
-	// extractDocRunsViaFIB once SttbfRMark has been loaded.
+	// the canonical Word97 materializer.
 	RunPropRMarkIbst    uint16
 	HasRunPropRMarkIbst bool
 	RunPropRMarkDttm    uint32
 	HasRunPropRMarkDttm bool
 	HasRunPropRMark     bool
 	// Raw display-field revision metadata from CHPX; resolved later in
-	// extractDocRunsViaFIB once SttbfRMark has been loaded.
+	// the canonical Word97 materializer.
 	DispFldRMarkIbst    uint16
 	HasDispFldRMarkIbst bool
 	DispFldRMarkDttm    uint32
@@ -1832,46 +1801,24 @@ type docRun struct {
 	Obj                 bool
 	Image               *wordir.Image
 	Shape               *wordir.Shape
+	EmbeddedRun         *wordir.Run
 	FormField           *wordir.FormField
-	Fields              []*docField
+	Fields              []*binaryWordField
 	// ChpxSprms stores the raw CHPX grpprl bytes for this run.
 	ChpxSprms []byte
 	// PapxSprms stores the raw PAPX grpprl bytes for the paragraph that owns this run.
 	PapxSprms []byte
 }
 
-type legacyDocParseData struct {
-	Runs            []docRun
-	Footnotes       map[int]wordir.Story
-	Endnotes        map[int]wordir.Story
-	Comments        map[int]wordir.Story
-	BookmarkStarts  map[int][]string
-	BookmarkEnds    map[string]int // bookmark name → exclusive end CP
-	ListTables      *legacyListTables
-	StyleSheet      *legacyStyleSheet
-	StyleNameByIstd map[int]string
-	TextBoxes       []*wordir.TextBox
-	DocSettings     legacyDocSettings
-	FontFamilies    map[string]wordir.FontFamilyInfo
-	EmbeddedFonts   []*wordir.EmbeddedFont
-	// RawDOP stores the raw Document Properties bytes for lossless IR.
-	RawDOP []byte
-	// Version is the nFib value from the FIB.
+// preWord97ParseData carries semantic state produced only by the genuine
+// pre-Word97 compatibility parser. Word97+ never enters this path.
+type preWord97ParseData struct {
+	Assembly  binaryWordDocumentInput
+	Footnotes map[int]wordir.Story
+	Endnotes  map[int]wordir.Story
+	Comments  map[int]wordir.Story
+	// Version is the pre-Word97 nFib value from the FIB.
 	Version uint16
-	// ClxData stores the raw Complex File Table bytes for lossless IR.
-	ClxData []byte
-	// Compatibility stores parsed DOP compatibility flags.
-	Compatibility *wordir.DocCompatibility
-	// Diagnostics accumulates info-level issues from the parse pipeline.
-	Diagnostics diag.List
-}
-
-// loadLegacyDocDefaultTabStop reads DOP.dxaTab from FibRgFcLcb97[31].
-// DOP layout (MS-DOC §2.7.5): dxaTab is a SHORT at offset 0x0A in the DOP
-// record. Returns 0 when the FIB index, table-stream pointer, or DOP record
-// is too short — callers should fall back to Word's default of 720 twips.
-func loadLegacyDocDefaultTabStop(wordStream, tableStream []byte, fibBase, cbRgFcLcb int) int {
-	return loadLegacyDocSettings(wordStream, tableStream, fibBase, cbRgFcLcb).DefaultTabStop
 }
 
 type PreWord97BodySpan struct {
@@ -1950,26 +1897,13 @@ type legacyStoryCounts struct {
 	HdrTxbx int
 }
 
-// extractDocRunsViaFIB reads the FIB (Word 97+, nFib ≥ 0xC1), locates both
-// the ClxInfo (piece table, FibRgFcLcb97[33]) and the PlcfBteChpx (character
-// formatting, FibRgFcLcb97[12]), and assembles a []docRun for the entire
-// document.  Returns nil on any parse failure so the caller can fall through
-// to the heuristic text-only path.
-func extractDocRunsViaFIB(wordStream []byte, f *cfb.File) *legacyDocParseData {
-	core, ok := loadLegacyWord97DocCore(wordStream, f)
-	if !ok {
-		return nil
-	}
-	return materializeLegacyWord97ParseData(wordStream, core)
-}
-
 // extractDocRunsViaPreWord97FIB is the future structured entrypoint for
 // pre-Word-97 binary documents. It is wired into ParseDoc now so eventual
 // header/FIB-like and CLX-like mapping work can land behind an explicit
 // version dispatch without changing the higher-level parser flow.
 // Until full mapping exists, use the observed body-text span in the current
 // pre-Word-97 fixtures to avoid whole-stream fallback scanning.
-func extractDocRunsViaPreWord97FIB(wordStream []byte, _ *cfb.File) *legacyDocParseData {
+func extractDocRunsViaPreWord97FIB(wordStream []byte, _ *cfb.File) *preWord97ParseData {
 	core, ok := loadPreWord97DocCore(wordStream)
 	if !ok {
 		return nil
@@ -2028,17 +1962,19 @@ func extractDocRunsViaPreWord97FIB(wordStream []byte, _ *cfb.File) *legacyDocPar
 	// All three tables live inside the WordDocument stream for pre-Word-97 files.
 	bookmarkStarts, bookmarkEnds := loadPreWord97BookmarkData(wordStream)
 
-	return &legacyDocParseData{
-		Runs:            runs,
-		Version:         core.Span.NFib,
-		StyleSheet:      stylesheet,
-		StyleNameByIstd: styleMap,
-		ListTables:      core.ListTables,
-		Footnotes:       preWord97NoteDataAsStoryMap(ftnData),
-		Endnotes:        preWord97NoteDataAsStoryMap(ednData),
-		Comments:        preWord97NoteDataAsStoryMap(atnData),
-		BookmarkStarts:  bookmarkStarts,
-		BookmarkEnds:    bookmarkEnds,
+	return &preWord97ParseData{
+		Assembly: binaryWordDocumentInput{
+			Runs:            runs,
+			BookmarkStarts:  bookmarkStarts,
+			BookmarkEnds:    bookmarkEnds,
+			ListCatalog:     core.ListTables,
+			StyleCatalog:    stylesheet,
+			StyleNameByIstd: styleMap,
+		},
+		Version:   core.Span.NFib,
+		Footnotes: preWord97NoteDataAsStoryMap(ftnData),
+		Endnotes:  preWord97NoteDataAsStoryMap(ednData),
+		Comments:  preWord97NoteDataAsStoryMap(atnData),
 	}
 }
 
@@ -2082,7 +2018,7 @@ func sortedStoryIDs(stories map[int]wordir.Story) []int {
 	return ids
 }
 
-func buildStyleNameByIstdFromStyleSheet(stylesheet *legacyStyleSheet) map[int]string {
+func buildStyleNameByIstdFromStyleSheet(stylesheet *binaryWordStyleCatalog) map[int]string {
 	if stylesheet == nil || len(stylesheet.paragraphByIndex) == 0 {
 		return nil
 	}
@@ -2102,7 +2038,7 @@ func buildStyleNameByIstdFromStyleSheet(stylesheet *legacyStyleSheet) map[int]st
 // formatting from the stylesheet to runs that reference a paragraph style via
 // BinaryStyleIndex, including alignment, indents, spacing, borders, and shading.
 // Direct run formatting (from PAPx grpprl) takes precedence over style formatting.
-func applyPreWord97StyleInheritedParagraphFormatting(runs []docRun, stylesheet *legacyStyleSheet) {
+func applyPreWord97StyleInheritedParagraphFormatting(runs []binaryWordRun, stylesheet *binaryWordStyleCatalog) {
 	if stylesheet == nil || len(stylesheet.paragraphByIndex) == 0 {
 		return
 	}
@@ -2122,7 +2058,7 @@ func applyPreWord97StyleInheritedParagraphFormatting(runs []docRun, stylesheet *
 // applyStyleFormatToRunIfUnset merges styleFormat into run.ParaFormat, but only
 // for fields not already set in the run. This preserves direct PAPx grpprl
 // formatting while layering in inherited style defaults.
-func applyStyleFormatToRunIfUnset(run *docRun, styleFormat wordir.ParagraphFormat) {
+func applyStyleFormatToRunIfUnset(run *binaryWordRun, styleFormat wordir.ParagraphFormat) {
 	// Apply alignment if not set.
 	if run.ParaFormat.Alignment == "" && styleFormat.Alignment != "" {
 		run.ParaFormat.Alignment = styleFormat.Alignment
@@ -2192,7 +2128,7 @@ func applyStyleFormatToRunIfUnset(run *docRun, styleFormat wordir.ParagraphForma
 // whose paragraph style (via STSH) inherits fInTable but had no explicit
 // grpprl opcode 24 in their direct PAPx entry. This covers the case where
 // the style definition carries InTable=true through the style's UPX PAPX.
-func applyPreWord97StyleInheritedInTableHints(runs []docRun, stylesheet *legacyStyleSheet) {
+func applyPreWord97StyleInheritedInTableHints(runs []binaryWordRun, stylesheet *binaryWordStyleCatalog) {
 	if stylesheet == nil {
 		return
 	}
@@ -2214,7 +2150,7 @@ func applyPreWord97StyleInheritedInTableHints(runs []docRun, stylesheet *legacyS
 	}
 }
 
-func inferPreWord97StyleNameByIstdFromRuns(runs []docRun, styleNames []string) map[int]string {
+func inferPreWord97StyleNameByIstdFromRuns(runs []binaryWordRun, styleNames []string) map[int]string {
 	if len(runs) == 0 || len(styleNames) == 0 {
 		return nil
 	}
@@ -2337,22 +2273,22 @@ func extractPreWord97BodyText(wordStream []byte) string {
 	return normalizeLegacyText(joinDocRunsText(runs))
 }
 
-func extractPreWord97BodyRuns(wordStream []byte) []docRun {
+func extractPreWord97BodyRuns(wordStream []byte) []binaryWordRun {
 	whole := fallbackScanDocText(wordStream)
 	core, ok := loadPreWord97DocCore(wordStream)
 	if !ok {
 		if scoreLegacyText(whole) == 0 {
 			return nil
 		}
-		return []docRun{{Text: whole}}
+		return []binaryWordRun{{Text: whole}}
 	}
 	return extractPreWord97BodyRunsFromCore(core, wordStream)
 }
 
-// extractPreWord97BodyRunsFromCore assembles the best []docRun for the main
+// extractPreWord97BodyRunsFromCore assembles the best []binaryWordRun for the main
 // body story using a pre-loaded preWord97DocCore, avoiding a second FIB parse
 // when the caller already holds the core (e.g. extractDocRunsViaPreWord97FIB).
-func extractPreWord97BodyRunsFromCore(core *preWord97DocCore, wordStream []byte) []docRun {
+func extractPreWord97BodyRunsFromCore(core *preWord97DocCore, wordStream []byte) []binaryWordRun {
 	whole := fallbackScanDocText(wordStream)
 	span := core.Span
 	if span.FComplex {
@@ -2364,10 +2300,10 @@ func extractPreWord97BodyRunsFromCore(core *preWord97DocCore, wordStream []byte)
 		body := wordStream[span.Start:span.BodyEnd]
 		scanned := fallbackScanDocText(body)
 		if scoreLegacyText(scanned) > 0 {
-			return []docRun{{Text: scanned}}
+			return []binaryWordRun{{Text: scanned}}
 		}
 		if scoreLegacyText(whole) > 0 {
-			return []docRun{{Text: whole}}
+			return []binaryWordRun{{Text: whole}}
 		}
 		return nil
 	}
@@ -2379,18 +2315,18 @@ func extractPreWord97BodyRunsFromCore(core *preWord97DocCore, wordStream []byte)
 	if scoreLegacyText(directNormalized) == 0 {
 		switch {
 		case scoreLegacyText(scanned) > 0:
-			return []docRun{{Text: scanned}}
+			return []binaryWordRun{{Text: scanned}}
 		case scoreLegacyText(whole) > 0:
-			return []docRun{{Text: whole}}
+			return []binaryWordRun{{Text: whole}}
 		default:
 			return nil
 		}
 	}
 	bestText := directNormalized
-	bestRuns := []docRun{{Text: direct}}
+	bestRuns := []binaryWordRun{{Text: direct}}
 	if scoreLegacyText(scanned) > scoreLegacyText(bestText) {
 		bestText = scanned
-		bestRuns = []docRun{{Text: scanned}}
+		bestRuns = []binaryWordRun{{Text: scanned}}
 	}
 	coreRuns := core.assembleMainStoryRuns(wordStream)
 	coreText := normalizeLegacyText(joinDocRunsText(coreRuns))
@@ -2435,11 +2371,11 @@ func extractPreWord97BodyRunsFromCore(core *preWord97DocCore, wordStream []byte)
 // is preserved as a form-feed so the existing break pipeline can paginate it;
 // in one-column legacy documents this is how Word's old column/page boundary
 // appears in the observed fixtures.
-func normalizePreWord97GridTableRuns(runs []docRun) []docRun {
+func normalizePreWord97GridTableRuns(runs []binaryWordRun) []binaryWordRun {
 	if len(runs) == 0 {
 		return runs
 	}
-	out := make([]docRun, 0, len(runs))
+	out := make([]binaryWordRun, 0, len(runs))
 	for _, run := range runs {
 		bellCount := strings.Count(run.Text, "\a")
 		if bellCount < 12 || !strings.Contains(run.Text, "\a") {
@@ -2473,7 +2409,7 @@ func normalizePreWord97GridTableRuns(runs []docRun) []docRun {
 		}
 		// One dense pre-97 grid run corresponds to one physical Word table.
 		// Keep adjacent tables from being coalesced by the text-table rescue path.
-		out = append(out, docRun{Kind: legacyListBoundaryKind, StartCP: cp})
+		out = append(out, binaryWordRun{Kind: legacyListBoundaryKind, StartCP: cp})
 	}
 	return out
 }
@@ -2598,7 +2534,7 @@ func legacyTextLineCount(text string) int {
 	return len(strings.Split(text, "\n"))
 }
 
-func legacyRunsAreOverfragmented(runs []docRun) bool {
+func legacyRunsAreOverfragmented(runs []binaryWordRun) bool {
 	if len(runs) == 0 {
 		return false
 	}
@@ -2613,7 +2549,7 @@ func legacyRunsAreOverfragmented(runs []docRun) bool {
 // chpxFormatRuns onto the structure of baseRuns (typically PAP-derived).
 // For each character position in baseRuns, it finds the matching CHPx entry
 // in chpxFormatRuns and applies that formatting.
-func applyChpxFormattingToDocRuns(baseRuns, chpxFormatRuns []docRun) []docRun {
+func applyChpxFormattingToDocRuns(baseRuns, chpxFormatRuns []binaryWordRun) []binaryWordRun {
 	if len(chpxFormatRuns) == 0 || len(baseRuns) == 0 {
 		return baseRuns
 	}
@@ -2646,7 +2582,7 @@ func applyChpxFormattingToDocRuns(baseRuns, chpxFormatRuns []docRun) []docRun {
 	// CHPX to the whole PAP run leaks character formatting across the boundary
 	// (particularly visible in compressed Word 6/95 non-ASCII text). Split each
 	// base run at every CHPX boundary and format each resulting CP interval.
-	out := make([]docRun, 0, len(baseRuns)+len(ranges))
+	out := make([]binaryWordRun, 0, len(baseRuns)+len(ranges))
 	nextBaseCP := 0
 	for i, baseRun := range baseRuns {
 		runes := []rune(baseRun.Text)
@@ -2738,139 +2674,6 @@ func readLegacyStoryCounts(wordStream []byte, lw97Base, cslw int) legacyStoryCou
 	}
 }
 
-func assembleDocRunsFromClxRange(wordStream, clxData []byte, startCP, endCP int, chpxEntries []chpxEntry, papxEntries []papxEntry) []docRun {
-	cft := loadLegacyComplexFileTable(clxData)
-	if cft == nil {
-		return nil
-	}
-	runs, ok := assembleDocRunsFromPlcPcdRange(wordStream, cft.PlcPcd, startCP, endCP, chpxEntries, papxEntries)
-	if !ok {
-		return nil
-	}
-	return runs
-}
-
-// assembleDocRunsFromClx walks the Clx structure (Prc* then Pcdt) and
-// delegates the actual assembly to assembleDocRunsFromPlcPcd.
-func assembleDocRunsFromClx(wordStream, clxData []byte, chpxEntries []chpxEntry, papxEntries []papxEntry) []docRun {
-	cft := loadLegacyComplexFileTable(clxData)
-	if cft == nil {
-		return nil
-	}
-	runs, ok := assembleDocRunsFromPlcPcd(wordStream, cft.PlcPcd, chpxEntries, papxEntries)
-	if !ok {
-		return nil
-	}
-	return runs
-}
-
-func assembleDocRunsFromPlcPcdRange(wordStream, plc []byte, startCP, endCP int, chpxEntries []chpxEntry, papxEntries []papxEntry) ([]docRun, bool) {
-	return assembleDocRunsFromPlcPcdRangeWithCharset(wordStream, plc, startCP, endCP, chpxEntries, papxEntries, nil)
-}
-
-func assembleDocRunsFromPlcPcdRangeWithCharset(wordStream, plc []byte, startCP, endCP int, chpxEntries []chpxEntry, papxEntries []papxEntry, preferredCharset *charmap.Charmap) ([]docRun, bool) {
-	pieceCount := (len(plc) - 4) / 12
-	if pieceCount <= 0 || startCP >= endCP {
-		return nil, false
-	}
-	cpBase := 4 * (pieceCount + 1)
-	charPos := make([]int, pieceCount+1)
-	for i := range charPos {
-		charPos[i] = int(binary.LittleEndian.Uint32(plc[i*4:]))
-		if i > 0 && charPos[i] < charPos[i-1] {
-			return nil, false
-		}
-	}
-
-	var runs []docRun
-	for i := 0; i < pieceCount; i++ {
-		pieceStart := charPos[i]
-		pieceEnd := charPos[i+1]
-		if pieceStart >= endCP || pieceEnd <= startCP {
-			continue
-		}
-		overlapStart := pieceStart
-		if startCP > overlapStart {
-			overlapStart = startCP
-		}
-		overlapEnd := pieceEnd
-		if endCP < overlapEnd {
-			overlapEnd = endCP
-		}
-		if overlapStart >= overlapEnd {
-			continue
-		}
-
-		pcd := plc[cpBase+i*8 : cpBase+(i+1)*8]
-		fcRaw := binary.LittleEndian.Uint32(pcd[2:6])
-		compressed := fcRaw&0x40000000 != 0
-		byteOff := int(fcRaw & 0x3FFFFFFF)
-		if compressed {
-			byteOff /= 2
-		}
-		offsetInPiece := overlapStart - pieceStart
-		if compressed {
-			byteOff += offsetInPiece
-		} else {
-			byteOff += offsetInPiece * 2
-		}
-		runs = append(runs, splitPieceByChpxWithCharset(wordStream, byteOff, fcRaw+uint32(offsetInPiece*2), overlapEnd-overlapStart, compressed, overlapStart, chpxEntries, papxEntries, preferredCharset)...)
-	}
-
-	if len(runs) == 0 {
-		return nil, false
-	}
-	if scoreLegacyText(joinDocRunsText(runs)) == 0 {
-		return nil, false
-	}
-	return runs, true
-}
-
-// assembleDocRunsFromPlcPcd iterates the piece table and, for each piece,
-// calls splitPieceByChpx to split it at CHPx formatting boundaries.
-func assembleDocRunsFromPlcPcd(wordStream, plc []byte, chpxEntries []chpxEntry, papxEntries []papxEntry) ([]docRun, bool) {
-	return assembleDocRunsFromPlcPcdWithCharset(wordStream, plc, chpxEntries, papxEntries, nil)
-}
-
-func assembleDocRunsFromPlcPcdWithCharset(wordStream, plc []byte, chpxEntries []chpxEntry, papxEntries []papxEntry, preferredCharset *charmap.Charmap) ([]docRun, bool) {
-	pieceCount := (len(plc) - 4) / 12
-	if pieceCount <= 0 {
-		return nil, false
-	}
-	cpBase := 4 * (pieceCount + 1)
-	charPos := make([]int, pieceCount+1)
-	for i := range charPos {
-		charPos[i] = int(binary.LittleEndian.Uint32(plc[i*4:]))
-		if i > 0 && charPos[i] < charPos[i-1] {
-			return nil, false
-		}
-	}
-
-	var runs []docRun
-	for i := 0; i < pieceCount; i++ {
-		charCount := charPos[i+1] - charPos[i]
-		if charCount <= 0 {
-			continue
-		}
-		pcd := plc[cpBase+i*8 : cpBase+(i+1)*8]
-		fcRaw := binary.LittleEndian.Uint32(pcd[2:6])
-		compressed := fcRaw&0x40000000 != 0
-		byteOff := int(fcRaw & 0x3FFFFFFF)
-		if compressed {
-			byteOff /= 2
-		}
-		runs = append(runs, splitPieceByChpxWithCharset(wordStream, byteOff, fcRaw, charCount, compressed, charPos[i], chpxEntries, papxEntries, preferredCharset)...)
-	}
-
-	if len(runs) == 0 {
-		return nil, false
-	}
-	if scoreLegacyText(joinDocRunsText(runs)) == 0 {
-		return nil, false
-	}
-	return runs, true
-}
-
 // splitPieceByChpx splits one piece of the piece table into sub-runs at CHPx
 // formatting boundaries. For each sub-run the text is decoded and the
 // corresponding RunFormat and ParagraphFormat are attached.
@@ -2879,11 +2682,11 @@ func assembleDocRunsFromPlcPcdWithCharset(wordStream, plc []byte, chpxEntries []
 // entries: uncompressed pieces use raw byte offsets, while compressed pieces
 // offsets for both CHPX and PAPX entries, so compressed-piece lookups must
 // divide by 2 and then advance one byte per character.
-func splitPieceByChpx(wordStream []byte, byteOff int, fcRaw uint32, charCount int, compressed bool, pieceStartCP int, entries []chpxEntry, papxEntries []papxEntry) []docRun {
+func splitPieceByChpx(wordStream []byte, byteOff int, fcRaw uint32, charCount int, compressed bool, pieceStartCP int, entries []chpxEntry, papxEntries []papxEntry) []binaryWordRun {
 	return splitPieceByChpxWithCharset(wordStream, byteOff, fcRaw, charCount, compressed, pieceStartCP, entries, papxEntries, nil)
 }
 
-func splitPieceByChpxWithCharset(wordStream []byte, byteOff int, fcRaw uint32, charCount int, compressed bool, pieceStartCP int, entries []chpxEntry, papxEntries []papxEntry, preferredCharset *charmap.Charmap) []docRun {
+func splitPieceByChpxWithCharset(wordStream []byte, byteOff int, fcRaw uint32, charCount int, compressed bool, pieceStartCP int, entries []chpxEntry, papxEntries []papxEntry, preferredCharset *charmap.Charmap) []binaryWordRun {
 	pieceFC, fcStep := legacyPieceFC(wordStream, fcRaw, compressed)
 	chpxBaseFC, chpxStep := legacyPieceEntryFCBasis(fcRaw, pieceFC, fcStep, compressed, len(entries), func() uint32 {
 		if len(entries) == 0 {
@@ -2897,7 +2700,7 @@ func splitPieceByChpxWithCharset(wordStream []byte, byteOff int, fcRaw uint32, c
 		}
 		return papxEntries[0].FC
 	}())
-	var result []docRun
+	var result []binaryWordRun
 	pos := 0 // current character offset within piece
 	for pos < charCount {
 		charChpxFC := chpxBaseFC + uint32(pos)*chpxStep
@@ -3032,14 +2835,14 @@ func splitPieceByChpxWithCharset(wordStream []byte, byteOff int, fcRaw uint32, c
 				paraFormat.IsTableTrailingParagraph = true
 			}
 
-			result = append(result, docRun{
+			result = append(result, binaryWordRun{
 				Text:                text,
 				Format:              format,
 				ParaFormat:          paraFormat,
 				TableDepth:          tableDepth,
 				LegacyInTableHint:   legacyInTableHint,
 				LegacyRowMarkHint:   legacyRowMarkHint,
-				TableProps:          tableProps,
+				TableProps:          tableProps.canonical(),
 				StartCP:             pieceStartCP + pos,
 				Revision:            revision,
 				Spec:                spec,
@@ -3129,7 +2932,7 @@ func decodePieceTextWithCharset(wordStream []byte, byteOff, charCount int, compr
 // Field-character preprocessing
 // ---------------------------------------------------------------------------
 
-// applyDocFieldsToRuns scans the raw run slice for Word field characters
+// applyPreWord97FieldsToRuns scans the raw run slice for Word field characters
 // (0x13 = FLDBEGIN, 0x14 = FLDSEP, 0x15 = FLDEND) and rewrites the slice so
 // that:
 //   - The field instruction text (between 0x13 and 0x14) is removed from
@@ -3138,19 +2941,19 @@ func decodePieceTextWithCharset(wordStream []byte, byteOff, charCount int, compr
 //     their Target field set to the URL extracted from the instruction.
 //   - All three field characters are removed from the output text.
 //   - All other field types pass through with the cached result text kept.
-func applyDocFieldsToRuns(runs []docRun) []docRun {
-	return applyDocFieldsToRunsWithDataStream(runs, nil)
+func applyPreWord97FieldsToRuns(runs []binaryWordRun) []binaryWordRun {
+	return applyPreWord97FieldsToRunsWithDataStream(runs, nil)
 }
 
-// applyDocFieldsToRunsWithDataStream is the data-stream-aware variant of
-// applyDocFieldsToRuns.  When dataStream is non-nil, form fields that carry a
+// applyPreWord97FieldsToRunsWithDataStream is the data-stream-aware variant of
+// applyPreWord97FieldsToRuns.  When dataStream is non-nil, form fields that carry a
 // PicLocation will have their binary FFData read from the Word Data stream
 // and merged into the resulting FormField.
 //
 // The implementation uses a stack of field frames so that nested fields (e.g.
 // { IF { PAGE } > 1 "yes" "no" }) are captured as trees rather than being
 // flattened or overwritten.
-func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docRun {
+func applyPreWord97FieldsToRunsWithDataStream(runs []binaryWordRun, dataStream []byte) []binaryWordRun {
 	const (
 		fldBegin = '\x13'
 		fldSep   = '\x14'
@@ -3159,13 +2962,13 @@ func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docR
 
 	type frame struct {
 		instr     strings.Builder
-		instrRuns []docRun
-		result    []docRun
+		instrRuns []binaryWordRun
+		result    []binaryWordRun
 		parsed    legacyDocField
 		inResult  bool
 	}
 
-	out := make([]docRun, 0, len(runs))
+	out := make([]binaryWordRun, 0, len(runs))
 	stack := make([]frame, 0, 4)
 
 	// inResult reports whether the top of the stack is in result phase.
@@ -3181,11 +2984,11 @@ func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docR
 
 	// emitText routes a text segment to the current accumulator (instruction,
 	// result, or top-level output).
-	emitText := func(text string, r docRun) {
+	emitText := func(text string, r binaryWordRun) {
 		if text == "" {
 			return
 		}
-		nr := docRun{
+		nr := binaryWordRun{
 			Text:                 text,
 			Format:               r.Format,
 			ParaFormat:           r.ParaFormat,
@@ -3236,11 +3039,11 @@ func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docR
 		out = append(out, nr)
 	}
 
-	// flushField pops the top frame and returns a docField representing it.
-	flushField := func() *docField {
+	// flushField pops the top frame and returns a binaryWordField representing it.
+	flushField := func() *binaryWordField {
 		top := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		return &docField{
+		return &binaryWordField{
 			Kind:      top.parsed.Kind,
 			Instr:     top.parsed.Instr,
 			Arg:       top.parsed.Arg,
@@ -3251,15 +3054,15 @@ func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docR
 		}
 	}
 
-	// handleField routes a completed docField to its parent frame or to out.
-	handleField := func(field *docField) {
+	// handleField routes a completed binaryWordField to its parent frame or to out.
+	handleField := func(field *binaryWordField) {
 		if len(stack) > 0 {
 			parent := &stack[len(stack)-1]
 			if parent.inResult {
 				// Nested field inside parent's result.
 				resultRuns := field.Children
 				if len(resultRuns) == 0 {
-					resultRuns = []docRun{{}}
+					resultRuns = []binaryWordRun{{}}
 				}
 				if field.Kind != "" || field.Instr != "" {
 					resultRuns[0].FieldKind = field.Kind
@@ -3277,13 +3080,13 @@ func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docR
 			// Nested field inside parent's instruction.
 			displayText := joinDocRunsText(field.Children)
 			parent.instr.WriteString(displayText)
-			instrRun := docRun{Text: displayText, Fields: []*docField{field}}
+			instrRun := binaryWordRun{Text: displayText, Fields: []*binaryWordField{field}}
 			parent.instrRuns = append(parent.instrRuns, instrRun)
 			return
 		}
 
 		// Top-level field: attach flat metadata to the first result run.
-		// We do NOT store the *docField on the run's Fields slice here,
+		// We do NOT store the *binaryWordField on the run's Fields slice here,
 		// because that would create a self-referential cycle (the field's
 		// Children contain the run).  Top-level fields remain in the flat
 		// model; the wordir.Field tree is only used for nested fields.
@@ -3313,12 +3116,12 @@ func applyDocFieldsToRunsWithDataStream(runs []docRun, dataStream []byte) []docR
 			return
 		}
 
-		out = append(out, docRun{
+		out = append(out, binaryWordRun{
 			FieldKind:  field.Kind,
 			FieldInstr: field.Instr,
 			FieldArg:   field.Arg,
 			Anchor:     field.Anchor,
-			Fields:     []*docField{field},
+			Fields:     []*binaryWordField{field},
 		})
 	}
 
@@ -3503,8 +3306,8 @@ func legacyDocFieldIsFormField(kind string) bool {
 	}
 }
 
-func legacyDocFormFieldRun(field legacyDocField, resultRuns []docRun, dataStream []byte) docRun {
-	base := docRun{}
+func legacyDocFormFieldRun(field legacyDocField, resultRuns []binaryWordRun, dataStream []byte) binaryWordRun {
+	base := binaryWordRun{}
 	if len(resultRuns) > 0 {
 		base = resultRuns[0]
 	}
@@ -3637,14 +3440,14 @@ func parseDocFieldFillinDefault(rest string) string {
 // detects tables and list markers using the same heuristics as the text-only
 // path, and produces wordir.Paragraph runs with their RunFormat populated.
 // lineSliceInTable returns true if the first run in the slice has InTable=true.
-func lineSliceInTable(slice []docRun) bool {
+func lineSliceInTable(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		return r.ParaFormat.InTable
 	}
 	return false
 }
 
-func lineSliceHasNativeCellMarks(slice []docRun) bool {
+func lineSliceHasNativeCellMarks(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.NativeCellMarks {
 			return true
@@ -3653,7 +3456,7 @@ func lineSliceHasNativeCellMarks(slice []docRun) bool {
 	return false
 }
 
-func lineSliceInTableFromLegacyHintOnly(slice []docRun) bool {
+func lineSliceInTableFromLegacyHintOnly(slice []binaryWordRun) bool {
 	if len(slice) == 0 {
 		return false
 	}
@@ -3663,7 +3466,7 @@ func lineSliceInTableFromLegacyHintOnly(slice []docRun) bool {
 		if (r.ParaFormat.IsTableTrailingParagraph && !r.LegacyRowMarkHint) || r.ParaFormat.IsTableCellTrailingParagraph {
 			return false
 		}
-		if r.TableProps != nil && r.TableProps.hasData() {
+		if r.TableProps != nil && r.TableProps.HasData() {
 			return false
 		}
 		if r.ParaFormat.InTable {
@@ -3677,19 +3480,19 @@ func lineSliceInTableFromLegacyHintOnly(slice []docRun) bool {
 	return seenInTable && seenLegacyHint
 }
 
-func lineSliceHasBinaryTableMetadata(slice []docRun) bool {
+func lineSliceHasBinaryTableMetadata(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if (r.ParaFormat.InTable && !r.LegacyInTableHint) || r.ParaFormat.IsTableCellTrailingParagraph {
 			return true
 		}
-		if r.TableProps != nil && r.TableProps.hasData() {
+		if props := r.TableProps; props != nil && props.HasData() {
 			return true
 		}
 	}
 	return false
 }
 
-func lineSliceIsExplicitRowMark(slice []docRun) bool {
+func lineSliceIsExplicitRowMark(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.ParaFormat.IsTableTrailingParagraph && !r.LegacyRowMarkHint {
 			return true
@@ -3700,7 +3503,7 @@ func lineSliceIsExplicitRowMark(slice []docRun) bool {
 
 // lineSliceHasPreWord97RowMark returns true if the slice contains a pre-97 row mark (0x19)
 // with IsTableTrailingParagraph set. This distinguishes pre-97 row marks from Word 97+ row marks.
-func lineSliceHasPreWord97RowMark(slice []docRun) bool {
+func lineSliceHasPreWord97RowMark(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.ParaFormat.IsTableTrailingParagraph && r.LegacyRowMarkHint {
 			return true
@@ -3711,7 +3514,7 @@ func lineSliceHasPreWord97RowMark(slice []docRun) bool {
 
 // lineSliceHasPreWord97CellMark returns true if the slice contains a pre-97 cell mark (0x18)
 // with IsTableCellTrailingParagraph set. This distinguishes pre-97 cell marks.
-func lineSliceHasPreWord97CellMark(slice []docRun) bool {
+func lineSliceHasPreWord97CellMark(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.ParaFormat.IsTableCellTrailingParagraph && r.LegacyInTableHint {
 			return true
@@ -3726,7 +3529,7 @@ func lineSliceHasPreWord97CellMark(slice []docRun) bool {
 // be set: pre-97 row paragraphs with content end in \r (not \a) after PAP
 // collapsing, yet still carry LegacyRowMarkHint and NativeCellMarks because
 // their text contains \a cell separators.
-func lineSliceIsPreWord97RowMarkContent(slice []docRun) bool {
+func lineSliceIsPreWord97RowMarkContent(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.LegacyRowMarkHint && r.NativeCellMarks {
 			return true
@@ -3735,7 +3538,7 @@ func lineSliceIsPreWord97RowMarkContent(slice []docRun) bool {
 	return false
 }
 
-func lineSliceIsRowMark(slice []docRun) bool {
+func lineSliceIsRowMark(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.ParaFormat.IsTableTrailingParagraph {
 			return true
@@ -3744,7 +3547,7 @@ func lineSliceIsRowMark(slice []docRun) bool {
 	return false
 }
 
-func lineSliceIsCellMark(slice []docRun) bool {
+func lineSliceIsCellMark(slice []binaryWordRun) bool {
 	for _, r := range slice {
 		if r.ParaFormat.IsTableCellTrailingParagraph {
 			return true
@@ -3753,16 +3556,16 @@ func lineSliceIsCellMark(slice []docRun) bool {
 	return false
 }
 
-func lineSliceIsLegacyListBoundary(slice []docRun) bool {
+func lineSliceIsLegacyListBoundary(slice []binaryWordRun) bool {
 	return len(slice) == 1 && slice[0].Kind == legacyListBoundaryKind
 }
 
 type legacyBinaryTableRow struct {
-	LineSlices [][]docRun
-	RowMark    []docRun
+	LineSlices [][]binaryWordRun
+	RowMark    []binaryWordRun
 }
 
-func lineSliceStartsNewMetadataRow(currentRow [][]docRun, next []docRun, baseDepth int) bool {
+func lineSliceStartsNewMetadataRow(currentRow [][]binaryWordRun, next []binaryWordRun, baseDepth int) bool {
 	if len(currentRow) == 0 || lineSliceIsRowMark(next) || lineSliceTableDepth(next) != baseDepth {
 		return false
 	}
@@ -3774,35 +3577,35 @@ func lineSliceStartsNewMetadataRow(currentRow [][]docRun, next []docRun, baseDep
 	if currentProps == nil {
 		return false
 	}
-	return legacyTableRowPropsConflict(currentProps, nextProps)
+	return docformat.TableRowPropsConflict(currentProps, nextProps)
 }
 
-func collectLineSlicesTableRowProps(slices [][]docRun, depth int) *legacyTableRowProps {
-	var merged *legacyTableRowProps
+func collectLineSlicesTableRowProps(slices [][]binaryWordRun, depth int) *docformat.TableRowProps {
+	var merged *docformat.TableRowProps
 	for _, slice := range slices {
 		if lineSliceIsRowMark(slice) || lineSliceTableDepth(slice) != depth {
 			continue
 		}
-		merged = mergeLegacyTableRowProps(merged, lineSliceTableRowProps(slice))
+		merged = docformat.MergeTableRowProps(merged, lineSliceTableRowProps(slice))
 	}
 	return merged
 }
 
-func lineSliceTableRowProps(slice []docRun) *legacyTableRowProps {
+func lineSliceTableRowProps(slice []binaryWordRun) *docformat.TableRowProps {
 	for _, r := range slice {
-		if r.TableProps != nil && r.TableProps.hasData() {
-			return r.TableProps
+		if props := r.TableProps; props != nil && props.HasData() {
+			return props
 		}
 	}
 	return nil
 }
 
-func rowGroupTableRowProps(group legacyBinaryTableRow) *legacyTableRowProps {
+func rowGroupTableRowProps(group legacyBinaryTableRow) *docformat.TableRowProps {
 	merged := lineSliceTableRowProps(group.RowMark)
 	for _, lineSlice := range group.LineSlices {
-		merged = mergeLegacyTableRowProps(merged, lineSliceTableRowProps(lineSlice))
+		merged = docformat.MergeTableRowProps(merged, lineSliceTableRowProps(lineSlice))
 	}
-	if merged == nil || !merged.hasData() {
+	if merged == nil || !merged.HasData() {
 		return nil
 	}
 	return merged
@@ -3818,7 +3621,7 @@ func cloneLegacyRevisionMark(mark *wordir.RevisionMark) *wordir.RevisionMark {
 	}
 }
 
-func lineSlicePropertyRevision(slice []docRun) *wordir.RevisionMark {
+func lineSlicePropertyRevision(slice []binaryWordRun) *wordir.RevisionMark {
 	for _, r := range slice {
 		if r.PropertyRevision != nil {
 			return cloneLegacyRevisionMark(r.PropertyRevision)
@@ -3830,8 +3633,8 @@ func lineSlicePropertyRevision(slice []docRun) *wordir.RevisionMark {
 func rowGroupPropertyRevision(group legacyBinaryTableRow) *wordir.RevisionMark {
 	// Prefer the canonical sprmTPropRMark (TAPx) when present on the row-mark.
 	for _, r := range group.RowMark {
-		if r.TableProps != nil && r.TableProps.resolvedPropertyRevision != nil {
-			return cloneLegacyRevisionMark(r.TableProps.resolvedPropertyRevision)
+		if props := r.TableProps; props != nil && props.ResolvedPropertyRevision != nil {
+			return cloneLegacyRevisionMark(props.ResolvedPropertyRevision)
 		}
 	}
 	// Fall back to the row-mark paragraph's PAPX sprmPPropRMark.
@@ -3849,7 +3652,7 @@ func rowGroupPropertyRevision(group legacyBinaryTableRow) *wordir.RevisionMark {
 	return nil
 }
 
-func lineSliceTableDepth(slice []docRun) int {
+func lineSliceTableDepth(slice []binaryWordRun) int {
 	depth := 0
 	for _, r := range slice {
 		if r.TableDepth > depth {
@@ -3894,7 +3697,7 @@ func countLegacyBinaryRowCells(group legacyBinaryTableRow) int {
 	return strings.Count(text, "\t") + 1
 }
 
-func collectLegacyBinaryTableRowGroups(lineSlices [][]docRun) []legacyBinaryTableRow {
+func collectLegacyBinaryTableRowGroups(lineSlices [][]binaryWordRun) []legacyBinaryTableRow {
 	if len(lineSlices) == 0 {
 		return nil
 	}
@@ -3906,13 +3709,13 @@ func collectLegacyBinaryTableRowGroups(lineSlices [][]docRun) []legacyBinaryTabl
 		}
 	}
 	var rowGroups []legacyBinaryTableRow
-	var currentRow [][]docRun
+	var currentRow [][]binaryWordRun
 	for _, lineSlice := range lineSlices {
 		if lineSliceIsRowMark(lineSlice) && lineSliceTableDepth(lineSlice) == baseDepth {
 			if len(currentRow) > 0 {
 				rowGroups = append(rowGroups, legacyBinaryTableRow{
 					LineSlices: currentRow,
-					RowMark:    append([]docRun(nil), lineSlice...),
+					RowMark:    append([]binaryWordRun(nil), lineSlice...),
 				})
 				currentRow = nil
 			}
@@ -3971,8 +3774,8 @@ func appendBinaryTableToDoc(doc *wordir.Document, rowGroups []legacyBinaryTableR
 
 const legacyBinaryCellParagraphSeparator = "\x1e"
 
-func normalizeLegacyBinaryRowTokens(tokens []string, props *legacyTableRowProps) []string {
-	count := props.physicalCellCount()
+func normalizeLegacyBinaryRowTokens(tokens []string, props *docformat.TableRowProps) []string {
+	count := props.PhysicalCellCount()
 	if count <= 0 || len(tokens) <= count {
 		return tokens
 	}
@@ -3995,7 +3798,7 @@ func buildLegacyBinaryTable(tableIndex int, rowGroups []legacyBinaryTableRow, pa
 	}
 	rowTokens := make([][]string, 0, len(rowGroups))
 	rowCellRevisions := make([][]legacyCellRevisionMeta, 0, len(rowGroups))
-	rowProps := make([]*legacyTableRowProps, 0, len(rowGroups))
+	rowProps := make([]*docformat.TableRowProps, 0, len(rowGroups))
 	rowRevisions := make([]*wordir.RevisionMark, 0, len(rowGroups))
 	maxCols := 0
 	maxTokenSpanCols := 0
@@ -4037,7 +3840,7 @@ func buildLegacyBinaryTable(tableIndex int, rowGroups []legacyBinaryTableRow, pa
 		props := rowGroupTableRowProps(group)
 		if props != nil {
 			tokens = normalizeLegacyBinaryRowTokens(tokens, props)
-			propCols := props.maxCellIndex()
+			propCols := props.MaxCellIndex()
 			switch {
 			case propCols <= 0:
 				// No metadata-derived cell width.
@@ -4070,8 +3873,8 @@ func buildLegacyBinaryTable(tableIndex int, rowGroups []legacyBinaryTableRow, pa
 	paragraphIndex := paragraphStart
 	for index, tokens := range rowTokens {
 		rowCols := maxCols
-		if props := rowProps[index]; props != nil && props.physicalCellCount() > 0 {
-			rowCols = props.physicalCellCount()
+		if props := rowProps[index]; props != nil && props.PhysicalCellCount() > 0 {
+			rowCols = props.PhysicalCellCount()
 		}
 		row, texts, nextIndex, ok := buildLegacyBinaryGridRow(tokens, rowCellRevisions[index], rowCols, paragraphIndex, rowProps[index], rowRevisions[index])
 		if rowProps[index] != nil && len(tokens) > 0 && (!ok || len(texts) == 0) {
@@ -4276,7 +4079,7 @@ func applyLegacyTablePropertyRevision(table *wordir.Table, rowRevisions []*wordi
 // indent) from the first row whose TAPx grpprl carried sprmTJc / sprmTDxaLeft.
 // MS-DOC writes these per-row but the values are repeated across rows of one
 // table; trusting the first set keeps the IR consistent.
-func applyLegacyBinaryTableLevelProps(format *wordir.TableFormat, rowProps []*legacyTableRowProps) {
+func applyLegacyBinaryTableLevelProps(format *wordir.TableFormat, rowProps []*docformat.TableRowProps) {
 	if format == nil {
 		return
 	}
@@ -4284,52 +4087,52 @@ func applyLegacyBinaryTableLevelProps(format *wordir.TableFormat, rowProps []*le
 		if props == nil {
 			continue
 		}
-		if format.Alignment == "" && props.tableJc != "" {
-			format.Alignment = props.tableJc
+		if format.Alignment == "" && props.TableJc != "" {
+			format.Alignment = props.TableJc
 		}
-		if format.Indent == 0 && props.tableDxaLeft != nil {
-			format.Indent = *props.tableDxaLeft
+		if format.Indent == 0 && props.TableDxaLeft != nil {
+			format.Indent = *props.TableDxaLeft
 		}
-		if format.CellSpacing == 0 && props.tableDxaGap != nil {
+		if format.CellSpacing == 0 && props.TableDxaGap != nil {
 			// Word stores half-gap in sprmTDxaGapHalf; CSS border-spacing uses full gap.
-			format.CellSpacing = *props.tableDxaGap * 2
+			format.CellSpacing = *props.TableDxaGap * 2
 		}
-		if format.Borders == nil && props.tableBorders != nil {
-			format.Borders = cloneLegacyTableBorders(props.tableBorders)
+		if format.Borders == nil && props.TableBorders != nil {
+			format.Borders = cloneLegacyTableBorders(props.TableBorders)
 		}
-		if format.CellPadTop == 0 && props.cellPadTop != nil {
-			format.CellPadTop = *props.cellPadTop
+		if format.CellPadTop == 0 && props.CellPadTop != nil {
+			format.CellPadTop = *props.CellPadTop
 		}
-		if format.CellPadBottom == 0 && props.cellPadBottom != nil {
-			format.CellPadBottom = *props.cellPadBottom
+		if format.CellPadBottom == 0 && props.CellPadBottom != nil {
+			format.CellPadBottom = *props.CellPadBottom
 		}
-		if format.CellPadLeft == 0 && props.cellPadLeft != nil {
-			format.CellPadLeft = *props.cellPadLeft
+		if format.CellPadLeft == 0 && props.CellPadLeft != nil {
+			format.CellPadLeft = *props.CellPadLeft
 		}
-		if format.CellPadRight == 0 && props.cellPadRight != nil {
-			format.CellPadRight = *props.cellPadRight
+		if format.CellPadRight == 0 && props.CellPadRight != nil {
+			format.CellPadRight = *props.CellPadRight
 		}
-		if format.Width == nil && props.tableWidth != nil {
-			w := *props.tableWidth
+		if format.Width == nil && props.TableWidth != nil {
+			w := *props.TableWidth
 			format.Width = &w
-			format.WidthType = props.tableWidthType
+			format.WidthType = props.TableWidthType
 		}
-		if format.Layout == "" && props.autoFit != nil {
-			if *props.autoFit {
+		if format.Layout == "" && props.AutoFit != nil {
+			if *props.AutoFit {
 				format.Layout = "autofit"
 			} else {
 				format.Layout = "fixed"
 			}
 		}
-		if !format.BidiVisual && props.bidiVisual != nil {
-			format.BidiVisual = *props.bidiVisual
+		if !format.BidiVisual && props.BidiVisual != nil {
+			format.BidiVisual = *props.BidiVisual
 		}
-		if format.FloatProps == nil && props.floatProps != nil {
-			fp := *props.floatProps
+		if format.FloatProps == nil && props.FloatProps != nil {
+			fp := *props.FloatProps
 			format.FloatProps = &fp
 		}
-		if format.Overlap == "" && props.noOverlap != nil {
-			if *props.noOverlap {
+		if format.Overlap == "" && props.NoOverlap != nil {
+			if *props.NoOverlap {
 				format.Overlap = "never"
 			} else {
 				format.Overlap = "overlap"
@@ -4356,10 +4159,10 @@ func applyLegacyBinaryTableLevelProps(format *wordir.TableFormat, rowProps []*le
 	}
 }
 
-func deriveLegacyBinaryTableGridBoundaries(rowProps []*legacyTableRowProps) []int {
+func deriveLegacyBinaryTableGridBoundaries(rowProps []*docformat.TableRowProps) []int {
 	var boundaries []int
 	for _, props := range rowProps {
-		for _, boundary := range props.validCellBoundaries() {
+		for _, boundary := range props.ValidCellBoundaries() {
 			found := false
 			for _, existing := range boundaries {
 				if existing == boundary {
@@ -4393,7 +4196,7 @@ func legacyBoundaryGridIndex(boundaries []int, value int) int {
 	return -1
 }
 
-func regridLegacyBinaryTableRows(table *wordir.Table, rowProps []*legacyTableRowProps) {
+func regridLegacyBinaryTableRows(table *wordir.Table, rowProps []*docformat.TableRowProps) {
 	if table == nil {
 		return
 	}
@@ -4408,7 +4211,7 @@ func regridLegacyBinaryTableRows(table *wordir.Table, rowProps []*legacyTableRow
 	}
 	for rowIndex := 0; rowIndex < limit; rowIndex++ {
 		props := rowProps[rowIndex]
-		rowBounds := props.validCellBoundaries()
+		rowBounds := props.ValidCellBoundaries()
 		if len(rowBounds) < 2 || len(table.Rows[rowIndex].Cells) != len(rowBounds)-1 {
 			continue
 		}
@@ -4431,7 +4234,7 @@ func regridLegacyBinaryTableRows(table *wordir.Table, rowProps []*legacyTableRow
 	}
 }
 
-func deriveLegacyBinaryTableColumnWidths(rowProps []*legacyTableRowProps) []int {
+func deriveLegacyBinaryTableColumnWidths(rowProps []*docformat.TableRowProps) []int {
 	if boundaries := deriveLegacyBinaryTableGridBoundaries(rowProps); len(boundaries) >= 2 {
 		widths := make([]int, len(boundaries)-1)
 		for index := range widths {
@@ -4447,7 +4250,7 @@ func deriveLegacyBinaryTableColumnWidths(rowProps []*legacyTableRowProps) []int 
 		if props == nil {
 			continue
 		}
-		if cols := props.maxCellIndex(); cols > maxCols {
+		if cols := props.MaxCellIndex(); cols > maxCols {
 			maxCols = cols
 		}
 	}
@@ -4461,16 +4264,16 @@ func deriveLegacyBinaryTableColumnWidths(rowProps []*legacyTableRowProps) []int 
 			continue
 		}
 		for index := 0; index < maxCols; index++ {
-			if known[index] || props.hMergeState(index) == 1 {
+			if known[index] || props.HMergeState(index) == 1 {
 				continue
 			}
-			format := props.cellFormat(index)
+			format := props.CellFormat(index)
 			if format.Width == nil || format.WidthType != "dxa" || *format.Width <= 0 {
 				continue
 			}
 			span := 1
-			if state := props.hMergeState(index); state == 2 || state == 3 {
-				for next := index + 1; next < maxCols && props.hMergeState(next) == 1; next++ {
+			if state := props.HMergeState(index); state == 2 || state == 3 {
+				for next := index + 1; next < maxCols && props.HMergeState(next) == 1; next++ {
 					span++
 				}
 			}
@@ -4528,7 +4331,7 @@ func buildLegacyNestedBinaryTable(tableIndex int, rowGroups []legacyBinaryTableR
 		for index := 0; index < cellCount; index++ {
 			cell := wordir.TableCell{}
 			if props != nil {
-				cell.Format = props.cellFormat(index)
+				cell.Format = props.CellFormat(index)
 			}
 			var cellRevision legacyCellRevisionMeta
 			if index < len(cellRevisions) {
@@ -4558,9 +4361,9 @@ func buildLegacyNestedBinaryTable(tableIndex int, rowGroups []legacyBinaryTableR
 	return table, true
 }
 
-func collectLegacyNestedRowGroups(lineSlices [][]docRun, depth int) [][]legacyBinaryTableRow {
+func collectLegacyNestedRowGroups(lineSlices [][]binaryWordRun, depth int) [][]legacyBinaryTableRow {
 	var nested []legacyBinaryTableRow
-	var current [][]docRun
+	var current [][]binaryWordRun
 	for _, lineSlice := range lineSlices {
 		lineDepth := lineSliceTableDepth(lineSlice)
 		if lineDepth != depth {
@@ -4569,7 +4372,7 @@ func collectLegacyNestedRowGroups(lineSlices [][]docRun, depth int) [][]legacyBi
 		if lineSliceIsRowMark(lineSlice) {
 			nested = append(nested, legacyBinaryTableRow{
 				LineSlices: current,
-				RowMark:    append([]docRun(nil), lineSlice...),
+				RowMark:    append([]binaryWordRun(nil), lineSlice...),
 			})
 			current = nil
 			continue
@@ -4596,7 +4399,7 @@ type legacyCellRevisionMeta struct {
 }
 
 func legacyRowCellRevisionMetadata(group legacyBinaryTableRow) []legacyCellRevisionMeta {
-	runs := make([]docRun, 0)
+	runs := make([]binaryWordRun, 0)
 	for _, lineSlice := range group.LineSlices {
 		text := joinDocRunsText(lineSlice)
 		if text == "" {
@@ -4605,7 +4408,7 @@ func legacyRowCellRevisionMetadata(group legacyBinaryTableRow) []legacyCellRevis
 		if len(runs) > 0 {
 			prevText := joinDocRunsText(runs)
 			if !strings.HasSuffix(prevText, "\t") && !strings.HasPrefix(text, "\t") {
-				runs = append(runs, docRun{Text: "\t"})
+				runs = append(runs, binaryWordRun{Text: "\t"})
 			}
 		}
 		runs = append(runs, lineSlice...)
@@ -4618,8 +4421,8 @@ func legacyRowCellRevisionMetadata(group legacyBinaryTableRow) []legacyCellRevis
 	return out
 }
 
-func splitLegacyTableCellRuns(runs []docRun) [][]docRun {
-	cells := [][]docRun{{}}
+func splitLegacyTableCellRuns(runs []binaryWordRun) [][]binaryWordRun {
+	cells := [][]binaryWordRun{{}}
 	for _, source := range runs {
 		parts := strings.Split(source.Text, "\t")
 		for i, text := range parts {
@@ -4629,14 +4432,14 @@ func splitLegacyTableCellRuns(runs []docRun) [][]docRun {
 				cells[len(cells)-1] = append(cells[len(cells)-1], r)
 			}
 			if i < len(parts)-1 {
-				cells = append(cells, []docRun{})
+				cells = append(cells, []binaryWordRun{})
 			}
 		}
 	}
 	return cells
 }
 
-func legacyCellRevisionMetadata(runs []docRun) legacyCellRevisionMeta {
+func legacyCellRevisionMetadata(runs []binaryWordRun) legacyCellRevisionMeta {
 	return legacyCellRevisionMeta{
 		PropertyRevision: consensusLegacyPropertyRevision(runs),
 		CellIns:          consensusLegacyContentRevision(runs, "inserted"),
@@ -4644,11 +4447,11 @@ func legacyCellRevisionMetadata(runs []docRun) legacyCellRevisionMeta {
 	}
 }
 
-func meaningfulLegacyRevisionRun(r docRun) bool {
+func meaningfulLegacyRevisionRun(r binaryWordRun) bool {
 	return strings.TrimSpace(strings.Trim(r.Text, "\r\a")) != "" || r.Kind != ""
 }
 
-func consensusLegacyPropertyRevision(runs []docRun) *wordir.RevisionMark {
+func consensusLegacyPropertyRevision(runs []binaryWordRun) *wordir.RevisionMark {
 	var common *wordir.RevisionMark
 	seenMeaningful := false
 	for _, r := range runs {
@@ -4673,7 +4476,7 @@ func consensusLegacyPropertyRevision(runs []docRun) *wordir.RevisionMark {
 	return common
 }
 
-func consensusLegacyContentRevision(runs []docRun, revision string) *wordir.RevisionMark {
+func consensusLegacyContentRevision(runs []binaryWordRun, revision string) *wordir.RevisionMark {
 	var common *wordir.RevisionMark
 	seenMeaningful := false
 	for _, r := range runs {
@@ -4719,7 +4522,7 @@ func applyLegacyCellRevisionMetadata(cell *wordir.TableCell, meta legacyCellRevi
 	}
 }
 
-func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisionMeta, maxCols, paragraphIndex int, props *legacyTableRowProps, propertyRevision *wordir.RevisionMark) (wordir.TableRow, []string, int, bool) {
+func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisionMeta, maxCols, paragraphIndex int, props *docformat.TableRowProps, propertyRevision *wordir.RevisionMark) (wordir.TableRow, []string, int, bool) {
 	trimmed := make([]string, maxCols)
 	firstMeaningful := -1
 	lastMeaningful := -1
@@ -4736,10 +4539,10 @@ func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisio
 			trimmed[index] = strings.TrimSpace(tokens[index])
 		}
 		meaningful := trimmed[index] != ""
-		if props != nil && (props.hMergeState(index) != 0 || props.vMergeState(index) != 0) {
+		if props != nil && (props.HMergeState(index) != 0 || props.VMergeState(index) != 0) {
 			meaningful = true
 		}
-		if props != nil && legacyTableCellFormatMeaningful(props.cellFormat(index)) {
+		if props != nil && legacyTableCellFormatMeaningful(props.CellFormat(index)) {
 			meaningful = true
 		}
 		if !meaningful {
@@ -4760,8 +4563,8 @@ func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisio
 		Format:           wordir.TableRowFormat{GridBefore: firstMeaningful, GridAfter: maxCols - lastMeaningful - 1},
 	}
 	if props != nil {
-		if props.rowHeight != nil {
-			height := *props.rowHeight
+		if props.RowHeight != nil {
+			height := *props.RowHeight
 			switch {
 			case height < 0:
 				v := -height
@@ -4773,10 +4576,10 @@ func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisio
 				row.Format.HeightRule = "atLeast"
 			}
 		}
-		if props.tableHeader != nil && *props.tableHeader {
+		if props.TableHeader != nil && *props.TableHeader {
 			row.Format.IsHeader = true
 		}
-		if props.cantSplit != nil && *props.cantSplit {
+		if props.CantSplit != nil && *props.CantSplit {
 			row.Format.CantSplit = true
 		}
 	}
@@ -4785,19 +4588,19 @@ func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisio
 		hMergeState := byte(0)
 		vMergeState := byte(0)
 		if props != nil {
-			hMergeState = props.hMergeState(index)
-			vMergeState = props.vMergeState(index)
+			hMergeState = props.HMergeState(index)
+			vMergeState = props.VMergeState(index)
 		}
 		format := wordir.TableCellFormat{}
 		if props != nil {
-			format = props.cellFormat(index)
+			format = props.CellFormat(index)
 		}
 		if hMergeState == 1 {
 			continue
 		}
 		span := 1
 		if hMergeState == 2 || hMergeState == 3 {
-			for next := index + 1; next < maxCols && props != nil && props.hMergeState(next) == 1; next++ {
+			for next := index + 1; next < maxCols && props != nil && props.HMergeState(next) == 1; next++ {
 				span++
 			}
 		}
@@ -4863,21 +4666,21 @@ func buildLegacyBinaryGridRow(tokens []string, cellRevisions []legacyCellRevisio
 	return row, texts, paragraphIndex, true
 }
 
-func applyLegacyRowProps(row *wordir.TableRow, props *legacyTableRowProps, propertyRevision *wordir.RevisionMark) {
+func applyLegacyRowProps(row *wordir.TableRow, props *docformat.TableRowProps, propertyRevision *wordir.RevisionMark) {
 	if row == nil {
 		return
 	}
 	// Prefer canonical sprmTPropRMark (TAPx) over paragraph-level fallback.
-	if props != nil && props.resolvedPropertyRevision != nil {
-		row.PropertyRevision = cloneLegacyRevisionMark(props.resolvedPropertyRevision)
+	if props != nil && props.ResolvedPropertyRevision != nil {
+		row.PropertyRevision = cloneLegacyRevisionMark(props.ResolvedPropertyRevision)
 	} else if propertyRevision != nil {
 		row.PropertyRevision = cloneLegacyRevisionMark(propertyRevision)
 	}
 	if props == nil {
 		return
 	}
-	if props.rowHeight != nil {
-		height := *props.rowHeight
+	if props.RowHeight != nil {
+		height := *props.RowHeight
 		switch {
 		case height < 0:
 			v := -height
@@ -4889,11 +4692,11 @@ func applyLegacyRowProps(row *wordir.TableRow, props *legacyTableRowProps, prope
 			row.Format.HeightRule = "atLeast"
 		}
 	}
-	if props.tableHeader != nil {
-		row.Format.IsHeader = *props.tableHeader
+	if props.TableHeader != nil {
+		row.Format.IsHeader = *props.TableHeader
 	}
-	if props.cantSplit != nil {
-		row.Format.CantSplit = *props.cantSplit
+	if props.CantSplit != nil {
+		row.Format.CantSplit = *props.CantSplit
 	}
 }
 
@@ -4921,7 +4724,7 @@ func applyLegacyCellPropertyRevision(cell *wordir.TableCell, propertyRevision *w
 	}
 }
 
-func applyLegacyHeuristicTableProps(table *wordir.Table, lineSlices [][]docRun) {
+func applyLegacyHeuristicTableProps(table *wordir.Table, lineSlices [][]binaryWordRun) {
 	if table == nil || len(table.Rows) == 0 || len(lineSlices) == 0 {
 		return
 	}
@@ -4929,7 +4732,7 @@ func applyLegacyHeuristicTableProps(table *wordir.Table, lineSlices [][]docRun) 
 	if len(lineSlices) < limit {
 		limit = len(lineSlices)
 	}
-	rowProps := make([]*legacyTableRowProps, 0, limit)
+	rowProps := make([]*docformat.TableRowProps, 0, limit)
 	for rowIndex := 0; rowIndex < limit; rowIndex++ {
 		props := lineSliceTableRowProps(lineSlices[rowIndex])
 		rowProps = append(rowProps, props)
@@ -4939,7 +4742,7 @@ func applyLegacyHeuristicTableProps(table *wordir.Table, lineSlices [][]docRun) 
 		}
 		column := table.Rows[rowIndex].Format.GridBefore
 		for cellIndex := range table.Rows[rowIndex].Cells {
-			table.Rows[rowIndex].Cells[cellIndex].Format = mergeLegacyTableCellFormat(table.Rows[rowIndex].Cells[cellIndex].Format, props.cellFormat(column))
+			table.Rows[rowIndex].Cells[cellIndex].Format = mergeLegacyTableCellFormat(table.Rows[rowIndex].Cells[cellIndex].Format, props.CellFormat(column))
 			applyLegacyCellPropertyRevision(&table.Rows[rowIndex].Cells[cellIndex], table.Rows[rowIndex].PropertyRevision)
 			span := table.Rows[rowIndex].Cells[cellIndex].Format.GridSpan
 			if span <= 1 {
@@ -5091,8 +4894,8 @@ func tableRowText(row wordir.TableRow) string {
 	return strings.Join(parts, " ")
 }
 
-func buildLegacyDocFromRuns(filename string, runs []docRun) *wordir.Document {
-	return buildLegacyDocFromRunsWithContext(filename, runs, nil, nil, nil, nil, nil)
+func buildLegacyDocFromRuns(filename string, runs []binaryWordRun) *wordir.Document {
+	return buildBinaryWordDocument(filename, binaryWordDocumentInput{Runs: runs})
 }
 
 type legacyBinaryListState struct {
@@ -5118,211 +4921,46 @@ const legacyBinaryListMinParagraphKeepRestartCPGap = 24
 const legacyBinaryListMinParagraphLayoutRestartCPGap = 24
 const legacyBinaryListMinRunStyleRestartCPGap = 24
 
-func buildLegacyDocFromRunsWithBookmarks(filename string, runs []docRun, bookmarkStarts map[int][]string, listTables *legacyListTables) *wordir.Document {
-	return buildLegacyDocFromRunsWithContext(filename, runs, bookmarkStarts, nil, listTables, nil, nil)
+func buildLegacyDocFromRunsWithBookmarks(filename string, runs []binaryWordRun, bookmarkStarts map[int][]string, listTables *binaryWordListCatalog) *wordir.Document {
+	return buildBinaryWordDocument(filename, binaryWordDocumentInput{Runs: runs, BookmarkStarts: bookmarkStarts, ListCatalog: listTables})
 }
 
-func buildLegacyDocFromRunsWithContext(filename string, runs []docRun, bookmarkStarts map[int][]string, bookmarkEnds map[string]int, listTables *legacyListTables, styleSheet *legacyStyleSheet, styleNameByIstd map[int]string) *wordir.Document {
-	lineSlices := splitDocRunsIntoLines(runs)
-	doc := &wordir.Document{Filename: filename}
-	if styleSheet != nil {
-		doc.DefaultParagraphStyleID = styleSheet.DefaultParagraphStyleID
-		doc.Styles = make(map[string]wordir.Style, len(styleSheet.ParagraphStyles))
-		for id, style := range styleSheet.ParagraphStyles {
-			doc.Styles[id] = style
-		}
-		doc.CharacterStyles = make(map[string]wordir.CharacterStyle, len(styleSheet.CharacterStyles))
-		for id, style := range styleSheet.CharacterStyles {
-			doc.CharacterStyles[id] = style
-		}
-		if style, ok := styleSheet.ParagraphStyles[styleSheet.DefaultParagraphStyleID]; ok {
-			doc.DefaultParagraphFormat = legacyCloneParagraphFormat(style.Format)
-			doc.DefaultRunFormat = legacyCloneRunFormat(style.RunFormat)
-		}
-	} else {
-		// When no STSH is present, synthesise Word's hardcoded global defaults
-		// so the IR is self-contained and does not rely on downstream renderers
-		// guessing the fallback.
-		fontSize := 24 // 12pt in half-points
-		doc.DefaultRunFormat = wordir.RunFormat{
-			FontSize:  &fontSize,
-			FontASCII: "Times New Roman",
-			FontHAnsi: "Times New Roman",
-		}
-		doc.DefaultParagraphFormat = wordir.ParagraphFormat{
-			Alignment: "left",
-		}
-	}
-	binaryListState := &legacyBinaryListState{counters: map[string]int{}, lastEndCPByIlfo: map[int]int{}, lastListLevelByIlfo: map[int]string{}, lastListFormatByIlfo: map[int]string{}, lastParagraphGeometryByIlfo: map[int]string{}, lastParagraphKeepByIlfo: map[int]string{}, lastParagraphLayoutByIlfo: map[int]string{}, lastRunContextByIlfo: map[int]string{}}
-	activeBookmarkEnds := map[string]int{}
+func buildLegacyDocFromRunsWithContext(filename string, runs []binaryWordRun, bookmarkStarts map[int][]string, bookmarkEnds map[string]int, listTables *binaryWordListCatalog, styleSheet *binaryWordStyleCatalog, styleNameByIstd map[int]string) *wordir.Document {
+	return buildBinaryWordDocument(filename, binaryWordDocumentInput{
+		Runs:            runs,
+		BookmarkStarts:  bookmarkStarts,
+		BookmarkEnds:    bookmarkEnds,
+		ListCatalog:     listTables,
+		StyleCatalog:    styleSheet,
+		StyleNameByIstd: styleNameByIstd,
+	})
+}
 
-	for index := 0; index < len(lineSlices); {
-		start := index
-		if lineSliceIsLegacyListBoundary(lineSlices[index]) {
-			binaryListState.prevWasBinary = false
-			index++
-			continue
-		}
-		// Binary table path: use PAPx fInTable/fTtp flags when available.
-		if (lineSliceInTable(lineSlices[index]) && !lineSliceInTableFromLegacyHintOnly(lineSlices[index])) || lineSliceHasBinaryTableMetadata(lineSlices[index]) {
-			var tableLineSlices [][]docRun
-			for index < len(lineSlices) && ((lineSliceInTable(lineSlices[index]) && !lineSliceInTableFromLegacyHintOnly(lineSlices[index])) || lineSliceIsExplicitRowMark(lineSlices[index]) || lineSliceHasBinaryTableMetadata(lineSlices[index]) || lineSliceIsPreWord97RowMarkContent(lineSlices[index])) {
-				tableLineSlices = append(tableLineSlices, lineSlices[index])
-				index++
-			}
-			rowGroups := collectLegacyBinaryTableRowGroups(tableLineSlices)
-			if !appendBinaryTableToDoc(doc, rowGroups) {
-				// Binary table build failed; rewind and fall through to heuristic path.
-				index = start
-			} else {
-				binaryListState.prevWasBinary = false
-				continue
-			}
-		}
-		lineBookmarks := bookmarksForLineSlice(lineSlices[index], bookmarkStarts)
-		lineStartCP, lineEndCP, hasLineCP := lineSliceCPRange(lineSlices[index])
-		if hasLineCP {
-			for name, endCP := range activeBookmarkEnds {
-				if endCP <= lineStartCP {
-					delete(activeBookmarkEnds, name)
-				}
-			}
-		}
-		for _, name := range lineBookmarks {
-			if endCP, ok := bookmarkEnds[name]; ok {
-				activeBookmarkEnds[name] = endCP
-			}
-		}
-		lineBookmarks = mergeLineAndActiveBookmarks(lineBookmarks, lineStartCP, lineEndCP, hasLineCP, activeBookmarkEnds)
-		line := strings.TrimSpace(joinDocRunsText(lineSlices[index]))
-		if line == "" && len(lineBookmarks) == 0 && !lineSliceHasSpecialRuns(lineSlices[index]) && !lineSliceIsExplicitBlankParagraph(lineSlices[index]) {
-			binaryListState.prevWasBinary = false
-			index++
-			continue
-		}
-		if lineSliceHasNativeCellMarks(lineSlices[index]) && !lineSliceHasLegacyListFormatting(lineSlices[index]) {
-			tableLines := make([]string, 0, 4)
-			tableLineSlices := make([][]docRun, 0, 4)
-			for index < len(lineSlices) {
-				if !lineSliceHasNativeCellMarks(lineSlices[index]) || lineSliceHasLegacyListFormatting(lineSlices[index]) {
-					break
-				}
-				candidate := strings.TrimSpace(joinDocRunsText(lineSlices[index]))
-				if candidate == "" {
-					break
-				}
-				tableLines = append(tableLines, candidate)
-				tableLineSlices = append(tableLineSlices, lineSlices[index])
-				index++
-			}
-			if table, trailing := buildLegacyTable(len(doc.Tables), tableLines, len(doc.Paragraphs)); table != nil {
-				applyLegacyHeuristicTableProps(table, tableLineSlices)
-				absorbLegacyTableBanner(doc, table)
-				styleLegacyRecoveredPriceTable(table)
-				doc.Tables = append(doc.Tables, *table)
-				doc.Blocks = append(doc.Blocks, wordir.Block{
-					Index: len(doc.Blocks),
-					Kind:  "table",
-					Table: &doc.Tables[len(doc.Tables)-1],
-				})
-				for _, trailingLine := range trailing {
-					paragraph := buildLegacyParagraph(len(doc.Paragraphs), trailingLine)
-					doc.Paragraphs = append(doc.Paragraphs, paragraph)
-					doc.Blocks = append(doc.Blocks, wordir.Block{
-						Index:     len(doc.Blocks),
-						Kind:      "paragraph",
-						Paragraph: &doc.Paragraphs[len(doc.Paragraphs)-1],
-					})
-				}
-				binaryListState.prevWasBinary = false
-				continue
-			}
-			index = start
-			lineBookmarks = bookmarksForLineSlice(lineSlices[index], bookmarkStarts)
-			lineStartCP, lineEndCP, hasLineCP = lineSliceCPRange(lineSlices[index])
-			if hasLineCP {
-				for name, endCP := range activeBookmarkEnds {
-					if endCP <= lineStartCP {
-						delete(activeBookmarkEnds, name)
-					}
-				}
-			}
-			for _, name := range lineBookmarks {
-				if endCP, ok := bookmarkEnds[name]; ok {
-					activeBookmarkEnds[name] = endCP
-				}
-			}
-			lineBookmarks = mergeLineAndActiveBookmarks(lineBookmarks, lineStartCP, lineEndCP, hasLineCP, activeBookmarkEnds)
-			line = strings.TrimSpace(joinDocRunsText(lineSlices[index]))
-		}
-		// Heuristic text-table promotion is the rescue path for content the binary
-		// PAPx-driven table builder cannot resolve. In the Word 97+ structured path
-		// (styleSheet loaded from STSH alongside PAPx) it must only fire when PAPx
-		// itself flagged the paragraph as InTable: otherwise tabs / aligned-space /
-		// colon patterns inside ordinary prose are inline punctuation, not table
-		// separators. For the fallback (no-PAPx) path, structuredPapx is false and
-		// the heuristic runs unconditionally as before.
-		structuredPapx := styleSheet != nil && styleSheet.StructuredPapx
-		allowHeuristicTable := !structuredPapx || lineSliceInTable(lineSlices[index])
-		if allowHeuristicTable && !lineSliceHasLegacyListFormatting(lineSlices[index]) && isLegacyTableCollectionLine(line) {
-			explicitDelimitedTable := isExplicitLegacyTableLine(line) || isLegacyTableSeparatorLine(line)
-			tableLines := make([]string, 0, 4)
-			tableLineSlices := make([][]docRun, 0, 4)
-			for index < len(lineSlices) {
-				if lineSliceHasLegacyListFormatting(lineSlices[index]) {
-					break
-				}
-				candidate := strings.TrimSpace(joinDocRunsText(lineSlices[index]))
-				if !isLegacyTableCollectionLine(candidate) {
-					break
-				}
-				// Consume separator rows (e.g. |---|---| or +---+---+) but do not add them as data rows.
-				if !isLegacyTableSeparatorLine(candidate) {
-					tableLines = append(tableLines, candidate)
-					tableLineSlices = append(tableLineSlices, lineSlices[index])
-				}
-				index++
-			}
-			if !explicitDelimitedTable && len(tableLines) < 2 {
-				index = start
-			} else {
-				table, trailing := buildLegacyTable(len(doc.Tables), tableLines, len(doc.Paragraphs))
-				if table != nil {
-					applyLegacyHeuristicTableProps(table, tableLineSlices)
-					absorbLegacyTableBanner(doc, table)
-					styleLegacyRecoveredPriceTable(table)
-					doc.Tables = append(doc.Tables, *table)
-					doc.Blocks = append(doc.Blocks, wordir.Block{
-						Index: len(doc.Blocks),
-						Kind:  "table",
-						Table: &doc.Tables[len(doc.Tables)-1],
-					})
-					for _, trailingLine := range trailing {
-						paragraph := buildLegacyParagraph(len(doc.Paragraphs), trailingLine)
-						doc.Paragraphs = append(doc.Paragraphs, paragraph)
-						doc.Blocks = append(doc.Blocks, wordir.Block{
-							Index:     len(doc.Blocks),
-							Kind:      "paragraph",
-							Paragraph: &doc.Paragraphs[len(doc.Paragraphs)-1],
-						})
-					}
-					binaryListState.prevWasBinary = false
-					continue
-				}
-				index = start
-			}
-		}
-		paragraph, fromStyle := buildLegacyParagraphFromRuns(len(doc.Paragraphs), lineSlices[index], lineBookmarks, listTables, styleSheet, styleNameByIstd)
-		applyLegacyBinaryListContinuation(&paragraph, binaryListState, listTables, lineSlices[index], fromStyle)
-		doc.Paragraphs = append(doc.Paragraphs, paragraph)
-		doc.Blocks = append(doc.Blocks, wordir.Block{
-			Index:     len(doc.Blocks),
-			Kind:      "paragraph",
-			Paragraph: &doc.Paragraphs[len(doc.Paragraphs)-1],
-		})
-		index++
+func rebindLegacyTopLevelBlocks(doc *wordir.Document) {
+	if doc == nil {
+		return
 	}
-	return doc
+	paragraphs := make(map[int]*wordir.Paragraph, len(doc.Paragraphs))
+	for i := range doc.Paragraphs {
+		paragraphs[doc.Paragraphs[i].Index] = &doc.Paragraphs[i]
+	}
+	tables := make(map[int]*wordir.Table, len(doc.Tables))
+	for i := range doc.Tables {
+		tables[doc.Tables[i].Index] = &doc.Tables[i]
+	}
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Paragraph != nil {
+			if paragraph := paragraphs[block.Paragraph.Index]; paragraph != nil {
+				block.Paragraph = paragraph
+			}
+		}
+		if block.Table != nil {
+			if table := tables[block.Table.Index]; table != nil {
+				block.Table = table
+			}
+		}
+	}
 }
 
 func mergeLineAndActiveBookmarks(lineBookmarks []string, lineStartCP, lineEndCP int, hasLineCP bool, activeBookmarkEnds map[string]int) []string {
@@ -5354,7 +4992,7 @@ func mergeLineAndActiveBookmarks(lineBookmarks []string, lineStartCP, lineEndCP 
 	return out
 }
 
-func lineSliceHasSpecialRuns(lineRuns []docRun) bool {
+func lineSliceHasSpecialRuns(lineRuns []binaryWordRun) bool {
 	for _, run := range lineRuns {
 		if run.Kind != "" {
 			return true
@@ -5363,7 +5001,7 @@ func lineSliceHasSpecialRuns(lineRuns []docRun) bool {
 	return false
 }
 
-func lineSliceHasLegacyListFormatting(lineRuns []docRun) bool {
+func lineSliceHasLegacyListFormatting(lineRuns []binaryWordRun) bool {
 	for _, run := range lineRuns {
 		if run.ParaFormat.BinaryListLevel != nil || run.ParaFormat.BinaryListOverride != nil {
 			return true
@@ -5372,7 +5010,7 @@ func lineSliceHasLegacyListFormatting(lineRuns []docRun) bool {
 	return false
 }
 
-func lineSliceIsExplicitBlankParagraph(lineRuns []docRun) bool {
+func lineSliceIsExplicitBlankParagraph(lineRuns []binaryWordRun) bool {
 	if len(lineRuns) == 0 {
 		return false
 	}
@@ -5391,7 +5029,7 @@ func lineSliceIsExplicitBlankParagraph(lineRuns []docRun) bool {
 // a single (already split) line.  It trims surrounding whitespace, strips any
 // list-marker prefix from the run slice, and populates Run.Format from the
 // per-character CHPx data.
-func buildLegacyParagraphFromRuns(index int, lineRuns []docRun, bookmarks []string, listTables *legacyListTables, styleSheet *legacyStyleSheet, styleNameByIstd map[int]string) (wordir.Paragraph, bool) {
+func buildLegacyParagraphFromRuns(index int, lineRuns []binaryWordRun, bookmarks []string, listTables *binaryWordListCatalog, styleSheet *binaryWordStyleCatalog, styleNameByIstd map[int]string) (wordir.Paragraph, bool) {
 	trimmedRuns := trimDocRunsWhitespace(lineRuns)
 	trimmedFull := joinDocRunsText(trimmedRuns)
 	text, list := parseLegacyListMarker(trimmedFull)
@@ -5423,8 +5061,14 @@ func buildLegacyParagraphFromRuns(index int, lineRuns []docRun, bookmarks []stri
 			fromStyle = !directHasList && (paraFormat.BinaryListOverride != nil || paraFormat.BinaryListLevel != nil)
 		}
 	}
-	irRuns := docRunsToIRRuns(bodyRuns, styleRunFormat)
+	irRuns := binaryWordRunsToIRRuns(bodyRuns, styleRunFormat)
 	applyLegacyCharacterStylesToRuns(irRuns, styleSheet)
+	// Paragraph.Text is decoded from the lossless piece stream before character
+	// formatting is projected into semantic runs. Keep that text authoritative
+	// for whitespace after character-style projection as well: a whitespace-only
+	// run accidentally carrying hidden formatting must not make layout/rendering
+	// consume a different character stream from Paragraph.Text.
+	irRuns = reconcileLegacyVisibleRunWhitespace(irRuns, text)
 	if len(irRuns) == 0 {
 		irRuns = []wordir.Run{{Text: text}}
 	}
@@ -5511,7 +5155,7 @@ func buildLegacyParagraphFromRuns(index int, lineRuns []docRun, bookmarks []stri
 			Date:   trimmedRuns[0].PropertyRevision.Date,
 		}
 	}
-	paraSource := docRunsToParagraphSource(trimmedRuns)
+	paraSource := binaryWordRunsToParagraphSource(trimmedRuns)
 	return wordir.Paragraph{
 		Index:            index,
 		StyleID:          styleID,
@@ -5528,8 +5172,8 @@ func buildLegacyParagraphFromRuns(index int, lineRuns []docRun, bookmarks []stri
 	}, fromStyle
 }
 
-// docRunsToParagraphSource builds a wordir.ParagraphSource from the raw data
-// captured on the first docRun of a paragraph (all runs share the same PAPx).
+// binaryWordRunsToParagraphSource builds a wordir.ParagraphSource from the raw data
+// captured on the first binaryWordRun of a paragraph (all runs share the same PAPx).
 // insertLegacySectionBoundaryBlocks projects PlcfSed CP ranges into the flat
 // block stream. Legacy DOC keeps section boundaries in PlcfSed instead of
 // emitting body-level section nodes, so without this projection layout sees the
@@ -5592,7 +5236,7 @@ func legacyBlockStartCP(block *wordir.Block) (int, bool) {
 	return src.StartCP, true
 }
 
-func docRunsToParagraphSource(runs []docRun) *wordir.ParagraphSource {
+func binaryWordRunsToParagraphSource(runs []binaryWordRun) *wordir.ParagraphSource {
 	if len(runs) == 0 {
 		return nil
 	}
@@ -5621,7 +5265,7 @@ func docRunsToParagraphSource(runs []docRun) *wordir.ParagraphSource {
 	return src
 }
 
-func applyLegacyBinaryListContinuation(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *legacyListTables, lineRuns []docRun, fromStyle bool) bool {
+func applyLegacyBinaryListContinuation(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *binaryWordListCatalog, lineRuns []binaryWordRun, fromStyle bool) bool {
 	if paragraph == nil || paragraph.List == nil {
 		if paragraph != nil {
 			paragraph.Numbering = nil
@@ -5703,7 +5347,7 @@ func applyLegacyBinaryListContinuation(paragraph *wordir.Paragraph, state *legac
 	return true
 }
 
-func legacyPopulateParagraphNumbering(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *legacyListTables, fromStyle bool) {
+func legacyPopulateParagraphNumbering(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *binaryWordListCatalog, fromStyle bool) {
 	if paragraph == nil || paragraph.List == nil {
 		return
 	}
@@ -5738,7 +5382,7 @@ func legacyPopulateParagraphNumbering(paragraph *wordir.Paragraph, state *legacy
 	paragraph.Numbering = num
 }
 
-func legacyRenderParagraphNumberingText(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *legacyListTables, numID int) string {
+func legacyRenderParagraphNumberingText(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *binaryWordListCatalog, numID int) string {
 	if paragraph == nil || paragraph.List == nil {
 		return ""
 	}
@@ -5764,7 +5408,7 @@ func legacyRenderParagraphNumberingText(paragraph *wordir.Paragraph, state *lega
 	return b.String()
 }
 
-func legacyListTemplateForParagraph(paragraph *wordir.Paragraph, listTables *legacyListTables, numID int) string {
+func legacyListTemplateForParagraph(paragraph *wordir.Paragraph, listTables *binaryWordListCatalog, numID int) string {
 	if paragraph == nil || paragraph.List == nil {
 		return ""
 	}
@@ -5788,7 +5432,7 @@ func legacyListTemplateForParagraph(paragraph *wordir.Paragraph, listTables *leg
 	return ""
 }
 
-func legacyParagraphListCounter(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *legacyListTables, numID, level int) int {
+func legacyParagraphListCounter(paragraph *wordir.Paragraph, state *legacyBinaryListState, listTables *binaryWordListCatalog, numID, level int) int {
 	if paragraph != nil && paragraph.List != nil && level == paragraph.List.Level && paragraph.List.Start > 0 {
 		return paragraph.List.Start
 	}
@@ -5805,7 +5449,7 @@ func legacyParagraphListCounter(paragraph *wordir.Paragraph, state *legacyBinary
 	return 1
 }
 
-func legacyParagraphListFormat(paragraph *wordir.Paragraph, listTables *legacyListTables, numID, level int) string {
+func legacyParagraphListFormat(paragraph *wordir.Paragraph, listTables *binaryWordListCatalog, numID, level int) string {
 	if paragraph != nil && paragraph.List != nil && level == paragraph.List.Level && paragraph.List.Format != "" {
 		return paragraph.List.Format
 	}
@@ -5881,7 +5525,7 @@ func legacyCounterToRoman(counter int) string {
 	return b.String()
 }
 
-func legacyBinaryListContextSignature(paragraph *wordir.Paragraph, lineRuns []docRun) string {
+func legacyBinaryListContextSignature(paragraph *wordir.Paragraph, lineRuns []binaryWordRun) string {
 	return strings.Join([]string{
 		legacyBinaryListListLevelContextSignature(paragraph),
 		legacyBinaryListListFormatContextSignature(paragraph),
@@ -6046,7 +5690,7 @@ func legacyBinaryListBorderSideSignature(side *wordir.BorderSide) string {
 	}, ":")
 }
 
-func legacyBinaryListRunFormatSignature(lineRuns []docRun) string {
+func legacyBinaryListRunFormatSignature(lineRuns []binaryWordRun) string {
 	totalVisible := 0
 	for _, run := range lineRuns {
 		if run.Kind != "" {
@@ -6247,7 +5891,7 @@ func legacyBinaryListOptionalBoolSignature(value *bool) string {
 	return "0"
 }
 
-func lineSliceCPRange(slice []docRun) (int, int, bool) {
+func lineSliceCPRange(slice []binaryWordRun) (int, int, bool) {
 	if len(slice) == 0 {
 		return 0, 0, false
 	}
@@ -6314,7 +5958,7 @@ func preWord97NfcToListFormat(nfc int) string {
 	}
 }
 
-func bookmarksForLineSlice(lineRuns []docRun, bookmarkStarts map[int][]string) []string {
+func bookmarksForLineSlice(lineRuns []binaryWordRun, bookmarkStarts map[int][]string) []string {
 	if len(bookmarkStarts) == 0 {
 		return nil
 	}
@@ -6338,7 +5982,7 @@ func bookmarksForLineSlice(lineRuns []docRun, bookmarkStarts map[int][]string) [
 	return out
 }
 
-func lineRunCPRange(r docRun) (int, int) {
+func lineRunCPRange(r binaryWordRun) (int, int) {
 	if r.Kind != "" {
 		return r.StartCP, r.StartCP
 	}
@@ -6351,18 +5995,18 @@ func lineRunCPRange(r docRun) (int, int) {
 // in Word's text stream, consecutive paragraph marks are real layout objects and
 // contribute one line box each. Dropping them compresses vertical flow and can
 // change pagination substantially (especially around list groups).
-func splitDocRunsIntoLines(runs []docRun) [][]docRun {
-	var lines [][]docRun
-	var current []docRun
+func splitDocRunsIntoLines(runs []binaryWordRun) [][]binaryWordRun {
+	var lines [][]binaryWordRun
+	var current []binaryWordRun
 	prevNewline := true // suppress a leading blank line
 	appendBoundary := func() {
 		if len(lines) > 0 && lineSliceIsLegacyListBoundary(lines[len(lines)-1]) {
 			return
 		}
-		lines = append(lines, []docRun{{Kind: legacyListBoundaryKind}})
+		lines = append(lines, []binaryWordRun{{Kind: legacyListBoundaryKind}})
 	}
-	appendBlankParagraph := func(source docRun, startCP int) {
-		lines = append(lines, []docRun{{
+	appendBlankParagraph := func(source binaryWordRun, startCP int) {
+		lines = append(lines, []binaryWordRun{{
 			Kind:       "blankParagraph",
 			StartCP:    startCP,
 			ParaFormat: source.ParaFormat,
@@ -6424,7 +6068,7 @@ func splitDocRunsIntoLines(runs []docRun) [][]docRun {
 		}
 		if r.Kind == "blankParagraph" {
 			flushLine()
-			lines = append(lines, []docRun{{Kind: r.Kind, StartCP: r.StartCP, ParaFormat: r.ParaFormat, TableDepth: r.TableDepth, TableProps: r.TableProps}})
+			lines = append(lines, []binaryWordRun{{Kind: r.Kind, StartCP: r.StartCP, ParaFormat: r.ParaFormat, TableDepth: r.TableDepth, TableProps: r.TableProps}})
 			prevNewline = false
 			continue
 		}
@@ -6461,7 +6105,7 @@ func splitDocRunsIntoLines(runs []docRun) [][]docRun {
 			flushLine()
 			blank := r
 			blank.Text = ""
-			lines = append(lines, []docRun{blank})
+			lines = append(lines, []binaryWordRun{blank})
 			prevNewline = true
 			continue
 		}
@@ -6525,7 +6169,7 @@ func splitDocRunsIntoLines(runs []docRun) [][]docRun {
 				breakRun.Anchor = ""
 				breakRun.Image = nil
 				breakRun.StartCP = partCP
-				lines = append(lines, []docRun{breakRun})
+				lines = append(lines, []binaryWordRun{breakRun})
 				prevNewline = true
 			}
 			partCP++
@@ -6538,7 +6182,7 @@ func splitDocRunsIntoLines(runs []docRun) [][]docRun {
 }
 
 // joinDocRunsText concatenates the Text fields of all runs in the slice.
-func joinDocRunsText(runs []docRun) string {
+func joinDocRunsText(runs []binaryWordRun) string {
 	if len(runs) == 1 {
 		return runs[0].Text
 	}
@@ -6551,8 +6195,8 @@ func joinDocRunsText(runs []docRun) string {
 
 // trimDocRunsWhitespace trims leading whitespace from the first run and
 // trailing whitespace from the last run, dropping any runs that become empty.
-func trimDocRunsWhitespace(runs []docRun) []docRun {
-	result := make([]docRun, 0, len(runs))
+func trimDocRunsWhitespace(runs []binaryWordRun) []binaryWordRun {
+	result := make([]binaryWordRun, 0, len(runs))
 	leadDone := false
 	for _, r := range runs {
 		if r.Kind != "" {
@@ -6583,11 +6227,11 @@ func trimDocRunsWhitespace(runs []docRun) []docRun {
 
 // skipDocRunsBytes removes skip bytes from the front of the run slice,
 // splitting or dropping individual runs as needed.
-func skipDocRunsBytes(runs []docRun, skip int) []docRun {
+func skipDocRunsBytes(runs []binaryWordRun, skip int) []binaryWordRun {
 	if skip <= 0 {
 		return runs
 	}
-	result := make([]docRun, 0, len(runs))
+	result := make([]binaryWordRun, 0, len(runs))
 	for _, r := range runs {
 		if r.Kind != "" {
 			result = append(result, r)
@@ -6611,13 +6255,13 @@ func skipDocRunsBytes(runs []docRun, skip int) []docRun {
 	return result
 }
 
-// docFieldsToIRFields converts []*docField to []wordir.Field, recursively
-// converting nested Children and InstrRuns via docRunsToIRRuns.
-func docFieldsToIRFields(fields []*docField, baseFormat wordir.RunFormat) []wordir.Field {
-	return docFieldsToIRFieldsImpl(fields, baseFormat, make(map[*docField]bool))
+// binaryWordFieldsToIRFields converts []*binaryWordField to []wordir.Field, recursively
+// converting nested Children and InstrRuns via binaryWordRunsToIRRuns.
+func binaryWordFieldsToIRFields(fields []*binaryWordField, baseFormat wordir.RunFormat) []wordir.Field {
+	return binaryWordFieldsToIRFieldsImpl(fields, baseFormat, make(map[*binaryWordField]bool))
 }
 
-func docFieldsToIRFieldsImpl(fields []*docField, baseFormat wordir.RunFormat, seen map[*docField]bool) []wordir.Field {
+func binaryWordFieldsToIRFieldsImpl(fields []*binaryWordField, baseFormat wordir.RunFormat, seen map[*binaryWordField]bool) []wordir.Field {
 	result := make([]wordir.Field, 0, len(fields))
 	for _, f := range fields {
 		if f == nil || seen[f] {
@@ -6630,23 +6274,161 @@ func docFieldsToIRFieldsImpl(fields []*docField, baseFormat wordir.RunFormat, se
 			Arg:       f.Arg,
 			Anchor:    f.Anchor,
 			Target:    f.Target,
-			Children:  docRunsToIRRunsImpl(f.Children, baseFormat, seen),
-			InstrRuns: docRunsToIRRunsImpl(f.InstrRuns, baseFormat, seen),
+			Children:  binaryWordRunsToIRRunsImpl(f.Children, baseFormat, seen),
+			InstrRuns: binaryWordRunsToIRRunsImpl(f.InstrRuns, baseFormat, seen),
 		})
 	}
 	return result
 }
 
-// docRunsToIRRuns converts []docRun to []wordir.Run, skipping empty runs.
-func docRunsToIRRuns(runs []docRun, baseFormat wordir.RunFormat) []wordir.Run {
-	return docRunsToIRRunsImpl(runs, baseFormat, make(map[*docField]bool))
+// binaryWordRunsToIRRuns converts []binaryWordRun to []wordir.Run, skipping empty runs.
+// reconcileLegacyRunWhitespace makes the semantic run projection reproduce the
+// canonical paragraph text without changing character-format ownership. It is
+// conservative: reconciliation happens only when the two forms differ solely
+// in Unicode whitespace. Non-whitespace disagreement remains visible as a
+// decoder/FC defect instead of being papered over here.
+func reconcileLegacyRunWhitespace(runs []wordir.Run, canonical string) []wordir.Run {
+	if len(runs) == 0 || canonical == "" {
+		return runs
+	}
+	var projected strings.Builder
+	for _, run := range runs {
+		switch run.Kind {
+		case "tab":
+			projected.WriteByte('\t')
+		case "", "hyperlink":
+			projected.WriteString(run.Text)
+		}
+	}
+	if projected.String() == canonical || stripLegacyWhitespace(projected.String()) != stripLegacyWhitespace(canonical) {
+		return runs
+	}
+	type ownerChar struct {
+		run int
+		r   rune
+	}
+	owners := make([]ownerChar, 0, len([]rune(canonical)))
+	for i, run := range runs {
+		if run.Kind != "" && run.Kind != "hyperlink" {
+			continue
+		}
+		for _, r := range run.Text {
+			if !unicode.IsSpace(r) {
+				owners = append(owners, ownerChar{i, r})
+			}
+		}
+	}
+	canonicalNonSpace := make([]rune, 0, len(owners))
+	for _, r := range canonical {
+		if !unicode.IsSpace(r) {
+			canonicalNonSpace = append(canonicalNonSpace, r)
+		}
+	}
+	if len(owners) != len(canonicalNonSpace) {
+		return runs
+	}
+	for i := range owners {
+		if owners[i].r != canonicalNonSpace[i] {
+			return runs
+		}
+	}
+	out := append([]wordir.Run(nil), runs...)
+	for i := range out {
+		if out[i].Kind == "" || out[i].Kind == "hyperlink" {
+			out[i].Text = ""
+		}
+	}
+	ownerPos := 0
+	var pending strings.Builder
+	for _, r := range canonical {
+		if unicode.IsSpace(r) {
+			if r != '\t' {
+				pending.WriteRune(r)
+			}
+			continue
+		}
+		if ownerPos >= len(owners) {
+			return runs
+		}
+		o := owners[ownerPos]
+		out[o.run].Text += pending.String()
+		pending.Reset()
+		out[o.run].Text += string(r)
+		ownerPos++
+	}
+	if pending.Len() > 0 {
+		for i := len(out) - 1; i >= 0; i-- {
+			if out[i].Kind == "" || out[i].Kind == "hyperlink" {
+				out[i].Text += pending.String()
+				break
+			}
+		}
+	}
+	return out
 }
 
-func docRunsToIRRunsImpl(runs []docRun, baseFormat wordir.RunFormat, seen map[*docField]bool) []wordir.Run {
+// reconcileLegacyVisibleRunWhitespace reconciles whitespace against the runs
+// that actually participate in layout/rendering. Word binary formatting tables
+// can isolate spaces into a run that later resolves as Vanish/SpecVanish. When
+// such a hidden run contains whitespace only, treating it as semantic content
+// makes Paragraph.Text, layout and HTML disagree. Genuine hidden text is left
+// untouched.
+func reconcileLegacyVisibleRunWhitespace(runs []wordir.Run, canonical string) []wordir.Run {
+	if len(runs) == 0 || canonical == "" {
+		return runs
+	}
+	out := append([]wordir.Run(nil), runs...)
+	changed := false
+	for i := range out {
+		if !legacyRunIsHidden(out[i]) {
+			continue
+		}
+		if out[i].Kind == "tab" {
+			// A hidden tab is formatting-sensitive content; do not reinterpret it.
+			return runs
+		}
+		if out[i].Kind != "" && out[i].Kind != "hyperlink" {
+			continue
+		}
+		if stripLegacyWhitespace(out[i].Text) != "" {
+			// This paragraph contains genuine hidden characters. Its visible text is
+			// intentionally different from Paragraph.Text.
+			return runs
+		}
+		if out[i].Text != "" {
+			out[i].Text = ""
+			changed = true
+		}
+	}
+	if !changed {
+		return reconcileLegacyRunWhitespace(out, canonical)
+	}
+	return reconcileLegacyRunWhitespace(out, canonical)
+}
+
+func legacyRunIsHidden(run wordir.Run) bool {
+	return (run.Format.Vanish != nil && *run.Format.Vanish) ||
+		(run.Format.SpecVanish != nil && *run.Format.SpecVanish)
+}
+
+func stripLegacyWhitespace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func binaryWordRunsToIRRuns(runs []binaryWordRun, baseFormat wordir.RunFormat) []wordir.Run {
+	return binaryWordRunsToIRRunsImpl(runs, baseFormat, make(map[*binaryWordField]bool))
+}
+
+func binaryWordRunsToIRRunsImpl(runs []binaryWordRun, baseFormat wordir.RunFormat, seen map[*binaryWordField]bool) []wordir.Run {
 	result := make([]wordir.Run, 0, len(runs))
 	for _, r := range runs {
 		format := legacyMergeRunFormat(baseFormat, r.Format)
-		runSource := docRunToRunSource(r)
+		runSource := binaryWordRunToRunSource(r)
 		if r.Kind == "footnoteRef" || r.Kind == "endnoteRef" {
 			result = append(result, wordir.Run{Kind: r.Kind, NoteID: r.NoteID, Format: format, Source: runSource})
 			continue
@@ -6686,13 +6468,25 @@ func docRunsToIRRunsImpl(runs []docRun, baseFormat wordir.RunFormat, seen map[*d
 			continue
 		}
 		if r.Kind == "olePlaceholder" {
-			result = append(result, wordir.Run{Kind: r.Kind, Text: r.Text, Format: format, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, Source: runSource})
+			embedded := wordir.Run{Kind: r.Kind, Text: r.Text}
+			if r.EmbeddedRun != nil {
+				embedded = *r.EmbeddedRun
+			}
+			embedded.Kind = "olePlaceholder"
+			embedded.Format = format
+			embedded.Revision = r.Revision
+			embedded.RevisionAuthor = r.RevisionAuthor
+			embedded.RevisionDate = r.RevisionDate
+			embedded.PropertyRevision = r.RunPropertyRevision
+			embedded.DisplayFieldRevision = r.DisplayFieldRevision
+			embedded.Source = runSource
+			result = append(result, embedded)
 			continue
 		}
 		if r.Text == "" {
 			continue
 		}
-		ir := wordir.Run{Text: r.Text, Format: format, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, FieldKind: r.FieldKind, FieldInstr: r.FieldInstr, FieldArg: r.FieldArg, Anchor: r.Anchor, Fields: docFieldsToIRFieldsImpl(r.Fields, baseFormat, seen), Source: runSource}
+		ir := wordir.Run{Text: r.Text, Format: format, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, FieldKind: r.FieldKind, FieldInstr: r.FieldInstr, FieldArg: r.FieldArg, Anchor: r.Anchor, Fields: binaryWordFieldsToIRFieldsImpl(r.Fields, baseFormat, seen), Source: runSource}
 		if r.Target != "" {
 			ir.Kind = "hyperlink"
 			ir.Target = r.Target
@@ -6723,8 +6517,8 @@ func docRunsToIRRunsImpl(runs []docRun, baseFormat wordir.RunFormat, seen map[*d
 	return result
 }
 
-// docRunToRunSource builds a wordir.RunSource from the raw data captured on a docRun.
-func docRunToRunSource(r docRun) *wordir.RunSource {
+// binaryWordRunToRunSource builds a wordir.RunSource from the raw data captured on a binaryWordRun.
+func binaryWordRunToRunSource(r binaryWordRun) *wordir.RunSource {
 	src := &wordir.RunSource{
 		ChpxSprms: r.ChpxSprms,
 		Revision:  r.Revision,
@@ -6769,7 +6563,7 @@ func docRunToRunSource(r docRun) *wordir.RunSource {
 	return src
 }
 
-func applyLegacyCharacterStylesToRuns(runs []wordir.Run, styleSheet *legacyStyleSheet) {
+func applyLegacyCharacterStylesToRuns(runs []wordir.Run, styleSheet *binaryWordStyleCatalog) {
 	if len(runs) == 0 || styleSheet == nil {
 		return
 	}
@@ -6778,7 +6572,7 @@ func applyLegacyCharacterStylesToRuns(runs []wordir.Run, styleSheet *legacyStyle
 	}
 }
 
-func applyLegacyCharacterStyleToRun(run *wordir.Run, styleSheet *legacyStyleSheet) {
+func applyLegacyCharacterStyleToRun(run *wordir.Run, styleSheet *binaryWordStyleCatalog) {
 	if run == nil || styleSheet == nil {
 		return
 	}
@@ -6801,10 +6595,10 @@ func applyLegacyCharacterStyleToRun(run *wordir.Run, styleSheet *legacyStyleShee
 	}
 }
 
-func processLegacyObjectAnchors(runs []docRun, images []*wordir.Image) []docRun {
+func processLegacyObjectAnchors(runs []binaryWordRun, images []*wordir.Image) []binaryWordRun {
 	const objectAnchor = '\x01'
 
-	out := make([]docRun, 0, len(runs))
+	out := make([]binaryWordRun, 0, len(runs))
 	imageIndex := 0
 	for _, r := range runs {
 		if r.Kind != "" || !strings.ContainsRune(r.Text, objectAnchor) {
@@ -6821,7 +6615,7 @@ func processLegacyObjectAnchors(runs []docRun, images []*wordir.Image) []docRun 
 				continue
 			}
 			if i > segmentStart {
-				out = append(out, docRun{
+				out = append(out, binaryWordRun{
 					Text:                 string(runes[segmentStart:i]),
 					Format:               r.Format,
 					ParaFormat:           r.ParaFormat,
@@ -6845,7 +6639,7 @@ func processLegacyObjectAnchors(runs []docRun, images []*wordir.Image) []docRun 
 			// true embedded OLE objects. fSpec alone is not sufficient to tell them
 			// apart; using CFData prevents valid inline pictures becoming placeholders.
 			if !r.Obj && (r.Spec || r.Data) && imageIndex < len(images) && images[imageIndex] != nil {
-				out = append(out, docRun{
+				out = append(out, binaryWordRun{
 					Kind:                 "image",
 					Image:                images[imageIndex],
 					Format:               r.Format,
@@ -6862,7 +6656,7 @@ func processLegacyObjectAnchors(runs []docRun, images []*wordir.Image) []docRun 
 				})
 				imageIndex++
 			} else {
-				out = append(out, docRun{
+				out = append(out, binaryWordRun{
 					Text:                 "Embedded Object",
 					Kind:                 "olePlaceholder",
 					Format:               r.Format,
@@ -6883,7 +6677,7 @@ func processLegacyObjectAnchors(runs []docRun, images []*wordir.Image) []docRun 
 			segmentStartCP = cp
 		}
 		if segmentStart < len(runes) {
-			out = append(out, docRun{
+			out = append(out, binaryWordRun{
 				Text:                 string(runes[segmentStart:]),
 				Format:               r.Format,
 				ParaFormat:           r.ParaFormat,
@@ -6913,7 +6707,7 @@ func processLegacyObjectAnchors(runs []docRun, images []*wordir.Image) []docRun 
 // is a HYPERLINK field.  Field-char runs are removed from the output.
 //
 // MS-DOC §2.8.25: fldChar values 0x13 = begin, 0x14 = separator, 0x15 = end.
-func processDocFieldRuns(runs []docRun) []docRun {
+func processDocFieldRuns(runs []binaryWordRun) []binaryWordRun {
 	// Fast path: no field chars present.
 	hasFieldChar := false
 	for _, r := range runs {
@@ -6928,8 +6722,8 @@ func processDocFieldRuns(runs []docRun) []docRun {
 
 	// Split each run at field-char boundaries to produce a flat token list.
 	type token struct {
-		kind int    // 0=text, 1=begin, 2=sep, 3=end
-		run  docRun // only for kind==0
+		kind int           // 0=text, 1=begin, 2=sep, 3=end
+		run  binaryWordRun // only for kind==0
 	}
 	const (
 		tokText  = 0
@@ -6947,11 +6741,11 @@ func processDocFieldRuns(runs []docRun) []docRun {
 		for len(text) > 0 {
 			idx := strings.IndexAny(text, "\x13\x14\x15")
 			if idx < 0 {
-				tokens = append(tokens, token{kind: tokText, run: docRun{Text: text, Format: r.Format, ParaFormat: r.ParaFormat, TableDepth: r.TableDepth, TableProps: r.TableProps, Target: r.Target, StartCP: r.StartCP, CommentID: r.CommentID, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.PropertyRevision, RunPropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, Spec: r.Spec, Image: r.Image}})
+				tokens = append(tokens, token{kind: tokText, run: binaryWordRun{Text: text, Format: r.Format, ParaFormat: r.ParaFormat, TableDepth: r.TableDepth, TableProps: r.TableProps, Target: r.Target, StartCP: r.StartCP, CommentID: r.CommentID, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.PropertyRevision, RunPropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, Spec: r.Spec, Image: r.Image}})
 				break
 			}
 			if idx > 0 {
-				tokens = append(tokens, token{kind: tokText, run: docRun{Text: text[:idx], Format: r.Format, ParaFormat: r.ParaFormat, TableDepth: r.TableDepth, TableProps: r.TableProps, Target: r.Target, StartCP: r.StartCP, CommentID: r.CommentID, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.PropertyRevision, RunPropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, Spec: r.Spec, Image: r.Image}})
+				tokens = append(tokens, token{kind: tokText, run: binaryWordRun{Text: text[:idx], Format: r.Format, ParaFormat: r.ParaFormat, TableDepth: r.TableDepth, TableProps: r.TableProps, Target: r.Target, StartCP: r.StartCP, CommentID: r.CommentID, Revision: r.Revision, RevisionAuthor: r.RevisionAuthor, RevisionDate: r.RevisionDate, PropertyRevision: r.PropertyRevision, RunPropertyRevision: r.RunPropertyRevision, DisplayFieldRevision: r.DisplayFieldRevision, Spec: r.Spec, Image: r.Image}})
 			}
 			switch text[idx] {
 			case 0x13:
@@ -6966,7 +6760,7 @@ func processDocFieldRuns(runs []docRun) []docRun {
 	}
 
 	// Walk tokens and build output runs, annotating hyperlink display runs.
-	var out []docRun
+	var out []binaryWordRun
 	i := 0
 	for i < len(tokens) {
 		tok := tokens[i]

@@ -70,6 +70,10 @@ type HTMLOptions struct {
 	// field queries against external data sources. When nil (default) DATABASE
 	// fields fall back to their cached text result.
 	DatabaseExecutor func(connectionString, sqlQuery string) (string, error)
+	// RenderTime fixes the evaluation time for volatile DATE/TIME fields. When nil,
+	// rendering uses the current time, matching Word field refresh behavior. Tests and
+	// snapshot callers can provide a stable value.
+	RenderTime *time.Time
 }
 
 // HTML renders a resolved Word document to a self-contained HTML5 string.
@@ -474,16 +478,7 @@ func diagnosticSeverityClass(severity diag.Severity) string {
 }
 
 func (r *htmlRenderer) writeCSS() {
-	defaultFontSize := 24 // 12pt in half-points
-	if r.doc.DefaultRunFormat.FontSize != nil {
-		defaultFontSize = *r.doc.DefaultRunFormat.FontSize
-	}
-
-	bodyFontFamily := `"Times New Roman", Times, serif`
-	if fontFamily := effectiveFontFamily(r.doc.DefaultRunFormat); fontFamily != "" {
-		bodyFontFamily = r.cssFontFamily(fontFamily, !r.isEmbeddedFont(fontFamily))
-	}
-
+	defaults := r.documentDefaultCSS()
 	r.writeEmbeddedFontCSS()
 	pageBackground := "white"
 	// DisplayBackgroundShape nil = show background when present; explicit false = suppress.
@@ -498,14 +493,14 @@ func (r *htmlRenderer) writeCSS() {
 	}
 	fmt.Fprintf(&r.buf,
 		`* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #e8e8e8; font-family: %s; font-size: %.1fpt; color: #000; }
+body { background: #e8e8e8; font-family: %s; font-size: %.1fpt; color: %s; }
 .document { width: %.1fpt; margin: 0 auto; }
 .page { position: relative; isolation: isolate; background: %s; width: %.1fpt; height: %.1fpt; min-height: %.1fpt; margin: 20pt auto; overflow: hidden; }
 .page-body { position: relative; z-index: 1; height: %.1fpt; min-height: %.1fpt; padding: %.1fpt %.1fpt %.1fpt %.1fpt; overflow: hidden; }
 .page-overlay { position: absolute; z-index: 2; inset: 0; overflow: hidden; pointer-events: none; }
 .page-overlay-behind { z-index: 0; }
 .word-wrap-proxy { visibility: hidden; pointer-events: none; }
-.page-header, .page-footer, .page-footnotes { position: absolute; overflow: hidden; }
+.page-header, .page-footer, .page-footnotes { position: absolute; overflow: hidden; pointer-events: auto; user-select: text; }
 .page-footnotes::before { content: ""; display: block; width: 25%%; border-top: 0.75pt solid #000; margin-bottom: 4pt; }
 .story-overlay { position: absolute; inset: 0; overflow: hidden; }
 p, h1, h2, h3, h4, h5, h6 { line-height: 1.2; margin: 0; }
@@ -520,7 +515,7 @@ td, th { padding: 2pt 4pt; vertical-align: top; }
 ul, ol { padding: 0; margin: 0; }
 li { line-height: 1.2; }
 .word-list-marker { display: inline-block; min-width: 2.2em; margin-left: -2.2em; padding-right: 0.35em; text-align: right; white-space: nowrap; }
-a { color: #0563C1; text-decoration: underline; }
+a { color: inherit; text-decoration: inherit; }
 .floating-textbox { position: absolute; z-index: 2; overflow: visible; line-height: 1.2; }
 .floating-textbox p, .floating-textbox h1, .floating-textbox h2, .floating-textbox h3, .floating-textbox h4, .floating-textbox h5, .floating-textbox h6 { margin: 0; line-height: inherit; }
 .floating-textbox li { line-height: inherit; }
@@ -544,7 +539,7 @@ ins { text-decoration: underline; color: #22863a; background-color: #f0fff4; }
 del { text-decoration: line-through; color: #cb2431; background-color: #ffeef0; }
 ins[data-revision-type="movedTo"] { text-decoration: underline; color: #22863a; background-color: #ddf4ff; }
 del[data-revision-type="movedFrom"] { text-decoration: line-through; color: #cb2431; background-color: #fff5e6; }
-.word-field { font-style: italic; color: #555; }
+.word-field { font-style: inherit; color: inherit; }
 .word-field-toc { display: inline-block; min-width: 100%%; white-space: pre-line; font-style: normal; }
 .word-field-index { display: inline-block; min-width: 100%%; white-space: pre-line; font-style: normal; }
 .word-field-xe, .word-field-tc { display: none; }
@@ -565,8 +560,9 @@ del[data-revision-type="movedFrom"] { text-decoration: line-through; color: #cb2
 .page-break-label { text-align: center; margin: 4pt 0; }
 header.doc-header, footer.doc-footer { width: %.1fpt; margin: 0 auto; padding: 4pt %.1fpt; font-size: 0.85em; color: #555; }
 `,
-		bodyFontFamily,
-		float64(defaultFontSize)/2.0,
+		defaults.FontFamily,
+		defaults.FontSizePt,
+		defaults.Color,
 		r.pageWidthPt,
 		pageBackground,
 		r.pageWidthPt,
@@ -631,6 +627,45 @@ header.doc-header, footer.doc-footer { width: %.1fpt; margin: 0 auto; padding: 4
 	}
 }
 
+type documentDefaultCSS struct {
+	FontFamily string
+	FontSizePt float64
+	Color      string
+}
+
+func (r *htmlRenderer) documentDefaultCSS() documentDefaultCSS {
+	defaults := documentDefaultCSS{
+		FontFamily: `"Times New Roman", Times, serif`,
+		FontSizePt: 12.0,
+		Color:      "#000",
+	}
+	if r == nil || r.doc == nil {
+		return defaults
+	}
+	format := r.doc.DefaultRunFormat
+	if format.FontSize != nil && *format.FontSize > 0 {
+		defaults.FontSizePt = float64(*format.FontSize) / 2.0
+	}
+	if fontFamily := effectiveFontFamily(format); fontFamily != "" {
+		defaults.FontFamily = r.cssFontFamily(fontFamily, !r.isEmbeddedFont(fontFamily))
+	}
+	if color := cssHexColor(format.Color); color != "" {
+		defaults.Color = color
+	}
+	return defaults
+}
+
+func cssHexColor(color string) string {
+	color = strings.TrimSpace(color)
+	if color == "" || strings.EqualFold(color, "auto") {
+		return ""
+	}
+	if strings.HasPrefix(color, "#") {
+		return color
+	}
+	return "#" + color
+}
+
 func docCollectTextAnimations(doc *resolve.Document) map[string]bool {
 	result := make(map[string]bool)
 	if doc == nil {
@@ -678,6 +713,7 @@ func (opts HTMLOptions) normalized() HTMLOptions {
 		EditableContentControls: opts.EditableContentControls,
 		InterpretPrivateFields:  opts.InterpretPrivateFields,
 		DatabaseExecutor:        opts.DatabaseExecutor,
+		RenderTime:              opts.RenderTime,
 	}
 }
 
@@ -1097,6 +1133,44 @@ func rotatedProxyGeometry(x, y, width, height, rotationDeg float64) (proxyX, pro
 	}
 	polygonCSS = "polygon(" + strings.Join(coords, ", ") + ")"
 	return
+}
+
+// wrapPolygonProxyCSS projects an authored Word wrap polygon through the same
+// resolved size and rotation used by layout. The browser proxy is the rotated
+// axis-aligned box, so polygon percentages must be relative to that proxy rather
+// than to the unrotated intrinsic image box.
+func wrapPolygonProxyCSS(poly [][2]float64, widthEMU, heightEMU int64, renderedW, renderedH, proxyX, proxyY, proxyW, proxyH, objectX, objectY, rotationDeg float64) string {
+	if len(poly) == 0 || renderedW <= 0 || renderedH <= 0 || proxyW <= 0 || proxyH <= 0 {
+		return ""
+	}
+	sourceW := emuToPoints(widthEMU)
+	sourceH := emuToPoints(heightEMU)
+	if sourceW <= 0 || sourceH <= 0 {
+		return ""
+	}
+	sx := renderedW / sourceW
+	sy := renderedH / sourceH
+	cx, cy := objectX+renderedW/2, objectY+renderedH/2
+	angle := math.Mod(rotationDeg, 360)
+	if angle < 0 {
+		angle += 360
+	}
+	rad := angle * math.Pi / 180
+	cosA, sinA := math.Cos(rad), math.Sin(rad)
+	coords := make([]string, 0, len(poly))
+	for _, point := range poly {
+		x := objectX + point[0]*sx
+		y := objectY + point[1]*sy
+		if math.Abs(angle) > 1e-9 && math.Abs(angle-360) > 1e-9 {
+			dx, dy := x-cx, y-cy
+			x = cx + dx*cosA - dy*sinA
+			y = cy + dx*sinA + dy*cosA
+		}
+		xPct := (x - proxyX) / proxyW * 100
+		yPct := (y - proxyY) / proxyH * 100
+		coords = append(coords, fmt.Sprintf("%.2f%% %.2f%%", xPct, yPct))
+	}
+	return "polygon(" + strings.Join(coords, ", ") + ")"
 }
 
 // initLayoutMaps runs layout.Paginate once and builds lookup tables so that
@@ -1766,7 +1840,7 @@ func (r *htmlRenderer) applyGeometry(geom layout.PageGeometry) {
 	}
 }
 
-func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageGeometry, fn func()) {
+func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageGeometry, fn func([]layout.BlockBox)) {
 	savedOverlay := r.overlay
 	savedBehindOverlay := r.behindOverlay
 	savedPageWidth, savedPageHeight := r.pageWidthPt, r.pageHeightPt
@@ -1860,7 +1934,7 @@ func (r *htmlRenderer) withLocalLayout(blocks []resolve.Block, geom layout.PageG
 	}()
 
 	r.frameDepth++
-	fn()
+	fn(localBoxes)
 	r.frameDepth--
 }
 
@@ -2141,12 +2215,98 @@ func (r *htmlRenderer) renderPageParagraphBox(boxes []layout.BlockBox, index int
 	}
 	p := box.Block.Paragraph
 	if box.Fragment != nil {
-		r.renderParagraphSegment(p, box.Fragment.Runs, !box.Fragment.IsContinuation, box.Fragment.IsContinuation, !box.Fragment.IsLast, box.Fragment.IsContinuation, box.Fragment.IsContinuation, box.Fragment.StartsNewColumn)
+		// Paragraph fragments own the text that belongs to this page/column, but
+		// physical-line projection deliberately omits drawing anchors. Preserve
+		// those source-owned floating objects independently from the fragment text
+		// so choosing a fragment rendering strategy can never make an image,
+		// textbox, or shape disappear. Anchors already present in the fragment are
+		// skipped to avoid duplicate overlay emission.
+		// Once layout has projected physical lines, those lines are authoritative
+		// for rendering as well as pagination. Do not hand an ordinary full-width
+		// fragment back to the browser merely because it did not need constrained
+		// Square/Tight geometry: doing so creates a second line-breaking engine and
+		// allows pagination and rendered line topology to drift apart.
+		if len(box.Fragment.Lines) > 0 {
+			r.renderPhysicalParagraphFragment(box)
+			return
+		}
+		// Compatibility fallback only for structural fragments that genuinely have
+		// no physical-line projection yet.
+		renderPageParagraphFragmentRuns(r, p, box.Fragment, !box.Fragment.IsContinuation, box.Fragment.IsContinuation, !box.Fragment.IsLast, box.Fragment.IsContinuation, box.Fragment.IsContinuation, box.Fragment.StartsNewColumn)
 		return
 	}
 	suppressBefore := layout.ContextualSpacingSuppresses(p, adjacentPageParagraph(boxes, index, -1))
 	suppressAfter := layout.ContextualSpacingSuppresses(p, adjacentPageParagraph(boxes, index, +1))
-	r.renderParagraphSegment(p, p.Runs, true, suppressBefore, suppressAfter, false, false, false)
+	renderPageParagraphRuns(r, p, p.Runs, true, suppressBefore, suppressAfter, false, false, false)
+}
+
+// renderPageParagraphRuns keeps layout progression and renderer progression as
+// separate concerns for drawing-host paragraphs. Layout has already consumed the
+// paragraph's measured height and used its Y as the reference for paragraph-
+// relative floats. The page body therefore must not create a second CSS flow box
+// for a paragraph whose only content is floating anchors. The anchor runs still
+// need to be visited so their objects are emitted to the page overlay.
+func renderPageParagraphRuns(r *htmlRenderer, p *resolve.Paragraph, runs []resolve.Run, includeBookmarks bool, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore bool) {
+	if paragraphIsFloatingAnchorOnly(runs) {
+		r.renderParagraphSegmentContent(
+			p, runs, includeBookmarks, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore,
+			"display:contents",
+			func() { r.renderRuns(runs) },
+		)
+		return
+	}
+	r.renderParagraphSegment(p, runs, includeBookmarks, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore)
+}
+
+func renderPageParagraphFragmentRuns(r *htmlRenderer, p *resolve.Paragraph, fragment *layout.ParagraphFragment, includeBookmarks bool, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore bool) {
+	if fragment == nil {
+		return
+	}
+	r.renderParagraphSegmentContent(
+		p, fragment.FallbackRuns, includeBookmarks, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore,
+		"",
+		func() {
+			// Physical-line projection intentionally excludes drawing anchors. Emit
+			// source-owned floats while currentParagraph is active and before the
+			// fragment text. This preserves the normal wrap/block semantics for the
+			// common Word anchor-before-text form.
+			r.renderMissingFragmentFloatingContent(p.Runs, fragment.FallbackRuns)
+			r.renderRuns(fragment.FallbackRuns)
+		},
+	)
+}
+
+func (r *htmlRenderer) renderMissingFragmentFloatingContent(sourceRuns, fragmentRuns []resolve.Run) {
+	images := make(map[*resolve.Image]struct{})
+	textBoxes := make(map[*resolve.TextBox]struct{})
+	shapes := make(map[*resolve.Shape]struct{})
+	for _, run := range fragmentRuns {
+		if run.Image != nil && run.Image.Floating {
+			images[run.Image] = struct{}{}
+		}
+		if run.TextBox != nil && run.TextBox.Floating {
+			textBoxes[run.TextBox] = struct{}{}
+		}
+		if run.Shape != nil && run.Shape.Floating {
+			shapes[run.Shape] = struct{}{}
+		}
+	}
+	for _, run := range sourceRuns {
+		switch {
+		case run.Image != nil && run.Image.Floating:
+			if _, ok := images[run.Image]; !ok {
+				r.renderRun(run)
+			}
+		case run.TextBox != nil && run.TextBox.Floating:
+			if _, ok := textBoxes[run.TextBox]; !ok {
+				r.renderRun(run)
+			}
+		case run.Shape != nil && run.Shape.Floating:
+			if _, ok := shapes[run.Shape]; !ok {
+				r.renderRun(run)
+			}
+		}
+	}
 }
 
 func adjacentPageParagraph(boxes []layout.BlockBox, i, dir int) *resolve.Paragraph {
@@ -2233,6 +2393,35 @@ func (r *htmlRenderer) renderPageFootnotes(page layout.Page) {
 	r.renderStoryFrame(&r.overlay, blocks, "page-footnotes", frameGeom.MarginLeft, frameGeom.MarginTop+startY, frameGeom.ColumnWidthPt, endY-startY)
 }
 
+func footerBlocksWithCanonicalTabs(blocks []resolve.Block, widthPt float64) []resolve.Block {
+	if widthPt <= 0 {
+		return blocks
+	}
+	out := append([]resolve.Block(nil), blocks...)
+	for i := range out {
+		p := out[i].Paragraph
+		if out[i].Kind != "paragraph" || p == nil || len(p.Format.TabStops) != 0 {
+			continue
+		}
+		tabs := 0
+		for _, run := range p.Runs {
+			if run.Kind == "tab" || run.Text == "\t" {
+				tabs++
+			}
+		}
+		if tabs < 2 {
+			continue
+		}
+		copyParagraph := *p
+		copyParagraph.Format.TabStops = []resolve.TabStop{
+			{Pos: int(widthPt * 10), Algn: "center"}, // points -> twips, half width
+			{Pos: int(widthPt * 20), Algn: "right"},  // points -> twips, right edge
+		}
+		out[i].Paragraph = &copyParagraph
+	}
+	return out
+}
+
 func (r *htmlRenderer) renderStoryFrame(target *bytes.Buffer, blocks []resolve.Block, className string, left, top, width, height float64) {
 	if len(blocks) == 0 || target == nil {
 		return
@@ -2253,11 +2442,17 @@ func (r *htmlRenderer) renderStoryFrame(target *bytes.Buffer, blocks []resolve.B
 	}
 	frameBuf := bytes.Buffer{}
 	geom := layout.PageGeometry{Width: width, Height: height, ColumnCount: 1, ColumnWidthPt: width}
-	r.withLocalLayout(blocks, geom, func() {
+	if className == "page-footer" {
+		blocks = footerBlocksWithCanonicalTabs(blocks, width)
+	}
+	r.withLocalLayout(blocks, geom, func(localBoxes []layout.BlockBox) {
 		r.withOutputBuffer(&frameBuf, func() {
 			fmt.Fprintf(&r.buf, `<div class=%q style=%q>`, className, strings.Join(styles, ";"))
 			r.withLineNumberingSuppressed(func() {
-				r.renderBlocks(blocks)
+				// Header/footer stories must render the same physical paragraph
+				// topology that LayoutBlocksForRender measured. In particular this
+				// preserves Word tab-stop geometry for left/center/right footer fields.
+				r.renderPageBlocks(layout.Page{Geometry: geom, Blocks: localBoxes})
 			})
 			r.closeAllLists()
 			if r.overlay.Len() > 0 {
@@ -2547,10 +2742,16 @@ func (r *htmlRenderer) renderParagraph(p *resolve.Paragraph, suppressBefore, sup
 	if p == nil {
 		return
 	}
-	r.renderParagraphSegment(p, p.Runs, true, suppressBefore, suppressAfter, false, false, false)
+	r.renderParagraphSegment(p, resolve.CanonicalVisibleRuns(p), true, suppressBefore, suppressAfter, false, false, false)
 }
 
 func (r *htmlRenderer) renderParagraphSegment(p *resolve.Paragraph, runs []resolve.Run, includeBookmarks bool, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore bool) {
+	r.renderParagraphSegmentContent(p, runs, includeBookmarks, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore, "", func() {
+		r.renderRuns(runs)
+	})
+}
+
+func (r *htmlRenderer) renderParagraphSegmentContent(p *resolve.Paragraph, runs []resolve.Run, includeBookmarks bool, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore bool, extraStyle string, renderContent func()) {
 	if p == nil {
 		return
 	}
@@ -2561,7 +2762,7 @@ func (r *htmlRenderer) renderParagraphSegment(p *resolve.Paragraph, runs []resol
 
 	// List items take their own path.
 	if p.List != nil && !suppressListMarker {
-		r.renderListItemSegment(p, runs, includeBookmarks)
+		r.renderListItemSegmentContent(p, runs, includeBookmarks, extraStyle, renderContent)
 		return
 	}
 
@@ -2589,6 +2790,9 @@ func (r *htmlRenderer) renderParagraphSegment(p *resolve.Paragraph, runs []resol
 	}
 	if forceColumnBreakBefore {
 		styleAttr = appendInlineStyleAttr(styleAttr, "break-before:column")
+	}
+	if extraStyle != "" {
+		styleAttr = appendInlineStyleAttr(styleAttr, extraStyle)
 	}
 	if r.debugStyleColors {
 		styleAttr = appendInlineStyleAttr(styleAttr, styleDebugBgColor(p.Index))
@@ -2641,7 +2845,9 @@ func (r *htmlRenderer) renderParagraphSegment(p *resolve.Paragraph, runs []resol
 	r.advanceH = 0
 	r.advanceV = 0
 	r.renderPageTopFlowImagesForCurrentParagraph()
-	r.renderRuns(runs)
+	if renderContent != nil {
+		renderContent()
+	}
 	if r.showFormattingMarks {
 		if p.DefaultRunFormat != nil {
 			styles := r.runFormatStyles(*p.DefaultRunFormat)
@@ -2663,6 +2869,12 @@ func (r *htmlRenderer) renderParagraphSegment(p *resolve.Paragraph, runs []resol
 }
 
 func (r *htmlRenderer) renderListItemSegment(p *resolve.Paragraph, runs []resolve.Run, includeBookmarks bool) {
+	r.renderListItemSegmentContent(p, runs, includeBookmarks, "", func() {
+		r.renderRuns(runs)
+	})
+}
+
+func (r *htmlRenderer) renderListItemSegmentContent(p *resolve.Paragraph, runs []resolve.Run, includeBookmarks bool, extraStyle string, renderContent func()) {
 	r.ensurePage()
 	list := p.List
 	tag := "ul"
@@ -2721,6 +2933,9 @@ func (r *htmlRenderer) renderListItemSegment(p *resolve.Paragraph, runs []resolv
 	// hanging-indent geometry (especially legacy DOC bullets), which can place
 	// the bullet on top of the first characters of the item text.
 	liStyle = appendInlineStyleAttr(liStyle, "list-style-type:none")
+	if extraStyle != "" {
+		liStyle = appendInlineStyleAttr(liStyle, extraStyle)
+	}
 	if p.Format.SnapToGrid && r.docGrid != nil {
 		if r.docGrid.LinePitch > 0 {
 			liStyle = appendInlineStyleAttr(liStyle, fmt.Sprintf("line-height:%.2fpt", float64(r.docGrid.LinePitch)/20.0))
@@ -2782,7 +2997,9 @@ func (r *htmlRenderer) renderListItemSegment(p *resolve.Paragraph, runs []resolv
 	r.advanceH = 0
 	r.advanceV = 0
 	r.renderPageTopFlowImagesForCurrentParagraph()
-	r.renderRuns(runs)
+	if renderContent != nil {
+		renderContent()
+	}
 	if includeBookmarks {
 		r.renderCommentRangeEnds(p)
 	}
@@ -3726,7 +3943,8 @@ func (r *htmlRenderer) runFormatStyles(f resolve.RunFormat) []string {
 		// w:spacing is in twentieths of a point; CSS letter-spacing uses pt.
 		styles = append(styles, fmt.Sprintf("letter-spacing:%.2fpt", float64(*f.CharacterSpacing)/20.0))
 	}
-	if r.currentParagraph != nil && r.currentParagraph.Format.FontAlign != "" && r.currentParagraph.Format.FontAlign != "auto" &&
+	if r.currentParagraph != nil && r.paragraphNeedsFontAlignCSS(r.currentParagraph) &&
+		r.currentParagraph.Format.FontAlign != "" && r.currentParagraph.Format.FontAlign != "auto" &&
 		(f.Position == nil || *f.Position == 0) {
 		if va := cssFontAlign(r.currentParagraph.Format.FontAlign); va != "" {
 			styles = append(styles, fmt.Sprintf("vertical-align:%s", va))
@@ -3852,7 +4070,10 @@ func (r *htmlRenderer) renderRuns(runs []resolve.Run) {
 			closeRevision()
 			continue
 		}
-		if run.Kind == "tab" && (r.tabStops != nil || r.tabIndex > 0) {
+		if run.Kind == "tab" {
+			// Tabs are semantic layout content even when the paragraph has no custom
+			// stops. renderTabAligned falls back to the document/default 0.5-inch
+			// interval, so never let an ordinary-flow tab fall through to renderRun.
 			nextWidth := r.peekAheadTextWidth(runs, i+1)
 			align := r.nextTabAlignment()
 			r.renderTabAligned(align, nextWidth)
@@ -3924,6 +4145,9 @@ func previousRenderableRun(runs []resolve.Run, idx int) (resolve.Run, bool) {
 			continue
 		}
 		if run.Kind == "tab" {
+			continue
+		}
+		if run.Kind == "run" && strings.TrimSpace(run.Text) == "" && runFormatIsZero(run.Format) {
 			continue
 		}
 		if run.Kind == "break" && run.Text == "" {
@@ -5369,10 +5593,16 @@ func (r *htmlRenderer) paragraphFloatImageStyleAttrs(img *resolve.Image) ([]stri
 	if img.BorderColor != "" && img.BorderWidth > 0 {
 		styleAttrs = append(styleAttrs, fmt.Sprintf("border:%.2fpt solid #%s", img.BorderWidth, img.BorderColor))
 	}
+	styleAttrs = append(styleAttrs, pictureFrameGeometryStyles(img)...)
 	if strings.EqualFold(img.WrapType, "tight") || strings.EqualFold(img.WrapType, "through") {
 		shapeOutside := ""
 		if len(img.WrapPolygon) > 0 {
-			shapeOutside = shapeOutsidePolygonCSS(img.WrapPolygon, img.Width, img.Height)
+			shapeOutside = wrapPolygonProxyCSS(
+				img.WrapPolygon, img.Width, img.Height,
+				fb.Width, fb.Height,
+				proxyX, proxyY, proxyW, proxyH,
+				fb.X, fb.Y, img.RotationDeg,
+			)
 		} else if img.RotationDeg != 0 {
 			shapeOutside = rotatedShapeOutside
 		}
@@ -5878,22 +6108,27 @@ func (r *htmlRenderer) renderTextBoxContentHTML(tb *resolve.TextBox, widthPt, he
 	// while the DOM is visually clipped to the much smaller shape rectangle.
 	tbWidth, tbHeight := textBoxViewportSize(widthPt, heightPt, r.pageWidthPt, r.pageHeightPt)
 
+	// The outer textbox element owns the DrawingML body insets as CSS padding.
+	// Local story layout therefore operates in the already-inset content box.
+	// Re-applying the insets as PageGeometry margins would shift spatial story
+	// content (and nested floats) a second time; this is especially visible in
+	// vertically centred one-line textboxes.
 	tbContentW := tbWidth - tb.PaddingLeft - tb.PaddingRight
 	if tbContentW < 1 {
 		tbContentW = tbWidth
 	}
+	tbContentH := tbHeight - tb.PaddingTop - tb.PaddingBottom
+	if tbContentH < 1 {
+		tbContentH = tbHeight
+	}
 	geom := layout.PageGeometry{
-		Width:         tbWidth,
-		Height:        tbHeight,
-		MarginTop:     tb.PaddingTop,
-		MarginRight:   tb.PaddingRight,
-		MarginBottom:  tb.PaddingBottom,
-		MarginLeft:    tb.PaddingLeft,
+		Width:         tbContentW,
+		Height:        tbContentH,
 		ColumnCount:   1,
 		ColumnWidthPt: tbContentW,
 	}
 	r.withOutputBuffer(&content, func() {
-		r.withLocalLayout(tb.Blocks, geom, func() {
+		r.withLocalLayout(tb.Blocks, geom, func(_ []layout.BlockBox) {
 			r.withLineNumberingSuppressed(func() {
 				r.renderBlocks(tb.Blocks)
 			})
@@ -6085,7 +6320,31 @@ func (r *htmlRenderer) renderImageTo(buf *bytes.Buffer, img *resolve.Image, cc *
 	if img.BorderColor != "" && img.BorderWidth > 0 {
 		styleAttrs = append(styleAttrs, fmt.Sprintf("border:%.2fpt solid #%s", img.BorderWidth, img.BorderColor))
 	}
+	styleAttrs = append(styleAttrs, pictureFrameGeometryStyles(img)...)
 	r.writeImageElement(buf, img, styleAttrs, cc)
+}
+
+// pictureFrameGeometryStyles renders the authored DrawingML picture frame.
+// The bitmap remains ordinary rectangular image data; pic:spPr/a:prstGeom
+// defines the frame into which Word paints it. Frame geometry never invents
+// a border: pic:spPr/a:ln remains the sole owner of an authored outline.
+func pictureFrameGeometryStyles(img *resolve.Image) []string {
+	if img == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(img.FrameGeometry)) {
+	case "ellipse", "flowchartconnector":
+		// Word paints the bitmap through the picture-frame geometry. Keep
+		// border-radius for normal HTML layout and use clip-path as the
+		// authoritative bitmap clip (including absolutely positioned images).
+		return []string{
+			"border-radius:50%",
+			"clip-path:ellipse(50% 50% at 50% 50%)",
+			"overflow:hidden",
+		}
+	default:
+		return nil
+	}
 }
 
 func (r *htmlRenderer) writeImageElement(buf *bytes.Buffer, img *resolve.Image, styleAttrs []string, cc *resolve.ContentControl) {
@@ -8845,6 +9104,42 @@ func paragraphNeedsBlockContainerRuns(runs []resolve.Run) bool {
 // inline content — it is either empty or contains only floating anchor runs.
 // These paragraphs need an explicit min-height so the flow contributes the same
 // vertical space as Word allocates for them.
+// paragraphIsFloatingAnchorOnly distinguishes a drawing host from a genuinely
+// empty Word paragraph. Genuine empty paragraphs remain browser-visible because
+// they own text-flow height. Drawing hosts own layout/anchor progression too, but
+// their visible content lives entirely in the page overlay and must not create a
+// second CSS flow box in page-body.
+func paragraphIsFloatingAnchorOnly(runs []resolve.Run) bool {
+	foundAnchor := false
+	for _, run := range runs {
+		switch run.Kind {
+		case "image":
+			if run.Image != nil && run.Image.Floating {
+				foundAnchor = true
+				continue
+			}
+		case "textbox":
+			if run.TextBox != nil && run.TextBox.Floating {
+				foundAnchor = true
+				continue
+			}
+		case "shape":
+			if run.Shape != nil && run.Shape.Floating {
+				foundAnchor = true
+				continue
+			}
+		}
+		if strings.TrimSpace(run.Text) != "" || run.Kind == "horzRule" {
+			return false
+		}
+		// Any non-empty non-anchor run is real inline content.
+		if run.Kind != "" && run.Kind != "run" && run.Kind != "image" && run.Kind != "textbox" && run.Kind != "shape" {
+			return false
+		}
+	}
+	return foundAnchor
+}
+
 func paragraphIsEmptyOrAnchorOnly(runs []resolve.Run) bool {
 	if len(runs) == 0 {
 		return true
@@ -8971,6 +9266,13 @@ func formatIntegerFieldValue(value int, instr, fallbackFormat string) string {
 
 // calculateFieldValue computes the actual value for calculated fields like PAGE, DATE, etc.
 // Returns empty string if the field should use the original run text.
+func (r *htmlRenderer) fieldEvaluationTime() time.Time {
+	if r != nil && r.options.RenderTime != nil {
+		return *r.options.RenderTime
+	}
+	return time.Now()
+}
+
 func (r *htmlRenderer) calculateFieldValue(run resolve.Run) string {
 	switch run.FieldKind {
 	case "PAGE":
@@ -8991,18 +9293,11 @@ func (r *htmlRenderer) calculateFieldValue(run resolve.Run) string {
 		}
 		return formatIntegerFieldValue(pages, r.resolveFieldInstruction(run), "decimal")
 	case "DATE":
-		// Preserve a cached field result when present; legacy fixtures store the
-		// resolved date text in the field result run so we honour that over recomputing.
-		if strings.TrimSpace(run.Text) != "" {
-			return ""
-		}
-		return formatFieldDateTime(run.FieldInstr, run.FieldKind, time.Now())
+		// DATE is volatile. Word refreshes it when the document is opened/printed; a
+		// cached binary field result is not authoritative rendering content.
+		return formatFieldDateTime(run.FieldInstr, run.FieldKind, r.fieldEvaluationTime())
 	case "TIME":
-		// Preserve a cached field result when present.
-		if strings.TrimSpace(run.Text) != "" {
-			return ""
-		}
-		return formatFieldDateTime(run.FieldInstr, run.FieldKind, time.Now())
+		return formatFieldDateTime(run.FieldInstr, run.FieldKind, r.fieldEvaluationTime())
 	case "CREATEDATE":
 		if strings.TrimSpace(run.Text) != "" {
 			return ""
@@ -9225,13 +9520,13 @@ func (r *htmlRenderer) calculateFieldValue(run resolve.Run) string {
 		}
 		return r.doc.Template
 	case "FILENAME":
-		// Preserve a cached field result when present; this matches how legacy
-		// fixtures store the resolved text in the field result run.
-		if strings.TrimSpace(run.Text) != "" {
-			return ""
-		}
+		// The source filename is authoritative at render time. Cached field results
+		// commonly retain the fixture's original name after a document is renamed.
 		if r.doc.Filename != "" {
 			return r.doc.Filename
+		}
+		if strings.TrimSpace(run.Text) != "" {
+			return ""
 		}
 		return r.doc.Title
 	case "NUMWORDS":
@@ -13125,6 +13420,42 @@ func cssTextEmphasis(f resolve.RunFormat) []string {
 		styles = append(styles, "text-emphasis-style:dot", "text-emphasis-position:under")
 	}
 	return styles
+}
+
+func (r *htmlRenderer) paragraphNeedsFontAlignCSS(p *resolve.Paragraph) bool {
+	if p == nil {
+		return false
+	}
+	var first float64
+	seen := false
+	for _, run := range resolve.CanonicalVisibleRuns(p) {
+		if strings.TrimSpace(run.Text) == "" || run.Kind == "tab" || run.Kind == "break" {
+			continue
+		}
+		size := r.effectiveRunFontSizePt(run.Format, p.DefaultRunFormat)
+		if !seen {
+			first = size
+			seen = true
+			continue
+		}
+		if math.Abs(size-first) > 0.01 {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *htmlRenderer) effectiveRunFontSizePt(format resolve.RunFormat, paragraphDefault *resolve.RunFormat) float64 {
+	if format.FontSize != nil && *format.FontSize > 0 {
+		return float64(*format.FontSize) / 2.0
+	}
+	if paragraphDefault != nil && paragraphDefault.FontSize != nil && *paragraphDefault.FontSize > 0 {
+		return float64(*paragraphDefault.FontSize) / 2.0
+	}
+	if r.doc != nil && r.doc.DefaultRunFormat.FontSize != nil && *r.doc.DefaultRunFormat.FontSize > 0 {
+		return float64(*r.doc.DefaultRunFormat.FontSize) / 2.0
+	}
+	return 12.0
 }
 
 // breakClearCSS maps Word break clear values to CSS clear properties.

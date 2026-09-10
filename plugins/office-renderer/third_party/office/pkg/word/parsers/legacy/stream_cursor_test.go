@@ -8,7 +8,7 @@ import (
 )
 
 func TestLegacyRunSliceCursorPreservesOrder(t *testing.T) {
-	cursor := newLegacyRunSliceCursor([]docRun{
+	cursor := newLegacyRunSliceCursor([]binaryWordRun{
 		{Text: "one"},
 		{Text: "two", ParaFormat: wordir.ParagraphFormat{InTable: true}},
 	})
@@ -32,8 +32,8 @@ func TestLegacySemanticRunCursorAppliesInheritedStyleAndListHints(t *testing.T) 
 	level := 1
 	style := wordir.Style{Format: wordir.ParagraphFormat{InTable: true, BinaryListOverride: &ilfo, BinaryListLevel: &level}}
 	cursor := newLegacySemanticRunCursor(
-		newLegacyRunSliceCursor([]docRun{{Text: "cell\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}}}),
-		&legacyStyleSheet{paragraphByIndex: map[int]wordir.Style{istd: style}},
+		newLegacyRunSliceCursor([]binaryWordRun{{Text: "cell\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}}}),
+		&binaryWordStyleCatalog{paragraphByIndex: map[int]wordir.Style{istd: style}},
 	)
 	run, ok, err := cursor.Next()
 	if err != nil || !ok {
@@ -49,7 +49,7 @@ func TestLegacySemanticRunCursorAppliesInheritedStyleAndListHints(t *testing.T) 
 }
 
 func TestValidateLegacyStreamRunRejectsOnlyUnresolvedOLEAndRawFields(t *testing.T) {
-	resolved := docRun{
+	resolved := binaryWordRun{
 		Text:  "\x01",
 		Spec:  true,
 		Data:  true,
@@ -60,17 +60,17 @@ func TestValidateLegacyStreamRunRejectsOnlyUnresolvedOLEAndRawFields(t *testing.
 	}
 	// fData is not itself a picture discriminator. Word97 pictures are resolved
 	// from fSpec + sprmCPicLocation before this compatibility validator.
-	if err := validateLegacyStreamRun(docRun{Text: "\x01", Spec: true, Data: true}); err != nil {
+	if err := validateLegacyStreamRun(binaryWordRun{Text: "\x01", Spec: true, Data: true}); err != nil {
 		t.Fatalf("generic fData run: %v", err)
 	}
 
 	for _, tc := range []struct {
 		name string
-		run  docRun
+		run  binaryWordRun
 		want string
 	}{
-		{name: "ole", run: docRun{Spec: true, Obj: true}, want: "OLE object anchor"},
-		{name: "field", run: docRun{Text: "before\x13 PAGE \x14 1\x15after"}, want: "field"},
+		{name: "ole", run: binaryWordRun{Spec: true, Obj: true}, want: "OLE object anchor"},
+		{name: "field", run: binaryWordRun{Text: "before\x13 PAGE \x14 1\x15after"}, want: "field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateLegacyStreamRun(tc.run)

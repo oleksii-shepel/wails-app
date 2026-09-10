@@ -8,7 +8,7 @@ import (
 
 func TestWalkLegacyCursorEmitsReferenceStoryPayload(t *testing.T) {
 	core := &legacyDocStreamCore{Footnotes: map[int]wordir.Story{1: {Paragraphs: []wordir.Paragraph{{Text: "note"}}}}}
-	cursor := newLegacyRunSliceCursor([]docRun{{Kind: "footnoteRef", NoteID: 1}})
+	cursor := newLegacyRunSliceCursor([]binaryWordRun{{Kind: "footnoteRef", NoteID: 1}})
 	seen := false
 	if err := walkLegacyCursorWithCore(cursor, func(event StreamEvent) error {
 		if event.Type == StreamFootnoteReference {

@@ -11,6 +11,7 @@ import (
 
 	"office/pkg/ooxml/cfb"
 	wordir "office/pkg/word/ir"
+	docformat "office/pkg/word/parsers/doc/format"
 	"office/pkg/word/render"
 )
 
@@ -352,7 +353,7 @@ func TestBuildLegacyTabTableCarriesInferredColumnWidths(t *testing.T) {
 func TestBuildLegacyDocFromRunsPreservesCharFormatting(t *testing.T) {
 	bold := true
 	italic := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Hello ", Format: wordir.RunFormat{Bold: &bold}},
 		{Text: "world", Format: wordir.RunFormat{Italic: &italic}},
 	}
@@ -374,7 +375,7 @@ func TestBuildLegacyDocFromRunsPreservesCharFormatting(t *testing.T) {
 
 func TestBuildLegacyDocFromRunsAppliesParagraphFormat(t *testing.T) {
 	indent := 720 // 720 twips = half-inch
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First paragraph", ParaFormat: wordir.ParagraphFormat{Alignment: "center", IndentLeft: &indent}},
 		{Text: "\n"},
 		{Text: "Second paragraph"},
@@ -396,7 +397,7 @@ func TestBuildLegacyDocFromRunsAppliesParagraphFormat(t *testing.T) {
 
 func TestBuildLegacyDocFromRunsFiltersHiddenRuns(t *testing.T) {
 	vanish := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "visible"},
 		{Text: "hidden", Format: wordir.RunFormat{Vanish: &vanish}},
 		{Text: " more"},
@@ -513,7 +514,7 @@ func TestParsePapxGrpprlPropertyRevisionMark(t *testing.T) {
 }
 
 func TestBuildLegacyDocFromRunsPromotesBinaryFrameToParagraphFrame(t *testing.T) {
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "Drop cap paragraph",
 		ParaFormat: wordir.ParagraphFormat{
 			BinaryFrame: &wordir.FrameProps{
@@ -550,7 +551,7 @@ func TestBuildLegacyDocFromRunsPromotesBinaryFrameToParagraphFrame(t *testing.T)
 }
 
 func TestBuildLegacyDocFromRunsPromotesParagraphPropertyRevision(t *testing.T) {
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "Paragraph with revised formatting",
 		PropertyRevision: &wordir.RevisionMark{
 			Author: "Alice",
@@ -573,7 +574,7 @@ func TestBuildLegacyDocFromRunsPromotesParagraphPropertyRevision(t *testing.T) {
 }
 
 func TestBuildLegacyDocFromRunsPromotesRunPropertyRevision(t *testing.T) {
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "Reformatted run",
 		RunPropertyRevision: &wordir.RevisionMark{
 			Author: "Carol",
@@ -597,7 +598,7 @@ func TestBuildLegacyDocFromRunsPromotesRunPropertyRevision(t *testing.T) {
 
 func TestBuildLegacyDocFromRunsPreservesPapxStyleID(t *testing.T) {
 	styleIndex := 42
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "Styled paragraph",
 		ParaFormat: wordir.ParagraphFormat{
 			BinaryStyleIndex: &styleIndex,
@@ -614,7 +615,7 @@ func TestBuildLegacyDocFromRunsPreservesPapxStyleID(t *testing.T) {
 
 func TestBuildLegacyDocFromRunsUsesPreWord97StyleNameMappingWhenNoStyleSheet(t *testing.T) {
 	styleIndex := 2
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "Styled paragraph",
 		ParaFormat: wordir.ParagraphFormat{
 			BinaryStyleIndex: &styleIndex,
@@ -756,7 +757,7 @@ func TestParseDocLegacyStyleTableAppliesNamedStyles(t *testing.T) {
 func TestBuildLegacyDocFromRunsWithContextSetsDefaultFormatsFromDefaultStyle(t *testing.T) {
 	bold := true
 	rtl := true
-	styleSheet := &legacyStyleSheet{
+	styleSheet := &binaryWordStyleCatalog{
 		DefaultParagraphStyleID: "Normal",
 		ParagraphStyles: map[string]wordir.Style{
 			"Normal": {
@@ -888,7 +889,7 @@ func TestSplitPieceByChpxMatchesCompressedPieceFCsToFKPEntries(t *testing.T) {
 func TestBuildLegacyDocFromRunsUsesPapxListPointers(t *testing.T) {
 	level := 1
 	ilfo := 5
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "List item without textual marker",
 		ParaFormat: wordir.ParagraphFormat{
 			BinaryListLevel:    &level,
@@ -913,13 +914,13 @@ func TestBuildLegacyDocFromRunsSetsFromStyleWhenListInheritedFromStyle(t *testin
 	ilfo := 5
 	styleIndex := 1
 	// Simulate a paragraph whose style has list properties but the direct PAPx does not.
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text: "Styled list item",
 		ParaFormat: wordir.ParagraphFormat{
 			BinaryStyleIndex: &styleIndex,
 		},
 	}}
-	styleSheet := &legacyStyleSheet{
+	styleSheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			styleIndex: {
 				ID: "ListParagraph",
@@ -962,7 +963,7 @@ func TestLegacyBinaryListFormatByLevel(t *testing.T) {
 func TestBuildLegacyDocFromRunsBinaryListContinuesNumbering(t *testing.T) {
 	level := 0
 	ilfo := 9
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -987,7 +988,7 @@ func TestBuildLegacyDocFromRunsBinaryListContinuesNumbering(t *testing.T) {
 func TestBuildLegacyDocFromRunsBinaryListRestartsAfterNonList(t *testing.T) {
 	level := 0
 	ilfo := 4
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "List A", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Normal paragraph"},
@@ -1012,12 +1013,12 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsAfterNonList(t *testing.T) {
 func TestBuildLegacyDocFromRunsUsesBinaryListStartFromTables(t *testing.T) {
 	level := 0
 	ilfo := 3
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 	}
-	listTables := &legacyListTables{
+	listTables := &binaryWordListCatalog{
 		formatByIlfoLevel: map[string]string{legacyListKey(3, 0): "decimal"},
 		startByIlfoLevel:  map[string]int{legacyListKey(3, 0): 5},
 	}
@@ -1037,7 +1038,7 @@ func TestBuildLegacyDocFromRunsRendersBinaryNumberingTextFromTemplateAndCounters
 	level0 := 0
 	level1 := 1
 	ilfo := 13
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Top 1", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level0, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Child 1", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level1, BinaryListOverride: &ilfo}},
@@ -1048,7 +1049,7 @@ func TestBuildLegacyDocFromRunsRendersBinaryNumberingTextFromTemplateAndCounters
 		{Text: "\n"},
 		{Text: "Child restart", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level1, BinaryListOverride: &ilfo}},
 	}
-	listTables := &legacyListTables{
+	listTables := &binaryWordListCatalog{
 		formatByIlfoLevel: map[string]string{
 			legacyListKey(ilfo, level0): "decimal",
 			legacyListKey(ilfo, level1): "lowerLetter",
@@ -1138,7 +1139,7 @@ func TestBuildLegacyDocFromRunsUsesLoadedBinaryListOverrides(t *testing.T) {
 
 	level := 0
 	ilfo := 1
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -1164,12 +1165,12 @@ func TestBuildLegacyDocFromRunsUsesLoadedBinaryListOverrides(t *testing.T) {
 func TestBuildLegacyDocFromRunsUsesLoadedBinaryBulletOverrides(t *testing.T) {
 	level := 0
 	ilfo := 7
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 	}
-	listTables := &legacyListTables{
+	listTables := &binaryWordListCatalog{
 		formatByIlfoLevel: map[string]string{
 			legacyListKey(ilfo, level): "bullet",
 		},
@@ -1223,7 +1224,7 @@ func TestBuildLegacyDocFromRunsUsesLoadedBinaryListClearStartOverride(t *testing
 
 	level := 0
 	ilfo := 1
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -1276,7 +1277,7 @@ func TestBuildLegacyDocFromRunsUsesStructuredLoadedBinaryListOverrides(t *testin
 
 	level := 0
 	ilfo := 1
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -1311,7 +1312,7 @@ func TestBuildLegacyDocFromRunsAppliesBinaryLevelRestartHints(t *testing.T) {
 	level0 := 0
 	level1 := 1
 	ilfo := 11
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Top 1", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level0, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "Sub 1", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level1, BinaryListOverride: &ilfo}},
@@ -1322,7 +1323,7 @@ func TestBuildLegacyDocFromRunsAppliesBinaryLevelRestartHints(t *testing.T) {
 		{Text: "\n"},
 		{Text: "Sub restart", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level1, BinaryListOverride: &ilfo}},
 	}
-	listTables := &legacyListTables{
+	listTables := &binaryWordListCatalog{
 		formatByIlfoLevel:  map[string]string{legacyListKey(11, 0): "decimal", legacyListKey(11, 1): "lowerLetter"},
 		startByIlfoLevel:   map[string]int{legacyListKey(11, 0): 1, legacyListKey(11, 1): 1},
 		restartByIlfoLevel: map[string]bool{legacyListKey(11, 1): true},
@@ -1346,7 +1347,7 @@ func TestBuildLegacyDocFromRunsAppliesBinaryRestartTargetThreshold(t *testing.T)
 	level1 := 1
 	level2 := 2
 	ilfo := 12
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "L2 first", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level2, BinaryListOverride: &ilfo}},
 		{Text: "\n"},
 		{Text: "L2 second", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level2, BinaryListOverride: &ilfo}},
@@ -1355,7 +1356,7 @@ func TestBuildLegacyDocFromRunsAppliesBinaryRestartTargetThreshold(t *testing.T)
 		{Text: "\n"},
 		{Text: "L2 third no reset", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level2, BinaryListOverride: &ilfo}},
 	}
-	listTables := &legacyListTables{
+	listTables := &binaryWordListCatalog{
 		formatByIlfoLevel:         map[string]string{legacyListKey(12, 1): "lowerLetter", legacyListKey(12, 2): "lowerRoman"},
 		startByIlfoLevel:          map[string]int{legacyListKey(12, 1): 1, legacyListKey(12, 2): 1},
 		restartOnLevelByIlfoLevel: map[string]int{legacyListKey(12, 2): 0},
@@ -1378,7 +1379,7 @@ func TestBuildLegacyDocFromRunsAppliesBinaryRestartTargetThreshold(t *testing.T)
 func TestBuildLegacyDocFromRunsBinaryListRestartsAfterBlankGapBoundary(t *testing.T) {
 	level := 0
 	ilfo := 4
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "List A", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n\n"}, // boundary with an intentional blank paragraph
 		{Text: "List B", ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -1399,7 +1400,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapWhenContextChanges(t *te
 	level0 := 0
 	level1 := 1
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level0, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level1, BinaryListOverride: &ilfo}},
@@ -1416,7 +1417,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapWhenContextChanges(t *te
 func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnCPGapWithoutContextChange(t *testing.T) {
 	level := 0
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -1437,7 +1438,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapWhenKeepNextChanges(t *t
 	level := 0
 	ilfo := 6
 	keepNext := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, KeepNext: keepNext}},
@@ -1455,7 +1456,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapWhenSpacingChanges(t *te
 	level := 0
 	ilfo := 6
 	spacingBefore := 240
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, SpacingBefore: &spacingBefore}},
@@ -1473,7 +1474,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapWhenRunFormatChanges(t *
 	level := 0
 	ilfo := 6
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}, Format: wordir.RunFormat{Bold: &bold}},
@@ -1491,7 +1492,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnSmallCPGapWhenRunFormat
 	level := 0
 	ilfo := 6
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 12, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}, Format: wordir.RunFormat{Bold: &bold}},
@@ -1515,7 +1516,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnModerateCPGapForRunForm
 	level := 0
 	ilfo := 6
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}, Format: wordir.RunFormat{Bold: &bold}},
@@ -1537,7 +1538,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnModerateCPGapWhenKeepNe
 	level := 0
 	ilfo := 6
 	keepNext := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, KeepNext: keepNext}},
@@ -1571,7 +1572,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnModerateCPGapWhenIndent
 	level := 0
 	ilfo := 6
 	indentLeft := 720
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft}},
@@ -1593,7 +1594,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnModerateCPGapWhenListLevelCha
 	level0 := 0
 	level1 := 1
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level0, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level1, BinaryListOverride: &ilfo}},
@@ -1632,8 +1633,8 @@ func TestApplyLegacyBinaryListContinuationDoesNotRestartOnModerateCPGapWhenOnlyL
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 18, ParaFormat: second.Format}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 18, ParaFormat: second.Format}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -1705,7 +1706,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnModerateCPGapWhenGeometryAndL
 	ilfo := 6
 	indentLeft := 720
 	spacingBefore := 240
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft, SpacingBefore: &spacingBefore}},
@@ -1745,8 +1746,8 @@ func TestApplyLegacyBinaryListContinuationDoesNotRestartOnShortCPGapWhenFormatAn
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -1789,8 +1790,8 @@ func TestApplyLegacyBinaryListContinuationRestartsOnShortCPGapWhenGeometryKeepAn
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "decimal", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft, KeepNext: keepNext},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -1832,8 +1833,8 @@ func TestApplyLegacyBinaryListContinuationDoesNotRestartOnShortCPGapWhenFormatKe
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, KeepNext: keepNext},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -1875,8 +1876,8 @@ func TestApplyLegacyBinaryListContinuationRestartsOnShortCPGapWhenFormatGeometry
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -1918,8 +1919,8 @@ func TestApplyLegacyBinaryListContinuationRestartsOnShortCPGapWhenFormatLayoutAn
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, SpacingBefore: &spacingBefore},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format, Format: wordir.RunFormat{Bold: &bold}}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -1962,8 +1963,8 @@ func TestApplyLegacyBinaryListContinuationRestartsOnShortCPGapWhenGeometryKeepAn
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "decimal", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft, KeepNext: keepNext, SpacingBefore: &spacingBefore},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -2005,8 +2006,8 @@ func TestApplyLegacyBinaryListContinuationDoesNotRestartOnShortCPGapWhenFormatLa
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, KeepNext: keepNext, SpacingBefore: &spacingBefore},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -2048,8 +2049,8 @@ func TestApplyLegacyBinaryListContinuationDoesNotRestartOnShortCPGapWhenFormatGe
 		List:   &wordir.ListMarker{Kind: "ordered", Level: level, Start: 1, Format: "lowerletter", Template: "binary"},
 		Format: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, IndentLeft: &indentLeft, KeepNext: keepNext},
 	}
-	firstRuns := []docRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
-	secondRuns := []docRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
+	firstRuns := []binaryWordRun{{Text: "First", StartCP: 0, ParaFormat: first.Format}}
+	secondRuns := []binaryWordRun{{Text: "Second", StartCP: 15, ParaFormat: second.Format}}
 	if !applyLegacyBinaryListContinuation(&first, state, nil, firstRuns, false) {
 		t.Fatal("first continuation returned false")
 	}
@@ -2073,7 +2074,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnModerateCPGapWhenKeepAndLayou
 	ilfo := 6
 	keepNext := true
 	spacingBefore := 240
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, KeepNext: keepNext, SpacingBefore: &spacingBefore}},
@@ -2095,7 +2096,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnModerateCPGapWhenSpacin
 	level := 0
 	ilfo := 6
 	spacingBefore := 240
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 18, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, SpacingBefore: &spacingBefore}},
@@ -2117,7 +2118,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnCPGapForShortStyledPref
 	level := 0
 	ilfo := 6
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "A", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}, Format: wordir.RunFormat{Bold: &bold}},
@@ -2139,7 +2140,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForDominantStyledSegment
 	level := 0
 	ilfo := 6
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "A ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2158,7 +2159,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedDominantSty
 	level := 0
 	ilfo := 6
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "A ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2177,7 +2178,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedDominantSty
 func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedEquivalentFontAliases(t *testing.T) {
 	level := 0
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "tiny ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2196,7 +2197,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedEquivalentF
 func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedDefaultEquivalentUnderline(t *testing.T) {
 	level := 0
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "tiny ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2215,7 +2216,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedDefaultEqui
 func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForFragmentedEquivalentColorCasing(t *testing.T) {
 	level := 0
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "tiny ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2235,7 +2236,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForEquivalentFalseStyleP
 	level := 0
 	ilfo := 6
 	boldOff := false
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "tiny ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2254,7 +2255,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForEquivalentFalseStyleP
 func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnCPGapForWhitespaceOnlyFontNoise(t *testing.T) {
 	level := 0
 	ilfo := 6
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}, Format: wordir.RunFormat{FontASCII: "   "}},
@@ -2275,7 +2276,7 @@ func TestBuildLegacyDocFromRunsBinaryListRestartsOnCPGapForDominantStrikeSegment
 	level := 0
 	ilfo := 6
 	strike := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
 		{Text: "\n", StartCP: 5},
 		{Text: "tiny ", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo}},
@@ -2296,7 +2297,7 @@ func TestBuildLegacyDocFromRunsBinaryListDoesNotRestartOnCPGapForEquivalentParag
 	ilfo := 6
 	bordersA := &wordir.ParagraphBorders{Top: &wordir.BorderSide{Val: " single ", SizePt: 1, SpacePt: 0, Color: "FF0000"}}
 	bordersB := &wordir.ParagraphBorders{Top: &wordir.BorderSide{Val: "single", SizePt: 1, SpacePt: 0, Color: "ff0000"}}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "First", StartCP: 0, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, Alignment: " left ", Shading: "FF0000", LineRule: " AUTO ", Borders: bordersA}},
 		{Text: "\n", StartCP: 5},
 		{Text: "Second", StartCP: 40, ParaFormat: wordir.ParagraphFormat{BinaryListLevel: &level, BinaryListOverride: &ilfo, Alignment: "left", Shading: "ff0000", LineRule: "auto", Borders: bordersB}},
@@ -2574,10 +2575,10 @@ func TestExtractDocRunsViaPreWord97FIBUsesRealFixtureBodySpan(t *testing.T) {
 			t.Fatalf("Stream(%s, WordDocument): missing", path)
 		}
 		got := extractDocRunsViaPreWord97FIB(wordStream, f)
-		if got == nil || len(got.Runs) == 0 {
+		if got == nil || len(got.Assembly.Runs) == 0 {
 			t.Fatalf("extractDocRunsViaPreWord97FIB(%s) = %#v, want non-empty runs", path, got)
 		}
-		if scoreLegacyText(joinDocRunsText(got.Runs)) == 0 {
+		if scoreLegacyText(joinDocRunsText(got.Assembly.Runs)) == 0 {
 			t.Fatalf("extractDocRunsViaPreWord97FIB(%s): empty run set", path)
 		}
 	}
@@ -2602,7 +2603,7 @@ func TestExtractDocRunsViaPreWord97FIBCarriesSecondaryStyleNameMap(t *testing.T)
 	if got == nil {
 		t.Fatalf("extractDocRunsViaPreWord97FIB(%s) = nil", path)
 	}
-	if len(got.StyleNameByIstd) == 0 {
+	if len(got.Assembly.StyleNameByIstd) == 0 {
 		t.Fatalf("extractDocRunsViaPreWord97FIB(%s): empty StyleNameByIstd", path)
 	}
 	// The STSH-derived path surfaces real paragraph-style names from the binary
@@ -2610,7 +2611,7 @@ func TestExtractDocRunsViaPreWord97FIBCarriesSecondaryStyleNameMap(t *testing.T)
 	// "Default Paragraph Font" is a character style and does not appear here.
 	foundDefault := false
 	foundHeading := false
-	for _, name := range got.StyleNameByIstd {
+	for _, name := range got.Assembly.StyleNameByIstd {
 		if name == "Default" {
 			foundDefault = true
 		}
@@ -2619,7 +2620,7 @@ func TestExtractDocRunsViaPreWord97FIBCarriesSecondaryStyleNameMap(t *testing.T)
 		}
 	}
 	if !foundDefault || !foundHeading {
-		t.Fatalf("StyleNameByIstd values = %#v, want both Default and Heading (STSH-derived)", got.StyleNameByIstd)
+		t.Fatalf("StyleNameByIstd values = %#v, want both Default and Heading (STSH-derived)", got.Assembly.StyleNameByIstd)
 	}
 }
 
@@ -2656,10 +2657,10 @@ func TestExtractDocRunsViaPreWord97FIBUsesImportedFixtureBodySpan(t *testing.T) 
 			t.Fatalf("Stream(%s, WordDocument): missing", test.path)
 		}
 		got := extractDocRunsViaPreWord97FIB(wordStream, f)
-		if got == nil || len(got.Runs) == 0 {
+		if got == nil || len(got.Assembly.Runs) == 0 {
 			t.Fatalf("extractDocRunsViaPreWord97FIB(%s) = %#v, want non-empty runs", test.path, got)
 		}
-		if text := joinDocRunsText(got.Runs); !strings.Contains(text, test.want) {
+		if text := joinDocRunsText(got.Assembly.Runs); !strings.Contains(text, test.want) {
 			t.Fatalf("extractDocRunsViaPreWord97FIB(%s) text missing %q in %q", test.path, test.want, text)
 		}
 	}
@@ -2681,13 +2682,13 @@ func TestExtractDocRunsViaPreWord97FIBPreservesPageBreaksFromImportedSectionFixt
 		t.Fatalf("Stream(%s, WordDocument): missing", path)
 	}
 	got := extractDocRunsViaPreWord97FIB(wordStream, f)
-	if got == nil || len(got.Runs) == 0 {
+	if got == nil || len(got.Assembly.Runs) == 0 {
 		t.Fatalf("extractDocRunsViaPreWord97FIB(%s) = %#v, want non-empty runs", path, got)
 	}
-	if text := joinDocRunsText(got.Runs); !strings.Contains(text, "\f") {
+	if text := joinDocRunsText(got.Assembly.Runs); !strings.Contains(text, "\f") {
 		t.Fatalf("extractDocRunsViaPreWord97FIB(%s) runs missing form-feed in %q", path, text)
 	}
-	doc := buildLegacyDocFromRuns(filepath.Base(path), got.Runs)
+	doc := buildLegacyDocFromRuns(filepath.Base(path), got.Assembly.Runs)
 	pageBreaks := 0
 	for _, paragraph := range doc.Paragraphs {
 		for _, run := range paragraph.Runs {
@@ -2746,9 +2747,9 @@ func TestParseDocPreWord97FixtureCarriesInlineFormatting(t *testing.T) {
 	if got == nil {
 		t.Fatalf("extractDocRunsViaPreWord97FIB(%s) = nil", path)
 	}
-	var redRun, boldBlueRun *docRun
-	for i := range got.Runs {
-		r := &got.Runs[i]
+	var redRun, boldBlueRun *binaryWordRun
+	for i := range got.Assembly.Runs {
+		r := &got.Assembly.Runs[i]
 		if strings.Contains(r.Text, "RED") && r.Format.Color == "FF0000" {
 			redRun = r
 		}
@@ -3018,10 +3019,10 @@ func TestApplyPreWord97StyleInheritedInTableHintsSetsHintFromStyle(t *testing.T)
 		ID:     "legacy-istd-5",
 		Format: wordir.ParagraphFormat{InTable: true},
 	}
-	ss := &legacyStyleSheet{
+	ss := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{istd: inTableStyle},
 	}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{
 			Text:              "cell text\a",
 			LegacyInTableHint: false,
@@ -3048,10 +3049,10 @@ func TestApplyPreWord97StyleInheritedInTableHintsSkipsNonCellTrailing(t *testing
 		ID:     "legacy-istd-3",
 		Format: wordir.ParagraphFormat{InTable: true},
 	}
-	ss := &legacyStyleSheet{
+	ss := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{istd: inTableStyle},
 	}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{
 			Text:       "normal line\r",
 			ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd},
@@ -3069,12 +3070,12 @@ func TestApplyPreWord97StyleInheritedInTableHintsSkipsNonCellTrailing(t *testing
 func TestApplyPreWord97StyleInheritedInTableHintsSkipsAlreadySetRuns(t *testing.T) {
 	// A run that already has LegacyInTableHint=true should not be touched.
 	istd := 2
-	ss := &legacyStyleSheet{
+	ss := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			istd: {ID: "legacy-istd-2", Format: wordir.ParagraphFormat{InTable: false}},
 		},
 	}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{
 			Text:              "already set\a",
 			LegacyInTableHint: true,
@@ -3090,7 +3091,7 @@ func TestApplyPreWord97StyleInheritedInTableHintsSkipsAlreadySetRuns(t *testing.
 
 func TestApplyPreWord97StyleInheritedInTableHintsNilStylesheet(t *testing.T) {
 	istd := 1
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "x\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}},
 	}
 	applyPreWord97StyleInheritedInTableHints(runs, nil) // should not panic
@@ -3101,10 +3102,10 @@ func TestApplyPreWord97StyleInheritedInTableHintsNilStylesheet(t *testing.T) {
 
 func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesAlignment(t *testing.T) {
 	istd := 2
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "x\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}},
 	}
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			2: {
 				ID:     "legacy-istd-2",
@@ -3120,7 +3121,7 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesAlignment(t *test
 
 func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesIndentsAndSpacing(t *testing.T) {
 	istd := 1
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "x\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}},
 	}
 	leftIndent := 720   // 0.5 inch in twips
@@ -3128,7 +3129,7 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesIndentsAndSpacing
 	spaceBefore := 120  // 10pt before
 	spaceAfter := 240   // 20pt after
 	lineSpacing := 240  // 1.5 line spacing
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			1: {
 				ID: "legacy-istd-1",
@@ -3159,7 +3160,7 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesIndentsAndSpacing
 
 func TestApplyPreWord97StyleInheritedParagraphFormattingDoesNotOverwriteDirectFormatting(t *testing.T) {
 	istd := 1
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{
 			Text: "x\a",
 			ParaFormat: wordir.ParagraphFormat{
@@ -3168,7 +3169,7 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingDoesNotOverwriteDirectFo
 			},
 		},
 	}
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			1: {
 				ID:     "legacy-istd-1",
@@ -3191,10 +3192,10 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesShadingAndBorders
 		Top:    borderTop,
 		Bottom: borderBottom,
 	}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "x\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}},
 	}
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			3: {
 				ID: "legacy-istd-3",
@@ -3219,10 +3220,10 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesShadingAndBorders
 
 func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesToggles(t *testing.T) {
 	istd := 4
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "x\a", ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd}},
 	}
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			4: {
 				ID: "legacy-istd-4",
@@ -3257,7 +3258,7 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesToggles(t *testin
 func TestApplyPreWord97StyleInheritedParagraphFormattingPreservesDirectToggleSettings(t *testing.T) {
 	// Ensure that if a toggle is already set on the run, style doesn't override it
 	istd := 5
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{
 			Text: "x\a",
 			ParaFormat: wordir.ParagraphFormat{
@@ -3266,7 +3267,7 @@ func TestApplyPreWord97StyleInheritedParagraphFormattingPreservesDirectToggleSet
 			},
 		},
 	}
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			5: {
 				ID: "legacy-istd-5",
@@ -3400,7 +3401,7 @@ func TestParseDocWord95ErrPreWord97CellAndRowMarkDetection(t *testing.T) {
 		t.Fatalf("Stream(%s, WordDocument): missing", path)
 	}
 	got := extractDocRunsViaPreWord97FIB(wordStream, f)
-	if got == nil || len(got.Runs) == 0 {
+	if got == nil || len(got.Assembly.Runs) == 0 {
 		t.Fatalf("extractDocRunsViaPreWord97FIB(%s) = %#v, want non-empty runs", path, got)
 	}
 
@@ -3411,7 +3412,7 @@ func TestParseDocWord95ErrPreWord97CellAndRowMarkDetection(t *testing.T) {
 	legacyInTableCount := 0
 	legacyRowMarkCount := 0
 
-	for _, run := range got.Runs {
+	for _, run := range got.Assembly.Runs {
 		if run.LegacyInTableHint {
 			legacyInTableCount++
 		}
@@ -4260,7 +4261,7 @@ func TestParseDocLegacyEmbeddedObjectHidesBareAnchor(t *testing.T) {
 }
 
 func TestProcessLegacyObjectAnchorsKeepsNonSpecAnchorsAsOLEPlaceholders(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A\x01B", StartCP: 10, Spec: false},
 		{Text: "\x01", StartCP: 20, Spec: true},
 	}
@@ -6008,11 +6009,11 @@ func buildLegacyDocWithDrawingTextboxCFB(bodyText, textboxText string, textFlow 
 
 	// Build an authoritative PlcftxbxTxt record. Textbox story CPs are relative
 	// to the textbox story, and FTXBXS.lid is the owning OfficeArt FSP.spid.
-	plcfTxbx := make([]byte, 4*2+legacyFTXBXSSize)
+	plcfTxbx := make([]byte, 4*2+ftxbxs97Size)
 	binary.LittleEndian.PutUint32(plcfTxbx[0:4], 0)
 	binary.LittleEndian.PutUint32(plcfTxbx[4:8], uint32(len([]rune(textboxText))))
 	binary.LittleEndian.PutUint32(
-		plcfTxbx[8+legacyFTXBXSLidOffset:8+legacyFTXBXSLidOffset+4],
+		plcfTxbx[8+ftxbxs97LidOffset:8+ftxbxs97LidOffset+4],
 		shapeID,
 	)
 
@@ -6032,7 +6033,7 @@ func buildLegacyDocWithDrawingTextboxCFB(bodyText, textboxText string, textFlow 
 
 	putFibFcLcb(wordStream, fibBase, 6, fcPlcfSed, lcbPlcfSed)
 	putFibFcLcb(wordStream, fibBase, legacyFibPlcSpaMom, fcPlcfSpa, len(plcfSpa))
-	putFibFcLcb(wordStream, fibBase, legacyFibPlcftxbxTxt, fcPlcfTxbx, len(plcfTxbx))
+	putFibFcLcb(wordStream, fibBase, fib97FcLcbPlcftxbxTxtIndex, fcPlcfTxbx, len(plcfTxbx))
 	putFibFcLcb(wordStream, fibBase, 33, fcClx, len(clx))
 
 	return buildMinimalCFBWithStreams([]legacyTestStream{
@@ -6702,10 +6703,10 @@ func TestFindChpxEntry(t *testing.T) {
 }
 
 // TestBuildLegacyDocFromRunsPreservesFormatting verifies that character
-// formatting on docRuns flows through into wordir.Run.Format.
+// formatting on binaryWordRuns flows through into wordir.Run.Format.
 func TestBuildLegacyDocFromRunsPreservesFormatting(t *testing.T) {
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Hello ", Format: wordir.RunFormat{}},
 		{Text: "world", Format: wordir.RunFormat{Bold: &bold}},
 		{Text: "\nSecond paragraph", Format: wordir.RunFormat{}},
@@ -6734,10 +6735,10 @@ func TestBuildLegacyDocFromRunsPreservesFormatting(t *testing.T) {
 
 // TestBuildLegacyDocFromRunsWithListMarker checks that a list marker prefix is
 // stripped from the runs correctly even when the marker and text span separate
-// docRuns.
+// binaryWordRuns.
 func TestBuildLegacyDocFromRunsWithListMarker(t *testing.T) {
 	bold := true
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "1. ", Format: wordir.RunFormat{}},
 		{Text: "item text", Format: wordir.RunFormat{Bold: &bold}},
 	}
@@ -6764,7 +6765,7 @@ func TestBuildLegacyDocFromRunsWithListMarker(t *testing.T) {
 // Vanish=true are suppressed when extractDocRunsViaFIB drops them, and that
 // splitDocRunsIntoLines does not break on empty text after filtering.
 func TestSplitDocRunsIntoLinesPreservesBlankParagraphs(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "line1\n\n\nline2", Format: wordir.RunFormat{}},
 	}
 	lines := splitDocRunsIntoLines(runs)
@@ -6785,7 +6786,7 @@ func TestSplitDocRunsIntoLinesPreservesBlankParagraphs(t *testing.T) {
 }
 
 func TestSplitDocRunsIntoLinesNormalisesControlChars(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "a\u000Bb\u000Cc", Format: wordir.RunFormat{}},
 	}
 	lines := splitDocRunsIntoLines(runs)
@@ -6795,7 +6796,7 @@ func TestSplitDocRunsIntoLinesNormalisesControlChars(t *testing.T) {
 }
 
 func TestSplitDocRunsIntoLinesPreservesPageBreakRun(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "a\u000Bb\u000Cc", Format: wordir.RunFormat{}},
 	}
 	lines := splitDocRunsIntoLines(runs)
@@ -6817,7 +6818,7 @@ func TestSplitDocRunsIntoLinesPreservesPageBreakRun(t *testing.T) {
 }
 
 func TestBuildLegacyDocFromRunsPreservesManualPageBreakLine(t *testing.T) {
-	doc := buildLegacyDocFromRuns("test.doc", []docRun{{Text: "Before\fAfter"}})
+	doc := buildLegacyDocFromRuns("test.doc", []binaryWordRun{{Text: "Before\fAfter"}})
 	if len(doc.Paragraphs) != 3 {
 		t.Fatalf("paragraphs = %d, want 3", len(doc.Paragraphs))
 	}
@@ -6833,7 +6834,7 @@ func TestBuildLegacyDocFromRunsPreservesManualPageBreakLine(t *testing.T) {
 }
 
 func TestSkipDocRunsBytesAcrossRunBoundary(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "123", Format: wordir.RunFormat{}},
 		{Text: "456", Format: wordir.RunFormat{}},
 	}
@@ -7147,10 +7148,10 @@ func TestLoadPapxEntriesUsesFibIndex13(t *testing.T) {
 
 func TestApplyDocFieldsToRunsHyperlink(t *testing.T) {
 	// Simulate: \x13 HYPERLINK "http://example.com" \x14click here\x15
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13 HYPERLINK \"http://example.com\" \x14click here\x15"},
 	}
-	out := applyDocFieldsToRuns(runs)
+	out := applyPreWord97FieldsToRuns(runs)
 	if len(out) != 1 {
 		t.Fatalf("got %d runs, want 1", len(out))
 	}
@@ -7256,10 +7257,10 @@ func TestParseDocFixtureSampleWithEndnotesRealHasEndnotes(t *testing.T) {
 
 func TestApplyDocFieldsToRunsNonHyperlinkDropsInstruction(t *testing.T) {
 	// PAGE field: instruction dropped, cached result "5" kept, semantics preserved.
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13 PAGE \x145\x15"},
 	}
-	out := applyDocFieldsToRuns(runs)
+	out := applyPreWord97FieldsToRuns(runs)
 	if len(out) != 1 || out[0].Text != "5" {
 		t.Fatalf("got %v, want single run with text '5'", out)
 	}
@@ -7272,12 +7273,12 @@ func TestApplyDocFieldsToRunsNonHyperlinkDropsInstruction(t *testing.T) {
 }
 
 func TestApplyDocFieldsToRunsAdditionalKindsKeepCachedResult(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13 AUTHOR \x14John Doe\x15"},
 		{Text: "\x13 DATE \\@ \"M/d/yyyy\" \x144/26/2006\x15"},
 		{Text: "\x13 TIME \\@ \"h:mm am/pm\" \x142:01 pm\x15"},
 	}
-	out := applyDocFieldsToRuns(runs)
+	out := applyPreWord97FieldsToRuns(runs)
 	if len(out) != 3 {
 		t.Fatalf("got %d runs, want 3", len(out))
 	}
@@ -7293,14 +7294,14 @@ func TestApplyDocFieldsToRunsAdditionalKindsKeepCachedResult(t *testing.T) {
 }
 
 func TestApplyDocFieldsToRunsTagsAdditionalSemanticFamilies(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13 SEQ Figure \x141\x15"},
 		{Text: "\x13 ASK CustomerName \"Prompt\" \x14Alice\x15"},
 		{Text: "\x13 MERGEFIELD CustomerName \\\\* MERGEFORMAT \x14Alice\x15"},
 		{Text: "\x13 AUTOTEXT \"Disclaimer\" \x14Disclaimer text\x15"},
 		{Text: "\x13 LINK Excel.Sheet.12 \"C:\\\\data.xlsx\" \"Sheet1!R1C1\" \x14Linked sheet\x15"},
 	}
-	out := applyDocFieldsToRuns(runs)
+	out := applyPreWord97FieldsToRuns(runs)
 	if len(out) != 5 {
 		t.Fatalf("got %d runs, want 5", len(out))
 	}
@@ -7322,11 +7323,11 @@ func TestApplyDocFieldsToRunsTagsAdditionalSemanticFamilies(t *testing.T) {
 }
 
 func TestApplyDocFieldsToRunsNoFieldCharsPassthrough(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "plain text"},
 		{Text: " more"},
 	}
-	out := applyDocFieldsToRuns(runs)
+	out := applyPreWord97FieldsToRuns(runs)
 	if len(out) != 2 || out[0].Text != "plain text" || out[1].Text != " more" {
 		t.Fatalf("passthrough failed: %v", out)
 	}
@@ -7372,7 +7373,7 @@ func TestBuildLegacyDocFromRunsBinaryTable(t *testing.T) {
 	// Each row is terminated by a row-mark paragraph (fTtp=1, text=0x07).
 	inTable := wordir.ParagraphFormat{InTable: true}
 	rowMark := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A", ParaFormat: inTable},
 		{Text: "\r", ParaFormat: inTable},
 		{Text: "B", ParaFormat: inTable},
@@ -7403,11 +7404,11 @@ func TestBuildLegacyBinaryTablePropagatesSharedRowRevisionToTable(t *testing.T) 
 	rowRevision := &wordir.RevisionMark{Author: "TableAuthor", Date: "2026-05-01"}
 	rowProps := &legacyTableRowProps{resolvedPropertyRevision: rowRevision}
 	rowGroup := legacyBinaryTableRow{
-		RowMark: []docRun{{
+		RowMark: []binaryWordRun{{
 			TableDepth: 1,
-			TableProps: rowProps,
+			TableProps: rowProps.canonical(),
 		}},
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "A", TableDepth: 1}},
 			{{Text: "B", TableDepth: 1}},
 			{{TableDepth: 1, ParaFormat: wordir.ParagraphFormat{IsTableTrailingParagraph: true}}},
@@ -7427,21 +7428,21 @@ func TestBuildLegacyBinaryTableMixedRevisionsNoTableRevision(t *testing.T) {
 	rowRevision1 := &wordir.RevisionMark{Author: "Author1", Date: "2026-05-01"}
 	rowRevision2 := &wordir.RevisionMark{Author: "Author2", Date: "2026-05-02"}
 	rowGroup1 := legacyBinaryTableRow{
-		RowMark: []docRun{{
+		RowMark: []binaryWordRun{{
 			TableDepth: 1,
-			TableProps: &legacyTableRowProps{resolvedPropertyRevision: rowRevision1},
+			TableProps: (&legacyTableRowProps{resolvedPropertyRevision: rowRevision1}).canonical(),
 		}},
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "A", TableDepth: 1}},
 			{{TableDepth: 1, ParaFormat: wordir.ParagraphFormat{IsTableTrailingParagraph: true}}},
 		},
 	}
 	rowGroup2 := legacyBinaryTableRow{
-		RowMark: []docRun{{
+		RowMark: []binaryWordRun{{
 			TableDepth: 1,
-			TableProps: &legacyTableRowProps{resolvedPropertyRevision: rowRevision2},
+			TableProps: (&legacyTableRowProps{resolvedPropertyRevision: rowRevision2}).canonical(),
 		}},
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "B", TableDepth: 1}},
 			{{TableDepth: 1, ParaFormat: wordir.ParagraphFormat{IsTableTrailingParagraph: true}}},
 		},
@@ -7457,14 +7458,14 @@ func TestBuildLegacyBinaryTableMixedRevisionsNoTableRevision(t *testing.T) {
 }
 
 func TestLineSliceInTableReturnsTrue(t *testing.T) {
-	slice := []docRun{{Text: "x", ParaFormat: wordir.ParagraphFormat{InTable: true}}}
+	slice := []binaryWordRun{{Text: "x", ParaFormat: wordir.ParagraphFormat{InTable: true}}}
 	if !lineSliceInTable(slice) {
 		t.Fatal("expected lineSliceInTable = true")
 	}
 }
 
 func TestLineSliceInTableFromLegacyHintOnlyReturnsTrue(t *testing.T) {
-	slice := []docRun{{Text: "x", ParaFormat: wordir.ParagraphFormat{InTable: true}, LegacyInTableHint: true}}
+	slice := []binaryWordRun{{Text: "x", ParaFormat: wordir.ParagraphFormat{InTable: true}, LegacyInTableHint: true}}
 	if !lineSliceInTableFromLegacyHintOnly(slice) {
 		t.Fatal("expected lineSliceInTableFromLegacyHintOnly = true")
 	}
@@ -7474,7 +7475,7 @@ func TestLineSliceInTableFromLegacyHintOnlyReturnsTrue(t *testing.T) {
 }
 
 func TestLineSliceInTableFromLegacyHintOnlyIgnoresLegacyRowMarkHint(t *testing.T) {
-	slice := []docRun{{
+	slice := []binaryWordRun{{
 		Text:              "\a",
 		ParaFormat:        wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true},
 		LegacyInTableHint: true,
@@ -7489,7 +7490,7 @@ func TestLineSliceInTableFromLegacyHintOnlyIgnoresLegacyRowMarkHint(t *testing.T
 }
 
 func TestLineSliceIsRowMarkReturnsTrueForFTtp(t *testing.T) {
-	slice := []docRun{{Text: "\t", ParaFormat: wordir.ParagraphFormat{
+	slice := []binaryWordRun{{Text: "\t", ParaFormat: wordir.ParagraphFormat{
 		InTable: true, IsTableTrailingParagraph: true,
 	}}}
 	if !lineSliceIsRowMark(slice) {
@@ -7499,7 +7500,7 @@ func TestLineSliceIsRowMarkReturnsTrueForFTtp(t *testing.T) {
 
 func TestSplitDocRunsIntoLinesPreservesRowMarkLines(t *testing.T) {
 	rowMark := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Cell", ParaFormat: wordir.ParagraphFormat{InTable: true}},
 		{Text: "\r", ParaFormat: wordir.ParagraphFormat{InTable: true}},
 		{Text: "", ParaFormat: rowMark}, // whitespace-only but should be preserved
@@ -7523,7 +7524,7 @@ func TestSplitDocRunsIntoLinesPreservesRowMarkLines(t *testing.T) {
 func TestBuildLegacyDocFromRunsBinaryTableWithoutExplicitParagraphBreakRuns(t *testing.T) {
 	inTable := wordir.ParagraphFormat{InTable: true}
 	rowMark := wordir.ParagraphFormat{InTable: true, IsTableTrailingParagraph: true}
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "A", ParaFormat: inTable},
 		{Text: "B", ParaFormat: inTable},
 		{Text: "", ParaFormat: rowMark},
@@ -7730,11 +7731,11 @@ func TestBuildLegacyNestedBinaryTablePreservesOuterRowRevision(t *testing.T) {
 		cantSplit:                &cantSplit,
 	}
 	rowGroup := legacyBinaryTableRow{
-		RowMark: []docRun{{
+		RowMark: []binaryWordRun{{
 			TableDepth: 1,
-			TableProps: rowProps,
+			TableProps: rowProps.canonical(),
 		}},
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "Inner", TableDepth: 2}},
 			{{TableDepth: 2, ParaFormat: wordir.ParagraphFormat{IsTableTrailingParagraph: true}}},
 		},
@@ -7776,21 +7777,21 @@ func TestBuildLegacyNestedBinaryTableMixedRowRevisionsNoTableRevision(t *testing
 	rowRevision1 := &wordir.RevisionMark{Author: "Author1", Date: "2026-04-29"}
 	rowRevision2 := &wordir.RevisionMark{Author: "Author2", Date: "2026-04-30"}
 	rowGroup1 := legacyBinaryTableRow{
-		RowMark: []docRun{{
+		RowMark: []binaryWordRun{{
 			TableDepth: 1,
-			TableProps: &legacyTableRowProps{resolvedPropertyRevision: rowRevision1},
+			TableProps: (&legacyTableRowProps{resolvedPropertyRevision: rowRevision1}).canonical(),
 		}},
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "A", TableDepth: 2}},
 			{{TableDepth: 2, ParaFormat: wordir.ParagraphFormat{IsTableTrailingParagraph: true}}},
 		},
 	}
 	rowGroup2 := legacyBinaryTableRow{
-		RowMark: []docRun{{
+		RowMark: []binaryWordRun{{
 			TableDepth: 1,
-			TableProps: &legacyTableRowProps{resolvedPropertyRevision: rowRevision2},
+			TableProps: (&legacyTableRowProps{resolvedPropertyRevision: rowRevision2}).canonical(),
 		}},
-		LineSlices: [][]docRun{
+		LineSlices: [][]binaryWordRun{
 			{{Text: "B", TableDepth: 2}},
 			{{TableDepth: 2, ParaFormat: wordir.ParagraphFormat{IsTableTrailingParagraph: true}}},
 		},
@@ -8105,7 +8106,7 @@ func TestParsePapxGrpprlFrameTextFlow(t *testing.T) {
 	}
 }
 func TestBuildLegacyDocSynthesizesDefaultsWhenStyleSheetAbsent(t *testing.T) {
-	runs := []docRun{{Text: "Hello world"}}
+	runs := []binaryWordRun{{Text: "Hello world"}}
 	doc := buildLegacyDocFromRunsWithContext("test.doc", runs, nil, nil, nil, nil, nil)
 	if doc.DefaultRunFormat.FontSize == nil || *doc.DefaultRunFormat.FontSize != 24 {
 		t.Fatalf("DefaultRunFormat.FontSize = %v, want 24", doc.DefaultRunFormat.FontSize)
@@ -8120,7 +8121,7 @@ func TestBuildLegacyDocSynthesizesDefaultsWhenStyleSheetAbsent(t *testing.T) {
 
 func TestLegacyDocPropagatesSnapToGridWhenSectionHasDocGrid(t *testing.T) {
 	// Build a minimal document with paragraphs and a section that has a doc grid.
-	runs := []docRun{{Text: "Hello world"}}
+	runs := []binaryWordRun{{Text: "Hello world"}}
 	doc := buildLegacyDocFromRunsWithContext("test.doc", runs, nil, nil, nil, nil, nil)
 	if doc == nil {
 		t.Fatal("expected non-nil document")
@@ -8152,7 +8153,7 @@ func TestLegacyDocPropagatesSnapToGridWhenSectionHasDocGrid(t *testing.T) {
 }
 
 func TestLegacyDocDoesNotPropagateSnapToGridForDefaultGrid(t *testing.T) {
-	runs := []docRun{{Text: "Hello world"}}
+	runs := []binaryWordRun{{Text: "Hello world"}}
 	doc := buildLegacyDocFromRunsWithContext("test.doc", runs, nil, nil, nil, nil, nil)
 	doc.Sections = []wordir.Section{{
 		DocGrid: &wordir.DocGrid{Type: "default", LinePitch: 360},
@@ -8315,11 +8316,11 @@ func TestApplyChpxFormattingToDocRunsUsesCharacterCPsForUnicode(t *testing.T) {
 	large := 72
 	small := 24
 	bold := true
-	chpx := []docRun{
+	chpx := []binaryWordRun{
 		{StartCP: 0, Text: "Компания\r", Format: wordir.RunFormat{FontSize: &large, Bold: &bold}},
 		{StartCP: 9, Text: "предлагает\r", Format: wordir.RunFormat{FontSize: &small}},
 	}
-	base := []docRun{
+	base := []binaryWordRun{
 		{StartCP: 0, Text: "Компания\r"},
 		{StartCP: 9, Text: "предлагает\r"},
 	}
@@ -8340,11 +8341,11 @@ func TestApplyChpxFormattingToDocRunsUsesCharacterCPsForUnicode(t *testing.T) {
 }
 
 func TestApplyChpxFormattingSplitsPapRunAtCharacterBoundary(t *testing.T) {
-	base := []docRun{{Text: "Компания\rпредлагает", StartCP: 10}}
+	base := []binaryWordRun{{Text: "Компания\rпредлагает", StartCP: 10}}
 	largeSize, normalSize, bold := 72, 24, true
 	large := wordir.RunFormat{FontSize: &largeSize, Bold: &bold}
 	normal := wordir.RunFormat{FontSize: &normalSize}
-	formatted := []docRun{
+	formatted := []binaryWordRun{
 		{Text: "Компания\r", StartCP: 10, Format: large},
 		{Text: "предлагает", StartCP: 19, Format: normal},
 	}
@@ -8361,9 +8362,9 @@ func TestApplyChpxFormattingSplitsPapRunAtCharacterBoundary(t *testing.T) {
 }
 
 func TestApplyChpxFormattingKeepsPreWord97GridRunIntact(t *testing.T) {
-	base := []docRun{{Text: "Wine\aMaker\a750\a12.00\a\r", StartCP: 20}}
+	base := []binaryWordRun{{Text: "Wine\aMaker\a750\a12.00\a\r", StartCP: 20}}
 	sizeA, sizeB := 24, 20
-	formatted := []docRun{
+	formatted := []binaryWordRun{
 		{Text: "Wine\aMaker", StartCP: 20, Format: wordir.RunFormat{FontSize: &sizeA}},
 		{Text: "\a750\a12.00\a\r", StartCP: 30, Format: wordir.RunFormat{FontSize: &sizeB}},
 	}
@@ -8380,7 +8381,7 @@ func TestApplyChpxFormattingKeepsPreWord97GridRunIntact(t *testing.T) {
 }
 
 func TestInjectDocCommentRefsDoesNotConsumeAnchorCharacter(t *testing.T) {
-	runs := []docRun{{Text: "Heading", StartCP: 100}}
+	runs := []binaryWordRun{{Text: "Heading", StartCP: 100}}
 	got := injectDocCommentRefs(runs, map[int]int{100: 1})
 	if len(got) != 2 || got[0].Kind != "commentRef" || got[0].CommentID != 1 {
 		t.Fatalf("runs = %#v", got)
@@ -8445,18 +8446,22 @@ func TestNormalizeLegacyBinaryTableGridGapsClampsOversizedCellSpan(t *testing.T)
 }
 
 func TestNormalizeLegacyBinaryRowTokensFoldsExtraParagraphsIntoLastPhysicalCell(t *testing.T) {
-	props := &legacyTableRowProps{cellBoundaries: []int{0, 1000, 2000, 3000, 4000}}
+	props := &docformat.TableRowProps{
+		CellBoundaries: []int{0, 1000, 2000, 3000, 4000},
+	}
+
 	got := normalizeLegacyBinaryRowTokens([]string{"", "G", "H", "I", "J"}, props)
 	want := []string{"", "G", "H", "I" + legacyBinaryCellParagraphSeparator + "J"}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizeLegacyBinaryRowTokens = %#v, want %#v", got, want)
 	}
 }
 
 func TestDeriveLegacyBinaryTableGridBoundariesUnionsRowCuts(t *testing.T) {
-	rows := []*legacyTableRowProps{
-		{cellBoundaries: []int{0, 6872, 9302}},
-		{cellBoundaries: []int{0, 1062, 5738, 8148, 9302}},
+	rows := []*docformat.TableRowProps{
+		{CellBoundaries: []int{0, 6872, 9302}},
+		{CellBoundaries: []int{0, 1062, 5738, 8148, 9302}},
 	}
 	got := deriveLegacyBinaryTableGridBoundaries(rows)
 	want := []int{0, 1062, 5738, 6872, 8148, 9302}
@@ -8603,5 +8608,198 @@ func TestLegacySpaAnchorOriginsFollowMSDOCValues(t *testing.T) {
 				t.Fatalf("relative = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseDocFloatingPicturesPreservesBoundaryWhitespaceAndTabs(t *testing.T) {
+	path := legacyRepoPath(t, "testdata", "doc", "apache-FloatingPictures.doc")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("floating-pictures fixture not available: %v", err)
+		}
+		t.Fatalf("stat floating-pictures fixture: %v", err)
+	}
+	doc, err := ParseDoc(path)
+	if err != nil {
+		t.Fatalf("ParseDoc: %v", err)
+	}
+	var body strings.Builder
+	tabRuns := 0
+	for _, p := range doc.Paragraphs {
+		body.WriteString(p.Text)
+		body.WriteByte('\n')
+		for _, r := range p.Runs {
+			if r.Kind == "tab" {
+				tabRuns++
+			}
+		}
+	}
+	text := body.String()
+	for _, want := range []string{"documents.  However", "help the reader’s eye"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("parsed body lost source whitespace: missing %q", want)
+		}
+	}
+	if tabRuns < 6 {
+		t.Fatalf("tab runs = %d, want at least 6 from the three tab-stop examples", tabRuns)
+	}
+}
+
+func TestReconcileLegacyRunWhitespacePreservesFormattingOwnership(t *testing.T) {
+	bold := true
+	runs := []wordir.Run{{Text: "documents.How ", Format: wordir.RunFormat{Bold: &bold}}, {Text: "ever, help thereader’s eye"}}
+	got := reconcileLegacyRunWhitespace(runs, "documents.  However, help the reader’s eye")
+	var text strings.Builder
+	for _, run := range got {
+		text.WriteString(run.Text)
+	}
+	if text.String() != "documents.  However, help the reader’s eye" {
+		t.Fatalf("reconciled text = %q", text.String())
+	}
+	if got[0].Format.Bold == nil || !*got[0].Format.Bold {
+		t.Fatal("reconciliation changed character-format ownership")
+	}
+}
+
+func TestReconcileLegacyRunWhitespaceRefusesCharacterChanges(t *testing.T) {
+	runs := []wordir.Run{{Text: "colour"}}
+	got := reconcileLegacyRunWhitespace(runs, "color")
+	if got[0].Text != "colour" {
+		t.Fatalf("text = %q, want original", got[0].Text)
+	}
+}
+
+func TestParseDocFloatingPicturesSemanticRunsMatchCanonicalParagraphText(t *testing.T) {
+	path := legacyRepoPath(t, "testdata", "doc", "apache-FloatingPictures.doc")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("fixture unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	doc, err := ParseDoc(path)
+	if err != nil {
+		t.Fatalf("ParseDoc: %v", err)
+	}
+	for _, p := range doc.Paragraphs {
+		if !strings.Contains(p.Text, "These three lines are single spaced") {
+			continue
+		}
+		var projected strings.Builder
+		for _, r := range p.Runs {
+			switch r.Kind {
+			case "tab":
+				projected.WriteByte('\t')
+			case "", "hyperlink":
+				projected.WriteString(r.Text)
+			}
+		}
+		if projected.String() != p.Text {
+			t.Fatalf("semantic runs diverge:\n runs=%q\n text=%q", projected.String(), p.Text)
+		}
+		return
+	}
+	t.Fatal("oracle paragraph not found")
+}
+
+func TestReconcileLegacyVisibleRunWhitespaceMovesWhitespaceOutOfHiddenRun(t *testing.T) {
+	hidden := true
+	runs := []wordir.Run{
+		{Text: "documents.How "},
+		{Text: "  ", Format: wordir.RunFormat{Vanish: &hidden}},
+		{Text: "ever, help thereader’s eye"},
+	}
+	got := reconcileLegacyVisibleRunWhitespace(runs, "documents.  However, help the reader’s eye")
+	var visible strings.Builder
+	for _, run := range got {
+		if legacyRunIsHidden(run) {
+			continue
+		}
+		if run.Kind == "tab" {
+			visible.WriteByte('\t')
+		} else {
+			visible.WriteString(run.Text)
+		}
+	}
+	if visible.String() != "documents.  However, help the reader’s eye" {
+		t.Fatalf("visible text = %q", visible.String())
+	}
+}
+
+func TestReconcileLegacyVisibleRunWhitespacePreservesGenuineHiddenText(t *testing.T) {
+	hidden := true
+	runs := []wordir.Run{{Text: "before "}, {Text: "hidden", Format: wordir.RunFormat{Vanish: &hidden}}, {Text: " after"}}
+	got := reconcileLegacyVisibleRunWhitespace(runs, "before hidden after")
+	if got[1].Text != "hidden" {
+		t.Fatalf("hidden text = %q, want preserved", got[1].Text)
+	}
+}
+
+func TestParseDocFloatingPicturesVisibleOracleParagraphMatchesCanonicalText(t *testing.T) {
+	path := legacyRepoPath(t, "testdata", "doc", "apache-FloatingPictures.doc")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skipf("fixture unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	doc, err := ParseDoc(path)
+	if err != nil {
+		t.Fatalf("ParseDoc: %v", err)
+	}
+	for _, p := range doc.Paragraphs {
+		if !strings.Contains(p.Text, "These three lines are single spaced") {
+			continue
+		}
+		var visible strings.Builder
+		for _, r := range p.Runs {
+			if legacyRunIsHidden(r) {
+				continue
+			}
+			switch r.Kind {
+			case "tab":
+				visible.WriteByte('\t')
+			case "", "hyperlink":
+				visible.WriteString(r.Text)
+			}
+		}
+		if visible.String() != p.Text {
+			t.Fatalf("visible semantic runs diverge:\n visible=%q\n text=%q", visible.String(), p.Text)
+		}
+		return
+	}
+	t.Fatal("oracle paragraph not found")
+}
+
+func TestLegacyTopLevelBlocksOwnCanonicalParagraphAndTableObjects(t *testing.T) {
+	doc := &wordir.Document{}
+	for i := 0; i < 64; i++ {
+		doc.Paragraphs = append(doc.Paragraphs, wordir.Paragraph{Index: i, Text: fmt.Sprintf("paragraph-%d", i)})
+		doc.Blocks = append(doc.Blocks, wordir.Block{Kind: "paragraph", Paragraph: &doc.Paragraphs[len(doc.Paragraphs)-1]})
+	}
+	for i := 0; i < 16; i++ {
+		doc.Tables = append(doc.Tables, wordir.Table{Index: i})
+		doc.Blocks = append(doc.Blocks, wordir.Block{Kind: "table", Table: &doc.Tables[len(doc.Tables)-1]})
+	}
+
+	rebindLegacyTopLevelBlocks(doc)
+
+	for i := range doc.Paragraphs {
+		if doc.Blocks[i].Paragraph != &doc.Paragraphs[i] {
+			t.Fatalf("paragraph block %d does not reference canonical paragraph", i)
+		}
+	}
+	base := len(doc.Paragraphs)
+	for i := range doc.Tables {
+		if doc.Blocks[base+i].Table != &doc.Tables[i] {
+			t.Fatalf("table block %d does not reference canonical table", i)
+		}
+	}
+
+	// Mutating canonical storage after the rebind must be visible through the
+	// traversal surface used by layout and rendering.
+	doc.Paragraphs[0].Text = "canonical"
+	if got := doc.Blocks[0].Paragraph.Text; got != "canonical" {
+		t.Fatalf("block paragraph text = %q, want canonical", got)
 	}
 }

@@ -43,8 +43,14 @@ func TestOpenBytesDOCXFacade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(html, "hello docx") {
-		t.Fatalf("HTML output lost fixture text: %s", html)
+	// Canonical physical rendering may split source text across adjacent spans,
+	// so the HTML serialization is not required to contain the original phrase
+	// as one contiguous byte sequence. The semantic document assertion above
+	// owns phrase continuity; here verify that rendering preserves its tokens.
+	for _, token := range []string{"hello", "docx"} {
+		if !strings.Contains(html, ">"+token+"<") {
+			t.Fatalf("HTML output lost fixture token %q: %s", token, html)
+		}
 	}
 }
 

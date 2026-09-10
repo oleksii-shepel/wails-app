@@ -880,6 +880,37 @@ func TestHTMLHyperlink(t *testing.T) {
 	}
 }
 
+func TestHTMLHyperlinkInheritsWordRunFormatting(t *testing.T) {
+	doc := &resolve.Document{
+		Blocks: []resolve.Block{
+			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
+				Runs: []resolve.Run{
+					{Kind: "hyperlink", Text: "plain link", Target: "https://example.com"},
+					{Kind: "hyperlink", Text: "styled link", Target: "https://example.org", Format: resolve.RunFormat{Color: "0563C1", Underline: "single"}},
+				},
+			}},
+		},
+	}
+
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	css := extractCSS(out)
+	if !strings.Contains(css, `a { color: inherit; text-decoration: inherit; }`) {
+		t.Fatalf("expected global anchors to inherit Word run formatting, got:\n%s", css)
+	}
+	if strings.Contains(css, `a { color: #0563C1; text-decoration: underline; }`) {
+		t.Fatalf("did not expect browser-like hyperlink styling in global CSS:\n%s", css)
+	}
+	if !strings.Contains(out, `<a href="https://example.com">plain link</a>`) {
+		t.Fatalf("expected unformatted hyperlink to render without synthetic styling, got:\n%s", out)
+	}
+	if !strings.Contains(out, `<a href="https://example.org"><span style="text-decoration:underline;color:#0563C1">styled link</span></a>`) {
+		t.Fatalf("expected styled hyperlink to keep explicit Word run formatting, got:\n%s", out)
+	}
+}
+
 func TestHTMLHyperlinkWithAnchor(t *testing.T) {
 	doc := &resolve.Document{
 		Blocks: []resolve.Block{
@@ -1070,16 +1101,15 @@ func TestHTMLParagraphAutoSpace(t *testing.T) {
 	}
 }
 
-func TestHTMLBreakClear(t *testing.T) {
+func TestHTMLBreakClearAdvancesPhysicalLine(t *testing.T) {
 	tests := []struct {
 		clearType string
-		want      string
 	}{
-		{"left", `<br style="clear:left">`},
-		{"right", `<br style="clear:right">`},
-		{"all", `<br style="clear:both">`},
-		{"none", `<br>`},
-		{"", `<br>`},
+		{"left"},
+		{"right"},
+		{"all"},
+		{"none"},
+		{""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.clearType, func(t *testing.T) {
@@ -1098,8 +1128,15 @@ func TestHTMLBreakClear(t *testing.T) {
 			if err != nil {
 				t.Fatalf("HTML: %v", err)
 			}
-			if !strings.Contains(out, tt.want) {
-				t.Errorf("expected %q in output, got:\n%s", tt.want, out)
+			for _, want := range []string{
+				`class="word-physical-slot" data-line="0"`,
+				`class="word-physical-slot" data-line="1"`,
+				">Line 1</span>",
+				">Line 2</span>",
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("expected %q in output, got:\n%s", want, out)
+				}
 			}
 		})
 	}
@@ -1125,7 +1162,7 @@ func TestHTMLNoProofSpellcheck(t *testing.T) {
 	}
 	// Verify the normal run does NOT have spellcheck attribute.
 	// Find the first run text and check there's no spellcheck near it.
-	idxNormal := strings.Index(out, ">normal<")
+	idxNormal := strings.Index(out, "normal")
 	if idxNormal < 0 {
 		t.Fatalf("expected 'normal' text in output")
 	}
@@ -1773,7 +1810,10 @@ func TestHTMLParagraphFontAlign(t *testing.T) {
 					PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
 				}},
 				Blocks: []resolve.Block{
-					{Kind: "paragraph", Paragraph: &resolve.Paragraph{Format: pf, Runs: []resolve.Run{{Text: "Hello"}}}},
+					{Kind: "paragraph", Paragraph: &resolve.Paragraph{Format: pf, Runs: []resolve.Run{
+						{Text: "Big", Format: resolve.RunFormat{FontSize: intPtr(28)}},
+						{Text: "Small", Format: resolve.RunFormat{FontSize: intPtr(18)}},
+					}}},
 				},
 			}
 			out, err := render.HTML(doc)
@@ -1790,6 +1830,31 @@ func TestHTMLParagraphFontAlign(t *testing.T) {
 				t.Fatalf("expected %q in output for align=%q, got:\n%s", tt.wantCSS, tt.align, out)
 			}
 		})
+	}
+}
+
+func TestHTMLParagraphFontAlignSkippedForUniformFontSize(t *testing.T) {
+	doc := &resolve.Document{
+		Sections: []resolve.Section{{
+			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
+			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
+		}},
+		Blocks: []resolve.Block{
+			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
+				Format: resolve.ParagraphFormat{FontAlign: "center"},
+				Runs: []resolve.Run{
+					{Text: "Same", Format: resolve.RunFormat{FontSize: intPtr(18)}},
+					{Text: "size", Format: resolve.RunFormat{FontSize: intPtr(18)}},
+				},
+			}},
+		},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Contains(out, "vertical-align:middle") {
+		t.Fatalf("expected uniform-size paragraph to avoid synthetic vertical-align, got:\n%s", out)
 	}
 }
 
@@ -2309,8 +2374,11 @@ func TestHTMLPaginatedOutputSuppressesInlinePageBreakInsideOpenParagraph(t *test
 	if strings.Count(out, `<section class="page">`) != 2 {
 		t.Fatalf("expected two page containers after explicit page break: %s", out)
 	}
-	if !strings.Contains(out, `>Before</p>`) || !strings.Contains(out, `>After</p>`) {
-		t.Fatalf("expected both paragraph texts in output: %s", out)
+	// Physical paragraph ownership may add positioned slot markup around the
+	// text. This regression is about page-container integrity and text survival,
+	// not the old semantic <p> serialization shape.
+	if !strings.Contains(out, ">Before<") || !strings.Contains(out, ">After<") {
+		t.Fatalf("expected both paragraph texts in their page bodies: %s", out)
 	}
 }
 
@@ -2729,11 +2797,11 @@ func TestHTMLParagraphRelativeFloatingContentUsesOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if strings.Contains(out, `position:relative`) {
-		t.Fatalf("anchor paragraph should not use position:relative; floats go to overlay: %s", out)
-	}
 	if !strings.Contains(out, `<div class="page-overlay">`) {
 		t.Fatalf("expected floating content to be placed in the page overlay: %s", out)
+	}
+	if !strings.Contains(out, `Anchor text`) {
+		t.Fatalf("expected anchor paragraph text in output: %s", out)
 	}
 	// Y=127000 EMU = 10pt; with zero margins paraPageY=0, so overlay top=10pt.
 	if !strings.Contains(out, `top:10.0pt`) {
@@ -2843,7 +2911,7 @@ func TestHTMLNestedFloatingTextboxUsesLocalStoryOverlay(t *testing.T) {
 		end = len(out)
 	}
 	snippet := out[start:end]
-	if !strings.Contains(snippet, `top:24.4pt`) {
+	if !strings.Contains(snippet, `top:23.8pt`) {
 		t.Fatalf("expected nested paragraph-relative float to use textbox-local anchor coordinates: %s", snippet)
 	}
 }
@@ -2879,11 +2947,11 @@ func TestHTMLDocumentRelativeFloatingContentUsesOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if strings.Contains(out, `position:relative`) {
-		t.Fatalf("did not expect non-paragraph floating content to force paragraph positioning: %s", out)
-	}
 	if !strings.Contains(out, `<div class="page-overlay">`) {
 		t.Fatalf("expected page overlay container in output: %s", out)
+	}
+	if !strings.Contains(out, `Body`) {
+		t.Fatalf("expected body paragraph text in output: %s", out)
 	}
 	if !strings.Contains(out, `left:82.0pt;top:82.0pt`) {
 		t.Fatalf("expected margin-relative offsets to include page margins: %s", out)
@@ -2972,8 +3040,20 @@ func TestHTMLParagraphRelativeFloatingTextBoxUsesInlineFloat(t *testing.T) {
 	if !strings.Contains(snippet, `class="floating-textbox" style="float:left`) {
 		t.Fatalf("expected paragraph-relative textbox to render as an inline float: %s", snippet)
 	}
-	if strings.Contains(snippet, `position:absolute`) {
-		t.Fatalf("expected paragraph-relative textbox to stay in paragraph flow, got absolute positioning: %s", snippet)
+	// The textbox itself remains an inline float. Canonical layout may now emit
+	// absolutely positioned physical text slots beside it; do not mistake those
+	// slots for absolute positioning of the textbox.
+	tagStart := strings.LastIndex(out[:idx], `<div class="floating-textbox"`)
+	if tagStart < 0 {
+		t.Fatalf("expected floating textbox opening tag: %s", snippet)
+	}
+	tagEndRel := strings.Index(out[tagStart:], `>`)
+	if tagEndRel < 0 {
+		t.Fatalf("expected floating textbox opening tag terminator: %s", snippet)
+	}
+	textboxTag := out[tagStart : tagStart+tagEndRel+1]
+	if strings.Contains(textboxTag, `position:absolute`) {
+		t.Fatalf("expected paragraph-relative textbox itself to stay in paragraph flow: %s", textboxTag)
 	}
 }
 
@@ -3043,19 +3123,16 @@ func TestHTMLParagraphRelativeTopAndBottomTextBoxRendersAsFlowBlock(t *testing.T
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	idx := strings.Index(out, `Block box`)
-	if idx < 0 {
+	idx := strings.Index(out, `class="floating-textbox"`)
+	if idx < 0 || !strings.Contains(out, `Block box`) {
 		t.Fatalf("expected floating textbox content in output: %s", out)
 	}
-	start := idx - 220
-	if start < 0 {
-		start = 0
+	end := strings.Index(out[idx:], `>`)
+	if end < 0 {
+		t.Fatalf("expected floating textbox start tag in output: %s", out)
 	}
-	end := idx + 220
-	if end > len(out) {
-		end = len(out)
-	}
-	snippet := out[start:end]
+	end += idx
+	snippet := out[idx:end]
 	if !strings.Contains(snippet, `class="floating-textbox" style="display:block;clear:both`) {
 		t.Fatalf("expected paragraph-relative top-and-bottom textbox to render as an in-flow block float: %s", snippet)
 	}
@@ -6135,7 +6212,7 @@ func TestHTMLStyleRefUsesNearestMatchingParagraph(t *testing.T) {
 	if !strings.Contains(out, `>Chapter Two<`) {
 		t.Fatalf("expected STYLEREF to use nearest matching paragraph text, got:\n%s", out)
 	}
-	if strings.Contains(out, `>Introduction</span>`) {
+	if strings.Contains(out, `class="word-field word-field-styleref" data-field-arg="Heading1">Introduction</span>`) {
 		t.Fatalf("expected STYLEREF not to use the first matching paragraph, got:\n%s", out)
 	}
 }
@@ -8337,7 +8414,7 @@ func TestHTMLFillinFieldRendersTextInput(t *testing.T) {
 	if !strings.Contains(out, `value="Enter your name"`) {
 		t.Errorf("expected default value in input, got:\n%s", out)
 	}
-	if strings.Contains(out, `<span`) && strings.Contains(out, "word-field-fillin") {
+	if strings.Contains(out, `<span class="word-field word-field-fillin"`) {
 		t.Errorf("FILLIN should not emit a <span>, got:\n%s", out)
 	}
 }
@@ -8524,7 +8601,10 @@ func TestHTMLComplexFloatTableLayoutIsDeterministic(t *testing.T) {
 			{Kind: "table", Table: &resolve.Table{
 				Format: resolve.TableFormat{ColumnWidths: []int{2400, 2400}},
 				Rows: []resolve.TableRow{{
-					Cells: []resolve.TableCell{{Text: "C1"}, {Text: "C2"}},
+					Cells: []resolve.TableCell{
+						{Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "C1"}}}}}},
+						{Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "C2"}}}}}},
+					},
 				}},
 			}},
 			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -11304,14 +11384,64 @@ func TestHTMLFooterTerminalParagraphMarkDoesNotRaiseFooterIntoBody(t *testing.T)
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	// Two visible 12pt lines at CSS/Word single spacing are 28.8pt tall.
-	// With a 36pt footer distance, the frame top is 792 - 36 - 28.8 = 727.2pt.
+	// Two visible 12pt Word lines are 27.6pt tall.
+	// With a 36pt footer distance, the frame top is 792 - 36 - 27.6 = 728.4pt.
 	// Counting Word's mandatory trailing paragraph mark as a third visible line
-	// would incorrectly move the footer up to 712.8pt, exactly the body edge.
-	if !strings.Contains(out, `class="page-footer" style="position:absolute;left:90.0pt;top:727.2pt;`) {
+	// would incorrectly move the footer up to 714.6pt.
+	if !strings.Contains(out, `class="page-footer" style="position:absolute;left:90.0pt;top:728.4pt;`) {
 		t.Fatalf("terminal empty footer paragraph must not raise footer into body; got:\n%s", out)
 	}
 }
+
+func TestHTMLBodyCSSUsesDocumentDefaultRunFormat(t *testing.T) {
+	fontSize := 22
+	doc := &resolve.Document{
+		DefaultRunFormat: resolve.RunFormat{
+			FontSize:  &fontSize,
+			FontASCII: "Aptos",
+			Color:     "1F2937",
+		},
+		Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "Body"}}}}},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	css := extractCSS(out)
+	if !strings.Contains(css, `body { background: #e8e8e8; font-family: Aptos,Arial,sans-serif; font-size: 11.0pt; color: #1F2937; }`) {
+		t.Fatalf("body CSS did not use document defaults:\n%s", css)
+	}
+}
+
+func TestHTMLHeaderFooterFramesRemainTextSelectable(t *testing.T) {
+	doc := &resolve.Document{
+		Headers: map[string]resolve.Story{
+			"header1": {Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "Header"}}}}}},
+		},
+		Footers: map[string]resolve.Story{
+			"footer1": {Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "Footer"}}}}}},
+		},
+		Sections: []resolve.Section{{
+			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
+			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
+			Headers:    []resolve.Reference{{Type: "default", PartName: "header1"}},
+			Footers:    []resolve.Reference{{Type: "default", PartName: "footer1"}},
+		}},
+		Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "Body"}}}}},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	css := extractCSS(out)
+	if !strings.Contains(css, `.page-overlay { position: absolute; z-index: 2; inset: 0; overflow: hidden; pointer-events: none; }`) {
+		t.Fatalf("page overlay should stay non-interactive by default:\n%s", css)
+	}
+	if !strings.Contains(css, `.page-header, .page-footer, .page-footnotes { position: absolute; overflow: hidden; pointer-events: auto; user-select: text; }`) {
+		t.Fatalf("header/footer frame CSS should allow text selection:\n%s", css)
+	}
+}
+
 func TestHTMLPreWord97OversizeFixedTableFitsPrintableFrame(t *testing.T) {
 	width := 10000
 	doc := &resolve.Document{
@@ -11343,5 +11473,96 @@ func TestHTMLPreWord97OversizeFixedTableFitsPrintableFrame(t *testing.T) {
 	}
 	if !strings.Contains(out, `<col style="width:38.7pt"><col style="width:386.7pt">`) {
 		t.Fatalf("legacy table columns must be proportionally scaled with the table; got:\n%s", out)
+	}
+}
+
+func TestHTMLListParagraphUsesCanonicalPhysicalItemBody(t *testing.T) {
+	doc := &resolve.Document{
+		Blocks: []resolve.Block{{
+			Kind: "paragraph",
+			Paragraph: &resolve.Paragraph{
+				List:      &resolve.ListMarker{Kind: "ordered", Level: 0, Start: 1, Format: "decimal", Template: "%1."},
+				Numbering: &resolve.Numbering{NumID: 1, Level: 0, Start: 1, Format: "decimal", Text: "%1.", IndentLeft: 720, IndentHanging: 360},
+				Runs:      []resolve.Run{{Kind: "run", Text: "list item"}},
+			},
+		}},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, "list item") {
+		t.Fatalf("list rendering lost item text: %s", out)
+	}
+	if !strings.Contains(out, `class="word-physical-slot"`) {
+		t.Fatalf("list item body did not use canonical physical slots: %s", out)
+	}
+}
+
+func TestHTMLHeaderFooterStoriesUseCanonicalPhysicalTabGeometry(t *testing.T) {
+	center, right := 4320, 8640
+	footer := resolve.Paragraph{
+		Format: resolve.ParagraphFormat{TabStops: []resolve.TabStop{
+			{Pos: center, Algn: "center"},
+			{Pos: right, Algn: "right"},
+		}},
+		Runs: []resolve.Run{
+			{Kind: "run", Text: "Author"},
+			{Kind: "tab", Text: "\t"},
+			{Kind: "run", Text: "Page 1"},
+			{Kind: "tab", Text: "\t"},
+			{Kind: "run", Text: "9/9/2026"},
+		},
+	}
+	doc := &resolve.Document{
+		Sections: []resolve.Section{{
+			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
+			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1800, Bottom: 1440, Left: 1800, Header: 720, Footer: 720},
+			Footers:    []resolve.Reference{{Type: "default", PartName: "footer"}},
+		}},
+		Footers: map[string]resolve.Story{
+			"footer": {Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &footer}}},
+		},
+		Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "body"}}}}},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `class="page-footer"`) {
+		t.Fatalf("missing footer frame: %s", out)
+	}
+	footerStart := strings.Index(out, `class="page-footer"`)
+	if footerStart < 0 {
+		t.Fatalf("missing footer frame: %s", out)
+	}
+	footerHTML := out[footerStart:]
+	if !strings.Contains(footerHTML, `class="word-physical-slot"`) {
+		t.Fatalf("footer story did not render through a canonical physical slot: %s", out)
+	}
+	if strings.Contains(footerHTML, `display:inline-block;width:36.0pt`) {
+		t.Fatalf("footer fell back to semantic default-tab spacers: %s", out)
+	}
+	for _, want := range []string{">Author<", ">Page 1<", ">9/9/2026<"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("footer lost %s: %s", want, out)
+		}
+	}
+}
+
+func TestHTMLWordFieldCSSDoesNotImposePresentationStyle(t *testing.T) {
+	source, err := os.ReadFile("html.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(source)
+	if strings.Contains(css, `.word-field { font-style: italic;`) {
+		t.Fatal("generic Word field CSS must not impose italic presentation")
+	}
+	if strings.Contains(css, `.word-field { font-style: inherit; color: #555;`) {
+		t.Fatal("generic Word field CSS must not impose gray presentation")
+	}
+	if !strings.Contains(css, `.word-field { font-style: inherit; color: inherit; }`) {
+		t.Fatal("generic Word field CSS must inherit run presentation")
 	}
 }

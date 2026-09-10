@@ -1558,3 +1558,168 @@ func TestBareLegacyOLEAnchorDoesNotLeakPlaceholderText(t *testing.T) {
 		t.Fatalf("bare OLE anchor rendered %q, want empty output", got)
 	}
 }
+func TestWrapPolygonProxyCSSScalesAndRotatesInsideProxy(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	proxyX, proxyY, proxyW, proxyH, _ := rotatedProxyGeometry(20, 30, 200, 100, 90)
+	got := wrapPolygonProxyCSS(
+		[][2]float64{{0, 0}, {100, 0}, {100, 50}, {0, 50}},
+		100*emuPerPoint, 50*emuPerPoint,
+		200, 100,
+		proxyX, proxyY, proxyW, proxyH,
+		20, 30, 90,
+	)
+	want := "polygon(100.00% 0.00%, 100.00% 100.00%, 0.00% 100.00%, 0.00% 0.00%)"
+	if got != want {
+		t.Fatalf("wrap polygon css = %q, want %q", got, want)
+	}
+}
+
+func TestOrdinaryPhysicalParagraphFragmentOwnsRenderedLineBreaks(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "browser must not reflow this source text"}}}
+	box := layout.BlockBox{
+		Block:    &resolve.Block{Kind: "paragraph", Paragraph: p},
+		Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1},
+		Y:        20,
+		Height:   24,
+		Fragment: &layout.ParagraphFragment{
+			// Ordinary full-width lines deliberately do not require constrained
+			// spatial rendering. Their physical topology is still authoritative.
+			SpatialRendering: false,
+			Lines: []layout.ParagraphLineLayout{
+				{Slots: []layout.ParagraphSlotLayout{{
+					Left: 72, Right: 272, Top: 96, Bottom: 108,
+					Runs: []resolve.Run{{Kind: "run", Text: "layout line one"}},
+				}}},
+				{Slots: []layout.ParagraphSlotLayout{{
+					Left: 72, Right: 272, Top: 108, Bottom: 120,
+					Runs: []resolve.Run{{Kind: "run", Text: "layout line two"}},
+				}}},
+			},
+			IsLast: true,
+		},
+	}
+
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPageParagraphBox([]layout.BlockBox{box}, 0)
+	got := r.buf.String()
+
+	if strings.Contains(got, "browser must not reflow this source text") {
+		t.Fatalf("ordinary physical fragment fell back to semantic/browser reflow: %s", got)
+	}
+	for _, want := range []string{
+		`class="word-physical-slot" data-line="0" data-slot="0"`,
+		`class="word-physical-slot" data-line="1" data-slot="0"`,
+		">layout line one<",
+		">layout line two<",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ordinary physical fragment missing %q: %s", want, got)
+		}
+	}
+}
+
+func TestPhysicalParagraphFragmentUsesSlotGeometryInsteadOfFlattenedRuns(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "source"}}}
+	box := layout.BlockBox{
+		Block:    &resolve.Block{Kind: "paragraph", Paragraph: p},
+		Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1},
+		Y:        20,
+		Height:   24,
+		Fragment: &layout.ParagraphFragment{
+			SpatialRendering: true,
+			Lines: []layout.ParagraphLineLayout{{Slots: []layout.ParagraphSlotLayout{
+				{Left: 82, Right: 122, Top: 96, Bottom: 108, Runs: []resolve.Run{{Kind: "run", Text: "left"}}},
+				{Left: 172, Right: 222, Top: 96, Bottom: 108, Runs: []resolve.Run{{Kind: "run", Text: "right"}}},
+			}}},
+			IsLast: true,
+		},
+	}
+
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPageParagraphBox([]layout.BlockBox{box}, 0)
+	got := r.buf.String()
+	// There is intentionally no flattened ParagraphFragment.Runs shadow anymore;
+	// the slot text below is the only renderable fragment content.
+	for _, want := range []string{
+		`class="word-physical-slot" data-line="0" data-slot="0"`,
+		`left:10.00pt;top:4.00pt;width:40.00pt;height:12.00pt;line-height:12.00pt`,
+		`class="word-physical-slot" data-line="0" data-slot="1"`,
+		`left:100.00pt;top:4.00pt;width:50.00pt;height:12.00pt;line-height:12.00pt`,
+		">left<", ">right<",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("physical fragment missing %q: %s", want, got)
+		}
+	}
+}
+
+func TestPhysicalParagraphContinuationRebasesVerticalGeometry(t *testing.T) {
+	fragment := &layout.ParagraphFragment{
+		SpatialRendering: true,
+		IsContinuation:   true,
+		IsLast:           true,
+		Lines: []layout.ParagraphLineLayout{
+			{Slots: []layout.ParagraphSlotLayout{{Left: 72, Right: 172, Top: 700, Bottom: 712, Runs: []resolve.Run{{Kind: "run", Text: "one"}}}}},
+			{Slots: []layout.ParagraphSlotLayout{{Left: 72, Right: 172, Top: 712, Bottom: 724, Runs: []resolve.Run{{Kind: "run", Text: "two"}}}}},
+		},
+	}
+	box := layout.BlockBox{
+		Block:    &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{}},
+		Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1},
+		Y:        0,
+		Height:   24,
+		Fragment: fragment,
+	}
+
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPhysicalParagraphFragment(box)
+	got := r.buf.String()
+	if !strings.Contains(got, `left:0.00pt;top:0.00pt;width:100.00pt;height:12.00pt;line-height:12.00pt`) ||
+		!strings.Contains(got, `left:0.00pt;top:12.00pt;width:100.00pt;height:12.00pt`) {
+		t.Fatalf("continuation slot geometry was not rebased to the fragment origin: %s", got)
+	}
+}
+
+func TestRenderRunsUsesDefaultTabStopsWithoutCustomStops(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{{Text: "Column1"}, {Kind: "tab"}, {Text: "Column2"}}}
+	r := &htmlRenderer{doc: &resolve.Document{DefaultTabStop: 720}, currentParagraph: p}
+	r.resetTabState(p)
+	r.renderRuns(p.Runs)
+	got := r.buf.String()
+	if !strings.Contains(got, "display:inline-block;width:") {
+		t.Fatalf("ordinary-flow tab was not rendered with a default tab stop: %s", got)
+	}
+	if !strings.Contains(got, "Column1") || !strings.Contains(got, "Column2") {
+		t.Fatalf("tab rendering lost surrounding text: %s", got)
+	}
+}
+
+func TestPhysicalParagraphContinuationDoesNotRepeatFloatingAnchor(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "image", Image: &resolve.Image{Floating: true, WrapType: "square", Width: 12700, Height: 12700}},
+		{Kind: "run", Text: "continued"},
+	}}
+	box := layout.BlockBox{
+		Block:    &resolve.Block{Kind: "paragraph", Paragraph: p},
+		Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1},
+		Height:   12,
+		Fragment: &layout.ParagraphFragment{
+			SpatialRendering: true,
+			IsContinuation:   true,
+			IsLast:           true,
+			Lines: []layout.ParagraphLineLayout{{Slots: []layout.ParagraphSlotLayout{{
+				Left: 72, Right: 172, Top: 72, Bottom: 84,
+				Runs: []resolve.Run{{Kind: "run", Text: "continued"}},
+			}}}},
+		},
+	}
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPhysicalParagraphFragment(box)
+	got := r.buf.String()
+	if strings.Contains(got, "<img") || strings.Contains(got, "floating-image") {
+		t.Fatalf("continuation fragment repeated floating anchor: %s", got)
+	}
+	if !strings.Contains(got, "continued") {
+		t.Fatalf("continuation text missing: %s", got)
+	}
+}

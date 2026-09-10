@@ -10,6 +10,12 @@ describe('viewer frame scrollbars', () => {
     expect(document.indexOf('data-aether-viewer-scrollbars')).toBeLessThan(document.indexOf('</head>'));
   });
 
+  it('places the stylesheet before a document CSP can block it', () => {
+    const document = withViewerFrameScrollbars('<html><head><meta http-equiv="Content-Security-Policy" content="style-src \'self\'"></head><body></body></html>');
+
+    expect(document.indexOf('data-aether-viewer-scrollbars')).toBeLessThan(document.indexOf('Content-Security-Policy'));
+  });
+
   it('wraps HTML fragments in a styled document', () => {
     expect(withViewerFrameScrollbars('<main>Content</main>')).toContain('<head>');
   });

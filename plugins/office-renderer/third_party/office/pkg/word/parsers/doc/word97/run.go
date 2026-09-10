@@ -10,18 +10,18 @@ import (
 // while synthetic semantic runs (fields, references, bookmarks, drawings)
 // travel through the same bounded stream without falling back to legacy types.
 type Run struct {
-	Text              string
-	Kind              string
-	Format            wordir.RunFormat
-	ParagraphFormat   wordir.ParagraphFormat
-	TableDepth        int
-	LegacyInTableHint bool
-	LegacyRowMarkHint bool
-	TableProps        *docformat.TableRowProps
-	StartCP           int
-	Revision          string
-	RevisionAuthor    string
-	RevisionDate      string
+	Text                      string
+	Kind                      string
+	Format                    wordir.RunFormat
+	ParagraphFormat           wordir.ParagraphFormat
+	TableDepth                int
+	LegacyInTableHint         bool
+	LegacyRowMarkHint         bool
+	TableProps                *docformat.TableRowProps
+	StartCP                   int
+	Revision                  string
+	RevisionAuthor            string
+	RevisionDate              string
 	ParagraphPropertyRevision *wordir.RevisionMark
 	RunPropertyRevision       *wordir.RevisionMark
 	DisplayFieldRevision      *wordir.RevisionMark
@@ -37,6 +37,8 @@ type Run struct {
 	Image       *wordir.Image
 	Shape       *wordir.Shape
 	EmbeddedRun *wordir.Run
+	FormField   *wordir.FormField
+	Fields      []*docformat.MaterializedField[Run]
 
 	IbstRMark    uint16
 	HasIbstRMark bool

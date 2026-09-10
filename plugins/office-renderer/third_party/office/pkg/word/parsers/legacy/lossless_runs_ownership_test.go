@@ -6,27 +6,21 @@ import (
 	"testing"
 )
 
-func TestLosslessMainRunAdapterDelegatesCanonical(t *testing.T) {
+func TestLosslessMainRunAdapterHasNoWord97Ownership(t *testing.T) {
 	data, err := os.ReadFile("lossless_runs.go")
 	if err != nil {
-		t.Fatalf("read lossless_runs.go: %v", err)
+		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "word97.MaterializeResolvedRunRangeFromCLX") {
-		t.Fatalf("lossless main-run adapter must delegate resolved CLX range materialization to canonical Word97")
-	}
 	for _, forbidden := range []string{
-		"word97.MaterializeRunRangeFromCLX(",
-		"docbinary.ParseComplexFileTable(",
-		"assembleDocRunsFromClxRange(",
-		"assembleDocRunsFromPlcPcdRange(",
-		"BTEPageNumbers(",
-		"ParseCHPXFKP(",
-		"ParsePAPXFKP(",
-		"resolveCanonicalWord97RunRevisions(",
+		"word97.Run",
+		"legacyRunFromCanonicalWord97(",
+		"adaptCanonicalWord97Run(",
+		"MaterializeResolvedRunRangeFromCLX", "MaterializeRunRangeFromCLX",
+		"ParseComplexFileTable", "BTEPageNumbers", "ParseCHPXFKP", "ParsePAPXFKP",
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("lossless main-run adapter regained canonical assembly/semantic responsibility: found %q", forbidden)
+			t.Fatalf("generic lossless run code retained Word97 ownership %q", forbidden)
 		}
 	}
 }

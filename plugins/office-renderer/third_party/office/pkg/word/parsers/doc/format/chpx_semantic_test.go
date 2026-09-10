@@ -53,3 +53,14 @@ func TestParseCHPXFKPUsesNativeDecoderByDefault(t *testing.T) {
 		t.Fatalf("CHPX = %#v", got)
 	}
 }
+
+func TestDecodeCHPXCFFldVanishDoesNotBecomeOrdinaryRunVanish(t *testing.T) {
+	got := DecodeCHPX([]byte{0x02, 0x08, 0x01}, nil)
+	if got.Format.Vanish != nil {
+		t.Fatalf("sprmCFFldVanish projected as ordinary Vanish = %#v", got.Format.Vanish)
+	}
+	got = DecodeCHPX([]byte{0x3E, 0x08, 0x01}, nil)
+	if got.Format.Vanish == nil || !*got.Format.Vanish {
+		t.Fatalf("sprmCFVanish = %#v, want true", got.Format.Vanish)
+	}
+}

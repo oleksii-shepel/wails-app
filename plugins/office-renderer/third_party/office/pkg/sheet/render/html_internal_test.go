@@ -1,6 +1,7 @@
 package render
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -397,7 +398,6 @@ func TestRenderPivotTableNilSafe(t *testing.T) {
 	}
 }
 
-
 func TestRenderTableEnrichment(t *testing.T) {
 	tbl := &resolve.Table{
 		ID:             1,
@@ -442,5 +442,286 @@ func TestRenderTableNilSafe(t *testing.T) {
 	renderTable(&b, nil)
 	if b.Len() != 0 {
 		t.Errorf("expected empty output for nil table, got %q", b.String())
+	}
+}
+
+func TestDrawingLayoutCollapsesHiddenColumnsButRetainsFollowingGeometry(t *testing.T) {
+	sheet := &resolve.Sheet{
+		ColumnWidths: map[int]float64{1: 10, 2: 20, 3: 12},
+		HiddenCols:   map[int]bool{2: true},
+		Rows: []*resolve.Row{{
+			Index: 1,
+			Cells: []*resolve.Cell{{Row: 1, Col: 3, Ref: "C1", Kind: resolve.CellString, StrValue: "x"}},
+		}},
+	}
+
+	dl := buildDrawingLayout(sheet)
+	wantC := worksheetColumnWidthPx(10)
+	if got := dl.anchorXPx(3, 0); got != wantC {
+		t.Fatalf("column C visual x = %dpx, want %dpx with hidden B collapsed", got, wantC)
+	}
+}
+
+func TestDrawingLayoutCollapsesHiddenRows(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DefaultRowHeightPt: 15,
+		Rows: []*resolve.Row{
+			{Index: 1, HeightPt: 30, Hidden: true},
+			{Index: 2, HeightPt: 24, Cells: []*resolve.Cell{{Row: 2, Col: 1, Ref: "A2", Kind: resolve.CellString, StrValue: "x"}}},
+		},
+	}
+
+	dl := buildDrawingLayout(sheet)
+	if got := dl.anchorYPx(2, 0); got != 0 {
+		t.Fatalf("row 2 visual y = %dpx, want 0px with hidden row 1 collapsed", got)
+	}
+}
+
+func TestDrawingLayoutIncludesSparseVMLControlAnchorEnvelope(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DefaultColWidthChars: 8.43,
+		DefaultRowHeightPt:   15,
+		Rows: []*resolve.Row{{
+			Index: 1,
+			Cells: []*resolve.Cell{{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellString, StrValue: "x"}},
+		}},
+		FormControls: []*resolve.FormControl{{
+			Type:   "Button",
+			Anchor: "4, 0, 5, 0, 6, 0, 8, 0",
+		}},
+	}
+
+	dl := buildDrawingLayout(sheet)
+	if got := dl.anchorXPx(7, 0); got <= 0 {
+		t.Fatalf("far VML column anchor x = %dpx, want positive cumulative geometry", got)
+	}
+	if got := dl.anchorYPx(9, 0); got <= 0 {
+		t.Fatalf("far VML row anchor y = %dpx, want positive cumulative geometry", got)
+	}
+}
+
+func TestDrawingLayoutDefaultZeroHeightCollapsesImplicitRows(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DefaultRowHeightPt:         15,
+		DefaultRowHeightZeroHeight: true,
+		Rows: []*resolve.Row{
+			{Index: 1},
+			{Index: 3, HeightPt: 24, Cells: []*resolve.Cell{{Row: 3, Col: 1, Ref: "A3", Kind: resolve.CellString, StrValue: "x"}}},
+		},
+	}
+
+	dl := buildDrawingLayout(sheet)
+	if got := dl.anchorYPx(3, 0); got != 0 {
+		t.Fatalf("row 3 visual y = %dpx, want 0px when preceding default-height rows are zero-height", got)
+	}
+}
+
+func TestDrawingLayoutExplicitHeightOverridesDefaultZeroHeight(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DefaultRowHeightPt:         15,
+		DefaultRowHeightZeroHeight: true,
+		Rows: []*resolve.Row{
+			{Index: 1, HeightPt: 18},
+			{Index: 2, Cells: []*resolve.Cell{{Row: 2, Col: 1, Ref: "A2", Kind: resolve.CellString, StrValue: "x"}}},
+		},
+	}
+
+	dl := buildDrawingLayout(sheet)
+	want := int(math.Round(18 * 4 / 3))
+	if got := dl.anchorYPx(2, 0); got != want {
+		t.Fatalf("row 2 visual y = %dpx, want %dpx from explicit row height", got, want)
+	}
+}
+
+func TestWorksheetGeometryBoundsIncludesMergedArrayAndAnchoredObjects(t *testing.T) {
+	sheet := &resolve.Sheet{
+		Rows:          []*resolve.Row{{Index: 2, Cells: []*resolve.Cell{{Row: 2, Col: 2, Ref: "B2"}}}},
+		MergedCells:   []*resolve.MergedCell{{TopRow: 4, LeftCol: 3, BottomRow: 6, RightCol: 5}},
+		ArrayFormulas: []*resolve.ArrayFormula{{TopRow: 8, LeftCol: 2, BottomRow: 9, RightCol: 7}},
+		Drawings: []*resolve.Drawing{{Position: resolve.DrawingPosition{
+			Anchor:   resolve.AnchorTwoCell,
+			FromCell: resolve.DrawingCellAnchor{Row: 3, Col: 4},
+			ToCell:   resolve.DrawingCellAnchor{Row: 12, Col: 10},
+		}}},
+		FormControls: []*resolve.FormControl{{Anchor: "0, 0, 0, 0, 11, 0, 14, 0"}},
+	}
+	minRow, maxRow, minCol, maxCol := worksheetGeometryBounds(sheet)
+	if minRow != 2 || maxRow != 15 || minCol != 2 || maxCol != 12 {
+		t.Fatalf("geometry bounds = rows %d..%d cols %d..%d, want rows 2..15 cols 2..12", minRow, maxRow, minCol, maxCol)
+	}
+}
+
+func TestWorksheetGeometryBoundsIgnoresStaleSourceDimension(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DimFirstRow: 1, DimLastRow: 1048576,
+		DimFirstCol: 1, DimLastCol: 16384,
+		Rows: []*resolve.Row{{Index: 3, Cells: []*resolve.Cell{{Row: 3, Col: 2, Ref: "B3"}}}},
+	}
+	minRow, maxRow, minCol, maxCol := worksheetGeometryBounds(sheet)
+	if minRow != 3 || maxRow != 3 || minCol != 2 || maxCol != 2 {
+		t.Fatalf("geometry bounds = rows %d..%d cols %d..%d, want content bounds B3 only", minRow, maxRow, minCol, maxCol)
+	}
+}
+
+func TestHTMLRendersMergedOnlySparseWorksheet(t *testing.T) {
+	wb := &resolve.Workbook{Sheets: []*resolve.Sheet{{
+		Name:        "MergedOnly",
+		MergedCells: []*resolve.MergedCell{{TopRow: 2, LeftCol: 2, BottomRow: 3, RightCol: 4}},
+	}}}
+	out, err := HTML(wb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `rowspan="2"`) || !strings.Contains(out, `colspan="3"`) {
+		t.Fatalf("merged-only sparse worksheet lost physical merge geometry:\n%s", out)
+	}
+}
+
+func TestHTMLCellFidelityRendersDecorationsIndentAndShrinkToFit(t *testing.T) {
+	wb := &resolve.Workbook{Sheets: []*resolve.Sheet{{Name: "Sheet1", Rows: []*resolve.Row{{Index: 1, Cells: []*resolve.Cell{{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellString, StrValue: "styled", Style: resolve.CellStyle{Underline: true, Strike: true, ShrinkToFit: true, Indent: 2}}}}}}}}
+	html, err := HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	for _, want := range []string{"text-decoration:underline line-through", "overflow:hidden", "text-overflow:clip", "padding-left:2.00em"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("HTML missing %q:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, `style="white-space:nowrap`) {
+		t.Fatalf("default no-wrap behavior must remain stylesheet-owned rather than emitted per cell:\n%s", html)
+	}
+}
+
+func TestApplyCFBorderOverrideReplacesBaseBorder(t *testing.T) {
+	styles := []string{"border-left:1px solid #111111", "color:#222222"}
+	code := 6
+	applyCFBorderOverride(&styles, "left", &code, "FF0000")
+	got := strings.Join(styles, ";")
+	if strings.Contains(got, "#111111") {
+		t.Fatalf("conditional border retained base border: %s", got)
+	}
+	if !strings.Contains(got, "border-left:3px double #FF0000") {
+		t.Fatalf("conditional double border missing: %s", got)
+	}
+}
+
+func TestApplyCFBorderOverrideCanRemoveBaseBorder(t *testing.T) {
+	styles := []string{"border-bottom:1px solid #111111"}
+	code := 0
+	applyCFBorderOverride(&styles, "bottom", &code, "")
+	if got := strings.Join(styles, ";"); strings.Contains(got, "border-bottom") {
+		t.Fatalf("conditional none border did not remove base border: %s", got)
+	}
+}
+
+func TestHTMLCellFidelityRendersPatternFillWithoutFlatteningIt(t *testing.T) {
+	styles := []string{}
+	appendFillStyles(&styles, resolve.CellStyle{
+		BgColor: "445566", FillPattern: "darkGrid", FillPatternBgColor: "112233",
+	})
+	got := strings.Join(styles, ";")
+	for _, want := range []string{"background-color:#112233", "background-image:", "#445566"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pattern fill CSS = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestHTMLCellFidelityPreservesExtendedHorizontalAlignmentSemantics(t *testing.T) {
+	cases := []struct {
+		align string
+		css   string
+		extra string
+	}{
+		{"centerContinuous", "center", ""},
+		{"justify", "justify", ""},
+		{"distributed", "justify", "text-align-last:justify"},
+		{"fill", "", ""},
+	}
+	for _, tc := range cases {
+		css, extra := cssCellHAlign(tc.align)
+		if css != tc.css {
+			t.Fatalf("cssCellHAlign(%q) = %q, want %q", tc.align, css, tc.css)
+		}
+		if tc.extra != "" && !strings.Contains(strings.Join(extra, ";"), tc.extra) {
+			t.Fatalf("cssCellHAlign(%q) extras = %#v, want %q", tc.align, extra, tc.extra)
+		}
+	}
+}
+
+func TestRenderRichTextCombinesUnderlineAndStrikeDecoration(t *testing.T) {
+	var out strings.Builder
+	renderRichTextRuns(&out, []*resolve.RichTextRun{{Text: "both", Underline: true, Strike: true}}, nil)
+	got := out.String()
+	if !strings.Contains(got, "text-decoration:underline line-through") {
+		t.Fatalf("rich text decoration = %q, want combined underline and line-through", got)
+	}
+	if strings.Count(got, "text-decoration:") != 1 {
+		t.Fatalf("rich text decoration emitted multiple overriding declarations: %q", got)
+	}
+}
+
+func TestRenderRichTextRunsPreservesUnderlineVariantAndScriptPosition(t *testing.T) {
+	var b strings.Builder
+	renderRichTextRuns(&b, []*resolve.RichTextRun{
+		{Text: "x", Underline: true, UnderlineType: "doubleAccounting", VertAlign: "superscript"},
+	}, nil)
+	html := b.String()
+	for _, want := range []string{
+		"text-decoration:underline",
+		"text-decoration-style:double",
+		"text-underline-position:under",
+		"vertical-align:super",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rich text HTML missing %q: %s", want, html)
+		}
+	}
+}
+
+func TestAppendBorderStylesRendersDiagonalDirections(t *testing.T) {
+	var styles []string
+	appendBorderStyles(&styles, resolve.CellStyle{
+		BorderDiagonal:   resolve.BorderStyle{Style: "medium", Color: "112233"},
+		BorderDiagonalUp: true, BorderDiagonalDown: true,
+	})
+	got := strings.Join(styles, ";")
+	if !strings.Contains(got, "background-image:") || !strings.Contains(got, "to top right") || !strings.Contains(got, "to bottom right") || !strings.Contains(got, "#112233") {
+		t.Fatalf("diagonal border CSS = %q", got)
+	}
+}
+
+func TestDrawingImageCropStyleExpandsAndOffsetsSourceImage(t *testing.T) {
+	img := &resolve.DrawingImage{CropLeft: 10000, CropTop: 20000, CropRight: 30000, CropBottom: 40000}
+	style := drawingImageCropStyle(img)
+	for _, want := range []string{"width:166.6667%", "height:250.0000%", "left:-16.6667%", "top:-50.0000%"} {
+		if !strings.Contains(style, want) {
+			t.Fatalf("crop style %q missing %q", style, want)
+		}
+	}
+}
+
+func TestDrawingImageCropDetection(t *testing.T) {
+	if drawingImageHasCrop(nil) || drawingImageHasCrop(&resolve.DrawingImage{}) {
+		t.Fatal("empty image crop reported as active")
+	}
+	if !drawingImageHasCrop(&resolve.DrawingImage{CropBottom: 1}) {
+		t.Fatal("authored crop was not detected")
+	}
+}
+
+func TestRenderDrawingShapeTextUsesRichRunsAndParagraphBreaks(t *testing.T) {
+	var b strings.Builder
+	renderDrawingShapeText(&b, &resolve.DrawingShape{RichTextRuns: []*resolve.RichTextRun{
+		{Text: "Top", Bold: true, Underline: true, UnderlineType: "double"},
+		{Text: "\n"},
+		{Text: "Bottom", VertAlign: "subscript"},
+	}})
+	got := b.String()
+	for _, want := range []string{"font-weight:bold", "text-decoration-style:double", "<br>", "vertical-align:sub", "Top", "Bottom"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("shape rich text %q does not contain %q", got, want)
+		}
 	}
 }

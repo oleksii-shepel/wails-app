@@ -13,7 +13,7 @@ type preWord97DocCore struct {
 	PreferredCharset  *charmap.Charmap
 	ChpxEntries       []chpxEntry
 	PapxEntries       []papxEntry
-	ListTables        *legacyListTables
+	ListTables        *binaryWordListCatalog
 	ComplexFileTable  *legacyComplexFileTable
 	SyntheticPiecePlc []byte
 	PiecePlc          []byte
@@ -28,15 +28,15 @@ func loadPreWord97DocCore(wordStream []byte) (*preWord97DocCore, bool) {
 	fonts := convertCanonicalPreWord97Fonts(canonical.Fonts)
 	papxEntries := convertCanonicalPreWord97PAPX(canonical.PAPX)
 	core := &preWord97DocCore{
-		Canonical:         canonical,
-		Span:              span,
-		Fonts:             fonts,
-		PreferredCharset:  canonical.PreferredCharset,
-		ChpxEntries:       convertCanonicalPreWord97CHPX(canonical.CHPX, canonical.FontNames),
-		PapxEntries:       papxEntries,
-		ListTables:        preWord97SynthesizeListTables(papxEntries),
-		ComplexFileTable:  canonical.Complex,
-		PiecePlc:          append([]byte(nil), canonical.PiecePLC...),
+		Canonical:        canonical,
+		Span:             span,
+		Fonts:            fonts,
+		PreferredCharset: canonical.PreferredCharset,
+		ChpxEntries:      convertCanonicalPreWord97CHPX(canonical.CHPX, canonical.FontNames),
+		PapxEntries:      papxEntries,
+		ListTables:       preWord97SynthesizeListTables(papxEntries),
+		ComplexFileTable: canonical.Complex,
+		PiecePlc:         append([]byte(nil), canonical.PiecePLC...),
 	}
 	if !span.FComplex {
 		core.SyntheticPiecePlc = append([]byte(nil), canonical.PiecePLC...)
@@ -80,7 +80,7 @@ func legacyPreWord97Span(span pre97.Span) PreWord97BodySpan {
 	}
 }
 
-func (core *preWord97DocCore) assembleMainStoryRuns(wordStream []byte) []docRun {
+func (core *preWord97DocCore) assembleMainStoryRuns(wordStream []byte) []binaryWordRun {
 	if core == nil || core.Canonical == nil {
 		return nil
 	}
@@ -88,7 +88,7 @@ func (core *preWord97DocCore) assembleMainStoryRuns(wordStream []byte) []docRun 
 	if err != nil {
 		return nil
 	}
-	var runs []docRun
+	var runs []binaryWordRun
 	for {
 		run, ok, err := cursor.Next()
 		if err != nil || !ok {
@@ -97,30 +97,30 @@ func (core *preWord97DocCore) assembleMainStoryRuns(wordStream []byte) []docRun 
 			}
 			break
 		}
-		runs = append(runs, docRun{
-			Text:                run.Text,
-			Kind:                run.Kind,
-			Format:              run.Format,
-			ParaFormat:          run.ParagraphFormat,
-			TableDepth:          run.TableDepth,
-			LegacyInTableHint:   run.LegacyInTableHint,
-			LegacyRowMarkHint:   run.LegacyRowMarkHint,
-			TableProps:          legacyTableRowPropsFromCanonical(run.TableProps),
-			StartCP:             run.StartCP,
-			FieldKind:           run.FieldKind,
-			FieldInstr:          run.FieldInstr,
-			FieldArg:            run.FieldArg,
-			Target:              run.Target,
-			Anchor:              run.Anchor,
-			NoteID:              run.NoteID,
-			CommentID:           run.CommentID,
-			Image:               run.Image,
-			Shape:               run.Shape,
-			Spec:                run.Spec,
-			Data:                run.Data,
-			Obj:                 run.Obj,
-			ChpxSprms:           append([]byte(nil), run.ChpxSprms...),
-			PapxSprms:           append([]byte(nil), run.PapxSprms...),
+		runs = append(runs, binaryWordRun{
+			Text:              run.Text,
+			Kind:              run.Kind,
+			Format:            run.Format,
+			ParaFormat:        run.ParagraphFormat,
+			TableDepth:        run.TableDepth,
+			LegacyInTableHint: run.LegacyInTableHint,
+			LegacyRowMarkHint: run.LegacyRowMarkHint,
+			TableProps:        run.TableProps.Clone(),
+			StartCP:           run.StartCP,
+			FieldKind:         run.FieldKind,
+			FieldInstr:        run.FieldInstr,
+			FieldArg:          run.FieldArg,
+			Target:            run.Target,
+			Anchor:            run.Anchor,
+			NoteID:            run.NoteID,
+			CommentID:         run.CommentID,
+			Image:             run.Image,
+			Shape:             run.Shape,
+			Spec:              run.Spec,
+			Data:              run.Data,
+			Obj:               run.Obj,
+			ChpxSprms:         append([]byte(nil), run.ChpxSprms...),
+			PapxSprms:         append([]byte(nil), run.PapxSprms...),
 		})
 	}
 	return runs
@@ -175,7 +175,7 @@ func convertCanonicalPreWord97CHPX(entries []pre97.CHPXEntry, fontNames []string
 // preWord97SynthesizeListTables builds a lightweight binary-list table map from
 // old PAPx entries by assigning synthetic ilfo IDs and carrying observed ANLD
 // format/start metadata through existing list continuation plumbing.
-func preWord97SynthesizeListTables(entries []papxEntry) *legacyListTables {
+func preWord97SynthesizeListTables(entries []papxEntry) *binaryWordListCatalog {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -222,7 +222,7 @@ func preWord97SynthesizeListTables(entries []papxEntry) *legacyListTables {
 	if !seen || len(formatByIlfoLevel) == 0 {
 		return nil
 	}
-	return &legacyListTables{
+	return &binaryWordListCatalog{
 		formatByIlfoLevel: formatByIlfoLevel,
 		startByIlfoLevel:  startByIlfoLevel,
 	}

@@ -23,6 +23,7 @@ type (
 	DrawingType                 = ir.DrawingType
 	DrawingPosition             = ir.DrawingPosition
 	DrawingAnchor               = ir.DrawingAnchor
+	DrawingAnchorBehavior       = ir.DrawingAnchorBehavior
 	DrawingCellAnchor           = ir.DrawingCellAnchor
 	DrawingImage                = ir.DrawingImage
 	DrawingShape                = ir.DrawingShape
@@ -44,6 +45,9 @@ type (
 	EmbeddedFontFace            = ir.EmbeddedFontFace
 	CellKind                    = ir.CellKind
 	DataValidation              = ir.DataValidation
+	PaneSelection               = ir.PaneSelection
+	Hyperlink                   = ir.Hyperlink
+	CommentNote                 = ir.CommentNote
 	CFRule                      = ir.CFRule
 	CFCfvo                      = ir.CFCfvo
 	CFDataBar                   = ir.CFDataBar
@@ -74,13 +78,16 @@ type (
 )
 
 const (
-	DrawingTypeImage     = ir.DrawingTypeImage
-	DrawingTypeShape     = ir.DrawingTypeShape
-	DrawingTypeChart     = ir.DrawingTypeChart
-	DrawingTypeConnector = ir.DrawingTypeConnector
-	DrawingTypeGroup     = ir.DrawingTypeGroup
-	DrawingTypeSmartArt  = ir.DrawingTypeSmartArt
-	DrawingTypeOLE       = ir.DrawingTypeOLE
+	DrawingTypeImage          = ir.DrawingTypeImage
+	DrawingTypeShape          = ir.DrawingTypeShape
+	DrawingTypeChart          = ir.DrawingTypeChart
+	DrawingTypeConnector      = ir.DrawingTypeConnector
+	DrawingTypeGroup          = ir.DrawingTypeGroup
+	DrawingTypeSmartArt       = ir.DrawingTypeSmartArt
+	DrawingTypeOLE            = ir.DrawingTypeOLE
+	AnchorBehaviorMoveAndSize = ir.AnchorBehaviorMoveAndSize
+	AnchorBehaviorMoveOnly    = ir.AnchorBehaviorMoveOnly
+	AnchorBehaviorFixed       = ir.AnchorBehaviorFixed
 
 	AnchorAbsolute = ir.AnchorAbsolute
 	AnchorOneCell  = ir.AnchorOneCell

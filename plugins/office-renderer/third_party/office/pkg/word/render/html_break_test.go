@@ -8,7 +8,7 @@ import (
 	"office/pkg/word/render"
 )
 
-func TestHTMLRendersEmptyLineBreakRun(t *testing.T) {
+func TestHTMLPhysicalParagraphPositionsLineBreakRun(t *testing.T) {
 	p := &resolve.Paragraph{Runs: []resolve.Run{
 		{Kind: "run", Text: "Title"},
 		{Kind: "break", BreakType: "line"},
@@ -19,7 +19,14 @@ func TestHTMLRendersEmptyLineBreakRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(html, "Title<br>Caption") {
-		t.Fatalf("HTML = %q, want rendered line break", html)
+	for _, want := range []string{
+		`class="word-physical-slot" data-line="0"`,
+		`class="word-physical-slot" data-line="1"`,
+		">Title</span>",
+		">Caption</span>",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("HTML = %q, want %q", html, want)
+		}
 	}
 }

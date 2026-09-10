@@ -9,7 +9,7 @@ import "strings"
 type legacyFieldRunCursor struct {
 	inner legacyRunCursor
 	stack []legacyStreamFieldFrame
-	queue []docRun
+	queue []binaryWordRun
 }
 
 type legacyStreamFieldFrame struct {
@@ -25,9 +25,9 @@ func newLegacyFieldRunCursor(inner legacyRunCursor) legacyRunCursor {
 	return &legacyFieldRunCursor{inner: inner}
 }
 
-func (c *legacyFieldRunCursor) Next() (docRun, bool, error) {
+func (c *legacyFieldRunCursor) Next() (binaryWordRun, bool, error) {
 	if c == nil {
-		return docRun{}, false, nil
+		return binaryWordRun{}, false, nil
 	}
 	for {
 		if len(c.queue) > 0 {
@@ -43,7 +43,7 @@ func (c *legacyFieldRunCursor) Next() (docRun, bool, error) {
 	}
 }
 
-func (c *legacyFieldRunCursor) consume(run docRun) {
+func (c *legacyFieldRunCursor) consume(run binaryWordRun) {
 	if run.Kind != "" || !strings.ContainsAny(run.Text, "\x13\x14\x15") {
 		c.consumeTextRun(run)
 		return
@@ -93,7 +93,7 @@ func (c *legacyFieldRunCursor) consume(run docRun) {
 	}
 }
 
-func (c *legacyFieldRunCursor) consumeTextRun(run docRun) {
+func (c *legacyFieldRunCursor) consumeTextRun(run binaryWordRun) {
 	if run.Text == "" && run.Kind == "" {
 		return
 	}

@@ -322,7 +322,11 @@ func (c *converter) convertCellWithFormulaOverride(cell *sheetir.Cell, formulaOv
 
 	switch cell.Kind {
 	case sheetir.CellString:
-		if len(cell.RichTextRuns) > 0 {
+		// Legacy rich-text metadata is occasionally partial: BIFF formatting runs
+		// may describe only a suffix of the cell text. Only serialize rich text
+		// when its runs reconstruct the complete canonical cell value; otherwise
+		// preserve the full value through the shared-string path.
+		if len(cell.RichTextRuns) > 0 && richTextRunsText(cell.RichTextRuns) == cell.StrValue {
 			pc.Type = "inlineStr"
 			pc.InlineStr = c.convertRichText(cell.RichTextRuns)
 		} else {
@@ -649,6 +653,16 @@ func buildFormulaOverrides(sheet *sheetir.Sheet) map[string]sheetparts.Formula {
 	return out
 }
 
+func richTextRunsText(runs []*sheetir.RichTextRun) string {
+	var b strings.Builder
+	for _, run := range runs {
+		if run != nil {
+			b.WriteString(run.Text)
+		}
+	}
+	return b.String()
+}
+
 func (c *converter) convertRichText(runs []*sheetir.RichTextRun) *sheetparts.RichText {
 	rt := &sheetparts.RichText{}
 	if len(runs) == 0 {
@@ -660,7 +674,7 @@ func (c *converter) convertRichText(runs []*sheetir.RichTextRun) *sheetparts.Ric
 	}
 	for _, run := range runs {
 		pr := sheetparts.RTRun{Text: run.Text}
-		if run.Bold || run.Italic || run.Underline || run.Strike ||
+		if run.Bold || run.Italic || run.Underline || run.Strike || run.VertAlign != "" ||
 			run.FontSizePt > 0 || run.FontColor != "" || run.FontFamily != "" {
 			pr.Properties = &sheetparts.RTProps{}
 			if run.Bold {
@@ -670,7 +684,10 @@ func (c *converter) convertRichText(runs []*sheetir.RichTextRun) *sheetparts.Ric
 				pr.Properties.Italic = &struct{}{}
 			}
 			if run.Underline {
-				pr.Properties.Underline = &struct{}{}
+				pr.Properties.Underline = &sheetparts.StringVal{Val: run.UnderlineType}
+			}
+			if run.VertAlign != "" {
+				pr.Properties.VertAlign = &sheetparts.StringVal{Val: run.VertAlign}
 			}
 			if run.Strike {
 				pr.Properties.Strike = &struct{}{}
@@ -755,7 +772,10 @@ func (c *converter) buildXfFromStyle(style sheetir.CellStyle, xfID int) sheetpar
 		font.Italic = &struct{}{}
 	}
 	if style.Underline {
-		font.Underline = &struct{}{}
+		font.Underline = &sheetparts.StringVal{Val: style.UnderlineType}
+	}
+	if style.FontVertAlign != "" {
+		font.VertAlign = &sheetparts.StringVal{Val: style.FontVertAlign}
 	}
 	if style.Strike {
 		font.Strike = &struct{}{}
@@ -771,15 +791,22 @@ func (c *converter) buildXfFromStyle(style sheetir.CellStyle, xfID int) sheetpar
 	}
 	fontID := c.getOrAddFont(font)
 
-	// Build fill.
+	// Build fill. Preserve the canonical pattern instead of flattening every
+	// authored fill to solid during legacy -> OOXML conversion.
 	fill := sheetparts.Fill{}
+	pattern := style.FillPattern
+	if pattern == "" && style.BgColor != "" {
+		pattern = "solid"
+	}
+	if pattern == "" {
+		pattern = "none"
+	}
+	fill.PatternFill = &sheetparts.PatternFill{PatternType: pattern}
 	if style.BgColor != "" {
-		fill.PatternFill = &sheetparts.PatternFill{
-			PatternType: "solid",
-			FgColor:     &sheetparts.ColorVal{RGB: style.BgColor},
-		}
-	} else {
-		fill.PatternFill = &sheetparts.PatternFill{PatternType: "none"}
+		fill.PatternFill.FgColor = &sheetparts.ColorVal{RGB: style.BgColor}
+	}
+	if style.FillPatternBgColor != "" {
+		fill.PatternFill.BgColor = &sheetparts.ColorVal{RGB: style.FillPatternBgColor}
 	}
 	fillID := c.getOrAddFill(fill)
 
@@ -809,6 +836,17 @@ func (c *converter) buildXfFromStyle(style sheetir.CellStyle, xfID int) sheetpar
 			Color: &sheetparts.ColorVal{RGB: style.BorderLeft.Color},
 		}
 	}
+	if style.BorderDiagonal.Style != "" {
+		border.Diagonal = &sheetparts.BorderSide{Style: style.BorderDiagonal.Style, Color: &sheetparts.ColorVal{RGB: style.BorderDiagonal.Color}}
+		border.DiagonalUp = style.BorderDiagonalUp
+		border.DiagonalDown = style.BorderDiagonalDown
+	}
+	if style.BorderVertical.Style != "" {
+		border.Vertical = &sheetparts.BorderSide{Style: style.BorderVertical.Style, Color: &sheetparts.ColorVal{RGB: style.BorderVertical.Color}}
+	}
+	if style.BorderHorizontal.Style != "" {
+		border.Horizontal = &sheetparts.BorderSide{Style: style.BorderHorizontal.Style, Color: &sheetparts.ColorVal{RGB: style.BorderHorizontal.Color}}
+	}
 	borderID := c.getOrAddBorder(border)
 
 	// Number format.
@@ -819,11 +857,13 @@ func (c *converter) buildXfFromStyle(style sheetir.CellStyle, xfID int) sheetpar
 
 	// Alignment.
 	var alignment *sheetparts.Alignment
-	if style.HAlign != "" || style.VAlign != "" || style.WrapText || style.TextRotation != 0 {
+	if style.HAlign != "" || style.VAlign != "" || style.WrapText || style.ShrinkToFit || style.Indent != 0 || style.TextRotation != 0 {
 		alignment = &sheetparts.Alignment{
 			Horizontal:   style.HAlign,
 			Vertical:     spreadsheetVerticalAlign(style.VAlign),
 			WrapText:     style.WrapText,
+			ShrinkToFit:  style.ShrinkToFit,
+			Indent:       style.Indent,
 			TextRotation: style.TextRotation,
 		}
 	}
@@ -836,16 +876,23 @@ func (c *converter) buildXfFromStyle(style sheetir.CellStyle, xfID int) sheetpar
 		}
 	}
 
-	// Build xf.
+	// Build xf. Cell XFs are complete canonical styles. Mark each authored
+	// component as applied so a zero component ID can intentionally reset a
+	// non-zero named-style component instead of accidentally inheriting it.
 	xf := sheetparts.Xf{
-		NumFmtID:        numFmtID,
-		FontID:          fontID,
-		FillID:          fillID,
-		BorderID:        borderID,
-		XfID:            xfID,
-		ApplyProtection: protection != nil,
-		Alignment:       alignment,
-		Protection:      protection,
+		NumFmtID:          numFmtID,
+		FontID:            fontID,
+		FillID:            fillID,
+		BorderID:          borderID,
+		XfID:              xfID,
+		ApplyNumberFormat: style.NumFmtCode != "",
+		ApplyFont:         style.Bold || style.Italic || style.Underline || style.Strike || style.FontVertAlign != "" || style.FontSizePt > 0 || style.FontColor != "" || style.FontFamily != "",
+		ApplyFill:         style.BgColor != "" || (style.FillPattern != "" && style.FillPattern != "none") || style.FillPatternBgColor != "",
+		ApplyBorder:       style.BorderTop.Style != "" || style.BorderRight.Style != "" || style.BorderBottom.Style != "" || style.BorderLeft.Style != "" || style.BorderDiagonal.Style != "" || style.BorderVertical.Style != "" || style.BorderHorizontal.Style != "",
+		ApplyAlignment:    alignment != nil,
+		ApplyProtection:   protection != nil,
+		Alignment:         alignment,
+		Protection:        protection,
 	}
 	return xf
 }
@@ -873,8 +920,9 @@ func (c *converter) getOrAddFont(font sheetparts.Font) int {
 func fontsEqual(a, b sheetparts.Font) bool {
 	return boolPtrEqual(a.Bold, b.Bold) &&
 		boolPtrEqual(a.Italic, b.Italic) &&
-		boolPtrEqual(a.Underline, b.Underline) &&
+		stringValEqual(a.Underline, b.Underline) &&
 		boolPtrEqual(a.Strike, b.Strike) &&
+		stringValEqual(a.VertAlign, b.VertAlign) &&
 		floatValEqual(a.Size, b.Size) &&
 		colorValEqual(a.Color, b.Color) &&
 		stringValEqual(a.Name, b.Name) &&
@@ -941,7 +989,12 @@ func bordersEqual(a, b sheetparts.Border) bool {
 	return borderSideEqual(a.Left, b.Left) &&
 		borderSideEqual(a.Right, b.Right) &&
 		borderSideEqual(a.Top, b.Top) &&
-		borderSideEqual(a.Bottom, b.Bottom)
+		borderSideEqual(a.Bottom, b.Bottom) &&
+		borderSideEqual(a.Diagonal, b.Diagonal) &&
+		borderSideEqual(a.Vertical, b.Vertical) &&
+		borderSideEqual(a.Horizontal, b.Horizontal) &&
+		a.DiagonalUp == b.DiagonalUp &&
+		a.DiagonalDown == b.DiagonalDown
 }
 
 func borderSideEqual(a, b *sheetparts.BorderSide) bool {
@@ -983,6 +1036,11 @@ func xfsEqual(a, b sheetparts.Xf) bool {
 		a.FillID == b.FillID &&
 		a.BorderID == b.BorderID &&
 		a.XfID == b.XfID &&
+		a.ApplyNumberFormat == b.ApplyNumberFormat &&
+		a.ApplyFont == b.ApplyFont &&
+		a.ApplyFill == b.ApplyFill &&
+		a.ApplyBorder == b.ApplyBorder &&
+		a.ApplyAlignment == b.ApplyAlignment &&
 		a.ApplyProtection == b.ApplyProtection &&
 		cellProtectionEqual(a.Protection, b.Protection) &&
 		alignmentEqual(a.Alignment, b.Alignment)
@@ -995,6 +1053,8 @@ func alignmentEqual(a, b *sheetparts.Alignment) bool {
 	return a.Horizontal == b.Horizontal &&
 		a.Vertical == b.Vertical &&
 		a.WrapText == b.WrapText &&
+		a.ShrinkToFit == b.ShrinkToFit &&
+		a.Indent == b.Indent &&
 		a.TextRotation == b.TextRotation
 }
 
@@ -1021,29 +1081,45 @@ func (c *converter) mapMergedCells(sheet *sheetir.Sheet, ws *sheetparts.Workshee
 func (c *converter) mapHyperlinks(sheet *sheetir.Sheet, ws *sheetparts.Worksheet) map[string]string {
 	hyperlinkURLs := make(map[string]string)
 	nextRelID := 1
-	for _, row := range sheet.Rows {
-		for _, cell := range row.Cells {
-			if cell.HyperlinkURL == "" {
-				continue
+	appendHyperlink := func(ref, url, display, tooltip string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || url == "" {
+			return
+		}
+		if strings.HasPrefix(url, "#") {
+			ws.Hyperlinks = append(ws.Hyperlinks, sheetparts.Hyperlink{
+				Ref: ref, Location: url[1:], Display: display, Tooltip: tooltip,
+			})
+			return
+		}
+		relID := fmt.Sprintf("rIdHyperlink%d", nextRelID)
+		nextRelID++
+		ws.Hyperlinks = append(ws.Hyperlinks, sheetparts.Hyperlink{
+			Ref: ref, RelID: relID, Display: display, Tooltip: tooltip,
+		})
+		hyperlinkURLs[relID] = url
+	}
+
+	// Prefer authored hyperlink records so range refs, display text, and tooltip
+	// metadata survive round-trip. HyperlinkURL on cells remains the compatibility
+	// view used by editors and older parsers.
+	if len(sheet.Hyperlinks) > 0 {
+		for _, hl := range sheet.Hyperlinks {
+			if hl != nil {
+				appendHyperlink(hl.Ref, hl.URL, hl.Display, hl.Tooltip)
 			}
-			ref := cell.Ref
-			if ref == "" {
-				ref = cellRef(cell.Row, cell.Col)
-			}
-			url := cell.HyperlinkURL
-			if strings.HasPrefix(url, "#") {
-				ws.Hyperlinks = append(ws.Hyperlinks, sheetparts.Hyperlink{
-					Ref:      ref,
-					Location: url[1:],
-				})
-			} else {
-				relID := fmt.Sprintf("rIdHyperlink%d", nextRelID)
-				nextRelID++
-				ws.Hyperlinks = append(ws.Hyperlinks, sheetparts.Hyperlink{
-					Ref:   ref,
-					RelID: relID,
-				})
-				hyperlinkURLs[relID] = url
+		}
+	} else {
+		for _, row := range sheet.Rows {
+			for _, cell := range row.Cells {
+				if cell.HyperlinkURL == "" {
+					continue
+				}
+				ref := cell.Ref
+				if ref == "" {
+					ref = cellRef(cell.Row, cell.Col)
+				}
+				appendHyperlink(ref, cell.HyperlinkURL, "", "")
 			}
 		}
 	}
@@ -1129,12 +1205,20 @@ func (c *converter) mapPageSetup(sheet *sheetir.Sheet, ws *sheetparts.Worksheet)
 	if sheet.PageSetup != nil {
 		ps := sheet.PageSetup
 		ws.PageSetup = &sheetparts.PageSetup{
-			PaperSize:   ps.PaperSize,
-			Orientation: ps.Orientation,
-			Scale:       ps.Scale,
-			FitToPage:   ps.FitToPage,
-			FitToWidth:  ps.FitToWidth,
-			FitToHeight: ps.FitToHeight,
+			PaperSize:          ps.PaperSize,
+			Orientation:        ps.Orientation,
+			Scale:              ps.Scale,
+			FitToPage:          ps.FitToPage,
+			FitToWidth:         ps.FitToWidth,
+			FitToHeight:        ps.FitToHeight,
+			FirstPageNumber:    ps.FirstPageNumber,
+			UseFirstPageNumber: ps.UseFirstPageNumber,
+			PageOrder:          ps.PageOrder,
+			BlackAndWhite:      ps.BlackAndWhite,
+			Draft:              ps.Draft,
+			HorizontalDPI:      ps.HorizontalDPI,
+			VerticalDPI:        ps.VerticalDPI,
+			Copies:             ps.Copies,
 		}
 		ws.PageMargins = &sheetparts.PageMargins{
 			Left:   ps.MarginLeft,
@@ -1158,6 +1242,8 @@ func (c *converter) mapPageSetup(sheet *sheetir.Sheet, ws *sheetparts.Worksheet)
 		ws.HeaderFooter = &sheetparts.HeaderFooter{
 			DifferentOddEven: hf.DifferentOddEven,
 			DifferentFirst:   hf.DifferentFirst,
+			ScaleWithDoc:     hf.ScaleWithDoc,
+			AlignWithMargins: hf.AlignWithMargins,
 			OddHeader:        hf.OddHeader,
 			OddFooter:        hf.OddFooter,
 			EvenHeader:       hf.EvenHeader,
@@ -1258,6 +1344,8 @@ func (c *converter) mapDataValidations(sheet *sheetir.Sheet, ws *sheetparts.Work
 			SqRef:            dv.SqRef,
 			Type:             dv.Type,
 			Operator:         dv.Operator,
+			ErrorStyle:       dv.ErrorStyle,
+			IMEMode:          dv.IMEMode,
 			AllowBlank:       dv.AllowBlank,
 			ShowDropDown:     dv.ShowDropDown,
 			ShowInputMessage: dv.ShowInputMessage,
@@ -1401,56 +1489,35 @@ func (c *converter) addDxfFromCFRule(cfr *sheetir.CFRule) int {
 
 func (c *converter) mapPanes(sheet *sheetir.Sheet, ws *sheetparts.Worksheet) {
 	var pane *sheetparts.Pane
-	if sheet.FrozenRows > 0 || sheet.FrozenCols > 0 {
-		pane = &sheetparts.Pane{
-			State: "frozen",
-		}
-		if sheet.FrozenCols > 0 {
-			pane.XSplit = float64(sheet.FrozenCols)
-		}
-		if sheet.FrozenRows > 0 {
-			pane.YSplit = float64(sheet.FrozenRows)
-		}
-	} else if sheet.SplitRows > 0 || sheet.SplitCols > 0 {
-		pane = &sheetparts.Pane{
-			State: "split",
-		}
-		if sheet.SplitCols > 0 {
-			pane.XSplit = float64(sheet.SplitCols)
-		}
-		if sheet.SplitRows > 0 {
-			pane.YSplit = float64(sheet.SplitRows)
+	state := sheet.PaneState
+	if state == "" {
+		if sheet.FrozenRows > 0 || sheet.FrozenCols > 0 {
+			state = "frozen"
+		} else if sheet.SplitRows > 0 || sheet.SplitCols > 0 || sheet.SplitX != 0 || sheet.SplitY != 0 {
+			state = "split"
 		}
 	}
-	if pane == nil && sheet.ZoomScale == 0 && sheet.ShowGridLines == nil {
+	if state != "" {
+		pane = &sheetparts.Pane{State: state}
+		if sheet.SplitX != 0 || sheet.SplitY != 0 {
+			pane.XSplit, pane.YSplit = sheet.SplitX, sheet.SplitY
+		} else if state == "frozen" || state == "frozenSplit" {
+			pane.XSplit, pane.YSplit = float64(sheet.FrozenCols), float64(sheet.FrozenRows)
+		} else {
+			pane.XSplit, pane.YSplit = float64(sheet.SplitCols), float64(sheet.SplitRows)
+		}
+		pane.TopLeftCell = sheet.TopLeftCell
+		pane.ActivePane = sheet.ActivePane
+		if pane.TopLeftCell == "" && (state == "frozen" || state == "frozenSplit") {
+			pane.TopLeftCell = cellRef(int(pane.YSplit)+1, int(pane.XSplit)+1)
+		}
+	}
+	if pane == nil && sheet.ZoomScale == 0 && sheet.ShowGridLines == nil && len(sheet.PaneSelections) == 0 {
 		return
 	}
-	if pane != nil {
-		if sheet.TopLeftCell != "" {
-			pane.TopLeftCell = sheet.TopLeftCell
-		} else {
-			var col, row int
-			if sheet.FrozenCols > 0 || sheet.SplitCols > 0 {
-				col = sheet.FrozenCols + sheet.SplitCols + 1
-			} else {
-				col = 1
-			}
-			if sheet.FrozenRows > 0 || sheet.SplitRows > 0 {
-				row = sheet.FrozenRows + sheet.SplitRows + 1
-			} else {
-				row = 1
-			}
-			pane.TopLeftCell = cellRef(row, col)
-		}
-		if sheet.ActivePane != "" {
-			pane.ActivePane = sheet.ActivePane
-		}
-	}
-	view := sheetparts.SheetView{
-		WorkbookViewID: 0,
-		ZoomScale:      sheet.ZoomScale,
-		ShowGridLines:  sheet.ShowGridLines,
-		Pane:           pane,
+	view := sheetparts.SheetView{WorkbookViewID: 0, ZoomScale: sheet.ZoomScale, ShowGridLines: sheet.ShowGridLines, Pane: pane}
+	for _, sel := range sheet.PaneSelections {
+		view.Selections = append(view.Selections, sheetparts.Selection{Pane: sel.Pane, ActiveCell: sel.ActiveCell, ActiveCellID: sel.ActiveCellID, SqRef: sel.SqRef})
 	}
 	ws.SheetViews = append(ws.SheetViews, view)
 }
@@ -1458,31 +1525,98 @@ func (c *converter) mapPanes(sheet *sheetir.Sheet, ws *sheetparts.Worksheet) {
 // ── Comments ─────────────────────────────────────────────────────────────────
 
 func (c *converter) mapComments(sheet *sheetir.Sheet) *sheetparts.Comments {
-	if len(sheet.Comments) == 0 {
+	if len(sheet.Notes) == 0 && len(sheet.Comments) == 0 {
 		return nil
 	}
 	comments := &sheetparts.Comments{}
 	authorMap := make(map[string]int)
-	for ref, text := range sheet.Comments {
-		author := ""
+	appendComment := func(ref, author, text string, rich []*sheetir.RichTextRun) {
 		authorID, ok := authorMap[author]
 		if !ok {
 			authorID = len(comments.Authors)
 			comments.Authors = append(comments.Authors, author)
 			authorMap[author] = authorID
 		}
+		rt := sheetparts.RichText{PlainText: text}
+		if len(rich) > 0 {
+			if converted := c.convertRichText(rich); converted != nil {
+				rt = *converted
+			}
+		}
 		comments.CommentList = append(comments.CommentList, sheetparts.CommentEntry{
-			Ref:      ref,
-			AuthorID: authorID,
-			Text:     sheetparts.RichText{PlainText: text},
+			Ref: ref, AuthorID: authorID, Text: rt,
 		})
+	}
+	if len(sheet.Notes) > 0 {
+		refs := make([]string, 0, len(sheet.Notes))
+		for ref := range sheet.Notes {
+			refs = append(refs, ref)
+		}
+		sort.Strings(refs)
+		for _, ref := range refs {
+			note := sheet.Notes[ref]
+			if note == nil {
+				continue
+			}
+			text := note.Text
+			if text == "" && len(note.RichText) > 0 {
+				var b strings.Builder
+				for _, run := range note.RichText {
+					if run != nil {
+						b.WriteString(run.Text)
+					}
+				}
+				text = b.String()
+			}
+			appendComment(ref, note.Author, text, note.RichText)
+		}
+		return comments
+	}
+	refs := make([]string, 0, len(sheet.Comments))
+	for ref := range sheet.Comments {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	for _, ref := range refs {
+		appendComment(ref, "", sheet.Comments[ref], nil)
 	}
 	return comments
 }
 
 func (c *converter) mapFormControls(sheet *sheetir.Sheet) ([]sheetparts.FormControl, []byte) {
-	if len(sheet.FormControls) == 0 {
+	if sheet == nil {
 		return nil, nil
+	}
+
+	// Start from the original VML part when available. VML is extensible and the
+	// structured model intentionally covers only the worksheet objects we can edit.
+	// Keeping the source part here prevents unrelated/unknown VML from disappearing
+	// merely because the workbook passed through the canonical IR.
+	legacyDrawingVML := append([]byte(nil), sheet.LegacyDrawingVML...)
+
+	if len(sheet.VMLObjects) > 0 {
+		objects := make([]sheetparts.VMLObject, 0, len(sheet.VMLObjects))
+		for _, obj := range sheet.VMLObjects {
+			if obj == nil {
+				continue
+			}
+			objects = append(objects, sheetparts.VMLObject{
+				ID:          obj.ID,
+				Type:        obj.Type,
+				Style:       obj.Style,
+				FillColor:   obj.FillColor,
+				StrokeColor: obj.StrokeColor,
+				Text:        obj.Text,
+				Anchor:      obj.Anchor,
+			})
+		}
+		if len(objects) > 0 {
+			legacyDrawingVML = sheetparts.MergeLegacyDrawingVMLObjects(legacyDrawingVML, objects)
+		}
+	}
+
+	if len(sheet.FormControls) == 0 {
+		return nil, legacyDrawingVML
 	}
 	controls := make([]sheetparts.FormControl, 0, len(sheet.FormControls))
 	for _, control := range sheet.FormControls {
@@ -1511,9 +1645,9 @@ func (c *converter) mapFormControls(sheet *sheetir.Sheet) ([]sheetparts.FormCont
 		})
 	}
 	if len(controls) == 0 {
-		return nil, nil
+		return nil, legacyDrawingVML
 	}
-	return controls, sheetparts.MergeLegacyDrawingVML(nil, controls)
+	return controls, sheetparts.MergeLegacyDrawingVML(legacyDrawingVML, controls)
 }
 
 // ── Drawings ─────────────────────────────────────────────────────────────────
@@ -1592,11 +1726,11 @@ func (c *converter) addSmartArtDrawing(sd *sheetparts.SpreadsheetDrawing, partsO
 	}
 	switch dr.Position.Anchor {
 	case sheetir.AnchorOneCell:
-		sd.OneCellAnchors = append(sd.OneCellAnchors, sheetparts.XDROneCellAnchor{From: c.makeMarker(dr.Position.FromCell), Ext: sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height}, GraphicFrame: frame})
+		sd.OneCellAnchors = append(sd.OneCellAnchors, sheetparts.XDROneCellAnchor{ClientData: drawingClientData(dr.Position), From: c.makeMarker(dr.Position.FromCell), Ext: sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height}, GraphicFrame: frame})
 	case sheetir.AnchorTwoCell:
-		sd.TwoCellAnchors = append(sd.TwoCellAnchors, sheetparts.XDRTwoCellAnchor{From: c.makeMarker(dr.Position.FromCell), To: c.makeMarker(dr.Position.ToCell), GraphicFrame: frame})
+		sd.TwoCellAnchors = append(sd.TwoCellAnchors, sheetparts.XDRTwoCellAnchor{EditAs: drawingEditAs(dr.Position.Behavior), ClientData: drawingClientData(dr.Position), From: c.makeMarker(dr.Position.FromCell), To: c.makeMarker(dr.Position.ToCell), GraphicFrame: frame})
 	case sheetir.AnchorAbsolute:
-		sd.AbsoluteAnchors = append(sd.AbsoluteAnchors, sheetparts.XDRAbsoluteAnchor{Pos: sheetparts.XDRPos{X: dr.Position.X, Y: dr.Position.Y}, Ext: sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height}, GraphicFrame: frame})
+		sd.AbsoluteAnchors = append(sd.AbsoluteAnchors, sheetparts.XDRAbsoluteAnchor{ClientData: drawingClientData(dr.Position), Pos: sheetparts.XDRPos{X: dr.Position.X, Y: dr.Position.Y}, Ext: sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height}, GraphicFrame: frame})
 	}
 }
 
@@ -1721,12 +1855,32 @@ func mapOLEObjects(sheet *sheetir.Sheet) (*sheetparts.OLEObjects, map[string]she
 	return &sheetparts.OLEObjects{Objects: objects}, preserved
 }
 
+func drawingClientData(position sheetir.DrawingPosition) *sheetparts.XDRClientData {
+	if position.LocksWithSheet == nil && position.PrintsWithSheet == nil {
+		return nil
+	}
+	return &sheetparts.XDRClientData{LocksWithSheet: position.LocksWithSheet, PrintsWithSheet: position.PrintsWithSheet}
+}
+
+func drawingEditAs(behavior sheetir.DrawingAnchorBehavior) string {
+	switch behavior {
+	case sheetir.AnchorBehaviorMoveOnly:
+		return "oneCell"
+	case sheetir.AnchorBehaviorFixed:
+		return "absolute"
+	case sheetir.AnchorBehaviorMoveAndSize:
+		return "twoCell"
+	default:
+		return ""
+	}
+}
+
 func (c *converter) addImageDrawing(sd *sheetparts.SpreadsheetDrawing, drawingMedia map[string]media.Part, dr *sheetir.Drawing) {
 	pic := c.buildImageElement(drawingMedia, dr)
 
 	switch dr.Position.Anchor {
 	case sheetir.AnchorOneCell:
-		anchor := sheetparts.XDROneCellAnchor{
+		anchor := sheetparts.XDROneCellAnchor{ClientData: drawingClientData(dr.Position),
 			From: c.makeMarker(dr.Position.FromCell),
 			Ext: sheetparts.XDRExtent{
 				CX: dr.Position.Width,
@@ -1736,14 +1890,14 @@ func (c *converter) addImageDrawing(sd *sheetparts.SpreadsheetDrawing, drawingMe
 		}
 		sd.OneCellAnchors = append(sd.OneCellAnchors, anchor)
 	case sheetir.AnchorTwoCell:
-		anchor := sheetparts.XDRTwoCellAnchor{
+		anchor := sheetparts.XDRTwoCellAnchor{EditAs: drawingEditAs(dr.Position.Behavior), ClientData: drawingClientData(dr.Position),
 			From: c.makeMarker(dr.Position.FromCell),
 			To:   c.makeMarker(dr.Position.ToCell),
 			Pic:  pic,
 		}
 		sd.TwoCellAnchors = append(sd.TwoCellAnchors, anchor)
 	case sheetir.AnchorAbsolute:
-		anchor := sheetparts.XDRAbsoluteAnchor{
+		anchor := sheetparts.XDRAbsoluteAnchor{ClientData: drawingClientData(dr.Position),
 			Pos: sheetparts.XDRPos{X: dr.Position.X, Y: dr.Position.Y},
 			Ext: sheetparts.XDRExtent{
 				CX: dr.Position.Width,
@@ -1760,21 +1914,21 @@ func (c *converter) addShapeDrawing(sd *sheetparts.SpreadsheetDrawing, dr *sheet
 
 	switch dr.Position.Anchor {
 	case sheetir.AnchorOneCell:
-		anchor := sheetparts.XDROneCellAnchor{
+		anchor := sheetparts.XDROneCellAnchor{ClientData: drawingClientData(dr.Position),
 			From:  c.makeMarker(dr.Position.FromCell),
 			Ext:   sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height},
 			Shape: xdrShape,
 		}
 		sd.OneCellAnchors = append(sd.OneCellAnchors, anchor)
 	case sheetir.AnchorTwoCell:
-		anchor := sheetparts.XDRTwoCellAnchor{
+		anchor := sheetparts.XDRTwoCellAnchor{EditAs: drawingEditAs(dr.Position.Behavior), ClientData: drawingClientData(dr.Position),
 			From:  c.makeMarker(dr.Position.FromCell),
 			To:    c.makeMarker(dr.Position.ToCell),
 			Shape: xdrShape,
 		}
 		sd.TwoCellAnchors = append(sd.TwoCellAnchors, anchor)
 	case sheetir.AnchorAbsolute:
-		anchor := sheetparts.XDRAbsoluteAnchor{
+		anchor := sheetparts.XDRAbsoluteAnchor{ClientData: drawingClientData(dr.Position),
 			Pos:   sheetparts.XDRPos{X: dr.Position.X, Y: dr.Position.Y},
 			Ext:   sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height},
 			Shape: xdrShape,
@@ -1843,21 +1997,21 @@ func (c *converter) addGroupDrawing(sd *sheetparts.SpreadsheetDrawing, drawingMe
 	}
 	switch dr.Position.Anchor {
 	case sheetir.AnchorOneCell:
-		anchor := sheetparts.XDROneCellAnchor{
+		anchor := sheetparts.XDROneCellAnchor{ClientData: drawingClientData(dr.Position),
 			From:       c.makeMarker(dr.Position.FromCell),
 			Ext:        sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height},
 			GroupShape: group,
 		}
 		sd.OneCellAnchors = append(sd.OneCellAnchors, anchor)
 	case sheetir.AnchorTwoCell:
-		anchor := sheetparts.XDRTwoCellAnchor{
+		anchor := sheetparts.XDRTwoCellAnchor{EditAs: drawingEditAs(dr.Position.Behavior), ClientData: drawingClientData(dr.Position),
 			From:       c.makeMarker(dr.Position.FromCell),
 			To:         c.makeMarker(dr.Position.ToCell),
 			GroupShape: group,
 		}
 		sd.TwoCellAnchors = append(sd.TwoCellAnchors, anchor)
 	case sheetir.AnchorAbsolute:
-		anchor := sheetparts.XDRAbsoluteAnchor{
+		anchor := sheetparts.XDRAbsoluteAnchor{ClientData: drawingClientData(dr.Position),
 			Pos:        sheetparts.XDRPos{X: dr.Position.X, Y: dr.Position.Y},
 			Ext:        sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height},
 			GroupShape: group,
@@ -2108,7 +2262,7 @@ func (c *converter) convertShapeTextRuns(shape *sheetir.DrawingShape) []sheetpar
 			continue
 		}
 		xdrRun := sheetparts.XDRTxRun{T: run.Text}
-		if run.Bold || run.Italic || run.Underline || run.Strike ||
+		if run.Bold || run.Italic || run.Underline || run.Strike || run.VertAlign != "" ||
 			run.FontSizePt > 0 || run.FontColor != "" || run.FontFamily != "" {
 			xdrRun.Properties = &sheetparts.RTProps{}
 			if run.Bold {
@@ -2118,7 +2272,10 @@ func (c *converter) convertShapeTextRuns(shape *sheetir.DrawingShape) []sheetpar
 				xdrRun.Properties.Italic = &struct{}{}
 			}
 			if run.Underline {
-				xdrRun.Properties.Underline = &struct{}{}
+				xdrRun.Properties.Underline = &sheetparts.StringVal{Val: run.UnderlineType}
+			}
+			if run.VertAlign != "" {
+				xdrRun.Properties.VertAlign = &sheetparts.StringVal{Val: run.VertAlign}
 			}
 			if run.Strike {
 				xdrRun.Properties.Strike = &struct{}{}
@@ -2149,21 +2306,21 @@ func (c *converter) addChartDrawing(sd *sheetparts.SpreadsheetDrawing, drawingCh
 
 	switch dr.Position.Anchor {
 	case sheetir.AnchorOneCell:
-		anchor := sheetparts.XDROneCellAnchor{
+		anchor := sheetparts.XDROneCellAnchor{ClientData: drawingClientData(dr.Position),
 			From:         c.makeMarker(dr.Position.FromCell),
 			Ext:          sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height},
 			GraphicFrame: gf,
 		}
 		sd.OneCellAnchors = append(sd.OneCellAnchors, anchor)
 	case sheetir.AnchorTwoCell:
-		anchor := sheetparts.XDRTwoCellAnchor{
+		anchor := sheetparts.XDRTwoCellAnchor{EditAs: drawingEditAs(dr.Position.Behavior), ClientData: drawingClientData(dr.Position),
 			From:         c.makeMarker(dr.Position.FromCell),
 			To:           c.makeMarker(dr.Position.ToCell),
 			GraphicFrame: gf,
 		}
 		sd.TwoCellAnchors = append(sd.TwoCellAnchors, anchor)
 	case sheetir.AnchorAbsolute:
-		anchor := sheetparts.XDRAbsoluteAnchor{
+		anchor := sheetparts.XDRAbsoluteAnchor{ClientData: drawingClientData(dr.Position),
 			Pos:          sheetparts.XDRPos{X: dr.Position.X, Y: dr.Position.Y},
 			Ext:          sheetparts.XDRExtent{CX: dr.Position.Width, CY: dr.Position.Height},
 			GraphicFrame: gf,
@@ -2179,14 +2336,19 @@ func (c *converter) buildChartElement(drawingCharts map[string][]byte, dr *sheet
 	if err != nil {
 		return nil, err
 	}
+	if len(chartData) == 0 && len(dr.Chart.RawXML) > 0 {
+		chartData = append([]byte(nil), dr.Chart.RawXML...)
+	}
 	if len(chartData) > 0 {
 		drawingCharts[relID] = chartData
 	}
 	return &sheetparts.XDRGraphicFrame{
 		NvGraphicFramePr: sheetparts.XDRNvGraphicFramePr{
 			CNvPr: sheetparts.XDRCNvPr{
-				ID:   1,
-				Name: dr.Name,
+				ID:    1,
+				Name:  dr.Name,
+				Title: dr.Chart.AltTitle,
+				Descr: dr.Chart.AltText,
 			},
 		},
 		Graphic: sheetparts.XDRGraphic{
@@ -2301,4 +2463,32 @@ func cloneFloat64Ptr(v *float64) *float64 {
 	}
 	out := *v
 	return &out
+}
+
+// buildSheetFormatPr projects canonical worksheet-wide row/column layout
+// metadata into OOXML.  Row/column records own the individual outline levels;
+// sheetFormatPr owns the worksheet defaults and the maximum outline depths.
+func buildSheetFormatPr(sheet *sheetir.Sheet) *sheetparts.SheetFormatPr {
+	pr := &sheetparts.SheetFormatPr{}
+	if sheet == nil {
+		return pr
+	}
+
+	pr.DefaultRowHeight = sheet.DefaultRowHeightPt
+	pr.DefaultColWidth = sheet.DefaultColWidthChars
+	pr.CustomHeight = sheet.DefaultRowHeightUnsynced
+	pr.ZeroHeight = sheet.DefaultRowHeightZeroHeight
+	pr.OutlineLevelRow = maxOutlineLevel(sheet.RowOutlineLevelMax, sheet.OutlineRows)
+	pr.OutlineLevelCol = maxOutlineLevel(sheet.ColOutlineLevelMax, sheet.OutlineCols)
+	return pr
+}
+
+func maxOutlineLevel(authored int, levels map[int]int) int {
+	maxLevel := authored
+	for _, level := range levels {
+		if level > maxLevel {
+			maxLevel = level
+		}
+	}
+	return maxLevel
 }

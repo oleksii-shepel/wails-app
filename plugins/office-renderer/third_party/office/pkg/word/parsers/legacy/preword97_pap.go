@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	wordir "office/pkg/word/ir"
+	docformat "office/pkg/word/parsers/doc/format"
 )
 
 // preWord97PapxEntry is the first old-PAP structure slice for Word 6 / 95.
@@ -353,21 +354,21 @@ func parsePreWord97PapxGrpprlWithMetadata(grpprl []byte) (wordir.ParagraphFormat
 }
 
 // extractPreWord97PapParagraphRuns decodes the old PAP paragraph ranges into
-// docRuns so later pre-97 ports can choose between raw-body fallback and
+// binaryWordRuns so later pre-97 ports can choose between raw-body fallback and
 // structure-aware paragraph assembly.
-func extractPreWord97PapEntryRuns(wordStream []byte, span PreWord97BodySpan, syntheticParagraphBreaks bool) []docRun {
+func extractPreWord97PapEntryRuns(wordStream []byte, span PreWord97BodySpan, syntheticParagraphBreaks bool) []binaryWordRun {
 	entries := loadPreWord97PapxEntries(wordStream, span)
 	if len(entries) == 0 {
 		return nil
 	}
 	preferredCharset := guessPreWord97Charset(wordStream, span)
-	runs := make([]docRun, 0, len(entries))
+	runs := make([]binaryWordRun, 0, len(entries))
 	for _, entry := range entries {
 		if entry.StartFC < 0 || entry.EndFC > len(wordStream) || entry.EndFC <= entry.StartFC {
 			continue
 		}
 		text := decodePreWord97SingleByteTextWithCharset(wordStream[entry.StartFC:entry.EndFC], preferredCharset)
-		run := docRun{Text: text, StartCP: entry.StartCP, ParaFormat: entry.Format, PapxSprms: entry.Sprms}
+		run := binaryWordRun{Text: text, StartCP: entry.StartCP, ParaFormat: entry.Format, PapxSprms: entry.Sprms}
 		run.LegacyInTableHint = entry.LegacyInTableHint
 		run.LegacyRowMarkHint = entry.LegacyRowMarkHint
 
@@ -385,7 +386,7 @@ func extractPreWord97PapEntryRuns(wordStream []byte, span PreWord97BodySpan, syn
 			run.NativeCellMarks = true
 		}
 		if entry.Meta.TableRowProps != nil {
-			run.TableProps = entry.Meta.TableRowProps.clone()
+			run.TableProps = entry.Meta.TableRowProps.canonical()
 		}
 		if run.Text == "" {
 			if !run.ParaFormat.IsTableTrailingParagraph && !run.ParaFormat.IsTableCellTrailingParagraph {
@@ -406,17 +407,17 @@ func extractPreWord97PapEntryRuns(wordStream []byte, span PreWord97BodySpan, syn
 
 // extractPreWord97PapParagraphRuns keeps the entry-level old-PAP ranges visible
 // for focused regression tests and diagnostics.
-func extractPreWord97PapParagraphRuns(wordStream []byte, span PreWord97BodySpan) []docRun {
+func extractPreWord97PapParagraphRuns(wordStream []byte, span PreWord97BodySpan) []binaryWordRun {
 	return extractPreWord97PapEntryRuns(wordStream, span, true)
 }
 
-func collapsePreWord97PapRuns(wordStream []byte, span PreWord97BodySpan) []docRun {
+func collapsePreWord97PapRuns(wordStream []byte, span PreWord97BodySpan) []binaryWordRun {
 	rawRuns := extractPreWord97PapEntryRuns(wordStream, span, false)
 	if len(rawRuns) == 0 {
 		return nil
 	}
-	collapsed := make([]docRun, 0, len(rawRuns))
-	flush := func(current *docRun) {
+	collapsed := make([]binaryWordRun, 0, len(rawRuns))
+	flush := func(current *binaryWordRun) {
 		if current == nil {
 			return
 		}
@@ -425,7 +426,7 @@ func collapsePreWord97PapRuns(wordStream []byte, span PreWord97BodySpan) []docRu
 		}
 		collapsed = append(collapsed, *current)
 	}
-	var current *docRun
+	var current *binaryWordRun
 	for _, run := range rawRuns {
 		if run.Kind == "blankParagraph" {
 			flush(current)
@@ -443,7 +444,7 @@ func collapsePreWord97PapRuns(wordStream []byte, span PreWord97BodySpan) []docRu
 			copyRun := run
 			current = &copyRun
 		} else {
-			if legacyTableRowPropsConflict(current.TableProps, run.TableProps) {
+			if docformat.TableRowPropsConflict(current.TableProps, run.TableProps) {
 				flush(current)
 				copyRun := run
 				current = &copyRun
@@ -453,7 +454,7 @@ func collapsePreWord97PapRuns(wordStream []byte, span PreWord97BodySpan) []docRu
 			current.LegacyInTableHint = current.LegacyInTableHint || run.LegacyInTableHint
 			current.LegacyRowMarkHint = current.LegacyRowMarkHint || run.LegacyRowMarkHint
 			current.NativeCellMarks = current.NativeCellMarks || run.NativeCellMarks
-			current.TableProps = mergeLegacyTableRowProps(current.TableProps, run.TableProps)
+			current.TableProps = docformat.MergeTableRowProps(current.TableProps, run.TableProps)
 		}
 		if strings.HasSuffix(current.Text, "\r") || strings.HasSuffix(current.Text, "\n") || strings.HasSuffix(current.Text, "\u000B") || strings.HasSuffix(current.Text, "\u000C") || current.ParaFormat.IsTableTrailingParagraph || current.ParaFormat.IsTableCellTrailingParagraph {
 			flush(current)

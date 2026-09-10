@@ -216,7 +216,7 @@ func formatNumberSection(v float64, sec string, wrapParens bool) string {
 	clean := stripBrackets(sec)
 
 	prefix, suffix, code := extractPrefixSuffix(clean)
-	decimals := countDecimalPlaces(code)
+	minDecimals, decimals := decimalPlaces(code)
 
 	// If there's no numeric format code left, return just the text decorations.
 	if code == "" {
@@ -242,6 +242,10 @@ func formatNumberSection(v float64, sec string, wrapParens bool) string {
 		numStr = strconv.FormatInt(int64(math.Round(v)), 10)
 	} else {
 		numStr = formatGeneral(v)
+	}
+
+	if decimals > minDecimals {
+		numStr = trimOptionalDecimals(numStr, minDecimals)
 	}
 
 	result := prefix + numStr + suffix
@@ -347,20 +351,45 @@ doneSuffix:
 	return prefix, suffix, remaining
 }
 
-func countDecimalPlaces(format string) int {
+func decimalPlaces(format string) (min, max int) {
 	dot := strings.Index(format, ".")
 	if dot < 0 {
-		return 0
+		return 0, 0
 	}
-	dec := 0
 	for _, ch := range format[dot+1:] {
-		if ch == '0' || ch == '#' {
-			dec++
-		} else if ch != ',' {
-			break
+		switch ch {
+		case '0':
+			min++
+			max++
+		case '#':
+			max++
+		case ',':
+			continue
+		default:
+			return min, max
 		}
 	}
-	return dec
+	return min, max
+}
+
+func countDecimalPlaces(format string) int {
+	_, max := decimalPlaces(format)
+	return max
+}
+
+func trimOptionalDecimals(s string, min int) string {
+	dot := strings.IndexByte(s, '.')
+	if dot < 0 {
+		return s
+	}
+	end := len(s)
+	for end > dot+1+min && s[end-1] == '0' {
+		end--
+	}
+	if end == dot+1 {
+		end = dot
+	}
+	return s[:end]
 }
 
 func formatComma(v float64, decimals int) string {
@@ -399,7 +428,7 @@ func formatComma(v float64, decimals int) string {
 func formatPercentage(v float64, sec string) string {
 	clean := stripBrackets(sec)
 	prefix, suffix, code := extractPrefixSuffix(clean)
-	decimals := countDecimalPlaces(code)
+	minDecimals, decimals := decimalPlaces(code)
 	v = v * 100
 	var numStr string
 	if decimals > 0 {
@@ -408,6 +437,9 @@ func formatPercentage(v float64, sec string) string {
 		numStr = strconv.FormatInt(int64(math.Round(v)), 10)
 	} else {
 		numStr = formatGeneral(v)
+	}
+	if decimals > minDecimals {
+		numStr = trimOptionalDecimals(numStr, minDecimals)
 	}
 	return prefix + numStr + suffix + "%"
 }
@@ -498,9 +530,20 @@ func approximateFraction(x float64, maxDenom int) (num, denom int) {
 // ---------------------------------------------------------------------------
 
 func formatDateTime(v float64, sec string, cat FormatCategory) string {
+	if v < 0 || (v == 0 && cat != CategoryTime) {
+		return ""
+	}
 	t := excelSerialToTime(v)
 	if t.IsZero() {
-		return ""
+		// excelSerialToTime intentionally preserves serial 0 as the package's
+		// zero-time sentinel.  A time-only number format is different: Excel
+		// displays serial 0 as midnight, so provide the display epoch here
+		// without changing the helper's established contract.
+		if v == 0 && cat == CategoryTime {
+			t = time.Date(1899, 12, 31, 0, 0, 0, 0, time.UTC)
+		} else {
+			return ""
+		}
 	}
 
 	return applyDateTimeFormat(v, t, sec)
@@ -508,7 +551,10 @@ func formatDateTime(v float64, sec string, cat FormatCategory) string {
 
 // excelSerialToTime converts an Excel serial number (1900 date system) to time.Time.
 func excelSerialToTime(serial float64) time.Time {
-	if serial < 1 {
+	// Preserve the renderer's established zero-value sentinel while still
+	// allowing fractional Excel serials such as 0.5 to represent time-only
+	// values (12:00).
+	if serial <= 0 {
 		return time.Time{}
 	}
 	n := int(serial)

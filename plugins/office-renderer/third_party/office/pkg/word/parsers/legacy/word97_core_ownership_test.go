@@ -1,31 +1,32 @@
 package legacy
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestLegacyStreamCoreDoesNotRegainCanonicalProjectionState(t *testing.T) {
-	data, err := os.ReadFile("word97_core.go")
+	if _, err := os.Stat("word97_core.go"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retired Word97 staging core must stay removed: stat error = %v", err)
+	}
+
+	data, err := os.ReadFile("stream_core.go")
 	if err != nil {
-		t.Fatalf("read word97_core.go: %v", err)
+		t.Fatalf("read stream_core.go: %v", err)
 	}
 	source := string(data)
 	for _, forbidden := range []string{
-		"TableStreamName string",
-		"StyleCatalog    *word97.StyleCatalog",
-		"ExpectedTextboxes           int",
-		"ResolvedTextboxes           int",
-		"buildLegacyWord97DocCore(",
-		"applySequentialStyleCatalog(",
-		"TableStream     []byte",
-		"FibBase         int",
-		"CbRgFcLcb       int",
-		"StoryCounts     legacyStoryCounts",
+		"CanonicalRuns",
+		"word97.OpenSnapshotReaderAt(",
+		"word97.MaterializeRunRange(",
+		"word97.OpenCoreReaderAt(",
+		"RawCLX",
+		"RevisionAuthors",
 	} {
 		if strings.Contains(source, forbidden) {
-			t.Fatalf("legacy stream core regained canonical-owned state %q", forbidden)
+			t.Fatalf("legacy/pre-97 stream core regained normal Word97 projection state %q", forbidden)
 		}
 	}
 }

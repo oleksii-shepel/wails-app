@@ -41,6 +41,7 @@ func Convert(wb *sheetir.Workbook) (*sheetparts.Package, error) {
 	}
 
 	c.mapWorkbookProtection(wb)
+	c.mapWorkbookCalcSettings(wb)
 	c.initNamedCellStyles()
 
 	// Map defined names first so they're available.
@@ -58,6 +59,73 @@ func Convert(wb *sheetir.Workbook) (*sheetparts.Package, error) {
 	}
 
 	return c.pkg, nil
+}
+
+func (c *converter) mapWorkbookCalcSettings(wb *sheetir.Workbook) {
+	if c == nil || c.pkg == nil || c.pkg.Workbook == nil || wb == nil || wb.Calc == nil {
+		return
+	}
+	calc := wb.Calc
+	out := &sheetparts.CalcPr{}
+	any := false
+	if calc.Mode != nil {
+		switch *calc.Mode {
+		case 1:
+			out.CalcMode = "auto"
+		case 0:
+			out.CalcMode = "manual"
+		case -1:
+			out.CalcMode = "autoNoTable"
+		}
+		any = out.CalcMode != ""
+	}
+	if calc.ReferenceMode == "A1" || calc.ReferenceMode == "R1C1" {
+		out.RefMode = calc.ReferenceMode
+		any = true
+	}
+	if calc.RecalcID != nil {
+		v := *calc.RecalcID
+		out.CalcID = &v
+		any = true
+	}
+	if calc.Iterate != nil {
+		v := *calc.Iterate
+		out.Iterate = &v
+		any = true
+	}
+	if calc.IterationCount != nil {
+		v := *calc.IterationCount
+		out.IterateCount = &v
+		any = true
+	}
+	if calc.Delta != nil {
+		v := *calc.Delta
+		out.IterateDelta = &v
+		any = true
+	}
+	if calc.SaveRecalc != nil {
+		v := *calc.SaveRecalc
+		out.CalcOnSave = &v
+		any = true
+	}
+	if calc.PrecisionAsDisplayed != nil {
+		v := !*calc.PrecisionAsDisplayed
+		out.FullPrecision = &v
+		any = true
+	}
+	if calc.FullCalcOnLoad != nil {
+		v := *calc.FullCalcOnLoad
+		out.FullCalcOnLoad = &v
+		any = true
+	}
+	if calc.ForceFullCalc != nil {
+		v := *calc.ForceFullCalc
+		out.ForceFullCalc = &v
+		any = true
+	}
+	if any {
+		c.pkg.Workbook.CalcPr = out
+	}
 }
 
 type converter struct {

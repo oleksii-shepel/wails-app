@@ -9,7 +9,7 @@ import (
 	wordir "office/pkg/word/ir"
 )
 
-type legacyListTables struct {
+type binaryWordListCatalog struct {
 	formatByIlfoLevel                 map[string]string
 	startByIlfoLevel                  map[string]int
 	restartByIlfoLevel                map[string]bool
@@ -58,28 +58,28 @@ const legacyLvlfSize = 28
 const legacyLSTFFlagSimpleList = 1 << 0
 const legacyLVLFFlagNoRestart = 1 << 3
 
-func (t *legacyListTables) formatFor(ilfo, level int) string {
+func (t *binaryWordListCatalog) formatFor(ilfo, level int) string {
 	if t == nil || len(t.formatByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return ""
 	}
 	return t.formatByIlfoLevel[legacyListKey(ilfo, level)]
 }
 
-func (t *legacyListTables) startFor(ilfo, level int) int {
+func (t *binaryWordListCatalog) startFor(ilfo, level int) int {
 	if t == nil || len(t.startByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return 0
 	}
 	return t.startByIlfoLevel[legacyListKey(ilfo, level)]
 }
 
-func (t *legacyListTables) restartFor(ilfo, level int) bool {
+func (t *binaryWordListCatalog) restartFor(ilfo, level int) bool {
 	if t == nil || len(t.restartByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return false
 	}
 	return t.restartByIlfoLevel[legacyListKey(ilfo, level)]
 }
 
-func (t *legacyListTables) restartOnLevelFor(ilfo, level int) (int, bool) {
+func (t *binaryWordListCatalog) restartOnLevelFor(ilfo, level int) (int, bool) {
 	if t == nil || len(t.restartOnLevelByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return 0, false
 	}
@@ -87,7 +87,7 @@ func (t *legacyListTables) restartOnLevelFor(ilfo, level int) (int, bool) {
 	return val, ok
 }
 
-func (t *legacyListTables) indentLeftFor(ilfo, level int) (int, bool) {
+func (t *binaryWordListCatalog) indentLeftFor(ilfo, level int) (int, bool) {
 	if t == nil || len(t.indentLeftByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return 0, false
 	}
@@ -95,7 +95,7 @@ func (t *legacyListTables) indentLeftFor(ilfo, level int) (int, bool) {
 	return val, ok
 }
 
-func (t *legacyListTables) indentFirstLineFor(ilfo, level int) (int, bool) {
+func (t *binaryWordListCatalog) indentFirstLineFor(ilfo, level int) (int, bool) {
 	if t == nil || len(t.indentFirstLineByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return 0, false
 	}
@@ -103,14 +103,14 @@ func (t *legacyListTables) indentFirstLineFor(ilfo, level int) (int, bool) {
 	return val, ok
 }
 
-func (t *legacyListTables) templateFor(ilfo, level int) string {
+func (t *binaryWordListCatalog) templateFor(ilfo, level int) string {
 	if t == nil || len(t.templateByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return ""
 	}
 	return t.templateByIlfoLevel[legacyListKey(ilfo, level)]
 }
 
-func (t *legacyListTables) abstractNumIDFor(ilfo int) int {
+func (t *binaryWordListCatalog) abstractNumIDFor(ilfo int) int {
 	if t == nil || len(t.lsidByIlfo) == 0 || ilfo <= 0 {
 		return 0
 	}
@@ -120,14 +120,14 @@ func (t *legacyListTables) abstractNumIDFor(ilfo int) int {
 	return 0
 }
 
-func (t *legacyListTables) runFormatFor(ilfo, level int) *wordir.RunFormat {
+func (t *binaryWordListCatalog) runFormatFor(ilfo, level int) *wordir.RunFormat {
 	if t == nil || len(t.runFormatByIlfoLevel) == 0 || ilfo <= 0 || level < 0 {
 		return nil
 	}
 	return t.runFormatByIlfoLevel[legacyListKey(ilfo, level)]
 }
 
-func (t *legacyListTables) overrideFor(ilfo, level int) *wordir.LegacyNumberingOverride {
+func (t *binaryWordListCatalog) overrideFor(ilfo, level int) *wordir.LegacyNumberingOverride {
 	if t == nil || ilfo <= 0 || level < 0 {
 		return nil
 	}
@@ -167,7 +167,7 @@ func legacyListKey(ilfo, level int) string {
 // from table-stream blobs referenced by FibRgFcLcb97. The decoder intentionally
 // accepts simplified PlfLfo/PlfLst-like layouts to improve list format fidelity
 // when PAPx supplies ilfo/ilvl pointers.
-func loadLegacyListTables(wordStream, tableStream []byte, fibBase, cbRgFcLcb int, papxEntries ...[]papxEntry) *legacyListTables {
+func loadLegacyListTables(wordStream, tableStream []byte, fibBase, cbRgFcLcb int, papxEntries ...[]papxEntry) *binaryWordListCatalog {
 	observed := map[int]struct{}{}
 	observedLevels := map[int]map[int]struct{}{}
 	if len(papxEntries) > 0 {
@@ -316,7 +316,7 @@ func loadLegacyListTables(wordStream, tableStream []byte, fibBase, cbRgFcLcb int
 			overrideStart[key] = value
 		}
 	}
-	return &legacyListTables{
+	return &binaryWordListCatalog{
 		formatByIlfoLevel:                 formatByIlfoLevel,
 		startByIlfoLevel:                  startByIlfoLevel,
 		restartByIlfoLevel:                restartByIlfoLevel,
@@ -333,7 +333,7 @@ func loadLegacyListTables(wordStream, tableStream []byte, fibBase, cbRgFcLcb int
 	}
 }
 
-func legacyLoadLegacyListTablesWithoutObserved(wordStream, tableStream []byte, fibBase, cbRgFcLcb int) *legacyListTables {
+func legacyLoadLegacyListTablesWithoutObserved(wordStream, tableStream []byte, fibBase, cbRgFcLcb int) *binaryWordListCatalog {
 	var bestLfo map[int]uint32
 	var bestLfoStarts map[string]int
 	var bestLfoFormats map[string]string
@@ -502,7 +502,7 @@ func legacyLoadLegacyListTablesWithoutObserved(wordStream, tableStream []byte, f
 	if len(formatByIlfoLevel) == 0 {
 		return nil
 	}
-	return &legacyListTables{
+	return &binaryWordListCatalog{
 		formatByIlfoLevel:          formatByIlfoLevel,
 		startByIlfoLevel:           startByIlfoLevel,
 		restartByIlfoLevel:         restartByIlfoLevel,

@@ -35,18 +35,18 @@ func (PreWord97Compatibility) OpenOpenedCFB(f *cfb.File) (pre97.Cursor, *pre97.C
 
 type pre97ToLegacyCursor struct{ inner pre97.Cursor }
 
-func (c *pre97ToLegacyCursor) Next() (docRun, bool, error) {
+func (c *pre97ToLegacyCursor) Next() (binaryWordRun, bool, error) {
 	if c == nil || c.inner == nil {
-		return docRun{}, false, nil
+		return binaryWordRun{}, false, nil
 	}
 	run, ok, err := c.inner.Next()
 	if err != nil {
-		return docRun{}, false, err
+		return binaryWordRun{}, false, err
 	}
 	if !ok {
-		return docRun{}, false, nil
+		return binaryWordRun{}, false, nil
 	}
-	return docRun{
+	return binaryWordRun{
 		Text: run.Text, Kind: run.Kind, Format: run.Format, ParaFormat: run.ParagraphFormat,
 		TableDepth: run.TableDepth, LegacyInTableHint: run.LegacyInTableHint, StartCP: run.StartCP,
 		FieldKind: run.FieldKind, FieldInstr: run.FieldInstr, FieldArg: run.FieldArg,

@@ -10,21 +10,21 @@ import (
 // semantic event emission. PieceTable/PAPX/CHPX readers implement this directly
 // so the event state machine does not depend on whole-document run slices.
 type legacyRunCursor interface {
-	Next() (docRun, bool, error)
+	Next() (binaryWordRun, bool, error)
 }
 
 type legacyRunSliceCursor struct {
-	runs  []docRun
+	runs  []binaryWordRun
 	index int
 }
 
-func newLegacyRunSliceCursor(runs []docRun) legacyRunCursor {
+func newLegacyRunSliceCursor(runs []binaryWordRun) legacyRunCursor {
 	return &legacyRunSliceCursor{runs: runs}
 }
 
-func (c *legacyRunSliceCursor) Next() (docRun, bool, error) {
+func (c *legacyRunSliceCursor) Next() (binaryWordRun, bool, error) {
 	if c == nil || c.index >= len(c.runs) {
-		return docRun{}, false, nil
+		return binaryWordRun{}, false, nil
 	}
 	run := c.runs[c.index]
 	c.index++
@@ -36,17 +36,17 @@ func (c *legacyRunSliceCursor) Next() (docRun, bool, error) {
 // projection without requiring a document-wide post pass.
 type legacySemanticRunCursor struct {
 	inner      legacyRunCursor
-	stylesheet *legacyStyleSheet
+	stylesheet *binaryWordStyleCatalog
 }
 
-func newLegacySemanticRunCursor(inner legacyRunCursor, stylesheet *legacyStyleSheet) legacyRunCursor {
+func newLegacySemanticRunCursor(inner legacyRunCursor, stylesheet *binaryWordStyleCatalog) legacyRunCursor {
 	if inner == nil {
 		return nil
 	}
 	return &legacySemanticRunCursor{inner: inner, stylesheet: stylesheet}
 }
 
-func (c *legacySemanticRunCursor) Next() (docRun, bool, error) {
+func (c *legacySemanticRunCursor) Next() (binaryWordRun, bool, error) {
 	run, ok, err := c.inner.Next()
 	if err != nil || !ok {
 		return run, ok, err
@@ -91,7 +91,7 @@ func (c *legacySemanticRunCursor) Next() (docRun, bool, error) {
 
 // legacyStreamNumberingReference promotes the binary ilfo/ilvl pair into the
 // format-neutral Word numbering reference carried by startParagraph events.
-func legacyStreamNumberingReference(run docRun) *wordir.NumberingReference {
+func legacyStreamNumberingReference(run binaryWordRun) *wordir.NumberingReference {
 	if run.ParaFormat.BinaryListOverride == nil || run.ParaFormat.BinaryListLevel == nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func legacyStreamNumberingReference(run docRun) *wordir.NumberingReference {
 	return &wordir.NumberingReference{NumID: ilfo, Level: level}
 }
 
-func validateLegacyStreamRun(run docRun) error {
+func validateLegacyStreamRun(run binaryWordRun) error {
 	// sprmCFData is a generic data-bearing run flag, not proof of a picture.
 	// Word97 fixed pictures are identified and resolved earlier from fSpec plus
 	// sprmCPicLocation. Rejecting every unresolved fData run here turns valid

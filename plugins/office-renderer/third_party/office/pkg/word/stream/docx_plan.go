@@ -231,6 +231,13 @@ func scanDOCXParagraphProperties(dec *xml.Decoder, end xml.StartElement) (wordsa
 			case "widowControl":
 				v := docxOnOff(t, true)
 				out.WidowControl = &v
+			case "numPr":
+				id, level, err := scanDOCXParagraphNumberingProperties(dec, t)
+				if err != nil {
+					return out, section, err
+				}
+				out.NumberingID, out.NumberingLevel = id, level
+				continue
 			case "sectPr":
 				s, err := scanDOCXSection(dec, t)
 				if err != nil {
@@ -245,6 +252,32 @@ func scanDOCXParagraphProperties(dec *xml.Decoder, end xml.StartElement) (wordsa
 		case xml.EndElement:
 			if t.Name == end.Name {
 				return out, section, nil
+			}
+		}
+	}
+}
+
+func scanDOCXParagraphNumberingProperties(dec *xml.Decoder, end xml.StartElement) (*int, *int, error) {
+	var id, level *int
+	for {
+		token, err := dec.Token()
+		if err != nil {
+			return nil, nil, err
+		}
+		switch t := token.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "numId":
+				id = docxIntAttr(t, "val")
+			case "ilvl":
+				level = docxIntAttr(t, "val")
+			}
+			if err := dec.Skip(); err != nil {
+				return nil, nil, err
+			}
+		case xml.EndElement:
+			if t.Name == end.Name {
+				return id, level, nil
 			}
 		}
 	}
@@ -265,6 +298,9 @@ func scanDOCXRunProperties(dec *xml.Decoder, end xml.StartElement) (wordsax.RunP
 			case "b":
 				v := docxOnOff(t, true)
 				out.Bold = &v
+			case "bCs":
+				v := docxOnOff(t, true)
+				out.BoldCS = &v
 			case "i":
 				v := docxOnOff(t, true)
 				out.Italic = &v
@@ -285,6 +321,12 @@ func scanDOCXRunProperties(dec *xml.Decoder, end xml.StartElement) (wordsax.RunP
 				}
 			case "sz":
 				out.FontSizeHalfPoints = docxIntAttr(t, "val")
+			case "szCs":
+				out.FontSizeCSHalfPoints = docxIntAttr(t, "val")
+			case "spacing":
+				out.CharacterSpacing = docxIntAttr(t, "val")
+			case "kern":
+				out.KerningHalfPoints = docxIntAttr(t, "val")
 			}
 			if err := dec.Skip(); err != nil {
 				return out, err

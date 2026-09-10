@@ -633,3 +633,36 @@ func TestWritePackageRoundTripWithVMLDrawing(t *testing.T) {
 		t.Fatal("expected worksheet legacyDrawing reference after round-trip")
 	}
 }
+
+func TestWritePackageRoundTripUsesWorkbookUniqueTablePartNames(t *testing.T) {
+	pkg := &Package{
+		Workbook: &Workbook{Sheets: []SheetRef{
+			{SheetID: 1, Name: "One", RelID: "rId1"},
+			{SheetID: 2, Name: "Two", RelID: "rId2"},
+		}},
+		Worksheets: []*WorksheetEntry{
+			{SheetID: 1, RelID: "rId1", Name: "One", PartName: "xl/worksheets/sheet1.xml", Sheet: &Worksheet{},
+				Tables: []*Table{{ID: 1, Name: "Table1", DisplayName: "Table1", Ref: "A1:B2"}}},
+			{SheetID: 2, RelID: "rId2", Name: "Two", PartName: "xl/worksheets/sheet2.xml", Sheet: &Worksheet{},
+				Tables: []*Table{{ID: 2, Name: "Table2", DisplayName: "Table2", Ref: "C3:D4"}}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := WritePackage(pkg, &buf); err != nil {
+		t.Fatalf("WritePackage: %v", err)
+	}
+	opcPkg, err := opc.OpenBytes(buf.Bytes())
+	if err != nil {
+		t.Fatalf("open written bytes: %v", err)
+	}
+	loaded, err := LoadPackage(opcPkg)
+	if err != nil {
+		t.Fatalf("LoadPackage: %v", err)
+	}
+	if len(loaded.Worksheets) != 2 || len(loaded.Worksheets[0].Tables) != 1 || len(loaded.Worksheets[1].Tables) != 1 {
+		t.Fatalf("table round-trip shape = %#v", loaded.Worksheets)
+	}
+	if loaded.Worksheets[0].Tables[0].Ref != "A1:B2" || loaded.Worksheets[1].Tables[0].Ref != "C3:D4" {
+		t.Fatalf("table parts collided across worksheets: %#v / %#v", loaded.Worksheets[0].Tables[0], loaded.Worksheets[1].Tables[0])
+	}
+}

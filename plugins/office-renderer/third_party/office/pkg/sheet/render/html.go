@@ -107,7 +107,6 @@ func (r *htmlRenderer) render() (string, []HTMLAsset, error) {
 
 	r.renderWorkbookExternalLinks(&b)
 	r.renderWorkbookConnections(&b)
-	r.renderWorkbookStyleNames(&b)
 
 	for i, sheet := range r.wb.Sheets {
 		r.renderSheet(&b, sheet, i)
@@ -182,31 +181,6 @@ func (r *htmlRenderer) renderWorkbookConnections(b *strings.Builder) {
 		)
 	}
 	b.WriteString("</tbody></table>\n</section>\n")
-}
-
-// renderWorkbookStyleNames emits a hidden metadata div that carries the XLS
-// STYLE-record style-name table as a JSON object in data-style-names.
-// Only emitted when the workbook has at least one named style (legacy XLS).
-func (r *htmlRenderer) renderWorkbookStyleNames(b *strings.Builder) {
-	if r == nil || r.wb == nil || len(r.wb.StyleNames) == 0 {
-		return
-	}
-	keys := make([]int, 0, len(r.wb.StyleNames))
-	for k := range r.wb.StyleNames {
-		keys = append(keys, k)
-	}
-	sort.Ints(keys)
-	var jsonBuf strings.Builder
-	jsonBuf.WriteByte('{')
-	for i, k := range keys {
-		if i > 0 {
-			jsonBuf.WriteByte(',')
-		}
-		fmt.Fprintf(&jsonBuf, "%q:%q", strconv.Itoa(k), r.wb.StyleNames[k])
-	}
-	jsonBuf.WriteByte('}')
-	fmt.Fprintf(b, "<div class=\"workbook-style-names\" aria-hidden=\"true\" data-style-names=%q></div>\n",
-		jsonBuf.String())
 }
 
 func workbookConnectionTarget(conn *resolve.WorkbookConnection) string {
@@ -378,7 +352,7 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 	}
 	fmt.Fprintf(b, "<table class=%q>\n", strings.Join(gridClasses, " "))
 
-	if len(sheet.Rows) == 0 {
+	if !worksheetHasGridContent(sheet) {
 		b.WriteString("</table>\n")
 		if len(sheet.Drawings) > 0 || len(sheet.FormControls) > 0 {
 			dl := buildDrawingLayout(sheet)
@@ -419,25 +393,10 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 		}
 	}
 
-	// Determine column span: max col index seen in any row.
-	maxCol := 0
-	for _, row := range sheet.Rows {
-		for _, cell := range row.Cells {
-			if cell.Col > maxCol {
-				maxCol = cell.Col
-			}
-		}
-	}
-	for _, merged := range sheet.MergedCells {
-		if merged != nil && merged.RightCol > maxCol {
-			maxCol = merged.RightCol
-		}
-	}
-	for _, arrayFormula := range sheet.ArrayFormulas {
-		if arrayFormula != nil && arrayFormula.RightCol > maxCol {
-			maxCol = arrayFormula.RightCol
-		}
-	}
+	// Determine the physical column envelope once from every worksheet feature
+	// that occupies grid coordinates. Sparse drawings and controls are part of
+	// the worksheet geometry even when there are no populated cells beneath them.
+	_, _, _, maxCol := worksheetGeometryBounds(sheet)
 	for _, group := range formulaEngine.ArrayFormulaGroups() {
 		if group.RightCol > maxCol {
 			maxCol = group.RightCol
@@ -712,6 +671,20 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 		if s.Italic {
 			styles = append(styles, "font-style:italic")
 		}
+		var decorations []string
+		if s.Underline {
+			decorations = append(decorations, "underline")
+		}
+		if s.Strike {
+			decorations = append(decorations, "line-through")
+		}
+		if len(decorations) > 0 {
+			styles = append(styles, "text-decoration:"+strings.Join(decorations, " "))
+			appendUnderlineVariantStyles(&styles, s.UnderlineType)
+		}
+		if s.FontVertAlign == "superscript" || s.FontVertAlign == "subscript" {
+			styles = append(styles, "font-variant-position:"+strings.TrimSuffix(s.FontVertAlign, "script"))
+		}
 		if s.FontSizePt > 0 {
 			styles = append(styles, fmt.Sprintf("font-size:%.2fpt", s.FontSizePt))
 		}
@@ -721,12 +694,16 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 		if s.FontColor != "" {
 			styles = append(styles, "color:#"+s.FontColor)
 		}
-		if s.BgColor != "" {
-			styles = append(styles, "background:#"+s.BgColor)
-		}
+		appendFillStyles(&styles, s)
 		appendBorderStyles(&styles, s)
 		if s.WrapText {
 			styles = append(styles, "white-space:normal")
+		}
+		if s.ShrinkToFit {
+			styles = append(styles, "overflow:hidden", "text-overflow:clip")
+		}
+		if s.Indent > 0 {
+			styles = append(styles, fmt.Sprintf("padding-left:%.2fem", float64(s.Indent)))
 		}
 		if s.VAlign != "" {
 			styles = append(styles, "vertical-align:"+s.VAlign)
@@ -761,14 +738,45 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 			styles = removeStyleProp(styles, "color")
 			styles = append(styles, "color:#"+cfStyle.FontColor)
 		}
-		if cfStyle.Bold != nil && *cfStyle.Bold {
+		if cfStyle.Bold != nil {
 			styles = removeStyleProp(styles, "font-weight")
-			styles = append(styles, "font-weight:bold")
+			if *cfStyle.Bold {
+				styles = append(styles, "font-weight:bold")
+			}
 		}
-		if cfStyle.Italic != nil && *cfStyle.Italic {
+		if cfStyle.Italic != nil {
 			styles = removeStyleProp(styles, "font-style")
-			styles = append(styles, "font-style:italic")
+			if *cfStyle.Italic {
+				styles = append(styles, "font-style:italic")
+			}
 		}
+		underline, strike := false, false
+		if cell != nil {
+			underline = cell.Style.Underline
+			strike = cell.Style.Strike
+		}
+		if cfStyle.Underline != nil {
+			underline = *cfStyle.Underline
+		}
+		if cfStyle.Strike != nil {
+			strike = *cfStyle.Strike
+		}
+		styles = removeStyleProp(styles, "text-decoration")
+		var cfDecorations []string
+		if underline {
+			cfDecorations = append(cfDecorations, "underline")
+		}
+		if strike {
+			cfDecorations = append(cfDecorations, "line-through")
+		}
+		if len(cfDecorations) > 0 {
+			styles = append(styles, "text-decoration:"+strings.Join(cfDecorations, " "))
+		}
+
+		applyCFBorderOverride(&styles, "left", cfStyle.BorderLeft, cfStyle.LeftBorderColor)
+		applyCFBorderOverride(&styles, "right", cfStyle.BorderRight, cfStyle.RightBorderColor)
+		applyCFBorderOverride(&styles, "top", cfStyle.BorderTop, cfStyle.TopBorderColor)
+		applyCFBorderOverride(&styles, "bottom", cfStyle.BorderBottom, cfStyle.BottomBorderColor)
 	}
 
 	// Apply visual conditional formatting: color scale sets background color.
@@ -804,7 +812,10 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 	}
 	if align != "" {
 		attrParts = append(attrParts, fmt.Sprintf("data-align=%q", align))
-		styles = append(styles, "text-align:"+align)
+		if cssAlign, extra := cssCellHAlign(align); cssAlign != "" {
+			styles = append(styles, "text-align:"+cssAlign)
+			styles = append(styles, extra...)
+		}
 	}
 	if cell != nil && cell.Formula != "" {
 		attrParts = append(attrParts, fmt.Sprintf("data-formula=%q", escapeHTMLAttr(cell.Formula)))
@@ -893,6 +904,17 @@ type cellCoord struct {
 	col int
 }
 
+func appendUnderlineVariantStyles(styles *[]string, underlineType string) {
+	switch strings.TrimSpace(underlineType) {
+	case "double", "doubleAccounting":
+		*styles = append(*styles, "text-decoration-style:double")
+	}
+	switch strings.TrimSpace(underlineType) {
+	case "singleAccounting", "doubleAccounting":
+		*styles = append(*styles, "text-underline-position:under")
+	}
+}
+
 // renderRichTextRuns writes styled <span> elements for each rich-text run.
 func renderRichTextRuns(b *strings.Builder, runs []*resolve.RichTextRun, embeddedFamilies map[string]struct{}) {
 	for _, run := range runs {
@@ -906,11 +928,21 @@ func renderRichTextRuns(b *strings.Builder, runs []*resolve.RichTextRun, embedde
 		if run.Italic {
 			spanStyles = append(spanStyles, "font-style:italic")
 		}
+		var decorations []string
 		if run.Underline {
-			spanStyles = append(spanStyles, "text-decoration:underline")
+			decorations = append(decorations, "underline")
 		}
 		if run.Strike {
-			spanStyles = append(spanStyles, "text-decoration:line-through")
+			decorations = append(decorations, "line-through")
+		}
+		if len(decorations) > 0 {
+			spanStyles = append(spanStyles, "text-decoration:"+strings.Join(decorations, " "))
+			appendUnderlineVariantStyles(&spanStyles, run.UnderlineType)
+		}
+		if run.VertAlign == "superscript" {
+			spanStyles = append(spanStyles, "vertical-align:super", "font-size:smaller")
+		} else if run.VertAlign == "subscript" {
+			spanStyles = append(spanStyles, "vertical-align:sub", "font-size:smaller")
 		}
 		if run.FontSizePt > 0 {
 			spanStyles = append(spanStyles, fmt.Sprintf("font-size:%.2fpt", run.FontSizePt))
@@ -999,6 +1031,82 @@ func dataValidationTooltip(dv *resolve.DataValidation, state dataValidationState
 		}
 	}
 	return strings.Join(parts, " | ")
+}
+
+func worksheetHasGridContent(sheet *resolve.Sheet) bool {
+	if sheet == nil {
+		return false
+	}
+	return len(sheet.Rows) > 0 || len(sheet.MergedCells) > 0 || len(sheet.ArrayFormulas) > 0
+}
+
+// worksheetGeometryBounds returns the worksheet coordinate envelope owned by
+// semantic grid content and anchored objects. Source <dimension> metadata is
+// intentionally not used here: Excel files commonly retain stale dimensions,
+// including whole-sheet ranges, which must not materialize millions of empty
+// HTML cells.
+func worksheetGeometryBounds(sheet *resolve.Sheet) (minRow, maxRow, minCol, maxCol int) {
+	if sheet == nil {
+		return 0, 0, 0, 0
+	}
+	include := func(top, bottom, left, right int) {
+		if top <= 0 || bottom <= 0 || left <= 0 || right <= 0 {
+			return
+		}
+		if minRow == 0 || top < minRow {
+			minRow = top
+		}
+		if bottom > maxRow {
+			maxRow = bottom
+		}
+		if minCol == 0 || left < minCol {
+			minCol = left
+		}
+		if right > maxCol {
+			maxCol = right
+		}
+	}
+	for _, row := range sheet.Rows {
+		if row == nil {
+			continue
+		}
+		for _, cell := range row.Cells {
+			if cell != nil {
+				include(row.Index, row.Index, cell.Col, cell.Col)
+			}
+		}
+	}
+	for _, merged := range sheet.MergedCells {
+		if merged != nil {
+			include(merged.TopRow, merged.BottomRow, merged.LeftCol, merged.RightCol)
+		}
+	}
+	for _, af := range sheet.ArrayFormulas {
+		if af != nil {
+			include(af.TopRow, af.BottomRow, af.LeftCol, af.RightCol)
+		}
+	}
+	for _, d := range sheet.Drawings {
+		if d == nil {
+			continue
+		}
+		p := d.Position
+		switch p.Anchor {
+		case resolve.AnchorOneCell:
+			include(p.FromCell.Row, p.FromCell.Row, p.FromCell.Col, p.FromCell.Col)
+		case resolve.AnchorTwoCell:
+			include(p.FromCell.Row, p.ToCell.Row, p.FromCell.Col, p.ToCell.Col)
+		}
+	}
+	for _, control := range sheet.FormControls {
+		if control == nil {
+			continue
+		}
+		if col, row, ok := vmlAnchorFarCell(control.Anchor); ok {
+			include(row, row, col, col)
+		}
+	}
+	return minRow, maxRow, minCol, maxCol
 }
 
 func hasGridColumnLayout(sheet *resolve.Sheet) bool {
@@ -1981,12 +2089,145 @@ func (ml mergeLayout) hasContentAtRow(row int) bool {
 }
 
 func shouldOverrideDefaultGridBorder(style resolve.CellStyle) bool {
-	return style.BgColor != "" ||
+	return style.BgColor != "" || style.FillPattern != "" || style.FillPatternBgColor != "" ||
 		style.BorderTop.Style != "" ||
 		style.BorderRight.Style != "" ||
 		style.BorderBottom.Style != "" ||
 		style.BorderLeft.Style != "" ||
+		style.BorderDiagonal.Style != "" ||
 		style.TextRotation != 0
+}
+
+func applyCFBorderOverride(styles *[]string, side string, code *int, color string) {
+	if styles == nil || code == nil {
+		return
+	}
+	*styles = removeStyleProp(*styles, "border-"+side)
+	if *code == 0 {
+		return
+	}
+	style := cfBorderStyleName(*code)
+	if style == "" {
+		return
+	}
+	appendBorderStyle(styles, side, resolve.BorderStyle{Style: style, Color: color})
+}
+
+func cfBorderStyleName(code int) string {
+	switch code {
+	case 1:
+		return "thin"
+	case 2:
+		return "medium"
+	case 3:
+		return "dashed"
+	case 4:
+		return "hair"
+	case 5:
+		return "thick"
+	case 6:
+		return "double"
+	case 7:
+		return "dotted"
+	case 8:
+		return "mediumDashed"
+	case 9:
+		return "dashDot"
+	case 10:
+		return "mediumDashDot"
+	case 11:
+		return "dashDotDot"
+	case 12:
+		return "mediumDashDotDot"
+	case 13:
+		return "slantDashDot"
+	default:
+		return ""
+	}
+}
+
+func cssCellHAlign(align string) (string, []string) {
+	switch align {
+	case "left", "center", "right":
+		return align, nil
+	case "centerContinuous":
+		// HTML has no cross-cell center-continuous primitive; preserve the
+		// semantic value in data-align and use the closest visual alignment.
+		return "center", nil
+	case "justify":
+		return "justify", nil
+	case "distributed":
+		return "justify", []string{"text-align-last:justify"}
+	case "fill":
+		// Repetition depends on measured cell width. Preserve the semantic value
+		// in data-align without emitting an invalid CSS text-align value.
+		return "", nil
+	default:
+		return "", nil
+	}
+}
+
+func appendFillStyles(styles *[]string, style resolve.CellStyle) {
+	if styles == nil {
+		return
+	}
+	pattern := strings.TrimSpace(style.FillPattern)
+	if pattern == "" {
+		if style.BgColor != "" {
+			*styles = append(*styles, "background:#"+style.BgColor)
+		}
+		return
+	}
+	if pattern == "none" {
+		return
+	}
+	fg := style.BgColor
+	bg := style.FillPatternBgColor
+	if pattern == "solid" {
+		if fg != "" {
+			*styles = append(*styles, "background:#"+fg)
+		}
+		return
+	}
+	if bg != "" {
+		*styles = append(*styles, "background-color:#"+bg)
+	} else if fg != "" {
+		// Pattern fills without an explicit background still need a stable base.
+		*styles = append(*styles, "background-color:#FFFFFF")
+	}
+	if fg == "" {
+		return
+	}
+	if image, size := cssPatternFill(pattern, fg); image != "" {
+		*styles = append(*styles, "background-image:"+image)
+		if size != "" {
+			*styles = append(*styles, "background-size:"+size)
+		}
+	}
+}
+
+func cssPatternFill(pattern, fg string) (image, size string) {
+	c := "#" + fg
+	switch strings.ToLower(strings.TrimSpace(pattern)) {
+	case "gray125", "gray0625":
+		return "radial-gradient(" + c + " 0.7px,transparent 0.8px)", "4px 4px"
+	case "darkgray", "mediumgray", "lightgray":
+		return "repeating-linear-gradient(45deg," + c + " 0 1px,transparent 1px 3px)", ""
+	case "darkhorizontal", "lighthorizontal":
+		return "repeating-linear-gradient(0deg," + c + " 0 1px,transparent 1px 4px)", ""
+	case "darkvertical", "lightvertical":
+		return "repeating-linear-gradient(90deg," + c + " 0 1px,transparent 1px 4px)", ""
+	case "darkdown", "lightdown":
+		return "repeating-linear-gradient(45deg," + c + " 0 1px,transparent 1px 5px)", ""
+	case "darkup", "lightup":
+		return "repeating-linear-gradient(135deg," + c + " 0 1px,transparent 1px 5px)", ""
+	case "darkgrid", "lightgrid":
+		return "repeating-linear-gradient(0deg," + c + " 0 1px,transparent 1px 5px),repeating-linear-gradient(90deg," + c + " 0 1px,transparent 1px 5px)", ""
+	case "darktrellis", "lighttrellis":
+		return "repeating-linear-gradient(45deg," + c + " 0 1px,transparent 1px 5px),repeating-linear-gradient(135deg," + c + " 0 1px,transparent 1px 5px)", ""
+	default:
+		return "", ""
+	}
 }
 
 func appendBorderStyles(styles *[]string, style resolve.CellStyle) {
@@ -1997,6 +2238,34 @@ func appendBorderStyles(styles *[]string, style resolve.CellStyle) {
 	appendBorderStyle(styles, "right", style.BorderRight)
 	appendBorderStyle(styles, "bottom", style.BorderBottom)
 	appendBorderStyle(styles, "left", style.BorderLeft)
+	appendDiagonalBorderStyles(styles, style)
+}
+
+func appendDiagonalBorderStyles(styles *[]string, style resolve.CellStyle) {
+	if styles == nil || style.BorderDiagonal.Style == "" || (!style.BorderDiagonalUp && !style.BorderDiagonalDown) {
+		return
+	}
+	width, _ := cssBorderStyle(style.BorderDiagonal.Style)
+	color := "#000000"
+	if style.BorderDiagonal.Color != "" {
+		color = "#" + style.BorderDiagonal.Color
+	}
+	// CSS has no diagonal-border primitive. Layer a one-stroke gradient over
+	// the cell while retaining the canonical Excel direction flags in IR.
+	stroke := "1px"
+	if width == "2px" || width == "3px" {
+		stroke = width
+	}
+	var images []string
+	if style.BorderDiagonalUp {
+		images = append(images, fmt.Sprintf("linear-gradient(to top right,transparent calc(50%% - %s),%s 50%%,transparent calc(50%% + %s))", stroke, color, stroke))
+	}
+	if style.BorderDiagonalDown {
+		images = append(images, fmt.Sprintf("linear-gradient(to bottom right,transparent calc(50%% - %s),%s 50%%,transparent calc(50%% + %s))", stroke, color, stroke))
+	}
+	if len(images) > 0 {
+		*styles = append(*styles, "background-image:"+strings.Join(images, ","))
+	}
 }
 
 func appendBorderStyle(styles *[]string, side string, border resolve.BorderStyle) {
@@ -3797,15 +4066,31 @@ func buildDrawingLayout(sheet *resolve.Sheet) drawingLayout {
 			maxRow = p.ToCell.Row
 		}
 	}
-
-	// Build row height map from explicit row data.
-	rowHeightPx := make(map[int]int, len(sheet.Rows))
-	for _, row := range sheet.Rows {
-		h := defaultRowPxV
-		if row.HeightPt > 0 {
-			h = int(math.Round(row.HeightPt * 4 / 3))
+	// VML controls use zero-based cell anchors and may live completely outside
+	// the populated cell range. Include their far anchor in the geometry
+	// envelope so cumulative offsets exist even on otherwise sparse sheets.
+	for _, control := range sheet.FormControls {
+		if control == nil {
+			continue
 		}
-		rowHeightPx[row.Index] = h
+		if col, row, ok := vmlAnchorFarCell(control.Anchor); ok {
+			if col > maxCol {
+				maxCol = col
+			}
+			if row > maxRow {
+				maxRow = row
+			}
+		}
+	}
+
+	// Build row geometry from the same visibility and explicit-height semantics
+	// used by the grid. Hidden rows/columns occupy no visual space, while their
+	// authored sizes remain in IR for round-trip and later unhiding.
+	rowByIndex := make(map[int]*resolve.Row, len(sheet.Rows))
+	for _, row := range sheet.Rows {
+		if row != nil {
+			rowByIndex[row.Index] = row
+		}
 	}
 
 	// Compute cumulative column X positions.
@@ -3813,26 +4098,58 @@ func buildDrawingLayout(sheet *resolve.Sheet) drawingLayout {
 	x := 0
 	for c := 1; c <= maxCol; c++ {
 		colX[c] = x
-		w := defaultColPxV
-		if cw, ok := sheet.ColumnWidths[c]; ok {
-			w = worksheetColumnWidthPx(cw)
-		}
-		x += w
+		x += worksheetColumnVisualWidthPx(sheet, c, defaultColPxV)
 	}
 
 	// Compute cumulative row Y positions.
 	rowY := make(map[int]int, maxRow)
 	y := 0
-	for r := 1; r <= maxRow; r++ {
-		rowY[r] = y
-		h := defaultRowPxV
-		if hp, ok := rowHeightPx[r]; ok {
-			h = hp
-		}
-		y += h
+	for rowIndex := 1; rowIndex <= maxRow; rowIndex++ {
+		rowY[rowIndex] = y
+		y += worksheetRowVisualHeightPx(sheet, rowByIndex[rowIndex], defaultRowPxV)
 	}
 
 	return drawingLayout{colX: colX, rowY: rowY, defaultColPxV: defaultColPxV, defaultRowPxV: defaultRowPxV}
+}
+
+func worksheetColumnVisualWidthPx(sheet *resolve.Sheet, col int, defaultWidthPx int) int {
+	if sheet == nil || col <= 0 {
+		return defaultWidthPx
+	}
+	if sheet.HiddenCols[col] {
+		return 0
+	}
+	if width, ok := sheet.ColumnWidths[col]; ok {
+		return worksheetColumnWidthPx(width)
+	}
+	return defaultWidthPx
+}
+
+func worksheetRowVisualHeightPx(sheet *resolve.Sheet, row *resolve.Row, defaultHeightPx int) int {
+	if row != nil && row.Hidden {
+		return 0
+	}
+	if row != nil && row.HeightPt > 0 {
+		return int(math.Round(row.HeightPt * 4 / 3))
+	}
+	if sheet != nil && sheet.DefaultRowHeightZeroHeight {
+		return 0
+	}
+	return defaultHeightPx
+}
+
+func vmlAnchorFarCell(anchor string) (col, row int, ok bool) {
+	parts := strings.Split(anchor, ",")
+	if len(parts) != 8 {
+		return 0, 0, false
+	}
+	col0, errCol := strconv.Atoi(strings.TrimSpace(parts[4]))
+	row0, errRow := strconv.Atoi(strings.TrimSpace(parts[6]))
+	if errCol != nil || errRow != nil || col0 < 0 || row0 < 0 {
+		return 0, 0, false
+	}
+	// drawingLayout is keyed by one-based worksheet coordinates.
+	return col0 + 1, row0 + 1, true
 }
 
 func worksheetColumnWidthPx(widthChars float64) int {
@@ -4199,8 +4516,38 @@ func (r *htmlRenderer) renderDrawingImage(b *strings.Builder, d *resolve.Drawing
 		return
 	}
 	src := r.imageSource(d.Image)
+	alt := strings.TrimSpace(d.Image.AltText)
+	if alt == "" {
+		alt = d.Name
+	}
+	if drawingImageHasCrop(d.Image) {
+		fmt.Fprintf(b, "<div class=\"drawing drawing--image drawing--image-cropped\" style=%q title=%q><img style=%q alt=%q src=%q></div>\n",
+			posStyle+";overflow:hidden", escapeHTML(d.Name), drawingImageCropStyle(d.Image), escapeHTML(alt), src)
+		return
+	}
 	fmt.Fprintf(b, "<img class=\"drawing drawing--image\" style=%q title=%q alt=%q src=%q>\n",
-		posStyle, escapeHTML(d.Name), escapeHTML(d.Name), src)
+		posStyle, escapeHTML(d.Name), escapeHTML(alt), src)
+}
+
+func drawingImageHasCrop(img *resolve.DrawingImage) bool {
+	return img != nil && (img.CropLeft != 0 || img.CropTop != 0 || img.CropRight != 0 || img.CropBottom != 0)
+}
+
+func drawingImageCropStyle(img *resolve.DrawingImage) string {
+	if img == nil {
+		return "width:100%;height:100%"
+	}
+	l := math.Max(0, math.Min(99.999, float64(img.CropLeft)/1000))
+	t := math.Max(0, math.Min(99.999, float64(img.CropTop)/1000))
+	r := math.Max(0, math.Min(99.999, float64(img.CropRight)/1000))
+	bt := math.Max(0, math.Min(99.999, float64(img.CropBottom)/1000))
+	visibleW := math.Max(0.001, 100-l-r)
+	visibleH := math.Max(0.001, 100-t-bt)
+	width := 10000 / visibleW
+	height := 10000 / visibleH
+	left := -l * 100 / visibleW
+	top := -t * 100 / visibleH
+	return fmt.Sprintf("position:absolute;max-width:none;max-height:none;width:%.4f%%;height:%.4f%%;left:%.4f%%;top:%.4f%%", width, height, left, top)
 }
 
 func browserRenderableDrawingImage(contentType string) bool {
@@ -4278,9 +4625,7 @@ func renderDrawingShape(b *strings.Builder, d *resolve.Drawing, posStyle string,
 				b.WriteString("</g>")
 			}
 			b.WriteString("</svg>")
-			if sp.Text != "" {
-				fmt.Fprintf(b, "%s", escapeHTML(sp.Text))
-			}
+			renderDrawingShapeText(b, sp)
 			b.WriteString("</div>\n")
 			return
 		}
@@ -4314,10 +4659,35 @@ func renderDrawingShape(b *strings.Builder, d *resolve.Drawing, posStyle string,
 	}
 
 	fmt.Fprintf(b, "<div class=\"drawing drawing--shape\" style=%q title=%q>", strings.Join(fullStyles, ";"), escapeHTML(d.Name))
-	if sp.Text != "" {
-		fmt.Fprintf(b, "%s", escapeHTML(sp.Text))
-	}
+	renderDrawingShapeText(b, sp)
 	b.WriteString("</div>\n")
+}
+
+func renderDrawingShapeText(b *strings.Builder, shape *resolve.DrawingShape) {
+	if b == nil || shape == nil {
+		return
+	}
+	if len(shape.RichTextRuns) == 0 {
+		b.WriteString(escapeHTML(shape.Text))
+		return
+	}
+	for _, run := range shape.RichTextRuns {
+		if run == nil || run.Text == "" {
+			continue
+		}
+		parts := strings.Split(run.Text, "\n")
+		for i, part := range parts {
+			if i > 0 {
+				b.WriteString("<br>")
+			}
+			if part == "" {
+				continue
+			}
+			copyRun := *run
+			copyRun.Text = part
+			renderRichTextRuns(b, []*resolve.RichTextRun{&copyRun}, nil)
+		}
+	}
 }
 
 func sheetShapeTransformStyle(shape *resolve.DrawingShape) string {

@@ -200,10 +200,8 @@ func parseChpxGrpprlWithMetadataAndFonts(grpprl []byte, fontNames []string) (wor
 				}
 			}
 		case 0x0802: // sprmCFFldVanish — field instruction text vanish
-			if len(op) >= 1 {
-				v := chpxToggleBool(op[0])
-				out.Vanish = &v
-			}
+			// Structural field visibility, not ordinary character vanish.
+			// Field materialization owns suppression of instruction text.
 		case 0x4804, 0x4863: // sprmCIbstRMark / sprmCIbstRMarkDel — author index into SttbfRMark (2 bytes)
 			if len(op) >= 2 {
 				meta.IbstRMark = binary.LittleEndian.Uint16(op)

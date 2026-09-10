@@ -6,42 +6,38 @@ import (
 	"testing"
 )
 
-func TestLegacyWord97AdapterConsumesCanonicalSnapshot(t *testing.T) {
-	data, err := os.ReadFile("word97_core.go")
+func TestLegacyWord97AdapterConsumesCanonicalSnapshotDirectly(t *testing.T) {
+	data, err := os.ReadFile("word97_projection.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(data)
-	if !strings.Contains(source, "word97.OpenSnapshotReaderAt(") {
-		t.Fatal("legacy Word97 adapter must consume canonical snapshot")
+	for _, want := range []string{
+		"word97.OpenSnapshotReaderAt(",
+		"word97.MaterializeRunRange(",
+		"word97.EnrichMaterializedRuns(canonicalRuns, opened.Metadata, snapshot.Context, f)",
+		"input := word97BinaryDocumentInput(snapshot, visible)",
+		"opened.Metadata",
+		"word97.ApplySnapshotDocumentState(doc, snapshot)",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("legacy Word97 projection must consume %q", want)
+		}
 	}
 	for _, forbidden := range []string{
 		"word97.OpenCoreReaderAt(",
 		"word97.LoadDocumentContextReaderAt(",
-		"word97.LoadDocumentSettingsReaderAt(",
-		"word97.LoadFontFamiliesReaderAt(",
-		"word97.LoadEmbeddedFontsReaderAt(",
 		"word97.LoadRevisionAuthorsReaderAt(",
-		"word97.LoadDOPReaderAt(",
-	} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("legacy Word97 adapter must not orchestrate canonical loaders: found %q", forbidden)
-		}
-	}
-	for _, want := range []string{
 		"opened.RawCLX",
-		"opened.CHPX",
-		"opened.PAPX",
-		"opened.Numbering",
+		"opened.RevisionAuthors",
 		"opened.Settings",
 		"opened.FontFamilies",
 		"opened.EmbeddedFonts",
-		"opened.RevisionAuthors",
 		"opened.RawDOP",
-		"snapshot.Context",
+		"opened.Source",
 	} {
-		if !strings.Contains(source, want) {
-			t.Fatalf("legacy Word97 adapter must project %q", want)
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("legacy Word97 projection regained piecemeal/intermediate ownership %q", forbidden)
 		}
 	}
 }

@@ -1260,6 +1260,7 @@ type Image struct {
 	FillColor     string       // hex RGB background fill from pic:spPr; empty = transparent
 	BorderColor   string       // hex RGB border from pic:spPr/a:ln; empty = no border
 	BorderWidth   float64      // pt; from pic:spPr/a:ln width
+	FrameGeometry string       // pic:spPr/a:prstGeom preset; geometry of the picture frame, not the bitmap
 	RotationDeg   float64      // clockwise picture rotation from pic:spPr/a:xfrm
 	FlipH         bool         // horizontal picture flip from pic:spPr/a:xfrm
 	FlipV         bool         // vertical picture flip from pic:spPr/a:xfrm

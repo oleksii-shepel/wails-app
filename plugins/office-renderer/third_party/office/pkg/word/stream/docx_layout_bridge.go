@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	wordir "office/pkg/word/ir"
 	"office/pkg/ooxml/mathml"
+	wordir "office/pkg/word/ir"
 	wordsax "office/pkg/word/parsers/ooxml/sax"
 )
 
@@ -37,7 +37,7 @@ type docxLayoutHandler struct {
 	notes         *docxNoteLoader
 	comments      *docxCommentLoader
 	media         *docxMediaLoader
-	headers        *docxHeaderFooterLoader
+	headers       *docxHeaderFooterLoader
 	lastHeaders   []wordir.Reference
 	lastFooters   []wordir.Reference
 }
@@ -66,11 +66,7 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 		return nil
 	case EventStartHyperlink:
 		raw, _ := event.Raw.(wordsax.Event)
-		h.hyperlinks = append(h.hyperlinks, docxHyperlinkFrame{
-			target: raw.HyperlinkTarget,
-			anchor: raw.HyperlinkAnchor,
-			relID:  raw.RelationshipID,
-		})
+		h.hyperlinks = append(h.hyperlinks, docxHyperlinkFrame{target: raw.HyperlinkTarget, anchor: raw.HyperlinkAnchor, relID: raw.RelationshipID})
 		return nil
 	case EventEndHyperlink:
 		if len(h.hyperlinks) > 0 {
@@ -79,12 +75,7 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 		return nil
 	case EventStartRevision:
 		raw, _ := event.Raw.(wordsax.Event)
-		h.revisions = append(h.revisions, docxRevisionFrame{
-			kind:   normalizeDOCXRevisionKind(raw.RevisionKind),
-			author: raw.Author,
-			date:   raw.Date,
-			id:     raw.RevisionID,
-		})
+		h.revisions = append(h.revisions, docxRevisionFrame{kind: normalizeDOCXRevisionKind(raw.RevisionKind), author: raw.Author, date: raw.Date, id: raw.RevisionID})
 		return nil
 	case EventEndRevision:
 		if len(h.revisions) > 0 {
@@ -93,8 +84,7 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 		return nil
 	case EventFieldInstruction:
 		if len(h.fields) > 0 {
-			frame := &h.fields[len(h.fields)-1]
-			frame.instruction.WriteString(event.FieldInstr)
+			h.fields[len(h.fields)-1].instruction.WriteString(event.FieldInstr)
 		} else {
 			h.pendingSimple += event.FieldInstr
 		}
@@ -130,11 +120,12 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 		if !ok {
 			return StreamUnsupportedEventError{Type: event.Type}
 		}
+		if docxDrawingCarriesShape(raw) {
+			return appendDOCXShapeRun(h.session, event)
+		}
 		switch raw.DrawingGraphicKind {
 		case "picture":
 			return h.appendPicture(event)
-		case "shape":
-			return appendDOCXShapeRun(h.session, event)
 		default:
 			return StreamUnsupportedEventError{Type: event.Type}
 		}
@@ -143,11 +134,9 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 			return err
 		}
 	}
-
 	if err := h.session.HandleEvent(event); err != nil {
 		return err
 	}
-
 	if event.Type == EventText || event.Type == EventTab || event.Type == EventBreak {
 		h.annotateLastRunContext()
 		instr := ""
@@ -177,7 +166,6 @@ func (h *docxLayoutHandler) prepareSection(event *Event) error {
 	}
 	mergedHeaders := mergeSectionStoryRefs(h.lastHeaders, explicitHeaders)
 	mergedFooters := mergeSectionStoryRefs(h.lastFooters, explicitFooters)
-
 	doc := &h.session.doc
 	doc.EvenAndOddHeaders = h.headers.evenAndOdd
 	if len(mergedHeaders) > 0 && doc.Headers == nil {
@@ -206,7 +194,6 @@ func (h *docxLayoutHandler) prepareSection(event *Event) error {
 		}
 		doc.Footers[ref.PartName] = story
 	}
-
 	event.Section.Headers = append([]wordir.Reference(nil), mergedHeaders...)
 	event.Section.Footers = append([]wordir.Reference(nil), mergedFooters...)
 	h.lastHeaders = append([]wordir.Reference(nil), mergedHeaders...)
@@ -251,13 +238,13 @@ func (h *docxLayoutHandler) appendRuby(event Event) error {
 			ruby.Align = pr.RubyAlign.Val
 		}
 		if pr.PhoneticGuideTextFontSize != nil {
-			ruby.FontSize = float64(pr.PhoneticGuideTextFontSize.Val) / 2.0
+			ruby.FontSize = float64(pr.PhoneticGuideTextFontSize.Val) / 2
 		}
 		if pr.BaseTextFontSize != nil {
-			ruby.BaseFontSize = float64(pr.BaseTextFontSize.Val) / 2.0
+			ruby.BaseFontSize = float64(pr.BaseTextFontSize.Val) / 2
 		}
 		if pr.PhoneticGuideRaise != nil {
-			ruby.Raise = float64(pr.PhoneticGuideRaise.Val) / 2.0
+			ruby.Raise = float64(pr.PhoneticGuideRaise.Val) / 2
 		}
 		if pr.LanguageID != nil {
 			ruby.Lang = pr.LanguageID.Val
@@ -309,20 +296,10 @@ func (h *docxLayoutHandler) appendPicture(event Event) error {
 	if len(data) == 0 {
 		return fmt.Errorf("word stream: picture payload %q is empty", raw.RelationshipTarget)
 	}
-
-	img := &wordir.Image{
-		MIMEType: mimeType,
-		Data:     data,
-		Width:    raw.WidthEMU,
-		Height:   raw.HeightEMU,
-		Alt:      firstNonEmptyString(raw.DrawingDescription, raw.DrawingName),
-		Title:    raw.DrawingTitle,
-		Hidden:   raw.DrawingHidden,
-	}
+	img := &wordir.Image{MIMEType: mimeType, Data: data, Width: raw.WidthEMU, Height: raw.HeightEMU, Alt: firstNonEmptyString(raw.DrawingDescription, raw.DrawingName), Title: raw.DrawingTitle, Hidden: raw.DrawingHidden}
 	if raw.DrawingKind == "anchor" {
 		populateAnchoredImage(img, raw)
 	}
-
 	h.session.ensureParagraph()
 	run := wordir.Run{Kind: "image", Image: img, StyleID: event.RunStyleID}
 	if event.RunFormat != nil {
@@ -338,43 +315,25 @@ func populateAnchoredImage(img *wordir.Image, raw wordsax.Event) {
 		return
 	}
 	anchor := raw.DrawingModel.Anchor
-	img.Floating = true
-	img.ZIndex = anchor.RelativeHeight
-	img.BehindDoc = anchor.BehindDoc != 0
+	placement := drawingPlacementFromAnchor(anchor)
+	placement.Width, placement.Height = img.Width, img.Height
 	if anchor.PositionH != nil {
-		img.X = anchor.PositionH.PosOffset
-		img.XRelative = anchor.PositionH.RelativeFrom
-		img.XAlign = anchor.PositionH.Align
+		placement.X = anchor.PositionH.PosOffset
+		placement.XRelative = anchor.PositionH.RelativeFrom
+		placement.XAlign = anchor.PositionH.Align
 		if anchor.PositionH.Pct != 0 {
-			img.X = anchor.PositionH.Pct
+			placement.X = anchor.PositionH.Pct
 		}
 	}
 	if anchor.PositionV != nil {
-		img.Y = anchor.PositionV.PosOffset
-		img.YRelative = anchor.PositionV.RelativeFrom
-		img.YAlign = anchor.PositionV.Align
+		placement.Y = anchor.PositionV.PosOffset
+		placement.YRelative = anchor.PositionV.RelativeFrom
+		placement.YAlign = anchor.PositionV.Align
 		if anchor.PositionV.Pct != 0 {
-			img.Y = anchor.PositionV.Pct
+			placement.Y = anchor.PositionV.Pct
 		}
 	}
-	if anchor.WrapNone != nil {
-		img.WrapType = "none"
-	} else if anchor.WrapSquare != nil {
-		img.WrapType = "square"
-		img.WrapSide = anchor.WrapSquare.WrapText
-	} else if anchor.WrapTight != nil {
-		img.WrapType = "tight"
-		img.WrapSide = anchor.WrapTight.WrapText
-	} else if anchor.WrapThrough != nil {
-		img.WrapType = "through"
-		img.WrapSide = anchor.WrapThrough.WrapText
-	} else if anchor.WrapTopAndBottom != nil {
-		img.WrapType = "topAndBottom"
-	}
-	img.DistTop = float64(anchor.DistT) / 12700.0
-	img.DistBottom = float64(anchor.DistB) / 12700.0
-	img.DistLeft = float64(anchor.DistL) / 12700.0
-	img.DistRight = float64(anchor.DistR) / 12700.0
+	placement.ApplyTo(img)
 }
 
 func firstNonEmptyString(values ...string) string {
@@ -401,7 +360,6 @@ func (h *docxLayoutHandler) appendNoteReference(kind string, event Event) error 
 	if !ok {
 		return fmt.Errorf("word stream: %s story %d not found", kind, id)
 	}
-
 	doc := &h.session.doc
 	if kind == "footnote" {
 		if doc.Footnotes == nil {
@@ -414,10 +372,8 @@ func (h *docxLayoutHandler) appendNoteReference(kind string, event Event) error 
 		}
 		doc.Endnotes[id] = story
 	}
-
 	h.session.ensureParagraph()
-	runKind := kind + "Ref"
-	run := wordir.Run{Kind: runKind, NoteID: id, StyleID: event.RunStyleID}
+	run := wordir.Run{Kind: kind + "Ref", NoteID: id, StyleID: event.RunStyleID}
 	if event.RunFormat != nil {
 		run.Format = *event.RunFormat
 	}
@@ -438,13 +394,12 @@ func (h *docxLayoutHandler) appendCommentReference(event Event) error {
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("word stream: comment story %d not found", id)
+	if ok {
+		if h.session.doc.Comments == nil {
+			h.session.doc.Comments = make(map[int]wordir.Story)
+		}
+		h.session.doc.Comments[id] = story
 	}
-	if h.session.doc.Comments == nil {
-		h.session.doc.Comments = make(map[int]wordir.Story)
-	}
-	h.session.doc.Comments[id] = story
 	h.session.ensureParagraph()
 	run := wordir.Run{Kind: "commentRef", CommentID: id, StyleID: event.RunStyleID}
 	if event.RunFormat != nil {
@@ -478,7 +433,6 @@ func (h *docxLayoutHandler) annotateLastRunContext() {
 		}
 	}
 }
-
 func normalizeDOCXRevisionKind(kind string) string {
 	switch strings.TrimSpace(kind) {
 	case "ins":
@@ -493,7 +447,6 @@ func normalizeDOCXRevisionKind(kind string) string {
 		return kind
 	}
 }
-
 func (h *docxLayoutHandler) annotateLastRun(instr string) {
 	if h.session.paragraph == nil || len(h.session.paragraph.Runs) == 0 {
 		return
@@ -502,7 +455,6 @@ func (h *docxLayoutHandler) annotateLastRun(instr string) {
 	run.FieldInstr = instr
 	run.FieldKind = fieldKindFromInstruction(instr)
 }
-
 func fieldKindFromInstruction(instr string) string {
 	instr = strings.TrimSpace(instr)
 	if instr == "" {
@@ -513,13 +465,4 @@ func fieldKindFromInstruction(instr string) string {
 		return ""
 	}
 	return strings.ToUpper(fields[0])
-}
-
-func appendUniqueString(values []string, value string) []string {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
-	}
-	return append(values, value)
 }

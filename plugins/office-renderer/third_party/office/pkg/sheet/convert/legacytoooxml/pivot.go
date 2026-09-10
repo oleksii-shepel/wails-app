@@ -47,11 +47,16 @@ func buildPivotTable(pt *sheetir.PivotTable, wb *sheetir.Workbook, pivotSheet st
 	fieldNames := make([]string, fieldCount)
 	fieldIndex := make(map[string]int, fieldCount)
 	for col := fc; col <= lc; col++ {
-		name := cellStringValue(src, fr, col)
-		if name == "" {
-			name = fmt.Sprintf("Field%d", col-fc+1)
-		}
 		idx := col - fc
+		name := cellStringValue(src, fr, col)
+		if idx < len(pt.Fields) && pt.Fields[idx] != nil && strings.TrimSpace(pt.Fields[idx].Name) != "" {
+			// BIFF pivot-view field names are canonical pivot semantics and can
+			// intentionally differ from the source range header text.
+			name = strings.TrimSpace(pt.Fields[idx].Name)
+		}
+		if name == "" {
+			name = fmt.Sprintf("Field%d", idx+1)
+		}
 		fieldNames[idx] = name
 		fieldIndex[name] = idx
 	}

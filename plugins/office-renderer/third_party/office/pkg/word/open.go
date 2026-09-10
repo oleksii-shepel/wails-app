@@ -13,6 +13,7 @@ import (
 	"office/pkg/word/edit"
 	"office/pkg/word/ir"
 	docparser "office/pkg/word/parsers/doc"
+	legacyparser "office/pkg/word/parsers/legacy"
 	"office/pkg/word/parsers/ooxml/parts"
 	"office/pkg/word/parsers/ooxml/resolve"
 	"office/pkg/word/render"
@@ -36,6 +37,14 @@ const (
 // ErrUnsupportedFormat is returned when an input cannot be classified as a
 // supported Word document container.
 var ErrUnsupportedFormat = errors.New("word: unsupported document format")
+
+// OpenOptions controls format-neutral Word opening.
+//
+// Password is applied per call to encrypted DOC and DOCX inputs. Unencrypted
+// inputs ignore it. The zero value preserves the behavior of Open/OpenBytes.
+type OpenOptions struct {
+	Password string
+}
 
 // Document is the stable format-neutral Word intermediate representation.
 type Document = ir.Document
@@ -90,6 +99,13 @@ func DetectFormat(name string, data []byte) Format {
 // Callers that explicitly need raw binary provenance should use the DOC parser's
 // lossless preservation APIs rather than paying that cost on every open.
 func Open(path string) (*Document, error) {
+	return OpenWithOptions(path, OpenOptions{})
+}
+
+// OpenWithOptions reads a Word document using per-call options. Password
+// ownership is format-neutral: callers do not need to know whether the input is
+// legacy DOC or encrypted OOXML.
+func OpenWithOptions(path string, options OpenOptions) (*Document, error) {
 	format := DetectFormat(path, nil)
 	switch format {
 	case FormatDOCX:
@@ -102,13 +118,27 @@ func Open(path string) (*Document, error) {
 		if err != nil {
 			return nil, fmt.Errorf("word: stat OOXML %q: %w", path, err)
 		}
-		doc, err := wordstream.ReadDOCXDocument(file, info.Size(), wordstream.DOCXOptions{IncludeFieldInstructions: true})
+		doc, err := wordstream.ReadDOCXDocument(file, info.Size(), wordstream.DOCXOptions{
+			IncludeFieldInstructions: true,
+			Password:                 options.Password,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("word: stream OOXML %q: %w", path, err)
 		}
 		doc.Filename = filepath.Base(path)
 		return doc, nil
 	case FormatDOC:
+		// Encrypted DOC currently needs the materialized compatibility path
+		// because the sequential Word97 cursor intentionally rejects encrypted
+		// FIBs. Keep the ordinary zero-password path streaming.
+		if options.Password != "" {
+			doc, err := legacyparser.ParseDocWithOptions(path, legacyparser.ParseOptions{Password: options.Password})
+			if err != nil {
+				return nil, fmt.Errorf("word: open encrypted DOC %q: %w", path, err)
+			}
+			doc.Filename = filepath.Base(path)
+			return doc, nil
+		}
 		doc, err := wordstream.ReadDOCFileDocument(path)
 		if err != nil {
 			return nil, fmt.Errorf("word: stream DOC %q: %w", path, err)
@@ -121,21 +151,37 @@ func Open(path string) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("word: open %q: %w", path, err)
 	}
-	return OpenBytes(filepath.Base(path), data)
+	return OpenBytesWithOptions(filepath.Base(path), data, options)
 }
 
 // OpenBytes resolves an in-memory Word document through the same shared stream
 // pipeline as Open. name is used for format selection and document identity.
 func OpenBytes(name string, data []byte) (*Document, error) {
+	return OpenBytesWithOptions(name, data, OpenOptions{})
+}
+
+// OpenBytesWithOptions is the in-memory counterpart of OpenWithOptions.
+func OpenBytesWithOptions(name string, data []byte, options OpenOptions) (*Document, error) {
 	switch DetectFormat(name, data) {
 	case FormatDOCX:
-		doc, err := wordstream.ReadDOCXDocument(bytes.NewReader(data), int64(len(data)), wordstream.DOCXOptions{IncludeFieldInstructions: true})
+		doc, err := wordstream.ReadDOCXDocument(bytes.NewReader(data), int64(len(data)), wordstream.DOCXOptions{
+			IncludeFieldInstructions: true,
+			Password:                 options.Password,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("word: stream OOXML %q: %w", displayName(name), err)
 		}
 		doc.Filename = filepath.Base(name)
 		return doc, nil
 	case FormatDOC:
+		if options.Password != "" {
+			doc, err := legacyparser.ParseDocBytesWithOptions(data, name, legacyparser.ParseOptions{Password: options.Password})
+			if err != nil {
+				return nil, fmt.Errorf("word: open encrypted DOC %q: %w", displayName(name), err)
+			}
+			doc.Filename = filepath.Base(name)
+			return doc, nil
+		}
 		doc, err := wordstream.ReadDOCDocument(data)
 		if err != nil {
 			return nil, fmt.Errorf("word: stream DOC %q: %w", displayName(name), err)

@@ -43,7 +43,16 @@ func (p *legacyTableRowProps) canonical() *docformat.TableRowProps {
 	return out.Clone()
 }
 
-func legacyTableRowPropsFromCanonical(p *docformat.TableRowProps)*legacyTableRowProps{
+// legacyTableRowPropsFromCanonical is retained for genuine pre-97/lossless
+// compatibility code that still owns the historical storage representation.
+func legacyTableRowPropsFromCanonical(p *docformat.TableRowProps) *legacyTableRowProps {
+	return tableRowPropsStorageFromCanonical(p)
+}
+
+// tableRowPropsStorageFromCanonical is a representation-only copier. It has no
+// format/version policy: callers decide whether they are adapting Word97 into
+// the shared assembler or preserving genuine pre-97 compatibility state.
+func tableRowPropsStorageFromCanonical(p *docformat.TableRowProps)*legacyTableRowProps{
 	if p==nil{return nil};p=p.Clone();out:=&legacyTableRowProps{cellBoundaries:append([]int(nil),p.CellBoundaries...),tableJc:p.TableJc,tableDxaLeft:p.TableDxaLeft,tableDxaGap:p.TableDxaGap,rowHeight:p.RowHeight,cantSplit:p.CantSplit,tableHeader:p.TableHeader,tableBorders:p.TableBorders,cellPadTop:p.CellPadTop,cellPadBottom:p.CellPadBottom,cellPadLeft:p.CellPadLeft,cellPadRight:p.CellPadRight,tableWidth:p.TableWidth,tableWidthType:p.TableWidthType,autoFit:p.AutoFit,bidiVisual:p.BidiVisual,floatProps:p.FloatProps,noOverlap:p.NoOverlap,propertyRevision:fromSequentialRevision(p.PropertyRevision),resolvedPropertyRevision:p.ResolvedPropertyRevision}
 	if p.HMerge!=nil{out.hMerge=make(map[int]byte,len(p.HMerge));for k,v:=range p.HMerge{out.hMerge[k]=v}}
 	if p.VMerge!=nil{out.vMerge=make(map[int]byte,len(p.VMerge));for k,v:=range p.VMerge{out.vMerge[k]=v}}

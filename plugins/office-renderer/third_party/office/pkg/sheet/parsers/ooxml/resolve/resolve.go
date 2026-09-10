@@ -20,8 +20,20 @@ import (
 	"office/pkg/sheet/parsers/ooxml/parts"
 )
 
-// ResolvePackage converts a loaded parts.Package into a resolved Workbook IR.
+// ResolvePackage converts a fully loaded parts.Package into a resolved Workbook IR.
+// It remains as the full-parser oracle for tests and non-production tooling.
 func ResolvePackage(pkg *parts.Package) (*Workbook, error) {
+	return resolvePackage(pkg)
+}
+
+// ResolveMetadataPackage projects package-level metadata and the worksheet
+// identity skeleton into canonical IR. Worksheet content is populated by SAX
+// and relationship-heavy objects are loaded through their explicit boundary.
+func ResolveMetadataPackage(pkg *parts.Package) (*Workbook, error) {
+	return resolvePackage(pkg)
+}
+
+func resolvePackage(pkg *parts.Package) (*Workbook, error) {
 	if pkg == nil {
 		return nil, nil
 	}
@@ -122,6 +134,70 @@ func ResolvePackage(pkg *parts.Package) (*Workbook, error) {
 	return wb, nil
 }
 
+// ApplyStreamingPrintMetadata projects print/page and worksheet-protection
+// metadata emitted by the streaming parser into canonical Sheet IR.
+func ApplyStreamingPrintMetadata(sheet *Sheet, printOptions *parts.PrintOptions, margins *parts.PageMargins, setup *parts.PageSetup, rowBreaks, colBreaks *parts.PageBreaks, protection *parts.SheetProtection) {
+	if sheet == nil {
+		return
+	}
+	if setup != nil || margins != nil || printOptions != nil {
+		ps := &PageSetup{}
+		if setup != nil {
+			ps.PaperSize = setup.PaperSize
+			ps.Orientation = setup.Orientation
+			ps.Scale = setup.Scale
+			ps.FitToPage = setup.FitToPage
+			ps.FitToWidth = setup.FitToWidth
+			ps.FitToHeight = setup.FitToHeight
+			ps.FirstPageNumber = setup.FirstPageNumber
+			ps.UseFirstPageNumber = setup.UseFirstPageNumber
+			ps.PageOrder = setup.PageOrder
+			ps.BlackAndWhite = setup.BlackAndWhite
+			ps.Draft = setup.Draft
+			ps.HorizontalDPI = setup.HorizontalDPI
+			ps.VerticalDPI = setup.VerticalDPI
+			ps.Copies = setup.Copies
+		}
+		if margins != nil {
+			ps.MarginLeft = margins.Left
+			ps.MarginRight = margins.Right
+			ps.MarginTop = margins.Top
+			ps.MarginBottom = margins.Bottom
+			ps.MarginHeader = margins.Header
+			ps.MarginFooter = margins.Footer
+		}
+		if printOptions != nil {
+			ps.CenterHorizontally = printOptions.HorizontalCentered
+			ps.CenterVertically = printOptions.VerticalCentered
+			ps.PrintHeadings = printOptions.Headings
+			ps.PrintGridlines = printOptions.GridLines
+		}
+		sheet.PageSetup = ps
+	}
+	sheet.RowPageBreaks = nil
+	if rowBreaks != nil {
+		for _, brk := range rowBreaks.Breaks {
+			if brk.ID > 0 {
+				sheet.RowPageBreaks = append(sheet.RowPageBreaks, brk.ID)
+			}
+		}
+	}
+	sheet.ColPageBreaks = nil
+	if colBreaks != nil {
+		for _, brk := range colBreaks.Breaks {
+			if brk.ID > 0 {
+				sheet.ColPageBreaks = append(sheet.ColPageBreaks, brk.ID)
+			}
+		}
+	}
+	if protection != nil {
+		sp := protection
+		sheet.Protection = &SheetProtection{Password: sp.Password, Sheet: sp.Sheet, Objects: sp.Objects, Scenarios: sp.Scenarios, FormatCells: sp.FormatCells, FormatColumns: sp.FormatColumns, FormatRows: sp.FormatRows, InsertColumns: sp.InsertColumns, InsertRows: sp.InsertRows, InsertHyperlinks: sp.InsertHyperlinks, DeleteColumns: sp.DeleteColumns, DeleteRows: sp.DeleteRows, SelectLockedCells: sp.SelectLockedCells, Sort: sp.Sort, AutoFilter: sp.AutoFilter, PivotTables: sp.PivotTables, SelectUnlockedCells: sp.SelectUnlockedCells, AlgorithmName: sp.AlgorithmName, HashValue: sp.HashValue, SaltValue: sp.SaltValue, SpinCount: sp.SpinCount}
+	} else {
+		sheet.Protection = nil
+	}
+}
+
 func resolveWorkbookCalcPr(cp *parts.CalcPr) *WorkbookCalcSettings {
 	out := &WorkbookCalcSettings{}
 	any := false
@@ -137,6 +213,15 @@ func resolveWorkbookCalcPr(cp *parts.CalcPr) *WorkbookCalcSettings {
 	case "autoNoTable":
 		v := -1
 		out.Mode = &v
+		any = true
+	}
+	if mode := strings.TrimSpace(cp.RefMode); mode == "A1" || mode == "R1C1" {
+		out.ReferenceMode = mode
+		any = true
+	}
+	if cp.CalcID != nil {
+		v := *cp.CalcID
+		out.RecalcID = &v
 		any = true
 	}
 	if cp.Iterate != nil {
@@ -163,6 +248,16 @@ func resolveWorkbookCalcPr(cp *parts.CalcPr) *WorkbookCalcSettings {
 		// fullPrecision="false" means "use displayed precision" — invert.
 		v := !*cp.FullPrecision
 		out.PrecisionAsDisplayed = &v
+		any = true
+	}
+	if cp.FullCalcOnLoad != nil {
+		v := *cp.FullCalcOnLoad
+		out.FullCalcOnLoad = &v
+		any = true
+	}
+	if cp.ForceFullCalc != nil {
+		v := *cp.ForceFullCalc
+		out.ForceFullCalc = &v
 		any = true
 	}
 	if !any {
@@ -723,97 +818,120 @@ func buildSSTRich(ss *parts.SharedStrings) []*parts.RichText {
 
 // styleEntry holds pre-resolved cell style properties indexed by cellXfs position.
 type styleEntry struct {
-	bold          bool
-	italic        bool
-	fontFamily    string
-	hAlign        string
-	vAlign        string
-	wrapText      bool
-	textRotation  int
-	fontSizePt    float64
-	fontColor     string
-	bgColor       string
-	borderTop     BorderStyle
-	borderRight   BorderStyle
-	borderBottom  BorderStyle
-	borderLeft    BorderStyle
-	numFmtCode    string
-	locked        bool
-	formulaHidden bool
+	bold               bool
+	italic             bool
+	underline          bool
+	underlineType      string
+	strike             bool
+	fontVertAlign      string
+	fontFamily         string
+	hAlign             string
+	vAlign             string
+	wrapText           bool
+	shrinkToFit        bool
+	indent             int
+	textRotation       int
+	fontSizePt         float64
+	fontColor          string
+	bgColor            string
+	fillPattern        string
+	fillPatternBgColor string
+	borderTop          BorderStyle
+	borderRight        BorderStyle
+	borderBottom       BorderStyle
+	borderLeft         BorderStyle
+	borderDiagonal     BorderStyle
+	borderDiagonalUp   bool
+	borderDiagonalDown bool
+	borderVertical     BorderStyle
+	borderHorizontal   BorderStyle
+	numFmtCode         string
+	locked             bool
+	formulaHidden      bool
+}
+
+// ResolveCellStyleTable exposes the canonical styles.xml resolution used by the
+// OOXML reader. The streaming parser owns style indices; this resolver converts
+// those indices to the canonical IR CellStyle representation.
+func ResolveCellStyleTable(ss *parts.StyleSheet, theme *parts.Theme) []CellStyle {
+	themeColors := buildThemeColorIndex(theme)
+	indexedColors := buildIndexedColorIndex(ss)
+	entries := buildStyleTable(ss, themeColors, indexedColors)
+	out := make([]CellStyle, len(entries))
+	for i, entry := range entries {
+		out[i] = styleEntryToCellStyle(entry)
+	}
+	return out
 }
 
 func buildStyleTable(ss *parts.StyleSheet, themeColors, indexedColors map[int]string) []styleEntry {
 	if ss == nil {
 		return nil
 	}
-	return buildStyleEntries(ss, ss.CellXfs, themeColors, indexedColors)
 
-	// Build numFmt lookup: id → format code (includes built-in formats).
-	numFmts := builtinNumFmts()
-	for _, nf := range ss.NumFmts {
-		numFmts[nf.ID] = nf.FormatCode
+	base := buildStyleEntries(ss, ss.CellStyleXfs, themeColors, indexedColors)
+	direct := buildStyleEntries(ss, ss.CellXfs, themeColors, indexedColors)
+	out := make([]styleEntry, len(direct))
+	for i, entry := range direct {
+		xf := ss.CellXfs[i]
+		if xf.XfID >= 0 && xf.XfID < len(base) {
+			out[i] = inheritCellXf(base[xf.XfID], entry, xf)
+		} else {
+			out[i] = entry
+		}
 	}
+	return out
+}
 
-	out := make([]styleEntry, len(ss.CellXfs))
-	for i, xf := range ss.CellXfs {
-		var e styleEntry
+// inheritCellXf applies a cellXf on top of its referenced cellStyleXf. Formatting
+// components are groups in OOXML: when a group is applied, the cellXf replaces
+// that whole group, including false/empty values. Non-zero component IDs remain
+// an interoperability fallback for producers that omit the corresponding apply*
+// attribute while still authoring a direct format.
+func inheritCellXf(base, direct styleEntry, xf parts.Xf) styleEntry {
+	out := base
 
-		if xf.FontID >= 0 && xf.FontID < len(ss.Fonts) {
-			f := ss.Fonts[xf.FontID]
-			e.bold = f.Bold != nil
-			e.italic = f.Italic != nil
-			if f.Name != nil {
-				e.fontFamily = f.Name.Val
-			}
-			if f.Size != nil {
-				e.fontSizePt = f.Size.Val
-			}
-			if f.Color != nil {
-				e.fontColor = resolveColorVal(f.Color, themeColors, indexedColors)
-			}
-		}
-
-		if xf.FillID >= 2 && xf.FillID < len(ss.Fills) { // fills 0-1 are reserved
-			fill := ss.Fills[xf.FillID]
-			if fill.PatternFill != nil && fill.PatternFill.FgColor != nil &&
-				fill.PatternFill.PatternType != "" && fill.PatternFill.PatternType != "none" {
-				e.bgColor = resolveColorVal(fill.PatternFill.FgColor, themeColors, indexedColors)
-			}
-		}
-		if xf.BorderID >= 0 && xf.BorderID < len(ss.Borders) {
-			border := ss.Borders[xf.BorderID]
-			e.borderTop = resolveBorderSide(border.Top, themeColors, indexedColors)
-			e.borderRight = resolveBorderSide(border.Right, themeColors, indexedColors)
-			e.borderBottom = resolveBorderSide(border.Bottom, themeColors, indexedColors)
-			e.borderLeft = resolveBorderSide(border.Left, themeColors, indexedColors)
-		}
-
-		if xf.Alignment != nil {
-			e.wrapText = xf.Alignment.WrapText
-			e.textRotation = xf.Alignment.TextRotation
-			switch xf.Alignment.Horizontal {
-			case "left", "center", "right", "general", "fill", "justify", "centerContinuous", "distributed":
-				e.hAlign = mapHAlign(xf.Alignment.Horizontal)
-			}
-			switch xf.Alignment.Vertical {
-			case "top":
-				e.vAlign = "top"
-			case "center":
-				e.vAlign = "middle"
-			case "bottom":
-				e.vAlign = "bottom"
-			}
-		}
-
-		if code, ok := numFmts[xf.NumFmtID]; ok && xf.NumFmtID != 0 {
-			e.numFmtCode = code
-		}
-		if xf.Protection != nil {
-			e.locked = xf.Protection.Locked
-			e.formulaHidden = xf.Protection.FormulaHidden
-		}
-
-		out[i] = e
+	if xf.ApplyFont || xf.FontID != 0 {
+		out.bold = direct.bold
+		out.italic = direct.italic
+		out.underline = direct.underline
+		out.underlineType = direct.underlineType
+		out.strike = direct.strike
+		out.fontVertAlign = direct.fontVertAlign
+		out.fontFamily = direct.fontFamily
+		out.fontSizePt = direct.fontSizePt
+		out.fontColor = direct.fontColor
+	}
+	if xf.ApplyFill || xf.FillID != 0 {
+		out.bgColor = direct.bgColor
+		out.fillPattern = direct.fillPattern
+		out.fillPatternBgColor = direct.fillPatternBgColor
+	}
+	if xf.ApplyBorder || xf.BorderID != 0 {
+		out.borderTop = direct.borderTop
+		out.borderRight = direct.borderRight
+		out.borderBottom = direct.borderBottom
+		out.borderLeft = direct.borderLeft
+		out.borderDiagonal = direct.borderDiagonal
+		out.borderDiagonalUp = direct.borderDiagonalUp
+		out.borderDiagonalDown = direct.borderDiagonalDown
+		out.borderVertical = direct.borderVertical
+		out.borderHorizontal = direct.borderHorizontal
+	}
+	if xf.ApplyNumberFormat || xf.NumFmtID != 0 {
+		out.numFmtCode = direct.numFmtCode
+	}
+	if xf.ApplyAlignment || xf.Alignment != nil {
+		out.hAlign = direct.hAlign
+		out.vAlign = direct.vAlign
+		out.wrapText = direct.wrapText
+		out.shrinkToFit = direct.shrinkToFit
+		out.indent = direct.indent
+		out.textRotation = direct.textRotation
+	}
+	if xf.ApplyProtection || xf.Protection != nil {
+		out.locked = direct.locked
+		out.formulaHidden = direct.formulaHidden
 	}
 	return out
 }
@@ -865,6 +983,14 @@ func buildStyleEntries(ss *parts.StyleSheet, xfs []parts.Xf, themeColors, indexe
 			f := ss.Fonts[xf.FontID]
 			e.bold = f.Bold != nil
 			e.italic = f.Italic != nil
+			e.underline = f.Underline != nil
+			if f.Underline != nil {
+				e.underlineType = strings.TrimSpace(f.Underline.Val)
+			}
+			e.strike = f.Strike != nil
+			if f.VertAlign != nil {
+				e.fontVertAlign = strings.TrimSpace(f.VertAlign.Val)
+			}
 			if f.Name != nil {
 				e.fontFamily = f.Name.Val
 			}
@@ -878,9 +1004,13 @@ func buildStyleEntries(ss *parts.StyleSheet, xfs []parts.Xf, themeColors, indexe
 
 		if xf.FillID >= 2 && xf.FillID < len(ss.Fills) {
 			fill := ss.Fills[xf.FillID]
-			if fill.PatternFill != nil && fill.PatternFill.FgColor != nil &&
-				fill.PatternFill.PatternType != "" && fill.PatternFill.PatternType != "none" {
-				e.bgColor = resolveColorVal(fill.PatternFill.FgColor, themeColors, indexedColors)
+			if fill.PatternFill != nil {
+				pattern := strings.TrimSpace(fill.PatternFill.PatternType)
+				if pattern != "" && pattern != "none" {
+					e.fillPattern = pattern
+					e.bgColor = resolveColorVal(fill.PatternFill.FgColor, themeColors, indexedColors)
+					e.fillPatternBgColor = resolveColorVal(fill.PatternFill.BgColor, themeColors, indexedColors)
+				}
 			}
 		}
 		if xf.BorderID >= 0 && xf.BorderID < len(ss.Borders) {
@@ -889,10 +1019,17 @@ func buildStyleEntries(ss *parts.StyleSheet, xfs []parts.Xf, themeColors, indexe
 			e.borderRight = resolveBorderSide(border.Right, themeColors, indexedColors)
 			e.borderBottom = resolveBorderSide(border.Bottom, themeColors, indexedColors)
 			e.borderLeft = resolveBorderSide(border.Left, themeColors, indexedColors)
+			e.borderDiagonal = resolveBorderSide(border.Diagonal, themeColors, indexedColors)
+			e.borderDiagonalUp = border.DiagonalUp
+			e.borderDiagonalDown = border.DiagonalDown
+			e.borderVertical = resolveBorderSide(border.Vertical, themeColors, indexedColors)
+			e.borderHorizontal = resolveBorderSide(border.Horizontal, themeColors, indexedColors)
 		}
 
 		if xf.Alignment != nil {
 			e.wrapText = xf.Alignment.WrapText
+			e.shrinkToFit = xf.Alignment.ShrinkToFit
+			e.indent = xf.Alignment.Indent
 			e.textRotation = xf.Alignment.TextRotation
 			switch xf.Alignment.Horizontal {
 			case "left", "center", "right", "general", "fill", "justify", "centerContinuous", "distributed":
@@ -923,23 +1060,36 @@ func buildStyleEntries(ss *parts.StyleSheet, xfs []parts.Xf, themeColors, indexe
 
 func styleEntryToCellStyle(e styleEntry) CellStyle {
 	return CellStyle{
-		Bold:          e.bold,
-		Italic:        e.italic,
-		FontFamily:    e.fontFamily,
-		HAlign:        e.hAlign,
-		VAlign:        e.vAlign,
-		WrapText:      e.wrapText,
-		TextRotation:  e.textRotation,
-		FontSizePt:    e.fontSizePt,
-		FontColor:     e.fontColor,
-		BgColor:       e.bgColor,
-		BorderTop:     e.borderTop,
-		BorderRight:   e.borderRight,
-		BorderBottom:  e.borderBottom,
-		BorderLeft:    e.borderLeft,
-		NumFmtCode:    e.numFmtCode,
-		Locked:        e.locked,
-		FormulaHidden: e.formulaHidden,
+		Bold:               e.bold,
+		Italic:             e.italic,
+		Underline:          e.underline,
+		UnderlineType:      e.underlineType,
+		Strike:             e.strike,
+		FontVertAlign:      e.fontVertAlign,
+		FontFamily:         e.fontFamily,
+		HAlign:             e.hAlign,
+		VAlign:             e.vAlign,
+		WrapText:           e.wrapText,
+		ShrinkToFit:        e.shrinkToFit,
+		Indent:             e.indent,
+		TextRotation:       e.textRotation,
+		FontSizePt:         e.fontSizePt,
+		FontColor:          e.fontColor,
+		BgColor:            e.bgColor,
+		FillPattern:        e.fillPattern,
+		FillPatternBgColor: e.fillPatternBgColor,
+		BorderTop:          e.borderTop,
+		BorderRight:        e.borderRight,
+		BorderBottom:       e.borderBottom,
+		BorderLeft:         e.borderLeft,
+		BorderDiagonal:     e.borderDiagonal,
+		BorderDiagonalUp:   e.borderDiagonalUp,
+		BorderDiagonalDown: e.borderDiagonalDown,
+		BorderVertical:     e.borderVertical,
+		BorderHorizontal:   e.borderHorizontal,
+		NumFmtCode:         e.numFmtCode,
+		Locked:             e.locked,
+		FormulaHidden:      e.formulaHidden,
 	}
 }
 
@@ -979,19 +1129,69 @@ func buildDxfTable(ss *parts.StyleSheet, themeColors, indexedColors map[int]stri
 				ds.BgColor = resolveColorVal(pf.FgColor, themeColors, indexedColors)
 			}
 		}
+		if dxf.Border != nil {
+			setDxfBorderSide(&ds.BorderLeft, &ds.LeftBorderColor, dxf.Border.Left, themeColors, indexedColors)
+			setDxfBorderSide(&ds.BorderRight, &ds.RightBorderColor, dxf.Border.Right, themeColors, indexedColors)
+			setDxfBorderSide(&ds.BorderTop, &ds.TopBorderColor, dxf.Border.Top, themeColors, indexedColors)
+			setDxfBorderSide(&ds.BorderBottom, &ds.BottomBorderColor, dxf.Border.Bottom, themeColors, indexedColors)
+		}
 		out[i] = ds
 	}
 	return out
 }
 
+func setDxfBorderSide(dst **int, color *string, side *parts.BorderSide, themeColors, indexedColors map[int]string) {
+	if side == nil || side.Style == "" {
+		return
+	}
+	if code, ok := dxfBorderStyleCode(side.Style); ok {
+		v := code
+		*dst = &v
+	}
+	if side.Color != nil {
+		*color = resolveColorVal(side.Color, themeColors, indexedColors)
+	}
+}
+
+func dxfBorderStyleCode(style string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case "none":
+		return 0, true
+	case "thin":
+		return 1, true
+	case "medium":
+		return 2, true
+	case "dashed":
+		return 3, true
+	case "hair":
+		return 4, true
+	case "thick":
+		return 5, true
+	case "double":
+		return 6, true
+	case "dotted":
+		return 7, true
+	case "mediumdashed":
+		return 8, true
+	case "dashdot":
+		return 9, true
+	case "mediumdashdot":
+		return 10, true
+	case "dashdotdot":
+		return 11, true
+	case "mediumdashdotdot":
+		return 12, true
+	case "slantdashdot":
+		return 13, true
+	default:
+		return 0, false
+	}
+}
+
 func mapHAlign(v string) string {
 	switch v {
-	case "left":
-		return "left"
-	case "center", "centerContinuous", "distributed":
-		return "center"
-	case "right":
-		return "right"
+	case "left", "center", "right", "fill", "justify", "centerContinuous", "distributed":
+		return v
 	default:
 		return ""
 	}
@@ -1333,16 +1533,20 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 	}
 
 	for _, col := range ws.Cols {
+		// Width and visibility are independent worksheet properties. A hidden
+		// column can still carry an authored width which must survive resolution
+		// so unhiding/round-tripping and geometry calculations retain the source.
+		if col.Width > 0 {
+			for c := col.Min; c <= col.Max; c++ {
+				sheet.ColumnWidths[c] = col.Width
+			}
+		}
 		if col.Hidden {
 			if sheet.HiddenCols == nil {
 				sheet.HiddenCols = make(map[int]bool)
 			}
 			for c := col.Min; c <= col.Max; c++ {
 				sheet.HiddenCols[c] = true
-			}
-		} else if col.Width > 0 {
-			for c := col.Min; c <= col.Max; c++ {
-				sheet.ColumnWidths[c] = col.Width
 			}
 		}
 	}
@@ -1352,8 +1556,11 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 		sheet.ZoomScale = sv.ZoomScale
 		sheet.ShowGridLines = sv.ShowGridLines
 		if sv.Pane != nil {
+			sheet.PaneState = sv.Pane.State
+			sheet.SplitX = sv.Pane.XSplit
+			sheet.SplitY = sv.Pane.YSplit
 			switch sv.Pane.State {
-			case "frozen":
+			case "frozen", "frozenSplit":
 				sheet.FrozenRows = int(sv.Pane.YSplit)
 				sheet.FrozenCols = int(sv.Pane.XSplit)
 			case "split":
@@ -1362,6 +1569,11 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 			}
 			sheet.TopLeftCell = sv.Pane.TopLeftCell
 			sheet.ActivePane = sv.Pane.ActivePane
+		}
+		for _, sel := range sv.Selections {
+			sheet.PaneSelections = append(sheet.PaneSelections, PaneSelection{
+				Pane: sel.Pane, ActiveCell: sel.ActiveCell, ActiveCellID: sel.ActiveCellID, SqRef: sel.SqRef,
+			})
 		}
 	}
 
@@ -1401,6 +1613,8 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 			SqRef:            dv.SqRef,
 			Type:             dv.Type,
 			Operator:         dv.Operator,
+			ErrorStyle:       dv.ErrorStyle,
+			IMEMode:          dv.IMEMode,
 			AllowBlank:       dv.AllowBlank,
 			ShowDropDown:     dv.ShowDropDown,
 			ShowInputMessage: dv.ShowInputMessage,
@@ -1469,25 +1683,48 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 	}
 
 	hyperlinks := buildHyperlinkMap(ws.Hyperlinks, entry.HyperlinkURLs)
+	for _, hl := range ws.Hyperlinks {
+		url := resolveHyperlinkTarget(hl, entry.HyperlinkURLs)
+		if url == "" || strings.TrimSpace(hl.Ref) == "" {
+			continue
+		}
+		sheet.Hyperlinks = append(sheet.Hyperlinks, &Hyperlink{
+			Ref: strings.ToUpper(strings.TrimSpace(hl.Ref)), URL: url,
+			Display: hl.Display, Tooltip: hl.Tooltip,
+		})
+	}
 	arrayFormulas, arrayFormulaCells := buildArrayFormulaTable(ws)
 	if len(arrayFormulas) > 0 {
 		sheet.ArrayFormulas = arrayFormulas
 	}
 
-	// Comments: build ref → plain text map.
+	// Comments/notes: retain the historical plain-text map while preserving
+	// author identity and rich runs in the canonical note model.
 	if entry.Comments != nil {
 		for _, c := range entry.Comments.CommentList {
-			if c.Ref == "" {
+			ref := strings.ToUpper(strings.TrimSpace(c.Ref))
+			if ref == "" {
 				continue
 			}
 			text := c.Text.PlainValue()
 			if text == "" {
 				continue
 			}
+			author := ""
+			if c.AuthorID >= 0 && c.AuthorID < len(entry.Comments.Authors) {
+				author = entry.Comments.Authors[c.AuthorID]
+			}
 			if sheet.Comments == nil {
 				sheet.Comments = make(map[string]string)
 			}
-			sheet.Comments[c.Ref] = text
+			if sheet.Notes == nil {
+				sheet.Notes = make(map[string]*CommentNote)
+			}
+			sheet.Comments[ref] = text
+			sheet.Notes[ref] = &CommentNote{
+				Ref: ref, Author: author, Text: text,
+				RichText: resolveRichTextRuns(&c.Text, themeColors, indexedColors),
+			}
 		}
 	}
 
@@ -1501,6 +1738,14 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 			ps.FitToPage = ws.PageSetup.FitToPage
 			ps.FitToWidth = ws.PageSetup.FitToWidth
 			ps.FitToHeight = ws.PageSetup.FitToHeight
+			ps.FirstPageNumber = ws.PageSetup.FirstPageNumber
+			ps.UseFirstPageNumber = ws.PageSetup.UseFirstPageNumber
+			ps.PageOrder = ws.PageSetup.PageOrder
+			ps.BlackAndWhite = ws.PageSetup.BlackAndWhite
+			ps.Draft = ws.PageSetup.Draft
+			ps.HorizontalDPI = ws.PageSetup.HorizontalDPI
+			ps.VerticalDPI = ws.PageSetup.VerticalDPI
+			ps.Copies = ws.PageSetup.Copies
 		}
 		if ws.PageMargins != nil {
 			ps.MarginLeft = ws.PageMargins.Left
@@ -1563,7 +1808,8 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 	// Header/footer text.
 	if hf := ws.HeaderFooter; hf != nil {
 		if hf.OddHeader != "" || hf.OddFooter != "" || hf.EvenHeader != "" ||
-			hf.EvenFooter != "" || hf.FirstHeader != "" || hf.FirstFooter != "" {
+			hf.EvenFooter != "" || hf.FirstHeader != "" || hf.FirstFooter != "" ||
+			hf.DifferentOddEven || hf.DifferentFirst || hf.ScaleWithDoc || hf.AlignWithMargins {
 			resolved := &HeaderFooter{
 				OddHeader:        hf.OddHeader,
 				OddFooter:        hf.OddFooter,
@@ -1573,6 +1819,8 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 				FirstFooter:      hf.FirstFooter,
 				DifferentOddEven: hf.DifferentOddEven,
 				DifferentFirst:   hf.DifferentFirst,
+				ScaleWithDoc:     hf.ScaleWithDoc,
+				AlignWithMargins: hf.AlignWithMargins,
 			}
 			for _, img := range entry.HFImages {
 				resolved.Images = append(resolved.Images, HFImage{
@@ -1610,7 +1858,7 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 	}
 
 	for _, row := range ws.Rows {
-		r := resolveRow(row, sst, sstRich, styles, hyperlinks, sharedFormulas, arrayFormulaCells)
+		r := resolveRow(row, sst, sstRich, styles, hyperlinks, sharedFormulas, arrayFormulaCells, themeColors, indexedColors)
 		if r != nil {
 			sheet.Rows = append(sheet.Rows, r)
 			if row.OutlineLevel > 0 {
@@ -1645,6 +1893,10 @@ func resolveWorksheet(entry *parts.WorksheetEntry, sst []string, sstRich []*part
 
 	if len(entry.Tables) > 0 {
 		sheet.Tables = resolveTables(entry.Tables)
+	}
+
+	if len(entry.LegacyDrawingVML) > 0 {
+		sheet.LegacyDrawingVML = append([]byte(nil), entry.LegacyDrawingVML...)
 	}
 
 	for _, obj := range entry.VMLObjects {
@@ -1895,15 +2147,19 @@ func resolvePivotTables(ptcs []*parts.PivotTableWithCache) []*PivotTable {
 			if pf.Items != nil {
 				for _, item := range pf.Items.Items {
 					cacheIndex := item.X
+					// PivotItem.Name is explicit item metadata, not the cache display
+					// value. Keep an omitted name omitted in canonical IR; consumers
+					// can resolve the display value from the pivot cache when needed.
 					name := item.Name
-					if name == "" {
-						name = pivotCacheItemDisplayValue(ptc.Cache, i, cacheIndex)
-					}
 					hideDetail := false
 					if item.HideDetail != nil {
 						hideDetail = !*item.HideDetail
 					}
-					field.Items = append(field.Items, &PivotItem{CacheIndex: cacheIndex, Type: item.Type, Name: name, Hidden: item.Hidden, HideDetail: hideDetail})
+					itemType := item.Type
+					if itemType == "" {
+						itemType = "data"
+					}
+					field.Items = append(field.Items, &PivotItem{CacheIndex: cacheIndex, Type: itemType, Name: name, Hidden: item.Hidden, HideDetail: hideDetail})
 				}
 			}
 			resolved.Fields = append(resolved.Fields, field)
@@ -2028,10 +2284,12 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 			continue
 		}
 		d.Position = DrawingPosition{
-			Anchor:   AnchorOneCell,
-			FromCell: DrawingCellAnchor{Row: a.From.Row + 1, Col: a.From.Col + 1, RowOffset: a.From.RowOff, ColOffset: a.From.ColOff},
-			Width:    a.Ext.CX,
-			Height:   a.Ext.CY,
+			Anchor:          AnchorOneCell,
+			LocksWithSheet:  anchorBool(a.ClientData, true),
+			PrintsWithSheet: anchorBool(a.ClientData, false),
+			FromCell:        DrawingCellAnchor{Row: a.From.Row + 1, Col: a.From.Col + 1, RowOffset: a.From.RowOff, ColOffset: a.From.ColOff},
+			Width:           a.Ext.CX,
+			Height:          a.Ext.CY,
 		}
 		applyGroupDrawingExtent(d, groupShapeTransform(a.GroupShape))
 		syncSheetOfficeArtDrawing(d)
@@ -2044,9 +2302,12 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 			continue
 		}
 		d.Position = DrawingPosition{
-			Anchor:   AnchorTwoCell,
-			FromCell: DrawingCellAnchor{Row: a.From.Row + 1, Col: a.From.Col + 1, RowOffset: a.From.RowOff, ColOffset: a.From.ColOff},
-			ToCell:   DrawingCellAnchor{Row: a.To.Row + 1, Col: a.To.Col + 1, RowOffset: a.To.RowOff, ColOffset: a.To.ColOff},
+			Anchor:          AnchorTwoCell,
+			Behavior:        resolveAnchorBehavior(a.EditAs),
+			LocksWithSheet:  anchorBool(a.ClientData, true),
+			PrintsWithSheet: anchorBool(a.ClientData, false),
+			FromCell:        DrawingCellAnchor{Row: a.From.Row + 1, Col: a.From.Col + 1, RowOffset: a.From.RowOff, ColOffset: a.From.ColOff},
+			ToCell:          DrawingCellAnchor{Row: a.To.Row + 1, Col: a.To.Col + 1, RowOffset: a.To.RowOff, ColOffset: a.To.ColOff},
 		}
 		applyGroupDrawingExtent(d, groupShapeTransform(a.GroupShape))
 		syncSheetOfficeArtDrawing(d)
@@ -2059,17 +2320,42 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 			continue
 		}
 		d.Position = DrawingPosition{
-			Anchor: AnchorAbsolute,
-			X:      a.Pos.X,
-			Y:      a.Pos.Y,
-			Width:  a.Ext.CX,
-			Height: a.Ext.CY,
+			Anchor:          AnchorAbsolute,
+			LocksWithSheet:  anchorBool(a.ClientData, true),
+			PrintsWithSheet: anchorBool(a.ClientData, false),
+			X:               a.Pos.X,
+			Y:               a.Pos.Y,
+			Width:           a.Ext.CX,
+			Height:          a.Ext.CY,
 		}
 		applyGroupDrawingExtent(d, groupShapeTransform(a.GroupShape))
 		syncSheetOfficeArtDrawing(d)
 		out = append(out, d)
 	}
 	return out
+}
+
+func resolveAnchorBehavior(editAs string) DrawingAnchorBehavior {
+	switch strings.TrimSpace(editAs) {
+	case "oneCell":
+		return AnchorBehaviorMoveOnly
+	case "absolute":
+		return AnchorBehaviorFixed
+	case "twoCell":
+		return AnchorBehaviorMoveAndSize
+	default:
+		return ""
+	}
+}
+
+func anchorBool(data *parts.XDRClientData, locks bool) *bool {
+	if data == nil {
+		return nil
+	}
+	if locks {
+		return data.LocksWithSheet
+	}
+	return data.PrintsWithSheet
 }
 
 func syncSheetOfficeArtDrawing(d *Drawing) *officeartir.Shape {
@@ -2182,12 +2468,28 @@ func resolvePictureDrawing(pic *parts.XDRPic, mediaMap map[string]media.Part) *D
 	}
 	relID := normalizeRelID(pic.BlipFill.Blip.Embed)
 	img := &DrawingImage{RelID: relID, AltText: pic.NvPicPr.CNvPr.Descr}
+	if crop := pic.BlipFill.SrcRect; crop != nil {
+		img.CropLeft = clampDrawingCrop(crop.Left)
+		img.CropTop = clampDrawingCrop(crop.Top)
+		img.CropRight = clampDrawingCrop(crop.Right)
+		img.CropBottom = clampDrawingCrop(crop.Bottom)
+	}
 	if mp, ok := mediaMap[relID]; ok {
 		img.Data = mp.Data
 		img.ContentType = mp.ContentType
 	}
 	d.Image = img
 	return d
+}
+
+func clampDrawingCrop(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 100000 {
+		return 100000
+	}
+	return v
 }
 
 func resolveGraphicFrameDrawing(gf *parts.XDRGraphicFrame, chartParts map[string][]byte, diagramParts map[string]parts.PreservedPart, drawingThemeColors map[string]string) *Drawing {
@@ -2214,10 +2516,15 @@ func resolveGraphicFrameDrawing(gf *parts.XDRGraphicFrame, chartParts map[string
 	}
 	name := graphicFrameNameResolved(gf)
 
-	drawingChart := &DrawingChart{}
+	drawingChart := &DrawingChart{
+		AltTitle: strings.TrimSpace(gf.NvGraphicFramePr.CNvPr.Title),
+		AltText:  strings.TrimSpace(gf.NvGraphicFramePr.CNvPr.Descr),
+	}
 	if gf.Graphic.GraphicData.Chart != nil {
 		relID := normalizeRelID(gf.Graphic.GraphicData.Chart.RelID)
+		drawingChart.RelID = relID
 		if chartXML, ok := chartParts[relID]; ok {
+			drawingChart.RawXML = append([]byte(nil), chartXML...)
 			if c, err := chart.ParseChart(chartXML); err == nil && c != nil {
 				c.ThemeColors = drawingThemeColors
 				drawingChart.Chart = c
@@ -2305,14 +2612,16 @@ func graphicFrameNameResolved(gf *parts.XDRGraphicFrame) string {
 	if gf == nil {
 		return ""
 	}
-	name := gf.NvGraphicFramePr.CNvPr.Name
-	if gf.NvGraphicFramePr.CNvPr.Title != "" {
-		name = gf.NvGraphicFramePr.CNvPr.Title
+	// Preserve the historical public drawing identity: existing workbook APIs
+	// address charts by description first, then title, then DrawingML name.
+	// Accessibility metadata is preserved separately on DrawingChart.
+	if descr := strings.TrimSpace(gf.NvGraphicFramePr.CNvPr.Descr); descr != "" {
+		return descr
 	}
-	if gf.NvGraphicFramePr.CNvPr.Descr != "" {
-		name = gf.NvGraphicFramePr.CNvPr.Descr
+	if title := strings.TrimSpace(gf.NvGraphicFramePr.CNvPr.Title); title != "" {
+		return title
 	}
-	return name
+	return strings.TrimSpace(gf.NvGraphicFramePr.CNvPr.Name)
 }
 
 func resolveShapeDrawing(sp *parts.XDRShape, mediaMap map[string]media.Part, drawingThemeColors map[string]string, themeColors, indexedColors map[int]string) *Drawing {
@@ -2573,14 +2882,19 @@ func resolveShapeWithColorMaps(sp *parts.XDRShape, mediaMap map[string]media.Par
 		}
 	}
 	if sp.TxBody != nil {
-		var runs []string
-		for _, p := range sp.TxBody.Paragraphs {
+		var paragraphs []string
+		for pi, p := range sp.TxBody.Paragraphs {
+			var paragraph strings.Builder
+			if pi > 0 {
+				shape.RichTextRuns = append(shape.RichTextRuns, &RichTextRun{Text: "\n"})
+			}
 			for _, r := range p.Runs {
-				runs = append(runs, r.T)
+				paragraph.WriteString(r.T)
 				shape.RichTextRuns = append(shape.RichTextRuns, resolveShapeTextRun(r, themeColors, indexedColors))
 			}
+			paragraphs = append(paragraphs, paragraph.String())
 		}
-		shape.Text = strings.Join(runs, "")
+		shape.Text = strings.Join(paragraphs, "\n")
 	}
 	return shape
 }
@@ -2593,7 +2907,13 @@ func resolveShapeTextRun(run parts.XDRTxRun, themeColors, indexedColors map[int]
 	out.Bold = run.Properties.Bold != nil
 	out.Italic = run.Properties.Italic != nil
 	out.Underline = run.Properties.Underline != nil
+	if run.Properties.Underline != nil {
+		out.UnderlineType = run.Properties.Underline.Val
+	}
 	out.Strike = run.Properties.Strike != nil
+	if run.Properties.VertAlign != nil {
+		out.VertAlign = run.Properties.VertAlign.Val
+	}
 	if run.Properties.FontSize != nil {
 		out.FontSizePt = run.Properties.FontSize.Val
 	}
@@ -2719,7 +3039,7 @@ func buildArrayFormulaTable(ws *parts.Worksheet) ([]*ArrayFormula, map[string]ar
 	return groups, bindings
 }
 
-func resolveRow(row parts.Row, sst []string, sstRich []*parts.RichText, styles []styleEntry, hyperlinks map[string]string, sharedFormulas map[int]sharedFormulaMaster, arrayFormulaCells map[string]arrayFormulaBinding) *Row {
+func resolveRow(row parts.Row, sst []string, sstRich []*parts.RichText, styles []styleEntry, hyperlinks map[string]string, sharedFormulas map[int]sharedFormulaMaster, arrayFormulaCells map[string]arrayFormulaBinding, themeColors, indexedColors map[int]string) *Row {
 	r := &Row{
 		Index:        row.Index,
 		Hidden:       row.Hidden,
@@ -2728,7 +3048,7 @@ func resolveRow(row parts.Row, sst []string, sstRich []*parts.RichText, styles [
 		Collapsed:    row.Collapsed,
 	}
 	for _, c := range row.Cells {
-		cell := resolveCell(c, row.Index, sst, sstRich, styles, hyperlinks, sharedFormulas, arrayFormulaCells)
+		cell := resolveCell(c, row.Index, sst, sstRich, styles, hyperlinks, sharedFormulas, arrayFormulaCells, themeColors, indexedColors)
 		if cell != nil {
 			r.Cells = append(r.Cells, cell)
 		}
@@ -2739,7 +3059,7 @@ func resolveRow(row parts.Row, sst []string, sstRich []*parts.RichText, styles [
 	return r
 }
 
-func resolveCell(c parts.Cell, rowIdx int, sst []string, sstRich []*parts.RichText, styles []styleEntry, hyperlinks map[string]string, sharedFormulas map[int]sharedFormulaMaster, arrayFormulaCells map[string]arrayFormulaBinding) *Cell {
+func resolveCell(c parts.Cell, rowIdx int, sst []string, sstRich []*parts.RichText, styles []styleEntry, hyperlinks map[string]string, sharedFormulas map[int]sharedFormulaMaster, arrayFormulaCells map[string]arrayFormulaBinding, themeColors, indexedColors map[int]string) *Cell {
 	col := colIndexFromRef(c.Ref)
 	if col == 0 {
 		return nil
@@ -2766,10 +3086,16 @@ func resolveCell(c parts.Cell, rowIdx int, sst []string, sstRich []*parts.RichTe
 		cell.Style = CellStyle{
 			Bold:          s.bold,
 			Italic:        s.italic,
+			Underline:     s.underline,
+			UnderlineType: s.underlineType,
+			Strike:        s.strike,
+			FontVertAlign: s.fontVertAlign,
 			FontFamily:    s.fontFamily,
 			HAlign:        s.hAlign,
 			VAlign:        s.vAlign,
 			WrapText:      s.wrapText,
+			ShrinkToFit:   s.shrinkToFit,
+			Indent:        s.indent,
 			TextRotation:  s.textRotation,
 			FontSizePt:    s.fontSizePt,
 			FontColor:     s.fontColor,
@@ -2791,7 +3117,7 @@ func resolveCell(c parts.Cell, rowIdx int, sst []string, sstRich []*parts.RichTe
 			cell.Kind = CellString
 			cell.StrValue = sst[idx]
 			if idx < len(sstRich) && sstRich[idx] != nil {
-				cell.RichTextRuns = resolveRichTextRuns(sstRich[idx])
+				cell.RichTextRuns = resolveRichTextRuns(sstRich[idx], themeColors, indexedColors)
 			}
 		}
 	case "b":
@@ -2811,7 +3137,7 @@ func resolveCell(c parts.Cell, rowIdx int, sst []string, sstRich []*parts.RichTe
 		if c.InlineStr != nil {
 			cell.StrValue = c.InlineStr.PlainValue()
 			if len(c.InlineStr.Runs) > 0 {
-				cell.RichTextRuns = resolveRichTextRuns(c.InlineStr)
+				cell.RichTextRuns = resolveRichTextRuns(c.InlineStr, themeColors, indexedColors)
 			}
 		}
 	default:
@@ -3010,7 +3336,7 @@ func shiftCellRefToken(token string, rowDelta, colDelta int) string {
 }
 
 // resolveRichTextRuns converts parts.RTRun entries to resolved RichTextRun values.
-func resolveRichTextRuns(rt *parts.RichText) []*RichTextRun {
+func resolveRichTextRuns(rt *parts.RichText, themeColors, indexedColors map[int]string) []*RichTextRun {
 	if rt == nil || len(rt.Runs) == 0 {
 		return nil
 	}
@@ -3021,7 +3347,13 @@ func resolveRichTextRuns(rt *parts.RichText) []*RichTextRun {
 			r.Bold = p.Bold != nil
 			r.Italic = p.Italic != nil
 			r.Underline = p.Underline != nil
+			if p.Underline != nil {
+				r.UnderlineType = strings.TrimSpace(p.Underline.Val)
+			}
 			r.Strike = p.Strike != nil
+			if p.VertAlign != nil {
+				r.VertAlign = strings.TrimSpace(p.VertAlign.Val)
+			}
 			if p.FontSize != nil {
 				r.FontSizePt = p.FontSize.Val
 			}
@@ -3029,13 +3361,7 @@ func resolveRichTextRuns(rt *parts.RichText) []*RichTextRun {
 				r.FontFamily = p.FontName.Val
 			}
 			if p.Color != nil {
-				if p.Color.RGB != "" {
-					rgb := p.Color.RGB
-					if len(rgb) == 8 {
-						rgb = rgb[2:] // strip alpha byte from ARGB
-					}
-					r.FontColor = rgb
-				}
+				r.FontColor = resolveColorVal(p.Color, themeColors, indexedColors)
 			}
 		}
 		out = append(out, r)
@@ -3045,18 +3371,23 @@ func resolveRichTextRuns(rt *parts.RichText) []*RichTextRun {
 
 // buildHyperlinkMap builds a map from uppercase cell ref (e.g. "A1") to resolved URL.
 // External URLs come from hyperlinkURLs; internal references are prefixed with "#".
+func resolveHyperlinkTarget(hl parts.Hyperlink, hyperlinkURLs map[string]string) string {
+	if hl.RelID != "" {
+		return hyperlinkURLs[normalizeRelID(hl.RelID)]
+	}
+	if hl.Location != "" {
+		return "#" + hl.Location
+	}
+	return ""
+}
+
 func buildHyperlinkMap(hyperlinks []parts.Hyperlink, hyperlinkURLs map[string]string) map[string]string {
 	if len(hyperlinks) == 0 {
 		return nil
 	}
 	m := make(map[string]string, len(hyperlinks))
 	for _, hl := range hyperlinks {
-		url := ""
-		if hl.RelID != "" {
-			url = hyperlinkURLs[normalizeRelID(hl.RelID)]
-		} else if hl.Location != "" {
-			url = "#" + hl.Location
-		}
+		url := resolveHyperlinkTarget(hl, hyperlinkURLs)
 		if url == "" {
 			continue
 		}
@@ -3124,6 +3455,62 @@ func ptFromRowHeight(h float64) float64 {
 
 // resolveFilterColumn maps one parts.FilterColumn into the IR equivalent.
 // Returns nil when the column carries no recognisable criteria.
+// ApplyStreamingWorksheetSemantics resolves SAX-owned worksheet semantic metadata into canonical IR.
+func ApplyStreamingWorksheetSemantics(sheet *Sheet, auto *parts.AutoFilter, validations []parts.DataValidation, conditional []parts.ConditionalFmt, styles *parts.StyleSheet, theme *parts.Theme) {
+	if sheet == nil {
+		return
+	}
+	if auto != nil {
+		sheet.AutoFilterRef = auto.Ref
+		sheet.FilterMode = true
+		for i := range auto.FilterColumns {
+			if fc := resolveFilterColumn(&auto.FilterColumns[i]); fc != nil {
+				sheet.FilterColumns = append(sheet.FilterColumns, fc)
+			}
+		}
+		sheet.SortState = resolveSortState(auto.SortState)
+	}
+	for i := range validations {
+		dv := &validations[i]
+		sheet.DataValidations = append(sheet.DataValidations, &DataValidation{SqRef: dv.SqRef, Type: dv.Type, Operator: dv.Operator, ErrorStyle: dv.ErrorStyle, IMEMode: dv.IMEMode, AllowBlank: dv.AllowBlank, ShowDropDown: dv.ShowDropDown, ShowInputMessage: dv.ShowInputMessage, ShowErrorMessage: dv.ShowErrorMessage, PromptTitle: dv.PromptTitle, Prompt: dv.Prompt, ErrorTitle: dv.ErrorTitle, Error: dv.Error, Formula1: dv.Formula1, Formula2: dv.Formula2})
+	}
+	themeColors := buildThemeColorIndex(theme)
+	indexedColors := buildIndexedColorIndex(styles)
+	dxfs := buildDxfTable(styles, themeColors, indexedColors)
+	for i := range conditional {
+		cf := &conditional[i]
+		for j := range cf.Rules {
+			rule := &cf.Rules[j]
+			cr := &CFRule{SqRef: cf.SqRef, Type: rule.Type, Operator: rule.Operator, Priority: rule.Priority, Percent: rule.Percent, Bottom: rule.Bottom, Rank: rule.Rank, Formula: rule.Formula, Text: rule.Text, TimePeriod: rule.TimePeriod}
+			if rule.DxfID >= 0 && rule.DxfID < len(dxfs) {
+				cr.DxfStyle = dxfs[rule.DxfID]
+			}
+			if rule.DataBar != nil {
+				cr.DataBar = &CFDataBar{MinLength: rule.DataBar.MinLength, MaxLength: rule.DataBar.MaxLength, ShowValue: rule.DataBar.ShowValue, Color: resolveColorVal(rule.DataBar.Color, themeColors, indexedColors), Cfvo: copyCfvo(rule.DataBar.Cfvo)}
+			}
+			if rule.IconSet != nil {
+				cr.IconSet = &CFIconSet{Set: rule.IconSet.Set, ShowValue: rule.IconSet.ShowValue, Reverse: rule.IconSet.Reverse, Cfvo: copyCfvo(rule.IconSet.Cfvo)}
+			}
+			if rule.ColorScale != nil {
+				colors := make([]string, len(rule.ColorScale.Colors))
+				for k, c := range rule.ColorScale.Colors {
+					colors[k] = resolveColorVal(c.ColorVal(), themeColors, indexedColors)
+				}
+				cr.ColorScale = &CFColorScale{Cfvo: copyCfvo(rule.ColorScale.Cfvo), Colors: colors}
+			}
+			sheet.CFRules = append(sheet.CFRules, cr)
+		}
+	}
+}
+
+func ResolveStreamingCommentRichText(text *parts.RichText, styles *parts.StyleSheet, theme *parts.Theme) []*RichTextRun {
+	if text == nil {
+		return nil
+	}
+	return resolveRichTextRuns(text, buildThemeColorIndex(theme), buildIndexedColorIndex(styles))
+}
+func ResolveStreamingValidationLists(wb *Workbook) { resolveDataValidationLists(wb) }
+
 func resolveFilterColumn(fc *parts.FilterColumn) *FilterColumn {
 	if fc == nil {
 		return nil

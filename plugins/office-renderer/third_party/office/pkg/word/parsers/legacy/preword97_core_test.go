@@ -276,11 +276,11 @@ func TestLoadPreWord97SectionsFComplexPreservesSectionBoundaries(t *testing.T) {
 
 func TestApplyChpxFormattingToDocRunsUsesExplicitStartCP(t *testing.T) {
 	b := true
-	baseRuns := []docRun{
+	baseRuns := []binaryWordRun{
 		{Text: "ab", StartCP: 0},
 		{Text: "cd", StartCP: 2},
 	}
-	chpxRuns := []docRun{
+	chpxRuns := []binaryWordRun{
 		{Text: "ab", StartCP: 0, Format: wordir.RunFormat{Bold: &b}},
 		{Text: "cd", StartCP: 2, Format: wordir.RunFormat{Color: "#FF0000"}},
 	}
@@ -304,11 +304,11 @@ func TestApplyChpxFormattingToDocRunsUsesExplicitStartCP(t *testing.T) {
 
 func TestApplyChpxFormattingToDocRunsFallsBackToSequentialCPWhenUnset(t *testing.T) {
 	b := true
-	baseRuns := []docRun{
+	baseRuns := []binaryWordRun{
 		{Text: "ab"},
 		{Text: "cd"},
 	}
-	chpxRuns := []docRun{
+	chpxRuns := []binaryWordRun{
 		{Text: "ab", Format: wordir.RunFormat{Bold: &b}},
 		{Text: "cd", Format: wordir.RunFormat{Color: "#0000FF"}},
 	}
@@ -594,7 +594,7 @@ func buildMinimalPreWord97STSH() []byte {
 }
 
 func TestBuildStyleNameByIstdFromStyleSheetExtractsNamesFromParagraphByIndex(t *testing.T) {
-	ss := &legacyStyleSheet{
+	ss := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			0: {Name: "Normal"},
 			1: {Name: "Heading 1"},
@@ -637,17 +637,17 @@ func TestExtractDocRunsViaPreWord97FIBDerivesStyleNameByIstdFromSTSH(t *testing.
 	if got == nil {
 		t.Fatal("extractDocRunsViaPreWord97FIB = nil, want non-nil")
 	}
-	if got.StyleSheet == nil {
+	if got.Assembly.StyleCatalog == nil {
 		t.Fatal("StyleSheet = nil, want non-nil")
 	}
-	if got.StyleNameByIstd == nil {
+	if got.Assembly.StyleNameByIstd == nil {
 		t.Fatal("StyleNameByIstd = nil, want non-nil")
 	}
-	if got.StyleNameByIstd[1] != "Heading 1" {
-		t.Fatalf("StyleNameByIstd[1] = %q, want Heading 1", got.StyleNameByIstd[1])
+	if got.Assembly.StyleNameByIstd[1] != "Heading 1" {
+		t.Fatalf("StyleNameByIstd[1] = %q, want Heading 1", got.Assembly.StyleNameByIstd[1])
 	}
-	if got.StyleNameByIstd[0] != "Normal" {
-		t.Fatalf("StyleNameByIstd[0] = %q, want Normal", got.StyleNameByIstd[0])
+	if got.Assembly.StyleNameByIstd[0] != "Normal" {
+		t.Fatalf("StyleNameByIstd[0] = %q, want Normal", got.Assembly.StyleNameByIstd[0])
 	}
 }
 
@@ -668,23 +668,23 @@ func TestExtractDocRunsViaPreWord97FIBWord95ErrStyleNameByIstdFromSecondarySTSH(
 	if got == nil {
 		t.Fatal("extractDocRunsViaPreWord97FIB = nil")
 	}
-	if got.StyleNameByIstd == nil {
+	if got.Assembly.StyleNameByIstd == nil {
 		t.Fatal("StyleNameByIstd = nil, want non-nil from secondary STSH")
 	}
 	// Log all names for diagnostics.
-	for istd, name := range got.StyleNameByIstd {
+	for istd, name := range got.Assembly.StyleNameByIstd {
 		t.Logf("istd[%d] = %q", istd, name)
 	}
 	// The secondary STSH in word95err.doc must include at least the base Normal style.
-	if got.StyleNameByIstd[0] != "Normal" {
-		t.Fatalf("StyleNameByIstd[0] = %q, want \"Normal\"", got.StyleNameByIstd[0])
+	if got.Assembly.StyleNameByIstd[0] != "Normal" {
+		t.Fatalf("StyleNameByIstd[0] = %q, want \"Normal\"", got.Assembly.StyleNameByIstd[0])
 	}
-	if got.StyleNameByIstd[1] != "Default Paragraph Font" {
-		t.Fatalf("StyleNameByIstd[1] = %q, want \"Default Paragraph Font\"", got.StyleNameByIstd[1])
+	if got.Assembly.StyleNameByIstd[1] != "Default Paragraph Font" {
+		t.Fatalf("StyleNameByIstd[1] = %q, want \"Default Paragraph Font\"", got.Assembly.StyleNameByIstd[1])
 	}
 	// Spot-check a document-specific style name derived from the secondary STSH.
-	if got.StyleNameByIstd[18] != "H1" {
-		t.Fatalf("StyleNameByIstd[18] = %q, want \"H1\"", got.StyleNameByIstd[18])
+	if got.Assembly.StyleNameByIstd[18] != "H1" {
+		t.Fatalf("StyleNameByIstd[18] = %q, want \"H1\"", got.Assembly.StyleNameByIstd[18])
 	}
 }
 
@@ -867,7 +867,7 @@ func TestBuildPreWord97NoteDataSyntheticRoundTrip(t *testing.T) {
 	}
 
 	// Verify note ref injection injects a run marker at CP 3.
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "Hello1234\n", StartCP: 0},
 	}
 	injected := preWord97InjectNoteRefs(runs, nd, "footnoteRef")
@@ -958,7 +958,7 @@ func TestLoadPreWord97AnnotationStoriesSyntheticRoundTrip(t *testing.T) {
 		t.Fatalf("nd.RefByCP[4] = %d ok=%v, want id=1 ok=true", id, ok)
 	}
 
-	runs := []docRun{{Text: body, StartCP: 0}}
+	runs := []binaryWordRun{{Text: body, StartCP: 0}}
 	injected := preWord97InjectNoteRefs(runs, nd, "commentRef")
 	hasCommentRef := false
 	for _, r := range injected {
@@ -1040,7 +1040,7 @@ func TestLoadPreWord97EndnoteStoriesSyntheticRoundTrip(t *testing.T) {
 		t.Fatalf("nd.RefByCP[17] = %d ok=%v, want id=1 ok=true", id, ok)
 	}
 
-	runs := []docRun{{Text: body, StartCP: 0}}
+	runs := []binaryWordRun{{Text: body, StartCP: 0}}
 	injected := preWord97InjectNoteRefs(runs, nd, "endnoteRef")
 	hasEndnoteRef := false
 	for _, r := range injected {
@@ -1235,7 +1235,7 @@ func TestPreWord97SyntheticDocWithSectionPropertiesExtractsSectionData(t *testin
 
 // extractDocRunsViaPreWord97FIBDirect is a test helper that extracts runs without
 // requiring a full OLE file structure (used for synthetic tests).
-func extractDocRunsViaPreWord97FIBDirect(ws []byte) []docRun {
+func extractDocRunsViaPreWord97FIBDirect(ws []byte) []binaryWordRun {
 	span, ok := InspectPreWord97BodySpan(ws)
 	if !ok {
 		return nil
@@ -1244,13 +1244,13 @@ func extractDocRunsViaPreWord97FIBDirect(ws []byte) []docRun {
 	return extractPreWord97TextAsRuns(body)
 }
 
-// extractPreWord97TextAsRuns converts raw text to docRun slices for testing.
-func extractPreWord97TextAsRuns(text []byte) []docRun {
+// extractPreWord97TextAsRuns converts raw text to binaryWordRun slices for testing.
+func extractPreWord97TextAsRuns(text []byte) []binaryWordRun {
 	if len(text) == 0 {
 		return nil
 	}
 	decoded := string(text)
-	return []docRun{
+	return []binaryWordRun{
 		{Text: decoded, StartCP: 0},
 	}
 }

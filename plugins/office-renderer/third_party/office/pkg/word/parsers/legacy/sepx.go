@@ -1,27 +1,17 @@
 package legacy
 
 import (
-	"bytes"
 	"encoding/binary"
 
 	"office/pkg/diag"
 	"office/pkg/ooxml/cfb"
 	wordir "office/pkg/word/ir"
-	word97 "office/pkg/word/parsers/doc/word97"
 )
 
-// loadLegacyDocSections is now a compatibility projection only. Word97
-// PlcfSed/SED/SEPX structure is owned by doc/word97; this package only reuses
-// the canonical semantic context. Pre-Word97 retains its separate compatibility
-// path until that older section projection is fully canonicalized.
-func loadLegacyDocSections(wordStream []byte, f *cfb.File) []wordir.Section {
-	if nFib, ok := legacyDocFibVersion(wordStream); ok && nFib >= legacyDocFibWord97 && f != nil {
-		snapshot, err := word97.OpenSnapshotReaderAt(bytes.NewReader(wordStream), int64(len(wordStream)), f)
-		if err == nil && snapshot != nil && snapshot.Context != nil && len(snapshot.Context.Sections) > 0 {
-			return cloneLegacySections(snapshot.Context.Sections)
-		}
-		return nil
-	}
+// loadLegacyDocSections is the pre-Word97 compatibility section adapter.
+// Normal Word97 structure is projected directly from the canonical snapshot
+// and never enters this pre-Word97 compatibility adapter.
+func loadLegacyDocSections(wordStream []byte, _ *cfb.File) []wordir.Section {
 	if oldCore, ok := loadPreWord97DocCore(wordStream); ok && oldCore != nil && oldCore.Canonical != nil {
 		if sections := preWord97SectionsFromCanonical(oldCore.Canonical.Sections); len(sections) > 0 {
 			return sections
@@ -157,26 +147,37 @@ func parseSepxGrpprlWithMetadata(grpprl []byte) (wordir.Section, *legacyPendingR
 
 		switch code {
 		case 0xB01F:
-			pageWidth = int(binary.LittleEndian.Uint16(op)); hasPage = true
+			pageWidth = int(binary.LittleEndian.Uint16(op))
+			hasPage = true
 		case 0xB020:
-			pageHeight = int(binary.LittleEndian.Uint16(op)); hasPage = true
+			pageHeight = int(binary.LittleEndian.Uint16(op))
+			hasPage = true
 		case 0xB021:
-			marginLeft = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginLeft = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 0x9023:
-			marginTop = int(int16(binary.LittleEndian.Uint16(op))); hasMargin = true
+			marginTop = int(int16(binary.LittleEndian.Uint16(op)))
+			hasMargin = true
 		case 0xB022:
-			marginRight = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginRight = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 0x9024:
-			marginBottom = int(int16(binary.LittleEndian.Uint16(op))); hasMargin = true
+			marginBottom = int(int16(binary.LittleEndian.Uint16(op)))
+			hasMargin = true
 		case 0xB017:
-			marginHeader = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginHeader = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 0xB018:
-			marginFooter = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginFooter = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 0xB025:
-			marginGutter = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginGutter = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 0xD227:
 			payload := op
-			if len(op) >= 8 && int(op[0]) >= 7 { payload = op[1:] }
+			if len(op) >= 8 && int(op[0]) >= 7 {
+				payload = op[1:]
+			}
 			if len(payload) >= 7 {
 				propRevision = &legacyPendingRevisionMark{Present: payload[0] != 0, Ibst: binary.LittleEndian.Uint16(payload[1:3]), HasIbst: true, Dttm: binary.LittleEndian.Uint32(payload[3:7]), HasDttm: true}
 			} else if len(payload) >= 1 {
@@ -185,9 +186,12 @@ func parseSepxGrpprlWithMetadata(grpprl []byte) (wordir.Section, *legacyPendingR
 		case 0x301D:
 			orientation = op[0]
 		case 0x300E:
-			if len(op) >= 1 { pageNumFormat = legacyNfcToListFormat(op[0]) }
+			if len(op) >= 1 {
+				pageNumFormat = legacyNfcToListFormat(op[0])
+			}
 		case 0x500B:
-			numCols = int(int16(binary.LittleEndian.Uint16(op))) + 1; hasCols = true
+			numCols = int(int16(binary.LittleEndian.Uint16(op))) + 1
+			hasCols = true
 		case 0x900C:
 			colSpacing = int(int16(binary.LittleEndian.Uint16(op)))
 		case 0x3019:
@@ -195,84 +199,234 @@ func parseSepxGrpprlWithMetadata(grpprl []byte) (wordir.Section, *legacyPendingR
 		case 0x5033:
 			sec.TextDirection = legacyTableTextDirectionFromTextFlow(binary.LittleEndian.Uint16(op))
 		case 0x5015:
-			lnCountBy = int(binary.LittleEndian.Uint16(op)); hasLineNumbering = true
+			lnCountBy = int(binary.LittleEndian.Uint16(op))
+			hasLineNumbering = true
 		case 0x9016:
-			if len(op) >= 2 { lnDistance = int(int16(binary.LittleEndian.Uint16(op))); hasLineNumbering = true }
+			if len(op) >= 2 {
+				lnDistance = int(int16(binary.LittleEndian.Uint16(op)))
+				hasLineNumbering = true
+			}
 		case 0x501B:
-			lnStart = int(int16(binary.LittleEndian.Uint16(op))); hasLineNumbering = true
+			lnStart = int(int16(binary.LittleEndian.Uint16(op)))
+			hasLineNumbering = true
 		case 0x3013:
-			switch op[0] { case 0: lnRestart = "newPage"; case 1: lnRestart = "newSection"; case 2: lnRestart = "continuous" }
+			switch op[0] {
+			case 0:
+				lnRestart = "newPage"
+			case 1:
+				lnRestart = "newSection"
+			case 2:
+				lnRestart = "continuous"
+			}
 			hasLineNumbering = true
 		case 0x9031:
-			gridLinePitch = int(int16(binary.LittleEndian.Uint16(op))); hasDocGrid = true
+			gridLinePitch = int(int16(binary.LittleEndian.Uint16(op)))
+			hasDocGrid = true
 		case 0x7030:
-			if len(op) >= 4 { gridCharSpace = int(int32(binary.LittleEndian.Uint32(op))); hasDocGrid = true }
+			if len(op) >= 4 {
+				gridCharSpace = int(int32(binary.LittleEndian.Uint32(op)))
+				hasDocGrid = true
+			}
 		case 0x5032:
-			switch binary.LittleEndian.Uint16(op) { case 0: gridType = "default"; case 1: gridType = "lines"; case 2: gridType = "linesAndChars"; case 3: gridType = "snapToChars" }
+			switch binary.LittleEndian.Uint16(op) {
+			case 0:
+				gridType = "default"
+			case 1:
+				gridType = "lines"
+			case 2:
+				gridType = "linesAndChars"
+			case 3:
+				gridType = "snapToChars"
+			}
 			hasDocGrid = true
 		case 0x501C:
-			pgNumStart = int(binary.LittleEndian.Uint16(op)); hasPgNumStart = true
+			pgNumStart = int(binary.LittleEndian.Uint16(op))
+			hasPgNumStart = true
 		case 0x300A:
-			if len(op) >= 1 { titlePage = op[0] != 0 }
+			if len(op) >= 1 {
+				titlePage = op[0] != 0
+			}
 		case 0x3009:
-			if len(op) >= 1 { switch op[0] { case 0: breakKind = "continuous"; case 1: breakKind = "nextColumn"; case 2: breakKind = "nextPage"; case 3: breakKind = "evenPage"; case 4: breakKind = "oddPage" } }
+			if len(op) >= 1 {
+				switch op[0] {
+				case 0:
+					breakKind = "continuous"
+				case 1:
+					breakKind = "nextColumn"
+				case 2:
+					breakKind = "nextPage"
+				case 3:
+					breakKind = "evenPage"
+				case 4:
+					breakKind = "oddPage"
+				}
+			}
 		case 0x301A:
-			if len(op) >= 1 { switch op[0] { case 0: verticalAlign = "top"; case 1: verticalAlign = "center"; case 2: verticalAlign = "both"; case 3: verticalAlign = "bottom" } }
+			if len(op) >= 1 {
+				switch op[0] {
+				case 0:
+					verticalAlign = "top"
+				case 1:
+					verticalAlign = "center"
+				case 2:
+					verticalAlign = "both"
+				case 3:
+					verticalAlign = "bottom"
+				}
+			}
 		case 0x3228:
-			if len(op) >= 1 { sectionBidi = op[0] != 0 }
+			if len(op) >= 1 {
+				sectionBidi = op[0] != 0
+			}
 		case 0x322A:
-			if len(op) >= 1 { rtlGutter = op[0] != 0 }
+			if len(op) >= 1 {
+				rtlGutter = op[0] != 0
+			}
 		case 0x3011:
-			if len(op) >= 1 { pgNumRestart = op[0] != 0 }
+			if len(op) >= 1 {
+				pgNumRestart = op[0] != 0
+			}
 		case 0x3012:
-			if len(op) >= 1 { endnoteAtSectionEnd = op[0] != 0 }
+			if len(op) >= 1 {
+				endnoteAtSectionEnd = op[0] != 0
+			}
 		case 0x7044:
-			if len(op) >= 4 { pgNumStart = int(binary.LittleEndian.Uint32(op)); hasPgNumStart = true }
+			if len(op) >= 4 {
+				pgNumStart = int(binary.LittleEndian.Uint32(op))
+				hasPgNumStart = true
+			}
 		case 0x303B:
-			if len(op) >= 1 { hasFtnPos = true; footnotePosCode = op[0] }
+			if len(op) >= 1 {
+				hasFtnPos = true
+				footnotePosCode = op[0]
+			}
 		case 0x303C:
-			if len(op) >= 1 { switch op[0] { case 0: footnoteRestart = "continuous"; case 1: footnoteRestart = "eachSect"; case 2: footnoteRestart = "eachPage" } }
+			if len(op) >= 1 {
+				switch op[0] {
+				case 0:
+					footnoteRestart = "continuous"
+				case 1:
+					footnoteRestart = "eachSect"
+				case 2:
+					footnoteRestart = "eachPage"
+				}
+			}
 		case 0x303E:
-			if len(op) >= 1 { switch op[0] { case 0: endnoteRestart = "continuous"; case 1: endnoteRestart = "eachSect" } }
+			if len(op) >= 1 {
+				switch op[0] {
+				case 0:
+					endnoteRestart = "continuous"
+				case 1:
+					endnoteRestart = "eachSect"
+				}
+			}
 		case 0x503F:
-			if len(op) >= 2 { footnoteNumStart = int(binary.LittleEndian.Uint16(op)) }
+			if len(op) >= 2 {
+				footnoteNumStart = int(binary.LittleEndian.Uint16(op))
+			}
 		case 0x5040:
-			if len(op) >= 2 { footnoteNumFmt = legacyNfcToListFormat(byte(binary.LittleEndian.Uint16(op))) }
+			if len(op) >= 2 {
+				footnoteNumFmt = legacyNfcToListFormat(byte(binary.LittleEndian.Uint16(op)))
+			}
 		case 0x5041:
-			if len(op) >= 2 { endnoteNumStart = int(binary.LittleEndian.Uint16(op)) }
+			if len(op) >= 2 {
+				endnoteNumStart = int(binary.LittleEndian.Uint16(op))
+			}
 		case 0x5042:
-			if len(op) >= 2 { endnoteNumFmt = legacyNfcToListFormat(byte(binary.LittleEndian.Uint16(op))) }
+			if len(op) >= 2 {
+				endnoteNumFmt = legacyNfcToListFormat(byte(binary.LittleEndian.Uint16(op)))
+			}
 		case 0x702B:
-			pageBorderTop = parseBRC80(op); if pageBorderTop != nil { hasPageBorders = true }
+			pageBorderTop = parseBRC80(op)
+			if pageBorderTop != nil {
+				hasPageBorders = true
+			}
 		case 0x702C:
-			pageBorderLeft = parseBRC80(op); if pageBorderLeft != nil { hasPageBorders = true }
+			pageBorderLeft = parseBRC80(op)
+			if pageBorderLeft != nil {
+				hasPageBorders = true
+			}
 		case 0x702D:
-			pageBorderBottom = parseBRC80(op); if pageBorderBottom != nil { hasPageBorders = true }
+			pageBorderBottom = parseBRC80(op)
+			if pageBorderBottom != nil {
+				hasPageBorders = true
+			}
 		case 0x702E:
-			pageBorderRight = parseBRC80(op); if pageBorderRight != nil { hasPageBorders = true }
+			pageBorderRight = parseBRC80(op)
+			if pageBorderRight != nil {
+				hasPageBorders = true
+			}
 		case 0xD234:
-			if side := parseBRC(op); side != nil { pageBorderTop = side; hasPageBorders = true }
+			if side := parseBRC(op); side != nil {
+				pageBorderTop = side
+				hasPageBorders = true
+			}
 		case 0xD235:
-			if side := parseBRC(op); side != nil { pageBorderLeft = side; hasPageBorders = true }
+			if side := parseBRC(op); side != nil {
+				pageBorderLeft = side
+				hasPageBorders = true
+			}
 		case 0xD236:
-			if side := parseBRC(op); side != nil { pageBorderBottom = side; hasPageBorders = true }
+			if side := parseBRC(op); side != nil {
+				pageBorderBottom = side
+				hasPageBorders = true
+			}
 		case 0xD237:
-			if side := parseBRC(op); side != nil { pageBorderRight = side; hasPageBorders = true }
+			if side := parseBRC(op); side != nil {
+				pageBorderRight = side
+				hasPageBorders = true
+			}
 		case 0x522F:
 			if len(op) >= 2 {
-				pgbProp := binary.LittleEndian.Uint16(op); hasPageBorders = true
-				switch pgbProp & 0x03 { case 0: pageBorderDisplay = "allPages"; case 1: pageBorderDisplay = "firstPage"; case 2: pageBorderDisplay = "notFirstPage" }
-				if pgbProp&0x04 != 0 { pageBorderOffsetFrom = "edge" } else { pageBorderOffsetFrom = "text" }
-				if pgbProp&0x08 != 0 { pageBorderZOrder = "back" } else { pageBorderZOrder = "front" }
+				pgbProp := binary.LittleEndian.Uint16(op)
+				hasPageBorders = true
+				switch pgbProp & 0x03 {
+				case 0:
+					pageBorderDisplay = "allPages"
+				case 1:
+					pageBorderDisplay = "firstPage"
+				case 2:
+					pageBorderDisplay = "notFirstPage"
+				}
+				if pgbProp&0x04 != 0 {
+					pageBorderOffsetFrom = "edge"
+				} else {
+					pageBorderOffsetFrom = "text"
+				}
+				if pgbProp&0x08 != 0 {
+					pageBorderZOrder = "back"
+				} else {
+					pageBorderZOrder = "front"
+				}
 			}
 		case 0xF203:
-			if len(op) >= 3 { idx := int(op[0]); colWidths[idx] = int(binary.LittleEndian.Uint16(op[1:3])); if idx+1 > numCols { numCols = idx + 1 }; hasCols = true }
+			if len(op) >= 3 {
+				idx := int(op[0])
+				colWidths[idx] = int(binary.LittleEndian.Uint16(op[1:3]))
+				if idx+1 > numCols {
+					numCols = idx + 1
+				}
+				hasCols = true
+			}
 		case 0xF204:
-			if len(op) >= 3 { idx := int(op[0]); colSpaces[idx] = int(binary.LittleEndian.Uint16(op[1:3])); if idx+2 > numCols { numCols = idx + 2 }; hasCols = true }
+			if len(op) >= 3 {
+				idx := int(op[0])
+				colSpaces[idx] = int(binary.LittleEndian.Uint16(op[1:3]))
+				if idx+2 > numCols {
+					numCols = idx + 2
+				}
+				hasCols = true
+			}
 		case 0x3005:
-			if len(op) >= 1 { v := op[0] != 0; colEvenlySpaced = &v; hasCols = true }
+			if len(op) >= 1 {
+				v := op[0] != 0
+				colEvenlySpaced = &v
+				hasCols = true
+			}
 		case 0x3006:
-			if len(op) >= 1 { formProt = op[0] != 0 }
+			if len(op) >= 1 {
+				formProt = op[0] != 0
+			}
 		case 0x5007:
 			legacyUnmappedSPRM(&diagnostics, code, "sprmSDmBinFirst")
 		case 0x5008:
@@ -289,36 +443,60 @@ func parseSepxGrpprlWithMetadata(grpprl []byte) (wordir.Section, *legacyPendingR
 			legacyUnmappedSPRM(&diagnostics, code, "sprmSRsid")
 		case 0xD243:
 			payload := op
-			if len(op) >= 8 && int(op[0]) >= 7 { payload = op[1:] }
-			if len(payload) >= 7 { propRevision = &legacyPendingRevisionMark{Present: payload[0] != 0, Ibst: binary.LittleEndian.Uint16(payload[1:3]), HasIbst: true, Dttm: binary.LittleEndian.Uint32(payload[3:7]), HasDttm: true} }
+			if len(op) >= 8 && int(op[0]) >= 7 {
+				payload = op[1:]
+			}
+			if len(payload) >= 7 {
+				propRevision = &legacyPendingRevisionMark{Present: payload[0] != 0, Ibst: binary.LittleEndian.Uint16(payload[1:3]), HasIbst: true, Dttm: binary.LittleEndian.Uint32(payload[3:7]), HasDttm: true}
+			}
 		}
 	}
 
 	if hasPage {
 		orient := "portrait"
-		if orientation != 0 { orient = "landscape" }
+		if orientation != 0 {
+			orient = "landscape"
+		}
 		sec.PageSize = &wordir.PageSize{Width: pageWidth, Height: pageHeight, Orient: orient}
 	}
 	if hasMargin {
 		sec.PageMargin = &wordir.PageMargin{Top: marginTop, Bottom: marginBottom, Left: marginLeft, Right: marginRight, Header: marginHeader, Footer: marginFooter, Gutter: marginGutter, RtlGutter: rtlGutter}
 	}
 	if hasCols {
-		if numCols < 1 { numCols = 1 }
+		if numCols < 1 {
+			numCols = 1
+		}
 		columns := &wordir.Columns{Num: numCols, Space: colSpacing, Sep: colSep, EvenlySpaced: colEvenlySpaced}
 		if len(colWidths) > 0 {
 			columns.Widths = make([]int, numCols)
-			for idx, width := range colWidths { if idx >= 0 && idx < len(columns.Widths) { columns.Widths[idx] = width } }
+			for idx, width := range colWidths {
+				if idx >= 0 && idx < len(columns.Widths) {
+					columns.Widths[idx] = width
+				}
+			}
 		}
 		if len(colSpaces) > 0 && numCols > 1 {
 			columns.Spaces = make([]int, numCols-1)
-			for idx, width := range colSpaces { if idx >= 0 && idx < len(columns.Spaces) { columns.Spaces[idx] = width } }
+			for idx, width := range colSpaces {
+				if idx >= 0 && idx < len(columns.Spaces) {
+					columns.Spaces[idx] = width
+				}
+			}
 		}
 		sec.Columns = columns
 	}
-	if hasLineNumbering { sec.LineNumbering = &wordir.LineNumbering{CountBy: lnCountBy, Start: lnStart, Restart: lnRestart, Distance: lnDistance} }
-	if hasDocGrid { sec.DocGrid = &wordir.DocGrid{LinePitch: gridLinePitch, CharSpace: gridCharSpace, Type: gridType} }
-	if hasPageBorders { sec.PageBorders = &wordir.PageBorders{Top: pageBorderTop, Left: pageBorderLeft, Bottom: pageBorderBottom, Right: pageBorderRight, Display: pageBorderDisplay, OffsetFrom: pageBorderOffsetFrom, ZOrder: pageBorderZOrder} }
-	if hasPgNumStart { sec.PageNumberStart = &pgNumStart }
+	if hasLineNumbering {
+		sec.LineNumbering = &wordir.LineNumbering{CountBy: lnCountBy, Start: lnStart, Restart: lnRestart, Distance: lnDistance}
+	}
+	if hasDocGrid {
+		sec.DocGrid = &wordir.DocGrid{LinePitch: gridLinePitch, CharSpace: gridCharSpace, Type: gridType}
+	}
+	if hasPageBorders {
+		sec.PageBorders = &wordir.PageBorders{Top: pageBorderTop, Left: pageBorderLeft, Bottom: pageBorderBottom, Right: pageBorderRight, Display: pageBorderDisplay, OffsetFrom: pageBorderOffsetFrom, ZOrder: pageBorderZOrder}
+	}
+	if hasPgNumStart {
+		sec.PageNumberStart = &pgNumStart
+	}
 	sec.PageNumberFormat = pageNumFormat
 	sec.PageNumberRestart = pgNumRestart
 	sec.TitlePage = titlePage
@@ -326,7 +504,16 @@ func parseSepxGrpprlWithMetadata(grpprl []byte) (wordir.Section, *legacyPendingR
 	sec.Type = breakKind
 	sec.VerticalAlign = verticalAlign
 	sec.Bidi = sectionBidi
-	if hasFtnPos { switch footnotePosCode { case 0: sec.FootnotePos = "sectEnd"; case 2: sec.FootnotePos = "belowText"; default: sec.FootnotePos = "pageBottom" } }
+	if hasFtnPos {
+		switch footnotePosCode {
+		case 0:
+			sec.FootnotePos = "sectEnd"
+		case 2:
+			sec.FootnotePos = "belowText"
+		default:
+			sec.FootnotePos = "pageBottom"
+		}
+	}
 	sec.FootnoteNumFmt = footnoteNumFmt
 	sec.FootnoteNumStart = footnoteNumStart
 	sec.FootnoteRestart = footnoteRestart
@@ -354,28 +541,53 @@ func parsePreWord97SepxGrpprl(grpprl []byte) wordir.Section {
 		opcode := grpprl[pos]
 		pos++
 		opSize := preWord97PapxOperandSize(opcode, grpprl, pos)
-		if opSize <= 0 || pos+opSize > len(grpprl) { break }
+		if opSize <= 0 || pos+opSize > len(grpprl) {
+			break
+		}
 		op := grpprl[pos : pos+opSize]
 		pos += opSize
 		switch opcode {
 		case 142:
-			if len(op) >= 1 { switch op[0] { case 0: breakKind = "continuous"; case 1: breakKind = "nextColumn"; case 2: breakKind = "nextPage"; case 3: breakKind = "evenPage"; case 4: breakKind = "oddPage" } }
+			if len(op) >= 1 {
+				switch op[0] {
+				case 0:
+					breakKind = "continuous"
+				case 1:
+					breakKind = "nextColumn"
+				case 2:
+					breakKind = "nextPage"
+				case 3:
+					breakKind = "evenPage"
+				case 4:
+					breakKind = "oddPage"
+				}
+			}
 		case 164:
-			pageWidth = int(binary.LittleEndian.Uint16(op)); hasPage = true
+			pageWidth = int(binary.LittleEndian.Uint16(op))
+			hasPage = true
 		case 165:
-			pageHeight = int(binary.LittleEndian.Uint16(op)); hasPage = true
+			pageHeight = int(binary.LittleEndian.Uint16(op))
+			hasPage = true
 		case 166:
-			marginLeft = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginLeft = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 167:
-			marginRight = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginRight = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 168:
-			marginTop = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginTop = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		case 169:
-			marginBottom = int(binary.LittleEndian.Uint16(op)); hasMargin = true
+			marginBottom = int(binary.LittleEndian.Uint16(op))
+			hasMargin = true
 		}
 	}
-	if hasPage { sec.PageSize = &wordir.PageSize{Width: pageWidth, Height: pageHeight, Orient: "portrait"} }
-	if hasMargin { sec.PageMargin = &wordir.PageMargin{Top: marginTop, Bottom: marginBottom, Left: marginLeft, Right: marginRight} }
+	if hasPage {
+		sec.PageSize = &wordir.PageSize{Width: pageWidth, Height: pageHeight, Orient: "portrait"}
+	}
+	if hasMargin {
+		sec.PageMargin = &wordir.PageMargin{Top: marginTop, Bottom: marginBottom, Left: marginLeft, Right: marginRight}
+	}
 	sec.BreakKind = breakKind
 	sec.Type = breakKind
 	return sec

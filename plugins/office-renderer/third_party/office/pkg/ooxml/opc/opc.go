@@ -26,9 +26,12 @@ const (
 	presentationMainContentType      = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
 )
 
-// Password holds the decryption password for encrypted OOXML packages stored
-// inside OLE containers. An empty string means "no password provided".
-var Password string
+// OpenOptions controls OPC package opening.
+type OpenOptions struct {
+	// Password decrypts an OOXML package stored inside an OLE container.
+	// The zero value still permits the ECMA-376 default password where applicable.
+	Password string
+}
 
 // PackageType identifies the primary office format represented by an OPC package.
 type PackageType string
@@ -68,6 +71,11 @@ func NewPackage() *Package {
 
 // Open reads an OPC package from disk.
 func Open(path string) (*Package, error) {
+	return OpenWithOptions(path, OpenOptions{})
+}
+
+// OpenWithOptions reads an OPC package from disk using per-call options.
+func OpenWithOptions(path string, options OpenOptions) (*Package, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -81,11 +89,16 @@ func Open(path string) (*Package, error) {
 		return nil, err
 	}
 
-	return OpenReaderAt(file, info.Size())
+	return OpenReaderAtWithOptions(file, info.Size(), options)
 }
 
 // OpenReaderAt reads an OPC package from a reader/size pair.
 func OpenReaderAt(r io.ReaderAt, size int64) (*Package, error) {
+	return OpenReaderAtWithOptions(r, size, OpenOptions{})
+}
+
+// OpenReaderAtWithOptions reads an OPC package from a reader/size pair using per-call options.
+func OpenReaderAtWithOptions(r io.ReaderAt, size int64, options OpenOptions) (*Package, error) {
 	pkg, err := openZipReaderAt(r, size)
 	if err == nil {
 		return pkg, nil
@@ -96,7 +109,7 @@ func OpenReaderAt(r io.ReaderAt, size int64) (*Package, error) {
 		return nil, readErr
 	}
 
-	return openContainerBytes(data, err)
+	return openContainerBytes(data, err, options)
 }
 
 func openZipReaderAt(r io.ReaderAt, size int64) (*Package, error) {
@@ -150,10 +163,15 @@ func openZipArchive(zr *zip.Reader, size int64) (*Package, error) {
 
 // OpenBytes reads an OPC package from an in-memory byte slice.
 func OpenBytes(data []byte) (*Package, error) {
+	return OpenBytesWithOptions(data, OpenOptions{})
+}
+
+// OpenBytesWithOptions reads an OPC package from memory using per-call options.
+func OpenBytesWithOptions(data []byte, options OpenOptions) (*Package, error) {
 	if pkg, err := openZipReaderAt(bytes.NewReader(data), int64(len(data))); err == nil {
 		return pkg, nil
 	} else {
-		return openContainerBytes(data, err)
+		return openContainerBytes(data, err, options)
 	}
 }
 
@@ -161,6 +179,11 @@ func OpenBytes(data []byte) (*Package, error) {
 // file first. This avoids holding the original input stream in memory before
 // the package loader expands the individual parts.
 func OpenStream(r io.Reader) (*Package, error) {
+	return OpenStreamWithOptions(r, OpenOptions{})
+}
+
+// OpenStreamWithOptions reads an OPC package from a stream using per-call options.
+func OpenStreamWithOptions(r io.Reader, options OpenOptions) (*Package, error) {
 	file, err := os.CreateTemp("", "office-opc-stream-*")
 	if err != nil {
 		return nil, err
@@ -180,7 +203,7 @@ func OpenStream(r io.Reader) (*Package, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return OpenReaderAt(file, size)
+	return OpenReaderAtWithOptions(file, size, options)
 }
 
 // Size returns the original package size in bytes.

@@ -1595,7 +1595,10 @@ func normalizeParagraph(ctx *resolveCtx, paragraph *parts.Paragraph) Paragraph {
 		out.StyleName = style.Name
 		out.StylePath = append([]string(nil), style.StylePath...)
 		out.Format = cloneParagraphFormat(style.Format)
-		paraRunFmt = cloneRunFormat(style.RunFormat)
+		// A paragraph style's run properties overlay docDefaults/rPrDefault.
+		// Keep the complete effective run format materialized here so layout and
+		// rendering consume the same inherited font face and weight.
+		paraRunFmt = mergeRunFormat(paraRunFmt, style.RunFormat)
 	}
 	// Apply tblStylePr conditional run/para format between style and direct formatting.
 	if ctx.conditionalRunFmt != nil {
@@ -1628,7 +1631,7 @@ func normalizeParagraph(ctx *resolveCtx, paragraph *parts.Paragraph) Paragraph {
 		// Apply paragraph-level w:rPr — default run properties for all runs in this paragraph.
 		// ECMA-376 Part 1 §17.3.1.27.
 		if paragraph.Properties.RunProps != nil {
-			paraRunFmt = mergeRunFormat(paraRunFmt, runFormatFromProperties(paragraph.Properties.RunProps))
+			paraRunFmt = mergeRunFormat(paraRunFmt, runFormatFromPropertiesWithTheme(paragraph.Properties.RunProps, ctx.themeFonts, ctx.themeColors))
 		}
 	}
 	// Capture the effective paragraph-mark run format for renderer use (pilcrow styling,
@@ -2873,6 +2876,35 @@ func normalizePageBorders(b *parts.PageBorders) *PageBorders {
 	}
 }
 
+// characterStyleRunOverlay resolves only the properties authored by a character
+// style chain. CharacterStyle.Format is intentionally fully materialized against
+// docDefaults for document/style inspection, but applying that materialized value
+// to a run would overwrite paragraph-style properties with docDefaults. Word applies
+// character styles as an overlay on the already-resolved paragraph run format.
+func characterStyleRunOverlay(index map[string]CharacterStyle, style CharacterStyle) RunFormat {
+	// Resolver-built character styles carry StylePath + RawRunFormat, which lets
+	// us apply only properties authored by the style chain and avoid replaying
+	// docDefaults over the paragraph's already-resolved run format.
+	//
+	// CharacterStyle is also part of the normalized IR surface, however, and
+	// callers/tests may provide an already-resolved style with Format populated
+	// but no raw inheritance metadata. In that case Format is the only available
+	// style contribution and must still be honored.
+	if len(style.StylePath) == 0 {
+		return cloneRunFormat(style.Format)
+	}
+
+	var format RunFormat
+	for i := len(style.StylePath) - 1; i >= 0; i-- {
+		current, ok := index[style.StylePath[i]]
+		if !ok {
+			continue
+		}
+		format = mergeRunFormat(format, current.RawRunFormat)
+	}
+	return format
+}
+
 func normalizeRun(ctx *resolveCtx, run *parts.Run, target, anchor string, paraRunFmt RunFormat) []Run {
 	if run == nil {
 		return nil
@@ -2884,10 +2916,10 @@ func normalizeRun(ctx *resolveCtx, run *parts.Run, target, anchor string, paraRu
 	if run.Properties != nil && run.Properties.RunStyle != nil {
 		styleID = run.Properties.RunStyle.Val
 		if charStyle, ok := ctx.charStyles[run.Properties.RunStyle.Val]; ok {
-			format = mergeRunFormat(format, charStyle.Format)
+			format = mergeRunFormat(format, characterStyleRunOverlay(ctx.charStyles, charStyle))
 		}
 	}
-	format = mergeRunFormat(format, runFormatFromPropertiesWithTheme(run.Properties, nil, ctx.themeColors))
+	format = mergeRunFormat(format, runFormatFromPropertiesWithTheme(run.Properties, ctx.themeFonts, ctx.themeColors))
 	propRevision := (*RevisionMark)(nil)
 	if run.Properties != nil {
 		propRevision = normalizePropertyRevision(run.Properties.PropertyChange)
@@ -3277,6 +3309,9 @@ func resolveDrawing(ctx *resolveCtx, drawing *parts.Drawing) *Image {
 			img.FlipH = pic.ShapeProps.Xfrm.FlipH
 			img.FlipV = pic.ShapeProps.Xfrm.FlipV
 		}
+		if pic.ShapeProps != nil && pic.ShapeProps.PrstGeom != nil {
+			img.FrameGeometry = pic.ShapeProps.PrstGeom.Prst
+		}
 		if pic.ShapeProps != nil && pic.ShapeProps.Ln != nil {
 			line := drawingxml.ResolveLineStyle(pic.ShapeProps.Ln, ctx.themeColors)
 			if line != nil && line.Color != "" {
@@ -3336,6 +3371,9 @@ func resolveDrawing(ctx *resolveCtx, drawing *parts.Drawing) *Image {
 	// Fallback for DrawingML picture shape properties (SpPr) when the WPS picture
 	// path has no equivalent raw fields.
 	if dmlPic := graphic.GraphicData.DrawingMLPic; dmlPic != nil && dmlPic.SpPr != nil {
+		if img.FrameGeometry == "" && dmlPic.SpPr.Geometry != nil {
+			img.FrameGeometry = dmlPic.SpPr.Geometry.Name
+		}
 		if img.RotationDeg == 0 && !img.FlipH && !img.FlipV {
 			img.RotationDeg = drawingRotationDegrees(dmlPic.SpPr.Xfrm.Rot)
 			img.FlipH = dmlPic.SpPr.Xfrm.FlipH
@@ -3450,6 +3488,15 @@ func convertDrawingMLPicture(dmlPic *parts.DrawingMLPicture) *parts.Picture {
 		pic.NvPicPr = &parts.PictureNvProps{
 			CNvPr:    dmlPic.NvPicPr.CNvPr,
 			CNvPicPr: dmlPic.NvPicPr.CNvPicPr,
+		}
+	}
+	if dmlPic.SpPr != nil {
+		pic.ShapeProps = &parts.PictureShapeProps{}
+		if dmlPic.SpPr.Geometry != nil && dmlPic.SpPr.Geometry.Name != "" {
+			pic.ShapeProps.PrstGeom = &drawingxml.PresetGeometry{Prst: dmlPic.SpPr.Geometry.Name}
+		}
+		if dmlPic.SpPr.Xfrm != nil {
+			pic.ShapeProps.Xfrm = dmlPic.SpPr.Xfrm
 		}
 	}
 	if dmlPic.BlipFill != nil {
@@ -8738,6 +8785,7 @@ func cloneRunFormat(f RunFormat) RunFormat {
 		Highlight:      f.Highlight,
 		VertAlignVal:   f.VertAlignVal,
 		Lang:           f.Lang,
+		TextAnimation:  f.TextAnimation,
 	}
 	if f.TextOutline != nil {
 		outline := *f.TextOutline
@@ -8827,6 +8875,35 @@ func cloneRunFormat(f RunFormat) RunFormat {
 	}
 	if f.EmphasisMark != "" {
 		r.EmphasisMark = f.EmphasisMark
+	}
+	if f.DoubleStrike != nil {
+		r.DoubleStrike = boolPtr(*f.DoubleStrike)
+	}
+	if f.OMath != nil {
+		r.OMath = boolPtr(*f.OMath)
+	}
+	if f.ComplexScript != nil {
+		r.ComplexScript = boolPtr(*f.ComplexScript)
+	}
+	if f.WebHidden != nil {
+		r.WebHidden = boolPtr(*f.WebHidden)
+	}
+	if f.Kerning != nil {
+		r.Kerning = intPtr(*f.Kerning)
+	}
+	if f.CharScale != nil {
+		r.CharScale = intPtr(*f.CharScale)
+	}
+	if f.Position != nil {
+		r.Position = intPtr(*f.Position)
+	}
+	if f.Borders != nil {
+		borders := *f.Borders
+		r.Borders = &borders
+	}
+	if f.FELayout != nil {
+		layout := *f.FELayout
+		r.FELayout = &layout
 	}
 	return r
 }
@@ -8963,6 +9040,38 @@ func mergeRunFormat(base, overlay RunFormat) RunFormat {
 	}
 	if overlay.EmphasisMark != "" {
 		r.EmphasisMark = overlay.EmphasisMark
+	}
+	if overlay.DoubleStrike != nil {
+		r.DoubleStrike = boolPtr(*overlay.DoubleStrike)
+	}
+	if overlay.OMath != nil {
+		r.OMath = boolPtr(*overlay.OMath)
+	}
+	if overlay.ComplexScript != nil {
+		r.ComplexScript = boolPtr(*overlay.ComplexScript)
+	}
+	if overlay.WebHidden != nil {
+		r.WebHidden = boolPtr(*overlay.WebHidden)
+	}
+	if overlay.Kerning != nil {
+		r.Kerning = intPtr(*overlay.Kerning)
+	}
+	if overlay.CharScale != nil {
+		r.CharScale = intPtr(*overlay.CharScale)
+	}
+	if overlay.Position != nil {
+		r.Position = intPtr(*overlay.Position)
+	}
+	if overlay.Borders != nil {
+		borders := *overlay.Borders
+		r.Borders = &borders
+	}
+	if overlay.FELayout != nil {
+		layout := *overlay.FELayout
+		r.FELayout = &layout
+	}
+	if overlay.TextAnimation != "" {
+		r.TextAnimation = overlay.TextAnimation
 	}
 	return r
 }

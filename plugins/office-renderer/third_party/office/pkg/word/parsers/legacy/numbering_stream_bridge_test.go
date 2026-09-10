@@ -7,7 +7,7 @@ import (
 	word97 "office/pkg/word/parsers/doc/word97"
 )
 
-func TestLegacyListTablesFromCanonicalPreservesLevelAndOverride(t *testing.T) {
+func TestBinaryWordListCatalogFromWord97PreservesLevelAndOverride(t *testing.T) {
 	start := 7
 	restart := true
 	restartOn := 0
@@ -30,7 +30,7 @@ func TestLegacyListTablesFromCanonicalPreservesLevelAndOverride(t *testing.T) {
 		},
 	}
 
-	tables := legacyListTablesFromCanonical(catalog)
+	tables := binaryWordListCatalogFromWord97(catalog)
 	if tables == nil {
 		t.Fatal("tables = nil")
 	}

@@ -13,6 +13,7 @@ type DOCXOptions struct {
 	IncludeFootnotes         bool
 	IncludeEndnotes          bool
 	IncludeComments          bool
+	Password                 string
 }
 
 // DOCXSource adapts the existing WordprocessingML SAX walker to the unified
@@ -157,6 +158,7 @@ func (s *DOCXSource) Walk(handler Handler) error {
 		IncludeFootnotes:         s.Options.IncludeFootnotes,
 		IncludeEndnotes:          s.Options.IncludeEndnotes,
 		IncludeComments:          s.Options.IncludeComments,
+		Password:                 s.Options.Password,
 	})
 }
 

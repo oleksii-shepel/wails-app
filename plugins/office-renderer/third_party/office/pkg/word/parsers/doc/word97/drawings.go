@@ -16,17 +16,18 @@ type UnsupportedError struct{ Feature string }
 func (e UnsupportedError) Error() string { return "word97 stream: unsupported " + e.Feature }
 
 type drawingCursor struct {
-	inner               Cursor
-	drawings            map[int]Drawing
-	inlineImages        []*wordir.Image
-	inlineIndex         int
-	inlineByPicLocation map[int]*wordir.Image
-	pictureData         []byte
-	oleObjects          []wordir.Run
-	oleIndex            int
-	oleByCP             map[int]*wordir.Run
-	queue               []Run
-	pendingErr          error
+	inner                Cursor
+	drawings             map[int]Drawing
+	inlineImages         []*wordir.Image
+	inlineIndex          int
+	inlineByPicLocation  map[int]*wordir.Image
+	pictureData          []byte
+	oleObjects           []wordir.Run
+	oleIndex             int
+	oleByCP              map[int]*wordir.Run
+	queue                []Run
+	pendingErr           error
+	compatibilityAnchors bool
 }
 
 func NewDrawingCursor(inner Cursor, drawings map[int]Drawing, inlineImages []*wordir.Image, oleObjects []wordir.Run, oleByCP map[int]*wordir.Run) Cursor {
@@ -45,6 +46,26 @@ func NewDrawingCursorWithPictureLocations(inner Cursor, drawings map[int]Drawing
 // NewDrawingCursorWithPictureData resolves fixed pictures lazily from the exact
 // sprmCPicLocation carried by each emitted run. PICF decoding remains owned by
 // the canonical picture decoder; this cursor only consumes its semantic state.
+// NewCompatibilityDrawingCursorWithPictureData is the canonical projection used
+// by the legacy public DOC adapter. Old/synthetic Word97 producers do not always
+// carry sprmCPicLocation on 0x01 anchors, so this mode preserves the mature
+// adapter semantics without weakening the normal OpenReaderAt pipeline.
+func NewCompatibilityDrawingCursorWithPictureData(inner Cursor, drawings map[int]Drawing, inlineImages []*wordir.Image, pictureData []byte, oleObjects []wordir.Run, oleByCP map[int]*wordir.Run) Cursor {
+	if inner == nil {
+		return nil
+	}
+	return &drawingCursor{
+		inner:                inner,
+		drawings:             drawings,
+		inlineImages:         inlineImages,
+		inlineByPicLocation:  make(map[int]*wordir.Image),
+		pictureData:          pictureData,
+		oleObjects:           oleObjects,
+		oleByCP:              oleByCP,
+		compatibilityAnchors: true,
+	}
+}
+
 func NewDrawingCursorWithPictureData(inner Cursor, drawings map[int]Drawing, inlineImages []*wordir.Image, pictureData []byte, oleObjects []wordir.Run, oleByCP map[int]*wordir.Run) Cursor {
 	if inner == nil {
 		return nil
@@ -168,13 +189,21 @@ func (c *drawingCursor) expand(run Run) {
 			}
 			ok = true
 			kind = "olePlaceholder"
-		case ch == '\x01' && run.Spec && !run.Obj && !run.Data && run.HasPicLocation:
+		case ch == '\x01' && (c.compatibilityAnchors || (!run.Obj && run.Spec && !run.Data && run.HasPicLocation)):
 			image, state := c.inlinePicture(run)
 			switch state {
 			case inlinePictureRenderable:
 				resolved = Drawing{Image: image}
 				ok = true
 			case inlinePicturePlaceholder:
+				if c.compatibilityAnchors {
+					// Mature public-DOC behavior: an unresolved compatibility anchor
+					// is not silently consumed; it is an embedded-object placeholder.
+					ok = true
+					kind = "olePlaceholder"
+					resolved = Drawing{}
+					break
+				}
 				handled = true
 				if i > segmentStart {
 					c.queue = append(c.queue, cloneRunWithText(run, string(runes[segmentStart:i]), segmentCP))
@@ -183,6 +212,15 @@ func (c *drawingCursor) expand(run Run) {
 				segmentCP = cp + 1
 				continue
 			default:
+				if c.compatibilityAnchors {
+					// Preserve the mature public-DOC adapter behavior: an unresolved
+					// compatibility 0x01 anchor is an embedded-object placeholder.
+					// The strict canonical streaming path still reports unsupported
+					// picture/data anchors instead of guessing.
+					ok = true
+					kind = "olePlaceholder"
+					break
+				}
 				c.pendingErr = UnsupportedError{Feature: "picture/data anchor"}
 				return
 			}
@@ -206,7 +244,12 @@ func (c *drawingCursor) expand(run Run) {
 				kind = "image"
 			}
 		}
-		c.queue = append(c.queue, Run{Kind: kind, Image: resolved.Image, Shape: resolved.Shape, Format: run.Format, ParagraphFormat: run.ParagraphFormat, StartCP: cp, Revision: run.Revision})
+		emitted := Run{Kind: kind, Image: resolved.Image, Shape: resolved.Shape, Format: run.Format, ParagraphFormat: run.ParagraphFormat, StartCP: cp, Revision: run.Revision}
+		if kind == "olePlaceholder" {
+			obj := wordir.Run{Kind: "olePlaceholder", Text: "Embedded Object", OLEMIME: "application/octet-stream", OLEType: "Embed"}
+			emitted.EmbeddedRun = &obj
+		}
+		c.queue = append(c.queue, emitted)
 		segmentStart = i + 1
 		segmentCP = cp + 1
 	}

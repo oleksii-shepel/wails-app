@@ -5,7 +5,7 @@ import wordir "office/pkg/word/ir"
 // splitLegacyTextBoxStoryRuns is kept only for the historical writer test.
 // Production textbox splitting is canonical; this shim adapts the old test
 // shape onto splitCanonicalStoryOnBreak instead of restoring legacy parsing.
-func splitLegacyTextBoxStoryRuns(runs []docRun) [][]docRun {
+func splitLegacyTextBoxStoryRuns(runs []binaryWordRun) [][]binaryWordRun {
 	if len(runs) == 0 {
 		return nil
 	}
@@ -62,12 +62,12 @@ func splitLegacyTextBoxStoryRuns(runs []docRun) [][]docRun {
 	}
 
 	stories := splitCanonicalStoryOnBreak(story, "page")
-	out := make([][]docRun, 0, len(stories))
+	out := make([][]binaryWordRun, 0, len(stories))
 	for _, split := range stories {
 		if split.Text == "" {
 			continue
 		}
-		out = append(out, []docRun{{Text: split.Text, StartCP: runs[0].StartCP}})
+		out = append(out, []binaryWordRun{{Text: split.Text, StartCP: runs[0].StartCP}})
 	}
 	return out
 }

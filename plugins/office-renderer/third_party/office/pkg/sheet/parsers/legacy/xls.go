@@ -95,6 +95,7 @@ const (
 	biffHorizPageBreak  = 0x001B // HORIZONTALPAGEBREAK — manual row-direction page breaks (HSSF HorizontalPageBreakRecord)
 	biffFont            = 0x0031 // font record
 	biffHLink           = 0x01B8 // hyperlink record (HLINK)
+	biffHLinkTooltip    = 0x0800 // HLINKTOOLTIP — hyperlink screen tip metadata
 	biffName            = 0x0218 // defined name (NAME) record
 	biffNameComment     = 0x0894 // NAMECOMMENT — comment for a defined name (HSSF NameCommentRecord)
 	biffSupBook         = 0x01AE // SUPBOOK record
@@ -321,52 +322,58 @@ type boundSheet struct {
 }
 
 type legacyFont struct {
-	Name      string
-	HeightPt  float64
-	Bold      bool
-	Italic    bool
-	Underline bool
-	Strike    bool
-	ColorIdx  uint16 // icv; 0x7FFF = automatic
+	Name          string
+	HeightPt      float64
+	Bold          bool
+	Italic        bool
+	Underline     bool
+	UnderlineType string
+	VertAlign     string
+	Strike        bool
+	ColorIdx      uint16 // icv; 0x7FFF = automatic
 }
 
 type legacyXF struct {
-	// Font properties resolved at parse time from the FONT record.
-	FontName  string
-	HeightPt  float64
-	Bold      bool
-	Italic    bool
-	Underline bool
-	Strike    bool
-	FontColor string // hex RGB, "" = automatic
-	// Number format.
-	NumFmtCode string
-	// Alignment.
-	HAlign   string // "general","left","center","right","fill","justify"
-	VAlign   string // "top","middle","bottom"
-	WrapText bool
-	// Border styles (CSS-style: "", "solid", "dashed", "dotted", "double").
-	BorderLeftStyle   string
-	BorderRightStyle  string
-	BorderTopStyle    string
-	BorderBottomStyle string
-	// Border colors (hex RGB, "" = automatic).
-	BorderLeftColor   string
-	BorderRightColor  string
-	BorderTopColor    string
-	BorderBottomColor string
-	// Fill.
-	BgColor string // hex RGB background, "" = none
-	// Text rotation (BIFF8 trot): 0=none, 1-90=CCW degrees, 91-180=CW (value-90), 255=stacked.
-	TextRotation int
-	// Cell protection flags from XF grbit (only apply when sheet protection is active).
-	Locked        bool // grbit bit 2: cell contents locked
-	FormulaHidden bool // grbit bit 3: formula hidden in formula bar
+	// Style is the canonical worksheet style resolved from the BIFF XF record.
+	// BIFF-specific bitfields are decoded once at ingestion; cell parsers must not
+	// reinterpret or re-project them downstream.
+	Style sheetir.CellStyle
+}
+
+// legacyStyleRecord is the semantic projection of one BIFF STYLE record.
+// XFIndex addresses the workbook XF table; BuiltinID is present only when the
+// STYLE record itself marks the style as built-in.
+type legacyStyleRecord struct {
+	XFIndex   int
+	Name      string
+	BuiltinID *int
+}
+
+// legacyStyleCatalog keeps canonical STYLE metadata together while retaining
+// the old XF-index -> name view for compatibility callers.
+type legacyStyleCatalog struct {
+	Records []legacyStyleRecord
+	Names   map[int]string
+	// Fonts and Palette are retained only as workbook text-style context so
+	// BIFF SST/RSTRING/TXO rich-text runs can project directly to canonical IR.
+	Fonts   []legacyFont
+	Palette [56]string
+}
+
+type legacySharedString struct {
+	Text     string
+	RichText []*sheetir.RichTextRun
+}
+
+type legacyRichRunSpec struct {
+	CharIndex int
+	FontIndex int
 }
 
 type legacyNote struct {
 	objID        int
 	ref          string
+	author       string
 	fallbackText string
 }
 
@@ -374,6 +381,7 @@ type legacyNote struct {
 type hlinkEntry struct {
 	firstRow, lastRow, firstCol, lastCol int // 0-based
 	url                                  string
+	display                              string
 }
 
 type externSheetRef struct {
@@ -487,6 +495,7 @@ type legacyPivotView struct {
 
 	fieldNames      []string
 	fieldAxes       []string
+	fieldData       []bool
 	fieldItems      map[int][]legacyPivotItem
 	currentField    int
 	defaultRowOrder []int
@@ -815,30 +824,52 @@ func ParseXls(path string) (*sheetir.Workbook, error) {
 // filename is used only for provenance and diagnostics and may be empty.
 func ParseXlsBytes(data []byte, filename string) (*sheetir.Workbook, error) {
 	activeBiffCodepage = 0
+	filename = normalizeLegacyFilename(filename)
+
+	stream, raw, err := openBIFFWorkbookStream(data)
+	if err != nil {
+		return nil, err
+	}
+	if raw {
+		return parseRawBIFFWorkbookStream(stream, filename)
+	}
+	return ParseBIFFStream(stream, filename)
+}
+
+// ParseBIFFStream is the canonical legacy parser boundary once the BIFF workbook
+// stream has been extracted from CFB and decrypted. Both CFB-backed XLS and raw
+// BIFF inputs converge here before canonical Sheet IR is constructed.
+func ParseBIFFStream(stream []byte, filename string) (*sheetir.Workbook, error) {
+	activeBiffCodepage = 0
+	return parseWorkbook(stream, normalizeLegacyFilename(filename))
+}
+
+func normalizeLegacyFilename(filename string) string {
 	filename = filepath.Base(strings.TrimSpace(filename))
 	if filename == "." || filename == "" {
-		filename = "workbook.xls"
+		return "workbook.xls"
 	}
+	return filename
+}
 
+func openBIFFWorkbookStream(data []byte) ([]byte, bool, error) {
 	f, err := cfb.OpenBytes(data)
 	if err != nil {
-		if isRawBIFFStream(data) {
-			return parseRawBIFFWorkbook(data, filename)
+		if !isRawBIFFStream(data) {
+			return nil, false, fmt.Errorf("legacy xls: open cfb: %w", err)
 		}
-		return nil, fmt.Errorf("legacy xls: open cfb: %w", err)
+		stream, err := maybeDecryptBIFFStream(data)
+		return stream, true, err
 	}
 	stream, ok := f.Stream("Workbook")
 	if !ok {
 		stream, ok = f.Stream("Book")
 	}
 	if !ok {
-		return nil, fmt.Errorf("legacy xls: missing Workbook/Book stream")
+		return nil, false, fmt.Errorf("legacy xls: missing Workbook/Book stream")
 	}
 	stream, err = maybeDecryptBIFFStream(stream)
-	if err != nil {
-		return nil, err
-	}
-	return parseWorkbook(stream, filename)
+	return stream, false, err
 }
 
 func isRawBIFFStream(data []byte) bool {
@@ -936,16 +967,19 @@ func parseBIFFBOF(payload []byte) (version, typ, build, buildYear uint16, histor
 	return
 }
 
-func parseRawBIFFWorkbook(data []byte, filename string) (*sheetir.Workbook, error) {
-	data, err := maybeDecryptBIFFStream(data)
-	if err != nil {
-		return nil, err
-	}
-	workbook, err := parseWorkbook(data, filename)
+func parseRawBIFFWorkbookStream(data []byte, filename string) (*sheetir.Workbook, error) {
+	workbook, err := ParseBIFFStream(data, filename)
 	if err == nil {
 		return workbook, nil
 	}
-	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Sheet1"}, nil, nil)
+	sheet := parseBIFFWorksheet(
+		data,
+		boundSheet{offset: 0, name: "Sheet1"},
+		nil,
+		nil,
+		nil,
+		legacyFormulaWorkbookContext{},
+	)
 	if !rawWorksheetHasContent(sheet) {
 		return nil, err
 	}
@@ -954,58 +988,130 @@ func parseRawBIFFWorkbook(data []byte, filename string) (*sheetir.Workbook, erro
 }
 
 func rawWorksheetHasContent(sheet *sheetir.Sheet) bool {
-	return sheet != nil && (len(sheet.Rows) > 0 || len(sheet.Drawings) > 0 || len(sheet.Comments) > 0)
+	if sheet == nil {
+		return false
+	}
+	// A raw BIFF worksheet is not empty merely because it has no cell rows.
+	// Keep the fallback aligned with canonical worksheet semantics so object-only,
+	// validation-only, print-only, and other metadata-bearing sheets survive.
+	return len(sheet.Rows) > 0 ||
+		len(sheet.MergedCells) > 0 ||
+		len(sheet.Drawings) > 0 ||
+		len(sheet.FormControls) > 0 ||
+		len(sheet.VMLObjects) > 0 ||
+		len(sheet.LegacyDrawingVML) > 0 ||
+		len(sheet.Notes) > 0 ||
+		len(sheet.Hyperlinks) > 0 ||
+		len(sheet.Tables) > 0 ||
+		len(sheet.DataValidations) > 0 ||
+		len(sheet.CFRules) > 0 ||
+		sheet.AutoFilterRef != "" ||
+		sheet.SortState != nil ||
+		sheet.PageSetup != nil ||
+		sheet.HeaderFooter != nil ||
+		sheet.Protection != nil ||
+		sheet.PrintArea != "" || sheet.PrintTitleRows != "" || sheet.PrintTitleCols != "" ||
+		len(sheet.RowPageBreaks) > 0 || len(sheet.ColPageBreaks) > 0 ||
+		len(sheet.ColumnWidths) > 0 || len(sheet.HiddenCols) > 0 ||
+		len(sheet.OutlineRows) > 0 || len(sheet.OutlineCols) > 0
+}
+
+// legacyWorkbookParseContext is the canonical BIFF workbook-global projection
+// consumed by worksheet parsing. It concentrates global records, formula
+// dependencies, metadata, external links, pivot-cache sources, style state,
+// drawing state, protection and resilient worksheet offsets behind one
+// production ownership boundary.
+//
+// parseWorkbookGlobals remains as the low-level compatibility/test decoder while
+// this context is the production contract. This lets subsequent BIFF work fold
+// remaining auxiliary scans into one sequential global pass without changing
+// worksheet or renderer APIs again.
+type legacyWorkbookParseContext struct {
+	sheets        []boundSheet
+	sst           []legacySharedString
+	xfs           []legacyXF
+	definedNames  []*sheetir.DefinedName
+	externSheets  []externSheetRef
+	drawingStore  map[uint32]*sheetir.DrawingImage
+	date1904      bool
+	styleCatalog  legacyStyleCatalog
+	protection    *sheetir.WorkbookProtection
+	pivotCaches   []legacyPivotCacheSource
+	metadata      legacyWorkbookMetadata
+	externalLinks []*sheetir.WorkbookExternalLink
+	sheetOffsets  []int
+}
+
+func buildLegacyWorkbookParseContext(data []byte) (legacyWorkbookParseContext, error) {
+	var ctx legacyWorkbookParseContext
+	var err error
+	ctx.sheets, ctx.sst, ctx.xfs, ctx.definedNames, ctx.externSheets, ctx.drawingStore,
+		ctx.date1904, ctx.styleCatalog, ctx.protection, err = parseWorkbookGlobalsInto(data, &ctx)
+	if err != nil {
+		return legacyWorkbookParseContext{}, err
+	}
+
+	// BOF recovery intentionally scans the complete stream rather than workbook
+	// globals: its job is to recover corrupt BoundSheet offsets by observing
+	// subsequent worksheet substreams. All workbook-global semantics above are
+	// collected by the single sequential pass.
+	ctx.sheetOffsets = findSheetBOFOffsets(data)
+	return ctx, nil
+}
+
+func (ctx legacyWorkbookParseContext) formulaContext() legacyFormulaWorkbookContext {
+	return legacyFormulaWorkbookContext{
+		sheets:       ctx.sheets,
+		externSheets: ctx.externSheets,
+		definedNames: definedNameList(ctx.definedNames),
+		pivotCaches:  ctx.pivotCaches,
+		date1904:     ctx.date1904,
+	}
 }
 
 func parseWorkbook(data []byte, filename string) (*sheetir.Workbook, error) {
-	sheets, sst, xfs, definedNames, externSheets, drawingStore, date1904, styleNames, wbProtection, err := parseWorkbookGlobals(data)
+	ctx, err := buildLegacyWorkbookParseContext(data)
 	if err != nil {
 		return nil, err
 	}
-	pivotCaches := parseLegacyPivotCacheSources(data)
-	metadata := parseLegacyWorkbookMetadata(data)
-	formulaCtx := legacyFormulaWorkbookContext{
-		sheets:       sheets,
-		externSheets: externSheets,
-		definedNames: definedNameList(definedNames),
-		pivotCaches:  pivotCaches,
-		date1904:     date1904,
+
+	workbook := &sheetir.Workbook{
+		Codepage:               activeBiffCodepage,
+		DefinedNames:           ctx.definedNames,
+		ExternalLinks:          ctx.externalLinks,
+		ActiveSheetIndex:       ctx.metadata.ActiveSheetIndex,
+		WriteAccessUser:        ctx.metadata.WriteAccessUser,
+		BackupFile:             ctx.metadata.BackupFile,
+		SaveExternalLinkValues: ctx.metadata.SaveExternalLinkValues,
+		Calc:                   ctx.metadata.Calc,
 	}
-	workbook := &sheetir.Workbook{}
-	workbook.Codepage = activeBiffCodepage
-	workbook.DefinedNames = definedNames
-	workbook.ExternalLinks = parseLegacyExternalLinks(data)
-	if len(styleNames) > 0 {
-		workbook.StyleNames = styleNames
+	workbook.NamedCellStyleXFs, workbook.NamedCellStyles = buildLegacyNamedCellStyles(ctx.styleCatalog, ctx.xfs)
+	if ctx.protection != nil {
+		workbook.Protection = ctx.protection
 	}
-	if wbProtection != nil {
-		workbook.Protection = wbProtection
-	}
-	workbook.ActiveSheetIndex = metadata.ActiveSheetIndex
-	workbook.WriteAccessUser = metadata.WriteAccessUser
-	workbook.BackupFile = metadata.BackupFile
-	workbook.SaveExternalLinkValues = metadata.SaveExternalLinkValues
-	workbook.Calc = metadata.Calc
-	// Pre-compute fallback sheet BOF offsets for cases where BoundSheet
-	// offsets are corrupted (e.g. POI-created XOR-encrypted test fixtures).
-	sheetOffsets := findSheetBOFOffsets(data)
-	for index, meta := range sheets {
-		// Use the BoundSheet offset when it looks valid; otherwise fall back
-		// to the next sequentially-discovered sheet BOF.
+
+	formulaCtx := ctx.formulaContext()
+	for index, originalMeta := range ctx.sheets {
+		meta := originalMeta
+		// BoundSheet offsets can be corrupt in real-world and encrypted legacy
+		// workbooks. The context owns the sequential BOF fallback used by every
+		// worksheet consumer.
 		if meta.offset < 0 || meta.offset+4 > len(data) {
-			if index < len(sheetOffsets) {
-				meta.offset = sheetOffsets[index]
+			if index < len(ctx.sheetOffsets) {
+				meta.offset = ctx.sheetOffsets[index]
 			}
 		} else {
-			// Validate that the offset actually points to a BOF.
 			id, _, _, ok := readBiffRecord(data, meta.offset)
 			if !ok || !isBIFFBOFRecord(id) {
-				if index < len(sheetOffsets) {
-					meta.offset = sheetOffsets[index]
+				if index < len(ctx.sheetOffsets) {
+					meta.offset = ctx.sheetOffsets[index]
 				}
 			}
 		}
-		sheet := parseWorksheetWithDrawingStore(data, meta, sst, xfs, drawingStore, formulaCtx)
+
+		sheet := parseBIFFWorksheet(
+			data, meta, ctx.sst, ctx.xfs, ctx.drawingStore, formulaCtx, ctx.styleCatalog,
+		)
 		if sheet == nil {
 			sheet = &sheetir.Sheet{Name: meta.name, ID: index + 1}
 		}
@@ -1017,15 +1123,20 @@ func parseWorkbook(data []byte, filename string) (*sheetir.Workbook, error) {
 		}
 		workbook.Sheets = append(workbook.Sheets, sheet)
 	}
-	for index, meta := range sheets {
+
+	for index, meta := range ctx.sheets {
 		if index >= len(workbook.Sheets) {
 			break
 		}
-		workbook.Sheets[index].Drawings = append(workbook.Sheets[index].Drawings,
-			parseEmbeddedCharts(data, meta, index, externSheets, workbook)...)
+		workbook.Sheets[index].Drawings = append(
+			workbook.Sheets[index].Drawings,
+			parseEmbeddedCharts(data, meta, index, ctx.externSheets, workbook)...,
+		)
 	}
+
 	applyLegacyPrintTitles(workbook)
 	applyLegacyPrintAreas(workbook)
+	applyLegacyAutoFilterRanges(workbook)
 	if len(workbook.Sheets) == 0 {
 		return nil, fmt.Errorf("legacy xls: no sheets found in %s", filename)
 	}
@@ -1111,19 +1222,54 @@ func applyLegacyPrintAreas(workbook *sheetir.Workbook) {
 	}
 }
 
-func parseWorkbookGlobals(data []byte) ([]boundSheet, []string, []legacyXF, []*sheetir.DefinedName, []externSheetRef, map[uint32]*sheetir.DrawingImage, bool, map[int]string, *sheetir.WorkbookProtection, error) {
+func applyLegacyAutoFilterRanges(workbook *sheetir.Workbook) {
+	if workbook == nil {
+		return
+	}
+	for _, dn := range workbook.DefinedNames {
+		if dn == nil || dn.Name != "_xlnm._FilterDatabase" || dn.LocalSheetID == nil {
+			continue
+		}
+		index := *dn.LocalSheetID
+		if index < 0 || index >= len(workbook.Sheets) || workbook.Sheets[index] == nil {
+			continue
+		}
+		if ref := legacyDefinedNameLocalRef(dn.Value); ref != "" {
+			workbook.Sheets[index].AutoFilterRef = ref
+		}
+	}
+}
+
+func legacyDefinedNameLocalRef(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	// Canonical worksheet metadata stores the local A1 range. BIFF built-in
+	// names may carry a quoted/unquoted sheet prefix.
+	if bang := strings.LastIndex(value, "!"); bang >= 0 {
+		value = value[bang+1:]
+	}
+	return strings.TrimSpace(value)
+}
+
+func parseWorkbookGlobals(data []byte) ([]boundSheet, []legacySharedString, []legacyXF, []*sheetir.DefinedName, []externSheetRef, map[uint32]*sheetir.DrawingImage, bool, legacyStyleCatalog, *sheetir.WorkbookProtection, error) {
+	return parseWorkbookGlobalsInto(data, nil)
+}
+
+func parseWorkbookGlobalsInto(data []byte, ctx *legacyWorkbookParseContext) ([]boundSheet, []legacySharedString, []legacyXF, []*sheetir.DefinedName, []externSheetRef, map[uint32]*sheetir.DrawingImage, bool, legacyStyleCatalog, *sheetir.WorkbookProtection, error) {
 	if len(data) < 4 {
-		return nil, nil, nil, nil, nil, nil, false, nil, nil, fmt.Errorf("legacy xls: workbook stream too small")
+		return nil, nil, nil, nil, nil, nil, false, legacyStyleCatalog{}, nil, fmt.Errorf("legacy xls: workbook stream too small")
 	}
 	pos := 0
 	firstID, _, next, ok := readBiffRecord(data, pos)
 	if !ok || firstID != biffBOF {
-		return nil, nil, nil, nil, nil, nil, false, nil, nil, fmt.Errorf("legacy xls: workbook BOF not found")
+		return nil, nil, nil, nil, nil, nil, false, legacyStyleCatalog{}, nil, fmt.Errorf("legacy xls: workbook BOF not found")
 	}
 	pos = next
 
 	var sheets []boundSheet
-	var sst []string
+	var sstPayload []byte
 	var fonts []legacyFont
 	formatCodes := defaultBIFFFormatCodes()
 	// Buffer XF payloads during the scan so they can be resolved against the
@@ -1154,6 +1300,18 @@ func parseWorkbookGlobals(data []byte) ([]boundSheet, []string, []legacyXF, []*s
 		}
 		return xfs
 	}
+	resolveSST := func() []legacySharedString {
+		if len(sstPayload) == 0 {
+			return nil
+		}
+		return parseSharedStrings(sstPayload, fonts, palette)
+	}
+	resolveStyleCatalog := func() legacyStyleCatalog {
+		catalog := buildLegacyStyleCatalog(styleRecords)
+		catalog.Fonts = append([]legacyFont(nil), fonts...)
+		catalog.Palette = palette
+		return catalog
+	}
 	resolveDefinedNames := func() []*sheetir.DefinedName {
 		definedNames := parseWorkbookDefinedNames(nameRecords, sheets, externSheets)
 		if len(nameCommentRecords) > 0 {
@@ -1171,6 +1329,27 @@ func parseWorkbookGlobals(data []byte) ([]boundSheet, []string, []legacyXF, []*s
 		}
 		return definedNames
 	}
+	// Production-only workbook-global projections share this same physical scan.
+	// The public/test parseWorkbookGlobals wrapper passes nil and retains its
+	// historical focused return surface.
+	var pivotCacheIndex = -1
+	var expectPivotSheetSource bool
+	ensureMetadataCalc := func() *sheetir.WorkbookCalcSettings {
+		if ctx == nil {
+			return nil
+		}
+		if ctx.metadata.Calc == nil {
+			ctx.metadata.Calc = &sheetir.WorkbookCalcSettings{}
+		}
+		return ctx.metadata.Calc
+	}
+	finishContext := func() {
+		if ctx == nil {
+			return
+		}
+		ctx.externalLinks = buildWorkbookExternalLinks(supBooks)
+	}
+
 	for pos+4 <= len(data) {
 		id, payload, nextPos, ok := readBiffRecord(data, pos)
 		if !ok {
@@ -1178,7 +1357,9 @@ func parseWorkbookGlobals(data []byte) ([]boundSheet, []string, []legacyXF, []*s
 		}
 		switch id {
 		case biffEOF:
-			return sheets, sst, resolveXFs(), resolveDefinedNames(), hydrateExternSheetRefs(supBooks, externSheets), parseLegacyWorkbookDrawingStore(drawingGroupData), date1904, buildStyleNames(styleRecords), finalizeWorkbookProtection(wbProtected, wbWindowProtected, wbProtectionRev4, wbPasswordHash, wbRevisionPasswordHash, wbWriteProtected, wbWriteResHash, wbWriteResUser), nil
+			finishContext()
+			finishContext()
+			return sheets, resolveSST(), resolveXFs(), resolveDefinedNames(), hydrateExternSheetRefs(supBooks, externSheets), parseLegacyWorkbookDrawingStore(drawingGroupData), date1904, resolveStyleCatalog(), finalizeWorkbookProtection(wbProtected, wbWindowProtected, wbProtectionRev4, wbPasswordHash, wbRevisionPasswordHash, wbWriteProtected, wbWriteResHash, wbWriteResUser), nil
 		case biffBoundSheet:
 			meta, ok := parseBoundSheet(payload)
 			if ok {
@@ -1213,71 +1394,9 @@ func parseWorkbookGlobals(data []byte) ([]boundSheet, []string, []legacyXF, []*s
 			// decoding throughout the rest of parsing.
 			activeBiffCodepage = int(parseCodepageRecord(payload))
 			pos = nextPos
-		case biffCountry:
-			// COUNTRY record — captured for future locale-aware formatting.
-			// Currently logged via diagnostics; the country codes are stored
-			// for potential date/number format locale resolution.
-			_, _ = parseCountryRecord(payload)
-			pos = nextPos
-		case biffWindow1:
-			// WINDOW1 record — captured for active sheet index and window
-			// display options. Currently logged via diagnostics; the active
-			// sheet index is stored for potential workbook-level view state.
-			_ = parseWindow1Record(payload)
-			pos = nextPos
-		case biffWriteAccess:
-			// WRITEACCESS record — captured for the username of the
-			// spreadsheet generator owner. Currently logged via diagnostics.
-			_ = parseWriteAccessRecord(payload)
-			pos = nextPos
-		case biffBackup:
-			// BACKUP record — captured for the backup file flag.
-			// Currently logged via diagnostics.
-			_ = parseBackupRecord(payload)
-			pos = nextPos
-		case biffBookBool:
-			// BOOKBOOL record — captured for the save external link values flag.
-			// Currently logged via diagnostics.
-			_ = parseBookBoolRecord(payload)
-			pos = nextPos
-		case biffCalcMode:
-			// CALCMODE record — captured for the formula calculation mode.
-			// Currently logged via diagnostics.
-			_ = parseCalcModeRecord(payload)
-			pos = nextPos
-		case biffCalcCount:
-			// CALCCOUNT record — captured for the iteration count.
-			// Currently logged via diagnostics.
-			_ = parseCalcCountRecord(payload)
-			pos = nextPos
-		case biffRefreshAll:
-			// REFRESHALL record — captured for the refresh-all flag.
-			// Currently logged via diagnostics.
-			_ = parseRefreshAllRecord(payload)
-			pos = nextPos
-		case biffIteration:
-			// ITERATION record — captured for the iterative calculation flag.
-			// Currently logged via diagnostics.
-			_ = parseIterationRecord(payload)
-			pos = nextPos
-		case biffDelta:
-			// DELTA record — captured for the iteration change tolerance.
-			// Currently logged via diagnostics.
-			_ = parseDeltaRecord(payload)
-			pos = nextPos
-		case biffPrecision:
-			// PRECISION record — captured for the precision-as-displayed flag.
-			// Currently logged via diagnostics.
-			_ = parsePrecisionRecord(payload)
-			pos = nextPos
-		case biffSaveRecalc:
-			// SAVERECALC record — captured for the save recalculation flag.
-			// Currently logged via diagnostics.
-			_ = parseSaveRecalcRecord(payload)
-			pos = nextPos
 		case biffSST:
 			fullPayload, fullNext := gatherBiffPayload(data, pos)
-			sst = parseSharedStrings(fullPayload)
+			sstPayload = append(sstPayload[:0], fullPayload...)
 			pos = fullNext
 		case biffName:
 			cp := make([]byte, len(payload))
@@ -1344,11 +1463,124 @@ func parseWorkbookGlobals(data []byte) ([]boundSheet, []string, []legacyXF, []*s
 				}
 			}
 			pos = nextPos
+		case biffWindow1:
+			if ctx != nil {
+				v := parseWindow1Record(payload)
+				ctx.metadata.ActiveSheetIndex = legacyIntPtr(v)
+			}
+			pos = nextPos
+		case biffWriteAccess:
+			if ctx != nil {
+				ctx.metadata.WriteAccessUser = parseWriteAccessRecord(payload)
+			}
+			pos = nextPos
+		case biffBackup:
+			if ctx != nil {
+				v := parseBackupRecord(payload)
+				ctx.metadata.BackupFile = legacyBoolPtr(v)
+			}
+			pos = nextPos
+		case biffBookBool:
+			if ctx != nil {
+				v := parseBookBoolRecord(payload)
+				ctx.metadata.SaveExternalLinkValues = legacyBoolPtr(v)
+			}
+			pos = nextPos
+		case biffCalcMode:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parseCalcModeRecord(payload)
+				calc.Mode = legacyIntPtr(v)
+			}
+			pos = nextPos
+		case biffCalcCount:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parseCalcCountRecord(payload)
+				calc.IterationCount = legacyIntPtr(v)
+			}
+			pos = nextPos
+		case biffRefreshAll:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parseRefreshAllRecord(payload)
+				calc.RefreshAll = legacyBoolPtr(v)
+			}
+			pos = nextPos
+		case biffIteration:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parseIterationRecord(payload)
+				calc.Iterate = legacyBoolPtr(v)
+			}
+			pos = nextPos
+		case biffDelta:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parseDeltaRecord(payload)
+				calc.Delta = legacyFloat64Ptr(v)
+			}
+			pos = nextPos
+		case biffPrecision:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parsePrecisionRecord(payload)
+				calc.PrecisionAsDisplayed = legacyBoolPtr(v)
+			}
+			pos = nextPos
+		case biffSaveRecalc:
+			if calc := ensureMetadataCalc(); calc != nil {
+				v := parseSaveRecalcRecord(payload)
+				calc.SaveRecalc = legacyBoolPtr(v)
+			}
+			pos = nextPos
+		case biffRefMode:
+			if calc := ensureMetadataCalc(); calc != nil {
+				if mode := parseRefModeRecord(payload); mode != "" {
+					calc.ReferenceMode = mode
+				}
+			}
+			pos = nextPos
+		case biffRecalcId:
+			if calc := ensureMetadataCalc(); calc != nil {
+				if recalcID, ok := parseRecalcIDRecord(payload); ok {
+					calc.RecalcID = legacyIntPtr(recalcID)
+				}
+			}
+			pos = nextPos
+		case biffUncalced:
+			if calc := ensureMetadataCalc(); calc != nil {
+				calc.FullCalcOnLoad = legacyBoolPtr(true)
+				calc.ForceFullCalc = legacyBoolPtr(true)
+			}
+			pos = nextPos
+		case biffSXStreamID:
+			if ctx != nil && len(payload) >= 2 {
+				ctx.pivotCaches = append(ctx.pivotCaches, legacyPivotCacheSource{StreamID: binary.LittleEndian.Uint16(payload[0:2])})
+				pivotCacheIndex = len(ctx.pivotCaches) - 1
+				expectPivotSheetSource = false
+			}
+			pos = nextPos
+		case biffSXVS:
+			if ctx != nil {
+				expectPivotSheetSource = pivotCacheIndex >= 0 && len(payload) >= 2 && binary.LittleEndian.Uint16(payload[0:2]) == 0x0001
+			}
+			pos = nextPos
+		case biffDConRef:
+			if ctx != nil && pivotCacheIndex >= 0 && expectPivotSheetSource {
+				if source, ok := parseLegacyPivotDConRef(payload); ok {
+					ctx.pivotCaches[pivotCacheIndex] = mergeLegacyPivotCacheSource(ctx.pivotCaches[pivotCacheIndex], source)
+				}
+				expectPivotSheetSource = false
+			}
+			pos = nextPos
+		case biffDConName:
+			if ctx != nil && pivotCacheIndex >= 0 && expectPivotSheetSource {
+				if source, ok := parseLegacyPivotDConName(payload); ok {
+					ctx.pivotCaches[pivotCacheIndex] = mergeLegacyPivotCacheSource(ctx.pivotCaches[pivotCacheIndex], source)
+				}
+				expectPivotSheetSource = false
+			}
+			pos = nextPos
 		default:
 			pos = nextPos
 		}
 	}
-	return sheets, sst, resolveXFs(), resolveDefinedNames(), hydrateExternSheetRefs(supBooks, externSheets), parseLegacyWorkbookDrawingStore(drawingGroupData), date1904, buildStyleNames(styleRecords), finalizeWorkbookProtection(wbProtected, wbWindowProtected, wbProtectionRev4, wbPasswordHash, wbRevisionPasswordHash, wbWriteProtected, wbWriteResHash, wbWriteResUser), nil
+	return sheets, resolveSST(), resolveXFs(), resolveDefinedNames(), hydrateExternSheetRefs(supBooks, externSheets), parseLegacyWorkbookDrawingStore(drawingGroupData), date1904, resolveStyleCatalog(), finalizeWorkbookProtection(wbProtected, wbWindowProtected, wbProtectionRev4, wbPasswordHash, wbRevisionPasswordHash, wbWriteProtected, wbWriteResHash, wbWriteResUser), nil
 }
 
 func parseLegacyExternalLinks(data []byte) []*sheetir.WorkbookExternalLink {
@@ -1979,7 +2211,7 @@ func parseSaveRecalcRecord(payload []byte) bool {
 	return binary.LittleEndian.Uint16(payload[0:2]) != 0
 }
 
-// buildStyleNames decodes a slice of raw STYLE record (0x0293) payloads and
+// buildLegacyStyleCatalog decodes raw STYLE record (0x0293) payloads and
 // returns a map of XF-index → style name.  Built-in styles use the canonical
 // names from HSSF HSSFWorkbook.getBuiltinStyleName; user-defined styles use
 // the UTF-16LE / compressed-Unicode name stored in the record.
@@ -1988,16 +2220,15 @@ func parseSaveRecalcRecord(payload []byte) bool {
 //	offset 0: USHORT — bits 0-11 = XF index; bit 15 = 1 for built-in
 //	if built-in: offset 2 = BYTE builtinStyleId; offset 3 = BYTE outlineLevel
 //	if user:     offset 2 = USHORT nameLen; offset 4 = BYTE isWide; offset 5 = chars
-func buildStyleNames(payloads [][]byte) map[int]string {
+func buildLegacyStyleCatalog(payloads [][]byte) legacyStyleCatalog {
 	if len(payloads) == 0 {
-		return nil
+		return legacyStyleCatalog{}
 	}
-	// Built-in IDs 0-7 per HSSF StyleRecord / HSSFWorkbook.
 	builtinNames := [8]string{
 		"Normal", "RowLevel_", "ColLevel_",
 		"Comma", "Currency", "Percent", "Comma [0]", "Currency [0]",
 	}
-	result := make(map[int]string, len(payloads))
+	catalog := legacyStyleCatalog{Names: make(map[int]string, len(payloads))}
 	for _, p := range payloads {
 		if len(p) < 2 {
 			continue
@@ -2005,6 +2236,8 @@ func buildStyleNames(payloads [][]byte) map[int]string {
 		raw := binary.LittleEndian.Uint16(p[0:2])
 		xfIndex := int(raw & 0x0FFF)
 		isBuiltin := (raw & 0x8000) != 0
+		var record legacyStyleRecord
+		record.XFIndex = xfIndex
 		if isBuiltin {
 			if len(p) < 4 {
 				continue
@@ -2014,53 +2247,93 @@ func buildStyleNames(payloads [][]byte) map[int]string {
 			if id < 0 || id >= len(builtinNames) {
 				continue
 			}
-			name := builtinNames[id]
+			record.Name = builtinNames[id]
 			if id == 1 || id == 2 {
-				// "RowLevel_n" / "ColLevel_n" — level is 0-based, display as 1-based
-				name = fmt.Sprintf("%s%d", name, level+1)
+				record.Name = fmt.Sprintf("%s%d", record.Name, level+1)
 			}
-			result[xfIndex] = name
+			builtinID := id
+			record.BuiltinID = &builtinID
 		} else {
-			// User-defined: SHORT nameLen, BYTE isWide, chars
 			if len(p) < 5 {
-				if len(p) >= 4 {
-					// Crystal Reports omits the isWide byte when nameLen==0
-					nameLen := int(binary.LittleEndian.Uint16(p[2:4]))
-					if nameLen == 0 {
-						result[xfIndex] = ""
-					}
-				}
-				continue
-			}
-			nameLen := int(binary.LittleEndian.Uint16(p[2:4]))
-			isWide := p[4] != 0
-			charData := p[5:]
-			if isWide {
-				if len(charData) < nameLen*2 {
+				if len(p) >= 4 && binary.LittleEndian.Uint16(p[2:4]) == 0 {
+					record.Name = ""
+				} else {
 					continue
 				}
-				runes := make([]rune, nameLen)
-				for i := range runes {
-					runes[i] = rune(binary.LittleEndian.Uint16(charData[i*2:]))
-				}
-				result[xfIndex] = string(runes)
 			} else {
-				if len(charData) < nameLen {
-					continue
+				nameLen := int(binary.LittleEndian.Uint16(p[2:4]))
+				isWide := p[4] != 0
+				charData := p[5:]
+				if isWide {
+					if len(charData) < nameLen*2 {
+						continue
+					}
+					runes := make([]rune, nameLen)
+					for i := range runes {
+						runes[i] = rune(binary.LittleEndian.Uint16(charData[i*2:]))
+					}
+					record.Name = string(runes)
+				} else {
+					if len(charData) < nameLen {
+						continue
+					}
+					runes := make([]rune, nameLen)
+					for i := range runes {
+						runes[i] = rune(charData[i])
+					}
+					record.Name = string(runes)
 				}
-				// Compressed Latin-1 — treat as ISO-8859-1
-				runes := make([]rune, nameLen)
-				for i := range runes {
-					runes[i] = rune(charData[i])
-				}
-				result[xfIndex] = string(runes)
 			}
 		}
+		catalog.Records = append(catalog.Records, record)
+		catalog.Names[xfIndex] = record.Name
 	}
-	if len(result) == 0 {
+	if len(catalog.Records) == 0 {
+		return legacyStyleCatalog{}
+	}
+	return catalog
+}
+
+// buildLegacyNamedCellStyles projects BIFF STYLE + XF into the same canonical
+// named-style model used by OOXML. The style-XF table is compacted by source XF
+// index, while each STYLE record keeps its own name and built-in identity.
+func buildLegacyNamedCellStyles(catalog legacyStyleCatalog, xfs []legacyXF) ([]sheetir.CellStyle, []*sheetir.NamedCellStyle) {
+	if len(catalog.Records) == 0 || len(xfs) == 0 {
+		return nil, nil
+	}
+	styleXFIndexByLegacyXF := make(map[int]int, len(catalog.Records))
+	namedXFs := make([]sheetir.CellStyle, 0, len(catalog.Records))
+	namedStyles := make([]*sheetir.NamedCellStyle, 0, len(catalog.Records))
+	for _, record := range catalog.Records {
+		if record.XFIndex < 0 || record.XFIndex >= len(xfs) {
+			continue
+		}
+		styleXFIndex, ok := styleXFIndexByLegacyXF[record.XFIndex]
+		if !ok {
+			styleXFIndex = len(namedXFs)
+			styleXFIndexByLegacyXF[record.XFIndex] = styleXFIndex
+			namedXFs = append(namedXFs, xfs[record.XFIndex].Style)
+		}
+		style := xfs[record.XFIndex].Style
+		namedStyles = append(namedStyles, &sheetir.NamedCellStyle{
+			Name:         record.Name,
+			StyleXFIndex: styleXFIndex,
+			BuiltinID:    cloneIntPtr(record.BuiltinID),
+			Style:        style,
+		})
+	}
+	if len(namedStyles) == 0 {
+		return nil, nil
+	}
+	return namedXFs, namedStyles
+}
+
+func cloneIntPtr(v *int) *int {
+	if v == nil {
 		return nil
 	}
-	return result
+	copy := *v
+	return &copy
 }
 
 // buildWorkbookProtection returns a *sheetir.WorkbookProtection populated from
@@ -2245,10 +2518,39 @@ func parseLegacyWorkbookMetadata(data []byte) legacyWorkbookMetadata {
 		case biffSaveRecalc:
 			v := parseSaveRecalcRecord(payload)
 			ensureCalc().SaveRecalc = legacyBoolPtr(v)
+		case biffRefMode:
+			if mode := parseRefModeRecord(payload); mode != "" {
+				ensureCalc().ReferenceMode = mode
+			}
+		case biffRecalcId:
+			if id, ok := parseRecalcIDRecord(payload); ok {
+				ensureCalc().RecalcID = legacyIntPtr(id)
+			}
+		case biffUncalced:
+			ensureCalc().FullCalcOnLoad = legacyBoolPtr(true)
+			ensureCalc().ForceFullCalc = legacyBoolPtr(true)
 		}
 		pos = nextPos
 	}
 	return meta
+}
+
+func parseRefModeRecord(payload []byte) string {
+	if len(payload) < 2 {
+		return ""
+	}
+	if binary.LittleEndian.Uint16(payload[:2]) == 0 {
+		return "R1C1"
+	}
+	return "A1"
+}
+
+func parseRecalcIDRecord(payload []byte) (int, bool) {
+	// BIFF8 RECALCID is an FRT-style payload: rt(2), reserved(2), engineId(4).
+	if len(payload) < 8 {
+		return 0, false
+	}
+	return int(binary.LittleEndian.Uint32(payload[4:8])), true
 }
 
 func legacyBoolPtr(value bool) *bool {
@@ -4173,15 +4475,15 @@ func boundSheetVisibility(flag byte) string {
 	}
 }
 
-func parseSharedStrings(payload []byte) []string {
+func parseSharedStrings(payload []byte, fonts []legacyFont, palette [56]string) []legacySharedString {
 	if len(payload) < 8 {
 		return nil
 	}
 	count := int(binary.LittleEndian.Uint32(payload[4:8]))
 	offset := 8
-	stringsOut := make([]string, 0, count)
+	stringsOut := make([]legacySharedString, 0, count)
 	for len(stringsOut) < count && offset < len(payload) {
-		value, next, ok := readXLUnicodeRichExtendedString(payload, offset)
+		value, next, ok := readXLUnicodeRichExtendedStringCanonical(payload, offset, fonts, palette)
 		if !ok {
 			break
 		}
@@ -4191,803 +4493,939 @@ func parseSharedStrings(payload []byte) []string {
 	return stringsOut
 }
 
-func parseWorksheet(data []byte, meta boundSheet, sst []string, xfs []legacyXF) *sheetir.Sheet {
-	return parseWorksheetWithDrawingStore(data, meta, sst, xfs, nil, legacyFormulaWorkbookContext{})
+func readXLUnicodeRichExtendedStringCanonical(data []byte, offset int, fonts []legacyFont, palette [56]string) (legacySharedString, int, bool) {
+	if offset < 0 || offset+3 > len(data) {
+		return legacySharedString{}, offset, false
+	}
+	charCount := int(binary.LittleEndian.Uint16(data[offset : offset+2]))
+	offset += 2
+	flags := data[offset]
+	offset++
+	runCount := 0
+	extSize := 0
+	if flags&0x08 != 0 {
+		if offset+2 > len(data) {
+			return legacySharedString{}, offset, false
+		}
+		runCount = int(binary.LittleEndian.Uint16(data[offset : offset+2]))
+		offset += 2
+	}
+	if flags&0x04 != 0 {
+		if offset+4 > len(data) {
+			return legacySharedString{}, offset, false
+		}
+		extSize = int(binary.LittleEndian.Uint32(data[offset : offset+4]))
+		offset += 4
+	}
+	var value string
+	if flags&0x01 != 0 {
+		need := charCount * 2
+		if offset+need > len(data) {
+			return legacySharedString{}, offset, false
+		}
+		value = decodeBiffUTF16Raw(data[offset : offset+need])
+		offset += need
+	} else {
+		if offset+charCount > len(data) {
+			return legacySharedString{}, offset, false
+		}
+		value = decodeBiffBytesRaw(data[offset : offset+charCount])
+		offset += charCount
+	}
+	runs := make([]legacyRichRunSpec, 0, runCount)
+	if offset+runCount*4 > len(data) {
+		return legacySharedString{}, offset, false
+	}
+	for i := 0; i < runCount; i++ {
+		base := offset + i*4
+		runs = append(runs, legacyRichRunSpec{
+			CharIndex: int(binary.LittleEndian.Uint16(data[base : base+2])),
+			FontIndex: int(binary.LittleEndian.Uint16(data[base+2 : base+4])),
+		})
+	}
+	offset += runCount * 4
+	if offset+extSize > len(data) {
+		return legacySharedString{}, offset, false
+	}
+	offset += extSize
+	return legacySharedString{Text: value, RichText: canonicalBIFFRichTextRuns(value, runs, fonts, palette)}, offset, true
 }
 
-func parseWorksheetWithDrawingStore(data []byte, meta boundSheet, sst []string, xfs []legacyXF, drawingStore map[uint32]*sheetir.DrawingImage, formulaCtx legacyFormulaWorkbookContext) *sheetir.Sheet {
-	if meta.offset < 0 || meta.offset+4 > len(data) {
+func canonicalBIFFRichTextRuns(value string, specs []legacyRichRunSpec, fonts []legacyFont, palette [56]string) []*sheetir.RichTextRun {
+	if value == "" || len(specs) == 0 {
 		return nil
 	}
-	pos := meta.offset
-	id, bofPayload, next, ok := readBiffRecord(data, pos)
-	if !ok || !isBIFFBOFRecord(id) {
+	// BIFF run offsets are UTF-16 code-unit positions. Convert boundaries to byte
+	// offsets without losing surrogate pairs.
+	byteAt := func(units int) int {
+		if units <= 0 {
+			return 0
+		}
+		used := 0
+		for i, r := range value {
+			width := 1
+			if r > 0xFFFF {
+				width = 2
+			}
+			if used+width > units {
+				return i
+			}
+			used += width
+			if used == units {
+				return i + len(string(r))
+			}
+		}
+		return len(value)
+	}
+	out := make([]*sheetir.RichTextRun, 0, len(specs))
+	for i, spec := range specs {
+		start := byteAt(spec.CharIndex)
+		end := len(value)
+		if i+1 < len(specs) {
+			end = byteAt(specs[i+1].CharIndex)
+		}
+		if start < 0 || start > len(value) || end < start {
+			continue
+		}
+		text := value[start:end]
+		if text == "" {
+			continue
+		}
+		font := biffFontAt(fonts, uint16(spec.FontIndex))
+		out = append(out, &sheetir.RichTextRun{
+			Text: text, Bold: font.Bold, Italic: font.Italic, Underline: font.Underline,
+			UnderlineType: font.UnderlineType, Strike: font.Strike, VertAlign: font.VertAlign,
+			FontSizePt: font.HeightPt, FontColor: biffColorHex(font.ColorIdx, palette), FontFamily: font.Name,
+		})
+	}
+	if len(out) <= 1 {
 		return nil
 	}
-	worksheetBIFFVersion := biffVersionFromBOFRecord(id, bofPayload)
-	pos = next
-	rows := map[int]*sheetir.Row{}
-	sheet := &sheetir.Sheet{
-		Name:          meta.name,
-		Hidden:        meta.hidden,
-		Visibility:    meta.visibility,
-		ColumnWidths:  map[int]float64{},
-		HiddenCols:    map[int]bool{},
-		OutlineRows:   map[int]int{},
-		CollapsedRows: map[int]bool{},
-		OutlineCols:   map[int]int{},
-		CollapsedCols: map[int]bool{},
-	}
-	var pendingFormula *sheetir.Cell
-	var pendingCommentText bool
-	var pendingControlText *sheetir.FormControl
-	pendingDrawingTextObjID := 0
-	pendingDrawingCharsRemaining := -1
-	var currentDrawingText string
-	drawingTextByObjID := map[int]string{}
-	pendingCommentObjID := 0
-	pendingCommentCharsRemaining := -1
-	pendingControlCharsRemaining := -1
-	var currentCommentText string
-	var currentControlCaption string
-	var commentTexts []string
-	commentTextsByObjID := map[int]string{}
-	pendingNotesByObjID := map[int]legacyNote{}
-	controlByObjID := map[int]*sheetir.FormControl{}
-	var controlOrder []*sheetir.FormControl
-	var objOrder []parsedObj
-	commentTextIndex := 0
-	var freezePanes bool // set to true by Window2 freeze flag
-	currentObjType := uint16(0)
-	currentObjID := 0
-	var hlinkRanges []hlinkEntry
-	// Conditional formatting state: CONDFMT / CFHEADER12 sets pendingCFSqRef and
-	// pendingCFCount; subsequent CF / CFRULE12 records claim that sqref until the
-	// count is exhausted. pendingCFIsCF12 tracks whether the header is CF12 so
-	// that rule-type mismatches (CF rule under CF12 header or vice versa) are
-	// rejected, matching POI's CFRecordsAggregate.checkRuleType enforcement.
-	pendingCFSqRef := ""
-	pendingCFCount := 0
-	pendingCFIsCF12 := false
-	// autoFilterCols > 0 means AUTOFILTERINFO was seen; resolved to A1 range at done.
-	autoFilterCols := 0
-	// Protection records decoded from PROTECT / OBJPROTECT / SCENPROTECT / PASSWORD.
-	var sheetProtected bool
-	var sheetObjProtected bool
-	var sheetScenProtected bool
-	var sheetPasswordHash uint16
-	var arrayFormulas []*sheetir.ArrayFormula
-	expFormulaRefs := map[string]string{}
-	sharedFormulas := map[string]legacySharedFormulaRecord{}
-	var officeArtPayload []byte
-	lastFormulaRef := ""
-	lastFormulaRow := 0
-	lastFormulaCol := 0
-	var pivotViews []*legacyPivotView
-	var currentPivotView *legacyPivotView
-	tableFeaturesByID := map[uint32]*legacyTableFeature{}
+	return out
+}
 
-	storeComment := func(ref, text string) {
-		if ref == "" || text == "" {
-			return
-		}
-		if sheet.Comments == nil {
-			sheet.Comments = map[string]string{}
-		}
-		sheet.Comments[ref] = text
+func cloneBIFFRichTextRuns(in []*sheetir.RichTextRun) []*sheetir.RichTextRun {
+	if len(in) == 0 {
+		return nil
 	}
-	flushPendingCommentText := func() {
-		if !pendingCommentText {
-			return
+	out := make([]*sheetir.RichTextRun, 0, len(in))
+	for _, run := range in {
+		if run == nil {
+			continue
 		}
-		if currentCommentText != "" {
-			if pendingCommentObjID != 0 {
-				commentTextsByObjID[pendingCommentObjID] = currentCommentText
-				if note, ok := pendingNotesByObjID[pendingCommentObjID]; ok {
-					storeComment(note.ref, currentCommentText)
-					delete(pendingNotesByObjID, pendingCommentObjID)
+		cp := *run
+		out = append(out, &cp)
+	}
+	return out
+}
+
+// parseWorksheet is retained only as a focused test oracle for historical BIFF
+// fixtures. Production parsing, including raw worksheet fallback, calls the
+// canonical parseBIFFWorksheet dispatcher directly.
+func parseWorksheet(data []byte, meta boundSheet, sst []legacySharedString, xfs []legacyXF) *sheetir.Sheet {
+	return parseBIFFWorksheet(data, meta, sst, xfs, nil, legacyFormulaWorkbookContext{})
+}
+
+// legacyWorksheetParseState owns transient state that spans BIFF records inside
+// one worksheet substream. Keeping this state explicit is important because BIFF
+// semantics are frequently split across adjacent records (FORMULA/STRING,
+// NOTE/OBJ/TXO, shared formulas, CF headers/rules, drawing continuations, pivot
+// records). The canonical Sheet/Row objects remain the output; this structure is
+// only the sequential decoder's in-flight state.
+type legacyWorksheetParseState struct {
+	pendingFormula               *sheetir.Cell
+	pendingCommentText           bool
+	pendingControlText           *sheetir.FormControl
+	pendingDrawingTextObjID      int
+	pendingDrawingCharsRemaining int
+	currentDrawingText           string
+	drawingTextByObjID           map[int]string
+	pendingCommentObjID          int
+	pendingCommentCharsRemaining int
+	pendingControlCharsRemaining int
+	currentCommentText           string
+	currentControlCaption        string
+	commentTexts                 []string
+	commentTextsByObjID          map[int]string
+	commentRichTextByObjID       map[int][]*sheetir.RichTextRun
+	pendingNotesByObjID          map[int]legacyNote
+	controlByObjID               map[int]*sheetir.FormControl
+	controlOrder                 []*sheetir.FormControl
+	objOrder                     []parsedObj
+	commentTextIndex             int
+	freezePanes                  bool
+	currentObjType               uint16
+	currentObjID                 int
+	hlinkRanges                  []hlinkEntry
+	hlinkTooltips                map[string]string
+	pendingCFSqRef               string
+	pendingCFCount               int
+	pendingCFIsCF12              bool
+	autoFilterCols               int
+	sheetProtected               bool
+	sheetObjProtected            bool
+	sheetScenProtected           bool
+	sheetPasswordHash            uint16
+	arrayFormulas                []*sheetir.ArrayFormula
+	expFormulaRefs               map[string]string
+	sharedFormulas               map[string]legacySharedFormulaRecord
+	officeArtPayload             []byte
+	lastFormulaRef               string
+	lastFormulaRow               int
+	lastFormulaCol               int
+	pivotViews                   []*legacyPivotView
+	currentPivotView             *legacyPivotView
+	tableFeaturesByID            map[uint32]*legacyTableFeature
+}
+
+func newLegacyWorksheetParseState() *legacyWorksheetParseState {
+	return &legacyWorksheetParseState{
+		pendingDrawingCharsRemaining: -1,
+		pendingCommentCharsRemaining: -1,
+		pendingControlCharsRemaining: -1,
+		drawingTextByObjID:           map[int]string{},
+		commentTextsByObjID:          map[int]string{},
+		commentRichTextByObjID:       map[int][]*sheetir.RichTextRun{},
+		pendingNotesByObjID:          map[int]legacyNote{},
+		controlByObjID:               map[int]*sheetir.FormControl{},
+		expFormulaRefs:               map[string]string{},
+		sharedFormulas:               map[string]legacySharedFormulaRecord{},
+		tableFeaturesByID:            map[uint32]*legacyTableFeature{},
+		hlinkTooltips:                map[string]string{},
+	}
+}
+
+func (state *legacyWorksheetParseState) storeComment(sheet *sheetir.Sheet, note legacyNote, text string) {
+	if note.ref == "" || text == "" {
+		return
+	}
+	if sheet.Comments == nil {
+		sheet.Comments = map[string]string{}
+	}
+	sheet.Comments[note.ref] = text
+	if sheet.Notes == nil {
+		sheet.Notes = map[string]*sheetir.CommentNote{}
+	}
+	canonical := &sheetir.CommentNote{Ref: note.ref, Author: note.author, Text: text}
+	if note.objID != 0 {
+		canonical.RichText = cloneBIFFRichTextRuns(state.commentRichTextByObjID[note.objID])
+	}
+	sheet.Notes[note.ref] = canonical
+}
+
+func (state *legacyWorksheetParseState) flushPendingCommentText(sheet *sheetir.Sheet) {
+	if !state.pendingCommentText {
+		return
+	}
+	if state.currentCommentText != "" {
+		if state.pendingCommentObjID != 0 {
+			state.commentTextsByObjID[state.pendingCommentObjID] = state.currentCommentText
+			if note, ok := state.pendingNotesByObjID[state.pendingCommentObjID]; ok {
+				state.storeComment(sheet, note, state.currentCommentText)
+				delete(state.pendingNotesByObjID, state.pendingCommentObjID)
+			}
+		} else {
+			state.commentTexts = append(state.commentTexts, state.currentCommentText)
+		}
+	}
+	state.currentCommentText = ""
+	state.pendingCommentText = false
+	state.pendingCommentObjID = 0
+	state.pendingCommentCharsRemaining = -1
+}
+
+func (state *legacyWorksheetParseState) flushPendingControlText() {
+	if state.pendingControlText == nil {
+		return
+	}
+	state.pendingControlText.AltText = strings.TrimSpace(state.currentControlCaption)
+	state.currentControlCaption = ""
+	state.pendingControlText = nil
+	state.pendingControlCharsRemaining = -1
+}
+
+func (state *legacyWorksheetParseState) flushPendingDrawingText() {
+	if state.pendingDrawingTextObjID == 0 {
+		return
+	}
+	if text := strings.TrimSpace(state.currentDrawingText); text != "" {
+		state.drawingTextByObjID[state.pendingDrawingTextObjID] = text
+	}
+	state.pendingDrawingTextObjID = 0
+	state.pendingDrawingCharsRemaining = -1
+	state.currentDrawingText = ""
+}
+
+func (state *legacyWorksheetParseState) flushPendingFormulaText(rows map[int]*sheetir.Row) {
+	if state.pendingFormula == nil {
+		return
+	}
+	state.pendingFormula.Kind = sheetir.CellString
+	addSheetCell(rows, state.pendingFormula)
+	state.pendingFormula = nil
+}
+
+func (state *legacyWorksheetParseState) flushPendingPivotView() {
+	if state.currentPivotView == nil {
+		return
+	}
+	state.pivotViews = append(state.pivotViews, state.currentPivotView)
+	state.currentPivotView = nil
+}
+
+type legacyWorksheetRecordFamily uint8
+
+const (
+	legacyWorksheetRecordCore legacyWorksheetRecordFamily = iota
+	legacyWorksheetRecordPivot
+	legacyWorksheetRecordCell
+	legacyWorksheetRecordGeometry
+	legacyWorksheetRecordObject
+	legacyWorksheetRecordSemantic
+	legacyWorksheetRecordTable
+)
+
+func classifyLegacyWorksheetRecord(id uint16) legacyWorksheetRecordFamily {
+	switch id {
+	case biffSXView, biffSXVD, biffSXVI, biffSXIvd, biffSXPI, biffSXDI:
+		return legacyWorksheetRecordPivot
+	case biffLabelSst, biffLabel, biffLabelBIFF2, biffBlank, biffBlankBIFF2,
+		biffNumber, biffNumberOld, biffNumberBIFF2, biffRString, biffMulBlank,
+		biffRK, biffMulRK, biffBoolErr, biffBoolErrBIFF2, biffFormula,
+		biffFormula3, biffFormula4, biffStringOld, biffString, biffArray, biffShrFmla:
+		return legacyWorksheetRecordCell
+	case biffWindow2, biffPane, biffDimensions, biffGuts, biffSCL, biffRow,
+		biffColInfo, biffMergeCells, biffUserSViewBegin, biffDefRowHeight, biffDefColWidth,
+		biffSelection:
+		return legacyWorksheetRecordGeometry
+	case biffNote, biffObj, biffMsoDrawing, biffTxO, biffContinue:
+		return legacyWorksheetRecordObject
+	case biffWSBool, biffFilterMode, biffHLink, biffHLinkTooltip, biffCondFmt, biffCFHeader12, biffCF, biffCFRule12, biffDval,
+		biffDV, biffAutoFilterInfo, biffAutoFilter, biffProtect, biffObjProtect,
+		biffScenProtect, biffPassword, biffSetup, biffLeftMargin, biffRightMargin,
+		biffTopMargin, biffBottomMargin, biffHCenter, biffVCenter, biffPrintHeaders,
+		biffPrintGridlines, biffHeader, biffFooter, biffHeaderFooterExt,
+		biffHorizPageBreak, biffVertPageBreak:
+		return legacyWorksheetRecordSemantic
+	case biffFeatHdr, biffFeatHdr11, biffFeat, biffFeature11, biffFeature12, biffList12:
+		return legacyWorksheetRecordTable
+	default:
+		return legacyWorksheetRecordCore
+	}
+}
+
+func (state *legacyWorksheetParseState) consumePivotRecord(id uint16, payload []byte) bool {
+	switch id {
+	case biffSXView:
+		state.flushPendingPivotView()
+		if view, ok := parseLegacyPivotView(payload); ok {
+			state.currentPivotView = view
+		}
+	case biffSXVD:
+		if state.currentPivotView != nil {
+			state.currentPivotView.addViewField(payload)
+		}
+	case biffSXVI:
+		if state.currentPivotView != nil {
+			state.currentPivotView.addPivotItem(payload)
+		}
+	case biffSXIvd:
+		if state.currentPivotView != nil {
+			state.currentPivotView.addAxisFieldOrder(payload)
+		}
+	case biffSXPI:
+		if state.currentPivotView != nil {
+			state.currentPivotView.addPageFields(payload)
+		}
+	case biffSXDI:
+		if state.currentPivotView != nil {
+			state.currentPivotView.addDataField(payload)
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+type legacyWorksheetRecordResult uint8
+
+const (
+	legacyWorksheetRecordUnhandled legacyWorksheetRecordResult = iota
+	legacyWorksheetRecordHandled
+	legacyWorksheetRecordHandledWithPosition
+)
+
+func (state *legacyWorksheetParseState) consumeCellRecord(
+	data []byte,
+	pos int,
+	id uint16,
+	payload []byte,
+	rows map[int]*sheetir.Row,
+	sst []legacySharedString,
+	xfs []legacyXF,
+	formulaCtx legacyFormulaWorkbookContext,
+	worksheetBIFFVersion uint16,
+	textCtx ...legacyStyleCatalog,
+) (legacyWorksheetRecordResult, int) {
+	switch id {
+	case biffLabelSst:
+		if cell := parseLabelSstCell(payload, sst, xfs); cell != nil {
+			addSheetCell(rows, cell)
+		}
+	case biffLabel, biffLabelBIFF2:
+		var cell *sheetir.Cell
+		if id == biffLabelBIFF2 {
+			cell = parseLabelCellBIFF2(payload)
+		} else {
+			cell = parseLabelCell(payload, xfs)
+		}
+		if cell != nil {
+			addSheetCell(rows, cell)
+		}
+	case biffBlank, biffBlankBIFF2:
+		var cell *sheetir.Cell
+		if id == biffBlankBIFF2 {
+			cell = parseBlankCellBIFF2(payload)
+		} else {
+			cell = parseBlankCell(payload, xfs)
+		}
+		if cell != nil {
+			addSheetCell(rows, cell)
+		}
+	case biffNumber, biffNumberOld, biffNumberBIFF2:
+		var cell *sheetir.Cell
+		if id == biffNumberBIFF2 {
+			cell = parseNumberCellBIFF2(payload)
+		} else {
+			cell = parseNumberCell(payload, xfs)
+		}
+		if cell != nil {
+			canonicalizeBIFFNumericCell(cell, formulaCtx.date1904)
+			addSheetCell(rows, cell)
+		}
+	case biffRString:
+		if cell := parseRStringCell(payload, xfs, textCtx...); cell != nil {
+			addSheetCell(rows, cell)
+		}
+	case biffMulBlank:
+		for _, cell := range parseMulBlankCells(payload, xfs) {
+			addSheetCell(rows, cell)
+		}
+	case biffRK:
+		if cell := parseRKCell(payload, xfs); cell != nil {
+			canonicalizeBIFFNumericCell(cell, formulaCtx.date1904)
+			addSheetCell(rows, cell)
+		}
+	case biffMulRK:
+		for _, cell := range parseMulRKCells(payload, xfs) {
+			canonicalizeBIFFNumericCell(cell, formulaCtx.date1904)
+			addSheetCell(rows, cell)
+		}
+	case biffBoolErr, biffBoolErrBIFF2:
+		var cell *sheetir.Cell
+		if id == biffBoolErrBIFF2 {
+			cell = parseBoolErrCellBIFF2(payload)
+		} else {
+			cell = parseBoolErrCell(payload, xfs)
+		}
+		if cell != nil {
+			addSheetCell(rows, cell)
+		}
+	case biffFormula, biffFormula3, biffFormula4:
+		isOldFormula := id == biffFormula3 || id == biffFormula4 || (id == biffFormula && worksheetBIFFVersion == biffVersion2)
+		if isOldFormula {
+			state.pendingFormula = parseOldFormulaCell(payload, xfs, formulaCtx, worksheetBIFFVersion == biffVersion2)
+		} else {
+			state.pendingFormula = parseFormulaCell(payload, xfs, formulaCtx)
+		}
+		if !isOldFormula && state.pendingFormula != nil && state.pendingFormula.Ref != "" {
+			state.lastFormulaRef = state.pendingFormula.Ref
+			state.lastFormulaRow = state.pendingFormula.Row
+			state.lastFormulaCol = state.pendingFormula.Col
+			if anchorRef, ok := parseFormulaExpRef(payload); ok {
+				state.expFormulaRefs[state.pendingFormula.Ref] = anchorRef
+			}
+		} else {
+			state.clearLastFormula()
+		}
+		if state.pendingFormula != nil && state.pendingFormula.Kind != sheetir.CellEmpty {
+			addSheetCell(rows, state.pendingFormula)
+			state.pendingFormula = nil
+		}
+	case biffStringOld, biffString:
+		if state.pendingFormula != nil {
+			if worksheetBIFFVersion < biffVersion5 {
+				text, ok := parseOldFormulaStringRecord(payload, id == biffStringOld)
+				if ok {
+					state.pendingFormula.Kind = sheetir.CellString
+					state.pendingFormula.StrValue = text
+					addSheetCell(rows, state.pendingFormula)
 				}
 			} else {
-				commentTexts = append(commentTexts, currentCommentText)
+				fullPayload, fullNext := gatherBiffPayload(data, pos)
+				text, _, ok := readXLUnicodeString(fullPayload, 0, 2)
+				if ok {
+					state.pendingFormula.Kind = sheetir.CellString
+					state.pendingFormula.StrValue = strings.TrimSpace(text)
+					addSheetCell(rows, state.pendingFormula)
+				}
+				state.pendingFormula = nil
+				return legacyWorksheetRecordHandledWithPosition, fullNext
 			}
+			state.pendingFormula = nil
 		}
-		currentCommentText = ""
-		pendingCommentText = false
-		pendingCommentObjID = 0
-		pendingCommentCharsRemaining = -1
+	case biffArray:
+		if group, ok := parseArrayFormulaRecord(payload, formulaCtx); ok {
+			state.arrayFormulas = append(state.arrayFormulas, group)
+		}
+	case biffShrFmla:
+		if shared, ok := parseSharedFormulaRecord(payload, state.lastFormulaRef, state.lastFormulaRow, state.lastFormulaCol); ok {
+			state.sharedFormulas[strings.ToUpper(shared.AnchorRef)] = shared
+		}
+		state.clearLastFormula()
+	default:
+		return legacyWorksheetRecordUnhandled, pos
 	}
-	flushPendingControlText := func() {
-		if pendingControlText == nil {
-			return
-		}
-		pendingControlText.AltText = strings.TrimSpace(currentControlCaption)
-		currentControlCaption = ""
-		pendingControlText = nil
-		pendingControlCharsRemaining = -1
-	}
-	flushPendingDrawingText := func() {
-		if pendingDrawingTextObjID == 0 {
-			return
-		}
-		if text := strings.TrimSpace(currentDrawingText); text != "" {
-			drawingTextByObjID[pendingDrawingTextObjID] = text
-		}
-		pendingDrawingTextObjID = 0
-		pendingDrawingCharsRemaining = -1
-		currentDrawingText = ""
-	}
-	flushPendingFormulaText := func() {
-		if pendingFormula == nil {
-			return
-		}
-		pendingFormula.Kind = sheetir.CellString
-		if pendingFormula.StrValue == "" {
-			pendingFormula.StrValue = ""
-		}
-		addSheetCell(rows, pendingFormula)
-		pendingFormula = nil
-	}
-	flushPendingPivotView := func() {
-		if currentPivotView == nil {
-			return
-		}
-		pivotViews = append(pivotViews, currentPivotView)
-		currentPivotView = nil
-	}
+	return legacyWorksheetRecordHandled, pos
+}
 
-	for pos+4 <= len(data) {
-		id, payload, nextPos, ok := readBiffRecord(data, pos)
-		if !ok {
-			break
+func (state *legacyWorksheetParseState) clearLastFormula() {
+	state.lastFormulaRef = ""
+	state.lastFormulaRow = 0
+	state.lastFormulaCol = 0
+}
+
+func (state *legacyWorksheetParseState) consumeGeometryRecord(
+	data []byte,
+	pos int,
+	id uint16,
+	payload []byte,
+	sheet *sheetir.Sheet,
+	rows map[int]*sheetir.Row,
+	xfs []legacyXF,
+) (legacyWorksheetRecordResult, int) {
+	switch id {
+	case biffWindow2:
+		if len(payload) >= 2 {
+			flags := binary.LittleEndian.Uint16(payload[0:2])
+			state.freezePanes = flags&0x0008 != 0
+			showGridLines := flags&0x0002 != 0
+			sheet.ShowGridLines = &showGridLines
 		}
-		if pendingCommentText && id != biffContinue {
-			flushPendingCommentText()
+	case biffPane:
+		if len(payload) >= 4 {
+			applyPane(sheet, payload, state.freezePanes)
 		}
-		if pendingControlText != nil && id != biffContinue {
-			flushPendingControlText()
+	case biffDimensions:
+		applyDimensionsRecord(sheet, payload)
+	case biffGuts:
+		applyGutsRecord(sheet, payload)
+	case biffSCL:
+		applySCLRecord(sheet, payload)
+	case biffRow:
+		applyRowRecord(rows, payload, xfs)
+	case biffColInfo:
+		applyColInfo(sheet, payload)
+	case biffMergeCells:
+		merged, nextPos := gatherContiguousMergeCells(data, pos)
+		sheet.MergedCells = append(sheet.MergedCells, merged...)
+		return legacyWorksheetRecordHandledWithPosition, nextPos
+	case biffUserSViewBegin:
+		// Custom-view blocks own their page-setting records. Consume the complete
+		// aggregate so those records cannot leak into the active worksheet view.
+		return legacyWorksheetRecordHandledWithPosition, skipCustomViewSettingsRecordAggregate(data, pos)
+	case biffDefRowHeight:
+		applyDefaultRowHeight(sheet, payload)
+	case biffDefColWidth:
+		applyDefaultColWidth(sheet, payload)
+	case biffSelection:
+		if selection, ok := parseSelectionRecord(payload); ok {
+			sheet.PaneSelections = append(sheet.PaneSelections, selection)
 		}
-		if pendingDrawingTextObjID != 0 && id != biffContinue {
-			flushPendingDrawingText()
-		}
-		if pendingFormula != nil && id != biffString && id != biffStringOld {
-			flushPendingFormulaText()
-		}
-		switch id {
-		case biffEOF:
-			pos = nextPos
-			goto done
-		case biffSXView:
-			flushPendingPivotView()
-			if view, ok := parseLegacyPivotView(payload); ok {
-				currentPivotView = view
+	default:
+		return legacyWorksheetRecordUnhandled, pos
+	}
+	return legacyWorksheetRecordHandled, pos
+}
+
+func (state *legacyWorksheetParseState) consumeObjectRecord(
+	data []byte,
+	pos int,
+	nextPos int,
+	id uint16,
+	payload []byte,
+	sheet *sheetir.Sheet,
+	formulaCtx legacyFormulaWorkbookContext,
+	textCtx ...legacyStyleCatalog,
+) (legacyWorksheetRecordResult, int) {
+	switch id {
+	case biffNote:
+		if note, ok := parseNoteComment(payload); ok {
+			text := ""
+			if note.objID != 0 {
+				text = state.commentTextsByObjID[note.objID]
 			}
-		case biffSXVD:
-			if currentPivotView != nil {
-				currentPivotView.addViewField(payload)
+			consumedOrdered := false
+			if text == "" && state.commentTextIndex < len(state.commentTexts) {
+				text = state.commentTexts[state.commentTextIndex]
+				consumedOrdered = true
 			}
-		case biffSXVI:
-			if currentPivotView != nil {
-				currentPivotView.addPivotItem(payload)
-			}
-		case biffSXIvd:
-			if currentPivotView != nil {
-				currentPivotView.addAxisFieldOrder(payload)
-			}
-		case biffSXPI:
-			if currentPivotView != nil {
-				currentPivotView.addPageFields(payload)
-			}
-		case biffSXDI:
-			if currentPivotView != nil {
-				currentPivotView.addDataField(payload)
-			}
-		case biffBOF, biffBOFOld, biffBOF3, biffBOF4:
-			if _, typ, _, _, _, _ := parseBIFFBOF(payload); typ == biffBOFTypeChart {
-				// ChartSubstreamRecordAggregate — embedded chart substreams have
-				// their own BOF/EOF pair inside the worksheet stream.
-				pos = skipChartSubstreamRecordAggregate(data, pos)
-				continue
-			}
-		case biffNote:
-			if note, ok := parseNoteComment(payload); ok {
-				text := ""
-				if note.objID != 0 {
-					text = commentTextsByObjID[note.objID]
+			if text != "" {
+				state.storeComment(sheet, note, text)
+				if consumedOrdered {
+					state.commentTextIndex++
 				}
-				consumedOrdered := false
-				if text == "" && commentTextIndex < len(commentTexts) {
-					text = commentTexts[commentTextIndex]
-					consumedOrdered = true
-				}
-				if text != "" {
-					storeComment(note.ref, text)
-					if consumedOrdered {
-						commentTextIndex++
-					}
-				} else if note.objID != 0 {
-					pendingNotesByObjID[note.objID] = note
-				} else {
-					storeComment(note.ref, note.fallbackText)
-				}
+			} else if note.objID != 0 {
+				state.pendingNotesByObjID[note.objID] = note
+			} else {
+				state.storeComment(sheet, note, note.fallbackText)
 			}
-		case biffObj:
-			if po, ok := parseObjSubRecords(payload); ok {
-				currentObjType = po.objType
-				currentObjID = po.objID
-				objOrder = append(objOrder, po)
-				if controlType, ok := legacyObjTypeToFormControlType(po.objType); ok {
-					control := &sheetir.FormControl{Type: controlType}
-					if checked, mixed, ok := parseLegacyCheckboxRadioControlState(po.checkBoxData, po.objType); ok {
-						control.Checked = checked
-						control.Mixed = mixed
+		}
+	case biffObj:
+		if po, ok := parseObjSubRecords(payload); ok {
+			state.currentObjType = po.objType
+			state.currentObjID = po.objID
+			state.objOrder = append(state.objOrder, po)
+			if controlType, ok := legacyObjTypeToFormControlType(po.objType); ok {
+				control := &sheetir.FormControl{Type: controlType}
+				if checked, mixed, ok := parseLegacyCheckboxRadioControlState(po.checkBoxData, po.objType); ok {
+					control.Checked = checked
+					control.Mixed = mixed
+				}
+				if first, ok := parseLegacyRadioFirstButton(po.radioData, po.objType); ok {
+					control.FirstButton = first
+				} else if po.objType == legacyObjTypeRadio && (len(state.controlOrder) == 0 || state.controlOrder[len(state.controlOrder)-1] == nil || state.controlOrder[len(state.controlOrder)-1].Type != "Radio") {
+					control.FirstButton = true
+				}
+				if link := parseLegacyObjLinkFormula(po.linkFormulaData, formulaCtx); link != "" {
+					if controlType == "GBox" {
+						control.FmlaGroup = link
+					} else {
+						control.FmlaLink = link
 					}
-					if first, ok := parseLegacyRadioFirstButton(po.radioData, po.objType); ok {
-						control.FirstButton = first
-					} else if po.objType == legacyObjTypeRadio && (len(controlOrder) == 0 || controlOrder[len(controlOrder)-1] == nil || controlOrder[len(controlOrder)-1].Type != "Radio") {
-						control.FirstButton = true
-					}
-					if link := parseLegacyObjLinkFormula(po.linkFormulaData, formulaCtx); link != "" {
-						if controlType == "GBox" {
-							control.FmlaGroup = link
-						} else {
-							control.FmlaLink = link
-						}
-					}
-					if min, max, val, inc, page, horizontal, ok := parseLegacySbsControlState(po.controlData, po.objType); ok {
-						control.Min = min
-						control.Max = max
+				}
+				if min, max, val, inc, page, horizontal, ok := parseLegacySbsControlState(po.controlData, po.objType); ok {
+					control.Min = min
+					control.Max = max
+					control.Val = val
+					control.Increment = inc
+					control.PageStep = page
+					control.Horizontal = horizontal && po.objType == legacyObjTypeScroll
+				}
+				if sourceRange, val, dropLines, selectionType, selected, hasVal := parseLegacyLbsDataControlState(po.listBoxData, po.objType, formulaCtx); sourceRange != "" || hasVal || dropLines > 0 || selectionType != "" || len(selected) > 0 {
+					control.FmlaRange = sourceRange
+					if hasVal {
 						control.Val = val
-						control.Increment = inc
-						control.PageStep = page
-						control.Horizontal = horizontal && po.objType == legacyObjTypeScroll
 					}
-					if sourceRange, val, dropLines, selectionType, selected, hasVal := parseLegacyLbsDataControlState(po.listBoxData, po.objType, formulaCtx); sourceRange != "" || hasVal || dropLines > 0 || selectionType != "" || len(selected) > 0 {
-						control.FmlaRange = sourceRange
-						if hasVal {
-							control.Val = val
-						}
-						control.DropLines = dropLines
-						control.SelectionType = selectionType
-						control.Selected = selected
-					}
-					controlOrder = append(controlOrder, control)
-					if po.objID != 0 {
-						controlByObjID[po.objID] = control
-					}
+					control.DropLines = dropLines
+					control.SelectionType = selectionType
+					control.Selected = selected
 				}
-			} else {
-				currentObjType = 0
-				currentObjID = 0
-			}
-		case biffMsoDrawing:
-			fullPayload, fullNext := gatherBiffPayload(data, pos)
-			if len(fullPayload) > 0 {
-				officeArtPayload = append(officeArtPayload, fullPayload...)
-			}
-			pos = fullNext
-			continue
-		case biffWindow2:
-			if len(payload) >= 2 {
-				freezePanes = binary.LittleEndian.Uint16(payload[0:2])&0x0008 != 0
-			}
-		case biffPane:
-			if len(payload) >= 4 {
-				applyPane(sheet, payload, freezePanes)
-			}
-		case biffDimensions:
-			applyDimensionsRecord(sheet, payload)
-		case biffFilterMode:
-			applyFilterModeRecord(sheet)
-		case biffGuts:
-			applyGutsRecord(sheet, payload)
-		case biffSCL:
-			applySCLRecord(sheet, payload)
-		case biffSetup:
-			applySetupRecord(sheet, payload)
-		case biffLeftMargin:
-			applyMarginRecord(sheet, "left", payload)
-		case biffRightMargin:
-			applyMarginRecord(sheet, "right", payload)
-		case biffTopMargin:
-			applyMarginRecord(sheet, "top", payload)
-		case biffBottomMargin:
-			applyMarginRecord(sheet, "bottom", payload)
-		case biffHCenter:
-			applyPrintFlagRecord(sheet, "hcenter", payload)
-		case biffVCenter:
-			applyPrintFlagRecord(sheet, "vcenter", payload)
-		case biffPrintHeaders:
-			applyPrintFlagRecord(sheet, "headers", payload)
-		case biffPrintGridlines:
-			applyPrintFlagRecord(sheet, "gridlines", payload)
-		case biffHeader:
-			applyHeaderFooterRecord(sheet, "header", payload)
-		case biffFooter:
-			applyHeaderFooterRecord(sheet, "footer", payload)
-		case biffHeaderFooterExt:
-			applyHeaderFooterExtRecord(sheet, payload)
-		case biffHorizPageBreak:
-			if breaks := parsePageBreakRecord(payload); len(breaks) > 0 {
-				sheet.RowPageBreaks = breaks
-			}
-		case biffVertPageBreak:
-			if breaks := parsePageBreakRecord(payload); len(breaks) > 0 {
-				sheet.ColPageBreaks = breaks
-			}
-		case biffRow:
-			applyRowRecord(rows, payload, xfs)
-		case biffColInfo:
-			applyColInfo(sheet, payload)
-		case biffMergeCells:
-			var merged []*sheetir.MergedCell
-			merged, pos = gatherContiguousMergeCells(data, pos)
-			sheet.MergedCells = append(sheet.MergedCells, merged...)
-			continue
-		case biffUserSViewBegin:
-			// Custom-view blocks may carry their own page-setting records; skip the
-			// whole aggregate so those records do not leak into the active sheet.
-			pos = skipCustomViewSettingsRecordAggregate(data, pos)
-			continue
-		case biffDefRowHeight:
-			applyDefaultRowHeight(sheet, payload)
-		case biffDefColWidth:
-			applyDefaultColWidth(sheet, payload)
-		case biffTxO:
-			currentCommentText = ""
-			pendingCommentText = currentObjType == legacyObjTypeNote || (currentObjType == 0 && currentObjID == 0)
-			if pendingCommentText {
-				pendingCommentObjID = currentObjID
-				pendingCommentCharsRemaining = parseTxOCommentCharCount(payload)
-				break
-			}
-			currentControlCaption = ""
-			pendingControlText = nil
-			pendingDrawingTextObjID = 0
-			currentDrawingText = ""
-			if control, ok := controlByObjID[currentObjID]; ok {
-				pendingControlText = control
-				pendingControlCharsRemaining = parseTxOCommentCharCount(payload)
-				if link := parseLegacyTxOControlLink(payload, formulaCtx); link != "" {
-					pendingControlText.FmlaLink = link
-				}
-			} else if currentObjID != 0 {
-				pendingDrawingTextObjID = currentObjID
-				pendingDrawingCharsRemaining = parseTxOCommentCharCount(payload)
-			}
-		case biffContinue:
-			if pendingCommentText {
-				text, consumedChars := parseCommentTextContinueLimited(payload, pendingCommentCharsRemaining)
-				if text != "" {
-					currentCommentText += text
-				}
-				if pendingCommentCharsRemaining >= 0 && consumedChars > 0 {
-					pendingCommentCharsRemaining -= consumedChars
-					if pendingCommentCharsRemaining < 0 {
-						pendingCommentCharsRemaining = 0
-					}
-				}
-				pos = nextPos
-				continue
-			}
-			if pendingControlText != nil {
-				text, consumedChars := parseCommentTextContinueLimited(payload, pendingControlCharsRemaining)
-				if text != "" {
-					currentControlCaption += text
-				}
-				if pendingControlCharsRemaining >= 0 && consumedChars > 0 {
-					pendingControlCharsRemaining -= consumedChars
-					if pendingControlCharsRemaining < 0 {
-						pendingControlCharsRemaining = 0
-					}
-				}
-				pos = nextPos
-				continue
-			}
-			if pendingDrawingTextObjID != 0 {
-				text, consumedChars := parseCommentTextContinueLimited(payload, pendingDrawingCharsRemaining)
-				if text != "" {
-					currentDrawingText += text
-				}
-				if pendingDrawingCharsRemaining >= 0 && consumedChars > 0 {
-					pendingDrawingCharsRemaining -= consumedChars
-					if pendingDrawingCharsRemaining < 0 {
-						pendingDrawingCharsRemaining = 0
-					}
-				}
-				pos = nextPos
-				continue
-			}
-		case biffLabelSst:
-			if cell := parseLabelSstCell(payload, sst, xfs); cell != nil {
-				addSheetCell(rows, cell)
-			}
-		case biffLabel, biffLabelBIFF2:
-			var cell *sheetir.Cell
-			if id == biffLabelBIFF2 {
-				cell = parseLabelCellBIFF2(payload)
-			} else {
-				cell = parseLabelCell(payload, xfs)
-			}
-			if cell != nil {
-				addSheetCell(rows, cell)
-			}
-		case biffBlank, biffBlankBIFF2:
-			var cell *sheetir.Cell
-			if id == biffBlankBIFF2 {
-				cell = parseBlankCellBIFF2(payload)
-			} else {
-				cell = parseBlankCell(payload, xfs)
-			}
-			if cell != nil {
-				addSheetCell(rows, cell)
-			}
-		case biffNumber, biffNumberOld, biffNumberBIFF2:
-			var cell *sheetir.Cell
-			if id == biffNumberBIFF2 {
-				cell = parseNumberCellBIFF2(payload)
-			} else {
-				cell = parseNumberCell(payload, xfs)
-			}
-			if cell != nil {
-				promoteNumericCellToDate(cell, formulaCtx.date1904)
-				addSheetCell(rows, cell)
-			}
-		case biffRString:
-			if cell := parseRStringCell(payload, xfs); cell != nil {
-				addSheetCell(rows, cell)
-			}
-		case biffMulBlank:
-			for _, cell := range parseMulBlankCells(payload, xfs) {
-				addSheetCell(rows, cell)
-			}
-		case biffRK:
-			if cell := parseRKCell(payload, xfs); cell != nil {
-				promoteNumericCellToDate(cell, formulaCtx.date1904)
-				addSheetCell(rows, cell)
-			}
-		case biffMulRK:
-			for _, cell := range parseMulRKCells(payload, xfs) {
-				promoteNumericCellToDate(cell, formulaCtx.date1904)
-				addSheetCell(rows, cell)
-			}
-		case biffBoolErr, biffBoolErrBIFF2:
-			var cell *sheetir.Cell
-			if id == biffBoolErrBIFF2 {
-				cell = parseBoolErrCellBIFF2(payload)
-			} else {
-				cell = parseBoolErrCell(payload, xfs)
-			}
-			if cell != nil {
-				addSheetCell(rows, cell)
-			}
-		case biffFormula, biffFormula3, biffFormula4:
-			isOldFormula := id == biffFormula3 || id == biffFormula4 || (id == biffFormula && worksheetBIFFVersion == biffVersion2)
-			if isOldFormula {
-				pendingFormula = parseOldFormulaCell(payload, xfs, formulaCtx, worksheetBIFFVersion == biffVersion2)
-			} else {
-				pendingFormula = parseFormulaCell(payload, xfs, formulaCtx)
-			}
-			if !isOldFormula && pendingFormula != nil && pendingFormula.Ref != "" {
-				lastFormulaRef = pendingFormula.Ref
-				lastFormulaRow = pendingFormula.Row
-				lastFormulaCol = pendingFormula.Col
-				if anchorRef, ok := parseFormulaExpRef(payload); ok {
-					expFormulaRefs[pendingFormula.Ref] = anchorRef
-				}
-			} else {
-				lastFormulaRef = ""
-				lastFormulaRow = 0
-				lastFormulaCol = 0
-			}
-			if pendingFormula != nil && pendingFormula.Kind != sheetir.CellEmpty {
-				addSheetCell(rows, pendingFormula)
-				pendingFormula = nil
-			}
-		case biffStringOld, biffString:
-			if pendingFormula != nil {
-				if worksheetBIFFVersion < biffVersion5 {
-					text, ok := parseOldFormulaStringRecord(payload, id == biffStringOld)
-					if ok {
-						pendingFormula.Kind = sheetir.CellString
-						pendingFormula.StrValue = text
-						addSheetCell(rows, pendingFormula)
-					}
-				} else {
-					fullPayload, fullNext := gatherBiffPayload(data, pos)
-					text, _, ok := readXLUnicodeString(fullPayload, 0, 2)
-					if ok {
-						pendingFormula.Kind = sheetir.CellString
-						pendingFormula.StrValue = strings.TrimSpace(text)
-						addSheetCell(rows, pendingFormula)
-					}
-					pendingFormula = nil
-					pos = fullNext
-					continue
-				}
-				pendingFormula = nil
-			}
-		case biffArray:
-			if group, ok := parseArrayFormulaRecord(payload, formulaCtx); ok {
-				arrayFormulas = append(arrayFormulas, group)
-			}
-		case biffShrFmla:
-			if shared, ok := parseSharedFormulaRecord(payload, lastFormulaRef, lastFormulaRow, lastFormulaCol); ok {
-				sharedFormulas[strings.ToUpper(shared.AnchorRef)] = shared
-			}
-			lastFormulaRef = ""
-			lastFormulaRow = 0
-			lastFormulaCol = 0
-		case biffHLink:
-			if hl, ok := parseHLINKRecord(payload); ok {
-				hlinkRanges = append(hlinkRanges, hl)
-			}
-		case biffCondFmt:
-			pendingCFSqRef, pendingCFCount = parseCONDFMTSqRef(payload)
-			pendingCFIsCF12 = false
-		case biffCFHeader12:
-			pendingCFSqRef, pendingCFCount = parseCONDFMT12SqRef(payload)
-			pendingCFIsCF12 = true
-		case biffCF:
-			if pendingCFCount > 0 && pendingCFSqRef != "" && !pendingCFIsCF12 {
-				if rule := parseCFRecord(payload); rule != nil {
-					rule.SqRef = pendingCFSqRef
-					sheet.CFRules = append(sheet.CFRules, rule)
-				}
-				pendingCFCount--
-			}
-		case biffCFRule12:
-			if pendingCFCount > 0 && pendingCFSqRef != "" && pendingCFIsCF12 {
-				if rule := parseCF12Record(payload, nil); rule != nil {
-					rule.SqRef = pendingCFSqRef
-					sheet.CFRules = append(sheet.CFRules, rule)
-				}
-				pendingCFCount--
-			}
-		case biffDval:
-			// DVAL is just a header; the actual rules come in DV records.
-		case biffDV:
-			if dv := parseDVRecord(payload, formulaCtx); dv != nil {
-				sheet.DataValidations = append(sheet.DataValidations, dv)
-			}
-		case biffAutoFilterInfo:
-			if len(payload) >= 2 {
-				autoFilterCols = int(binary.LittleEndian.Uint16(payload[0:2]))
-			}
-		case biffAutoFilter:
-			if fc := parseAutoFilterRecord(payload); fc != nil {
-				sheet.FilterColumns = append(sheet.FilterColumns, fc)
-			}
-		case biffProtect:
-			if len(payload) >= 2 {
-				sheetProtected = binary.LittleEndian.Uint16(payload[0:2]) != 0
-			}
-		case biffObjProtect:
-			if len(payload) >= 2 {
-				sheetObjProtected = binary.LittleEndian.Uint16(payload[0:2]) != 0
-			}
-		case biffScenProtect:
-			if len(payload) >= 2 {
-				sheetScenProtected = binary.LittleEndian.Uint16(payload[0:2]) != 0
-			}
-		case biffPassword:
-			if len(payload) >= 2 {
-				sheetPasswordHash = binary.LittleEndian.Uint16(payload[0:2])
-			}
-		case biffPrintSize:
-			// PRINTSIZE (0x0033) — opaque record; POI treats as UnknownRecord.
-			// The payload is typically { 0x03, 0x00 } per OOO source.
-		case biffPLS:
-			// PLS (0x004D) — environment-specific print settings; POI treats as
-			// UnknownRecord with optional trailing ContinueRecord(s).
-		case biffBitmap:
-			// BITMAP (0x00E9) — print bitmap; POI treats as UnknownRecord.
-		case biffIndex:
-			// INDEX (0x020B) — row-block index; POI uses for offset validation.
-			// Safe to ignore for parsing; POI treats as UnknownRecord.
-		case biffDBCell:
-			// DBCELL (0x00D7) — cell-block offset index; POI uses for offset validation.
-			// Safe to ignore for parsing; POI treats as UnknownRecord.
-		case biffFeatHdr:
-			// FeatHdrRecord (0x0867) — shared feature header.
-			// Structure: FtrHeader (12 bytes) + isf_sharedFeatureType (2) + reserved (1) + cbHdrData (4) + rgbHdrData (remaining).
-			if len(payload) < 15 {
-				break
-			}
-			featHdrType := int(binary.LittleEndian.Uint16(payload[12:14]))
-			_ = featHdrType // reserved for future use; FeatRecord carries its own type
-		case biffFeatHdr11:
-			// FeatHdr11 (0x0871) — shared feature header for Feature11/12 table metadata.
-			// The sheet-level table details arrive in FEATURE11/12 and LIST12 records.
-		case biffMsoDrawingSel:
-			// MSODRAWINGSELECTION (0x00ED) — drawing selection state.
-			// Structure: OfficeArtRecordHeader(8) + cpsp(4) + dgslk(4) + spidFocus(4) + shapeIds(n*4).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffHideObj:
-			// HIDEOBJ (0x008D) — hide/show objects/placeholders.
-			// Layout: single USHORT (0=show all, 1=show placeholders, 2=hide all).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffWSBool:
-			// WSBOOL (0x0081) — worksheet boolean flags.
-			// Layout: single USHORT (bit 4 = dialog sheet).
-			// POI treats the dialog flag as a sheet-type discriminator.
-			if sheet != nil {
-				sheet.DialogSheet = parseWSBoolRecord(payload)
-			}
-		case biffSelection:
-			// SELECTION (0x001D) — cursor/selection position in worksheet.
-			// Layout: pane(1) + activeRow(2) + activeCol(2) + activeRef(2) + numRefs(2) + refs(numRefs*6).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffGridset:
-			// GRIDSET (0x0082) — gridlines visible when printing flag.
-			// Layout: single USHORT (0=print gridlines, 1=don't print gridlines).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffRecalcId:
-			// RECALCID (0x01C1) — recalculation engine ID.
-			// Layout: rt(2) + reserved(2) + engineId(4).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffTabId:
-			// TABID (0x013D) — sheet tab IDs.
-			// Layout: array of USHORT tab IDs.
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffUncalced:
-			// UNCALCED (0x005E) — formulas need recalculation flag.
-			// Layout: single USHORT (reserved, always 0).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffWriteProtect:
-			// WRITEPROTECT (0x0086) — write protection flag.
-			// No payload (or optional 2 bytes reserved).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffPasswordRev4:
-			// PASSWORDREV4 (0x01BC) — revision password hash.
-			// Layout: single USHORT password hash.
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffFileSharing:
-			// FILESHARING (0x005B) — file sharing options.
-			// Layout: readonly(2) + password(2) + nameLen(2) + [fHighByte(1) + name(nameLen)].
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffRefMode:
-			// REFMODE (0x000F) — reference mode (A1/R1C1).
-			// Layout: single USHORT (1=A1, 0=R1C1).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffDSF:
-			// DSF (0x0161) — double stream file flag.
-			// Layout: single USHORT (bit 0 = BIFF5 book stream present).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffMMS:
-			// MMS (0x00C1) — add/del menu counts.
-			// Layout: addMenuCount(1) + delMenuCount(1).
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffInterfaceHdr:
-			// INTERFACEHDR (0x00E1) — interface header.
-			// Layout: single USHORT code page.
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffInterfaceEnd:
-			// INTERFACEEND (0x00E2) — interface end.
-			// No payload.
-			// Silently skipped; POI treats as UnknownRecord.
-		case biffFeat:
-			// FeatRecord (0x0868) — shared feature data.
-			// Structure: FtrHeader (12 bytes) + isf_sharedFeatureType (2) + reserved1 (1) + reserved2 (4) + cref (2) + cbFeatData (4) + reserved3 (2) + cellRefs (cref*8) + sharedFeature (variable).
-			if len(payload) < 27 {
-				break
-			}
-			featType := int(binary.LittleEndian.Uint16(payload[12:14]))
-			cref := int(binary.LittleEndian.Uint16(payload[19:21]))
-			cbFeatData := int(binary.LittleEndian.Uint32(payload[21:25]))
-			_ = cbFeatData
-			pos := 27
-			var cellRanges []struct{ r1, r2, c1, c2 int }
-			for i := 0; i < cref; i++ {
-				if pos+8 > len(payload) {
-					break
-				}
-				r1 := int(binary.LittleEndian.Uint16(payload[pos+0 : pos+2]))
-				r2 := int(binary.LittleEndian.Uint16(payload[pos+2 : pos+4]))
-				c1 := int(binary.LittleEndian.Uint16(payload[pos+4 : pos+6]))
-				c2 := int(binary.LittleEndian.Uint16(payload[pos+6 : pos+8]))
-				cellRanges = append(cellRanges, struct{ r1, r2, c1, c2 int }{r1, r2, c1, c2})
-				pos += 8
-			}
-			// SHAREDFEATURES_ISFLIST (0x05) = table definition.
-			if featType == 0x05 && len(cellRanges) > 0 {
-				cr := cellRanges[0]
-				tableID := len(sheet.Tables) + 1
-				ref := formatA1Ref(cr.r1+1, cr.c1+1) + ":" + formatA1Ref(cr.r2+1, cr.c2+1)
-				headerRowCount := 1
-				totalsRowCount := 0
-				totalsRowShown := false
-				// FEATURE_DATA_ISFLIST starts after cellRefs at `pos`. Its prefix:
-				// idList(4) + crwHeader(4) + crwTotals(4) + idFieldNext(4) ...
-				if pos+16 <= len(payload) {
-					crwHeader := int(int32(binary.LittleEndian.Uint32(payload[pos+4 : pos+8])))
-					crwTotals := int(int32(binary.LittleEndian.Uint32(payload[pos+8 : pos+12])))
-					if crwHeader >= 0 {
-						headerRowCount = crwHeader
-					}
-					if crwTotals > 0 {
-						totalsRowCount = crwTotals
-						totalsRowShown = true
-					}
-				}
-				sheet.Tables = append(sheet.Tables, &sheetir.Table{
-					ID:             tableID,
-					Name:           fmt.Sprintf("Table%d", tableID),
-					DisplayName:    fmt.Sprintf("Table%d", tableID),
-					Ref:            ref,
-					HeaderRowCount: headerRowCount,
-					TotalsRowCount: totalsRowCount,
-					TotalsRowShown: totalsRowShown,
-					Columns:        buildLegacyTableColumns(rows, cr.r1+1, cr.c1+1, cr.c2+1, headerRowCount),
-				})
-			}
-		case biffFeature11, biffFeature12:
-			fullPayload, fullNext := gatherFutureRecordPayload(data, pos, biffContinueFrt11)
-			table, feature, ok := parseLegacyFeature11Table(fullPayload, rows)
-			if ok && table != nil && feature != nil {
-				sheet.Tables = append(sheet.Tables, table)
-				feature.table = table
-				tableFeaturesByID[feature.idList] = feature
-			}
-			pos = fullNext
-			continue
-		case biffList12:
-			if len(payload) < 18 {
-				break
-			}
-			feature := tableFeaturesByID[binary.LittleEndian.Uint32(payload[14:18])]
-			if feature == nil || feature.table == nil {
-				break
-			}
-			switch binary.LittleEndian.Uint16(payload[12:14]) {
-			case 0x0001:
-				if style, ok := parseLegacyList12TableStyle(payload[18:]); ok {
-					feature.hasStyle = true
-					feature.style = style
-					feature.table.TableStyle = &sheetir.TableStyleInfo{
-						Name:              style.Name,
-						ShowFirstColumn:   style.ShowFirstColumn,
-						ShowLastColumn:    style.ShowLastColumn,
-						ShowRowStripes:    style.ShowRowStripes,
-						ShowColumnStripes: style.ShowColumnStripes,
-					}
-				}
-			case 0x0002:
-				if displayName, ok := parseLegacyList12DisplayName(payload[18:]); ok && displayName != "" {
-					feature.name = displayName
-					feature.table.DisplayName = displayName
+				state.controlOrder = append(state.controlOrder, control)
+				if po.objID != 0 {
+					state.controlByObjID[po.objID] = control
 				}
 			}
+		} else {
+			state.currentObjType = 0
+			state.currentObjID = 0
 		}
-		if id != biffFormula && id != biffShrFmla {
-			lastFormulaRef = ""
-			lastFormulaRow = 0
-			lastFormulaCol = 0
+	case biffMsoDrawing:
+		fullPayload, fullNext := gatherBiffPayload(data, pos)
+		if len(fullPayload) > 0 {
+			state.officeArtPayload = append(state.officeArtPayload, fullPayload...)
 		}
-		pos = nextPos
+		return legacyWorksheetRecordHandledWithPosition, fullNext
+	case biffTxO:
+		state.currentCommentText = ""
+		state.pendingCommentText = state.currentObjType == legacyObjTypeNote || (state.currentObjType == 0 && state.currentObjID == 0)
+		if state.pendingCommentText {
+			state.pendingCommentObjID = state.currentObjID
+			state.pendingCommentCharsRemaining = parseTxOCommentCharCount(payload)
+			return legacyWorksheetRecordHandled, pos
+		}
+		state.currentControlCaption = ""
+		state.pendingControlText = nil
+		state.pendingDrawingTextObjID = 0
+		state.currentDrawingText = ""
+		if control, ok := state.controlByObjID[state.currentObjID]; ok {
+			state.pendingControlText = control
+			state.pendingControlCharsRemaining = parseTxOCommentCharCount(payload)
+			if link := parseLegacyTxOControlLink(payload, formulaCtx); link != "" {
+				state.pendingControlText.FmlaLink = link
+			}
+		} else if state.currentObjID != 0 {
+			state.pendingDrawingTextObjID = state.currentObjID
+			state.pendingDrawingCharsRemaining = parseTxOCommentCharCount(payload)
+		}
+	case biffContinue:
+		if state.pendingCommentText {
+			// A BIFF8 TXO owns two CONTINUE payloads: first text, then its
+			// formatting-run table. Never reinterpret formatting bytes as text.
+			if state.pendingCommentCharsRemaining == 0 {
+				if state.pendingCommentObjID != 0 && len(textCtx) > 0 {
+					specs := parseTxOFormattingRuns(payload)
+					state.commentRichTextByObjID[state.pendingCommentObjID] = canonicalBIFFRichTextRunsPreserveSingle(state.currentCommentText, specs, textCtx[0].Fonts, textCtx[0].Palette)
+				}
+				return legacyWorksheetRecordHandledWithPosition, nextPos
+			}
+			text, consumedChars := parseCommentTextContinueLimited(payload, state.pendingCommentCharsRemaining)
+			if text != "" {
+				state.currentCommentText += text
+			}
+			if state.pendingCommentCharsRemaining >= 0 && consumedChars > 0 {
+				state.pendingCommentCharsRemaining -= consumedChars
+				if state.pendingCommentCharsRemaining < 0 {
+					state.pendingCommentCharsRemaining = 0
+				}
+			}
+			return legacyWorksheetRecordHandledWithPosition, nextPos
+		}
+		if state.pendingControlText != nil {
+			text, consumedChars := parseCommentTextContinueLimited(payload, state.pendingControlCharsRemaining)
+			if text != "" {
+				state.currentControlCaption += text
+			}
+			if state.pendingControlCharsRemaining >= 0 && consumedChars > 0 {
+				state.pendingControlCharsRemaining -= consumedChars
+				if state.pendingControlCharsRemaining < 0 {
+					state.pendingControlCharsRemaining = 0
+				}
+			}
+			return legacyWorksheetRecordHandledWithPosition, nextPos
+		}
+		if state.pendingDrawingTextObjID != 0 {
+			text, consumedChars := parseCommentTextContinueLimited(payload, state.pendingDrawingCharsRemaining)
+			if text != "" {
+				state.currentDrawingText += text
+			}
+			if state.pendingDrawingCharsRemaining >= 0 && consumedChars > 0 {
+				state.pendingDrawingCharsRemaining -= consumedChars
+				if state.pendingDrawingCharsRemaining < 0 {
+					state.pendingDrawingCharsRemaining = 0
+				}
+			}
+			return legacyWorksheetRecordHandledWithPosition, nextPos
+		}
+		return legacyWorksheetRecordUnhandled, pos
+	default:
+		return legacyWorksheetRecordUnhandled, pos
 	}
-	flushPendingCommentText()
-	flushPendingControlText()
-	flushPendingDrawingText()
+	return legacyWorksheetRecordHandled, pos
+}
 
-done:
-	flushPendingPivotView()
-	if len(arrayFormulas) > 0 {
-		applyArrayFormulaMetadata(rows, arrayFormulas)
-		applyExpFormulaMetadata(rows, arrayFormulas, expFormulaRefs)
-		sheet.ArrayFormulas = arrayFormulas
+func (state *legacyWorksheetParseState) consumeSemanticRecord(
+	id uint16,
+	payload []byte,
+	sheet *sheetir.Sheet,
+	formulaCtx legacyFormulaWorkbookContext,
+	textCtx ...legacyStyleCatalog,
+) bool {
+	switch id {
+	case biffWSBool:
+		applyWSBoolRecord(sheet, payload)
+	case biffFilterMode:
+		applyFilterModeRecord(sheet)
+	case biffSetup:
+		applySetupRecord(sheet, payload)
+	case biffLeftMargin:
+		applyMarginRecord(sheet, "left", payload)
+	case biffRightMargin:
+		applyMarginRecord(sheet, "right", payload)
+	case biffTopMargin:
+		applyMarginRecord(sheet, "top", payload)
+	case biffBottomMargin:
+		applyMarginRecord(sheet, "bottom", payload)
+	case biffHCenter:
+		applyPrintFlagRecord(sheet, "hcenter", payload)
+	case biffVCenter:
+		applyPrintFlagRecord(sheet, "vcenter", payload)
+	case biffPrintHeaders:
+		applyPrintFlagRecord(sheet, "headers", payload)
+	case biffPrintGridlines:
+		applyPrintFlagRecord(sheet, "gridlines", payload)
+	case biffHeader:
+		applyHeaderFooterRecord(sheet, "header", payload)
+	case biffFooter:
+		applyHeaderFooterRecord(sheet, "footer", payload)
+	case biffHeaderFooterExt:
+		applyHeaderFooterExtRecord(sheet, payload)
+	case biffHorizPageBreak:
+		if breaks := parsePageBreakRecord(payload); len(breaks) > 0 {
+			sheet.RowPageBreaks = breaks
+		}
+	case biffVertPageBreak:
+		if breaks := parsePageBreakRecord(payload); len(breaks) > 0 {
+			sheet.ColPageBreaks = breaks
+		}
+	case biffHLink:
+		if hl, ok := parseHLINKRecord(payload); ok {
+			state.hlinkRanges = append(state.hlinkRanges, hl)
+		}
+	case biffHLinkTooltip:
+		if ref, tooltip, ok := parseHLINKTooltipRecord(payload); ok {
+			state.hlinkTooltips[ref] = tooltip
+		}
+	case biffCondFmt:
+		state.pendingCFSqRef, state.pendingCFCount = parseCONDFMTSqRef(payload)
+		state.pendingCFIsCF12 = false
+	case biffCFHeader12:
+		state.pendingCFSqRef, state.pendingCFCount = parseCONDFMT12SqRef(payload)
+		state.pendingCFIsCF12 = true
+	case biffCF:
+		if state.pendingCFCount > 0 && state.pendingCFSqRef != "" && !state.pendingCFIsCF12 {
+			if rule := parseCFRecordWithPalette(payload, legacyPaletteFromStyleCatalog(textCtx)); rule != nil {
+				rule.SqRef = state.pendingCFSqRef
+				sheet.CFRules = append(sheet.CFRules, rule)
+			}
+			state.pendingCFCount--
+		}
+	case biffCFRule12:
+		if state.pendingCFCount > 0 && state.pendingCFSqRef != "" && state.pendingCFIsCF12 {
+			if rule := parseCF12Record(payload, legacyPaletteFromStyleCatalog(textCtx)); rule != nil {
+				rule.SqRef = state.pendingCFSqRef
+				sheet.CFRules = append(sheet.CFRules, rule)
+			}
+			state.pendingCFCount--
+		}
+	case biffDval:
+		// DVAL is a header; canonical validation rules are carried by DV records.
+	case biffDV:
+		if dv := parseDVRecord(payload, formulaCtx); dv != nil {
+			sheet.DataValidations = append(sheet.DataValidations, dv)
+		}
+	case biffAutoFilterInfo:
+		if len(payload) >= 2 {
+			state.autoFilterCols = int(binary.LittleEndian.Uint16(payload[0:2]))
+		}
+	case biffAutoFilter:
+		if fc := parseAutoFilterRecord(payload); fc != nil {
+			sheet.FilterColumns = append(sheet.FilterColumns, fc)
+		}
+	case biffProtect:
+		if len(payload) >= 2 {
+			state.sheetProtected = binary.LittleEndian.Uint16(payload[0:2]) != 0
+		}
+	case biffObjProtect:
+		if len(payload) >= 2 {
+			state.sheetObjProtected = binary.LittleEndian.Uint16(payload[0:2]) != 0
+		}
+	case biffScenProtect:
+		if len(payload) >= 2 {
+			state.sheetScenProtected = binary.LittleEndian.Uint16(payload[0:2]) != 0
+		}
+	case biffPassword:
+		if len(payload) >= 2 {
+			state.sheetPasswordHash = binary.LittleEndian.Uint16(payload[0:2])
+		}
+	default:
+		return false
 	}
-	if len(sharedFormulas) > 0 {
-		applySharedFormulaMetadata(rows, sharedFormulas, expFormulaRefs, formulaCtx)
+	return true
+}
+
+func (state *legacyWorksheetParseState) consumeTableRecord(data []byte, pos int, id uint16, payload []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row) (legacyWorksheetRecordResult, int) {
+	switch id {
+	case biffFeatHdr, biffFeatHdr11:
+		return legacyWorksheetRecordHandled, pos
+	case biffFeat:
+		if len(payload) < 27 {
+			return legacyWorksheetRecordHandled, pos
+		}
+		featType := int(binary.LittleEndian.Uint16(payload[12:14]))
+		cref := int(binary.LittleEndian.Uint16(payload[19:21]))
+		recordPos := 27
+		var ranges []struct{ r1, r2, c1, c2 int }
+		for i := 0; i < cref && recordPos+8 <= len(payload); i++ {
+			ranges = append(ranges, struct{ r1, r2, c1, c2 int }{
+				int(binary.LittleEndian.Uint16(payload[recordPos : recordPos+2])),
+				int(binary.LittleEndian.Uint16(payload[recordPos+2 : recordPos+4])),
+				int(binary.LittleEndian.Uint16(payload[recordPos+4 : recordPos+6])),
+				int(binary.LittleEndian.Uint16(payload[recordPos+6 : recordPos+8]))})
+			recordPos += 8
+		}
+		if featType == 0x05 && len(ranges) > 0 {
+			cr := ranges[0]
+			tableID := len(sheet.Tables) + 1
+			headerRows, totalRows := 1, 0
+			totalsShown := false
+			if recordPos+16 <= len(payload) {
+				h := int(int32(binary.LittleEndian.Uint32(payload[recordPos+4 : recordPos+8])))
+				t := int(int32(binary.LittleEndian.Uint32(payload[recordPos+8 : recordPos+12])))
+				if h >= 0 {
+					headerRows = h
+				}
+				if t > 0 {
+					totalRows, totalsShown = t, true
+				}
+			}
+			ref := formatA1Ref(cr.r1+1, cr.c1+1) + ":" + formatA1Ref(cr.r2+1, cr.c2+1)
+			sheet.Tables = append(sheet.Tables, &sheetir.Table{ID: tableID, Name: fmt.Sprintf("Table%d", tableID), DisplayName: fmt.Sprintf("Table%d", tableID), Ref: ref, HeaderRowCount: headerRows, TotalsRowCount: totalRows, TotalsRowShown: totalsShown, Columns: buildLegacyTableColumns(rows, cr.r1+1, cr.c1+1, cr.c2+1, headerRows)})
+		}
+	case biffFeature11, biffFeature12:
+		full, next := gatherFutureRecordPayload(data, pos, biffContinueFrt11)
+		table, feature, ok := parseLegacyFeature11Table(full, rows)
+		if ok && table != nil && feature != nil {
+			sheet.Tables = append(sheet.Tables, table)
+			feature.table = table
+			state.tableFeaturesByID[feature.idList] = feature
+		}
+		return legacyWorksheetRecordHandledWithPosition, next
+	case biffList12:
+		if len(payload) < 18 {
+			return legacyWorksheetRecordHandled, pos
+		}
+		feature := state.tableFeaturesByID[binary.LittleEndian.Uint32(payload[14:18])]
+		if feature == nil || feature.table == nil {
+			return legacyWorksheetRecordHandled, pos
+		}
+		switch binary.LittleEndian.Uint16(payload[12:14]) {
+		case 0x0001:
+			if style, ok := parseLegacyList12TableStyle(payload[18:]); ok {
+				feature.hasStyle = true
+				feature.style = style
+				feature.table.TableStyle = &sheetir.TableStyleInfo{Name: style.Name, ShowFirstColumn: style.ShowFirstColumn, ShowLastColumn: style.ShowLastColumn, ShowRowStripes: style.ShowRowStripes, ShowColumnStripes: style.ShowColumnStripes}
+			}
+		case 0x0002:
+			if name, ok := parseLegacyList12DisplayName(payload[18:]); ok && name != "" {
+				feature.name = name
+				feature.table.DisplayName = name
+			}
+		}
+	default:
+		return legacyWorksheetRecordUnhandled, pos
 	}
-	for _, note := range pendingNotesByObjID {
-		storeComment(note.ref, note.fallbackText)
+	return legacyWorksheetRecordHandled, pos
+}
+
+func (state *legacyWorksheetParseState) finalizeWorksheet(
+	sheet *sheetir.Sheet,
+	rows map[int]*sheetir.Row,
+	drawingStore map[uint32]*sheetir.DrawingImage,
+	formulaCtx legacyFormulaWorkbookContext,
+) *sheetir.Sheet {
+	state.flushPendingCommentText(sheet)
+	state.flushPendingControlText()
+	state.flushPendingDrawingText()
+	state.flushPendingPivotView()
+	if len(state.arrayFormulas) > 0 {
+		applyArrayFormulaMetadata(rows, state.arrayFormulas)
+		applyExpFormulaMetadata(rows, state.arrayFormulas, state.expFormulaRefs)
+		sheet.ArrayFormulas = state.arrayFormulas
+	}
+	if len(state.sharedFormulas) > 0 {
+		applySharedFormulaMetadata(rows, state.sharedFormulas, state.expFormulaRefs, formulaCtx)
+		sheet.SharedFormulas = canonicalLegacySharedFormulas(state.sharedFormulas, rows, formulaCtx)
+	}
+	for _, note := range state.pendingNotesByObjID {
+		state.storeComment(sheet, note, note.fallbackText)
 	}
 	sheet.Rows = sortedSheetRows(rows)
-	if len(officeArtPayload) > 0 && len(drawingStore) > 0 {
-		sheet.Drawings = append(sheet.Drawings, parseLegacyWorksheetImageDrawings(officeArtPayload, sheet, rows, drawingStore)...)
+	if len(state.officeArtPayload) > 0 && len(drawingStore) > 0 {
+		sheet.Drawings = append(sheet.Drawings, parseLegacyWorksheetImageDrawings(state.officeArtPayload, sheet, rows, drawingStore)...)
 	}
-	if len(officeArtPayload) > 0 {
-		nonPictureShapes := parseLegacyWorksheetNonPictureShapes(officeArtPayload, sheet, rows)
+	if len(state.officeArtPayload) > 0 {
+		nonPictureShapes := parseLegacyWorksheetNonPictureShapes(state.officeArtPayload, sheet, rows)
 		shapeIndex := 0
 		shapeCount := 0
 		appendLegacyShape := func(shape legacyWorksheetShape, objID int) {
@@ -4999,20 +5437,20 @@ done:
 			resolvedShape := &sheetir.DrawingShape{
 				Geometry: shape.geometry, Adjustments: append([]float64(nil), shape.adjustments...),
 				FillColor: shape.fillColor, LineColor: shape.lineColor, LineWidthPt: shape.lineWidth,
-				LineStyle: shape.lineStyle, Text: drawingTextByObjID[objID], RotationDeg: shape.rotationDeg, FlipH: shape.flipH, FlipV: shape.flipV,
+				LineStyle: shape.lineStyle, Text: state.drawingTextByObjID[objID], RotationDeg: shape.rotationDeg, FlipH: shape.flipH, FlipV: shape.flipV,
 			}
 			if shape.shadow != nil {
 				resolvedShape.Effects.Effects = append(resolvedShape.Effects.Effects, *shape.shadow)
 			}
 			sheet.Drawings = append(sheet.Drawings, &sheetir.Drawing{Name: name, Type: shape.drawingType, Position: shape.position, Shape: resolvedShape})
 		}
-		for _, po := range objOrder {
+		for _, po := range state.objOrder {
 			if !legacyObjConsumesNonPictureAnchor(po.objType) || shapeIndex >= len(nonPictureShapes) {
 				continue
 			}
 			shape := nonPictureShapes[shapeIndex]
 			shapeIndex++
-			if control := controlByObjID[po.objID]; control != nil {
+			if control := state.controlByObjID[po.objID]; control != nil {
 				control.Anchor = legacyDrawingPositionToVMLAnchor(shape.position)
 				continue
 			}
@@ -5024,37 +5462,45 @@ done:
 			appendLegacyShape(nonPictureShapes[shapeIndex], 0)
 		}
 	}
-	if len(controlOrder) > 0 {
-		sheet.FormControls = append(sheet.FormControls, controlOrder...)
+	if len(state.controlOrder) > 0 {
+		sheet.FormControls = append(sheet.FormControls, state.controlOrder...)
 	}
-	if len(pivotViews) > 0 {
-		for _, view := range pivotViews {
+	if len(state.pivotViews) > 0 {
+		for _, view := range state.pivotViews {
 			if pivot := view.resolve(formulaCtx.pivotCaches); pivot != nil {
 				sheet.PivotTables = append(sheet.PivotTables, pivot)
 			}
 		}
 	}
 	// Resolve deferred AutoFilter range: use the first data row + column count.
-	if autoFilterCols > 0 && len(sheet.Rows) > 0 {
+	if state.autoFilterCols > 0 && len(sheet.Rows) > 0 {
 		firstRow := sheet.Rows[0].Index
 		sheet.AutoFilterRef = fmt.Sprintf("%s:%s",
 			formatA1Ref(firstRow, 1),
-			formatA1Ref(firstRow, autoFilterCols))
+			formatA1Ref(firstRow, state.autoFilterCols))
 	}
 	// Build sheet protection metadata from PROTECT / OBJPROTECT / SCENPROTECT / PASSWORD records.
-	if sheetProtected || sheetObjProtected || sheetScenProtected {
+	if state.sheetProtected || state.sheetObjProtected || state.sheetScenProtected {
 		sp := &sheetir.SheetProtection{
-			Sheet:     sheetProtected,
-			Objects:   sheetObjProtected,
-			Scenarios: sheetScenProtected,
+			Sheet:     state.sheetProtected,
+			Objects:   state.sheetObjProtected,
+			Scenarios: state.sheetScenProtected,
 		}
-		if sheetPasswordHash != 0 {
-			sp.Password = fmt.Sprintf("%04X", sheetPasswordHash)
+		if state.sheetPasswordHash != 0 {
+			sp.Password = fmt.Sprintf("%04X", state.sheetPasswordHash)
 		}
 		sheet.Protection = sp
 	}
-	// Apply collected hyperlinks to their target cells.
-	for _, hl := range hlinkRanges {
+	// Project authored HLINK records into canonical metadata, then retain the
+	// per-cell HyperlinkURL compatibility view for populated cells.
+	for _, hl := range state.hlinkRanges {
+		ref := formatA1Ref(hl.firstRow+1, hl.firstCol+1)
+		if hl.firstRow != hl.lastRow || hl.firstCol != hl.lastCol {
+			ref += ":" + formatA1Ref(hl.lastRow+1, hl.lastCol+1)
+		}
+		sheet.Hyperlinks = append(sheet.Hyperlinks, &sheetir.Hyperlink{
+			Ref: ref, URL: hl.url, Display: hl.display, Tooltip: state.hlinkTooltips[ref],
+		})
 		for _, row := range sheet.Rows {
 			ri := row.Index - 1 // convert 1-based to 0-based
 			if ri < hl.firstRow || ri > hl.lastRow {
@@ -5097,6 +5543,149 @@ done:
 	return sheet
 }
 
+func consumeWorksheetControlRecord(data []byte, pos int, id uint16, payload []byte) (legacyWorksheetRecordResult, int, bool) {
+	switch id {
+	case biffEOF:
+		return legacyWorksheetRecordHandledWithPosition, pos, true
+	case biffBOF, biffBOFOld, biffBOF3, biffBOF4:
+		if _, typ, _, _, _, _ := parseBIFFBOF(payload); typ == biffBOFTypeChart {
+			return legacyWorksheetRecordHandledWithPosition, skipChartSubstreamRecordAggregate(data, pos), false
+		}
+		return legacyWorksheetRecordHandled, pos, false
+	case biffPrintSize, biffPLS, biffBitmap, biffIndex, biffDBCell:
+		// BIFF bookkeeping/opaque records with no canonical worksheet projection.
+		return legacyWorksheetRecordHandled, pos, false
+	default:
+		return legacyWorksheetRecordUnhandled, pos, false
+	}
+}
+
+func parseBIFFWorksheet(data []byte, meta boundSheet, sst []legacySharedString, xfs []legacyXF, drawingStore map[uint32]*sheetir.DrawingImage, formulaCtx legacyFormulaWorkbookContext, textCtx ...legacyStyleCatalog) *sheetir.Sheet {
+	if meta.offset < 0 || meta.offset+4 > len(data) {
+		return nil
+	}
+	pos := meta.offset
+	id, bofPayload, next, ok := readBiffRecord(data, pos)
+	if !ok || !isBIFFBOFRecord(id) {
+		return nil
+	}
+	worksheetBIFFVersion := biffVersionFromBOFRecord(id, bofPayload)
+	pos = next
+	rows := map[int]*sheetir.Row{}
+	sheet := &sheetir.Sheet{
+		Name:          meta.name,
+		Hidden:        meta.hidden,
+		Visibility:    meta.visibility,
+		ColumnWidths:  map[int]float64{},
+		HiddenCols:    map[int]bool{},
+		OutlineRows:   map[int]int{},
+		CollapsedRows: map[int]bool{},
+		OutlineCols:   map[int]int{},
+		CollapsedCols: map[int]bool{},
+	}
+	state := newLegacyWorksheetParseState()
+
+	for pos+4 <= len(data) {
+		id, payload, nextPos, ok := readBiffRecord(data, pos)
+		if !ok {
+			break
+		}
+		if state.pendingCommentText && id != biffContinue {
+			state.flushPendingCommentText(sheet)
+		}
+		if state.pendingControlText != nil && id != biffContinue {
+			state.flushPendingControlText()
+		}
+		if state.pendingDrawingTextObjID != 0 && id != biffContinue {
+			state.flushPendingDrawingText()
+		}
+		if state.pendingFormula != nil && id != biffString && id != biffStringOld {
+			state.flushPendingFormulaText(rows)
+		}
+		family := classifyLegacyWorksheetRecord(id)
+		if family == legacyWorksheetRecordPivot && state.consumePivotRecord(id, payload) {
+			pos = nextPos
+			continue
+		}
+		if family == legacyWorksheetRecordCell {
+			result, consumedPos := state.consumeCellRecord(
+				data, pos, id, payload, rows, sst, xfs, formulaCtx, worksheetBIFFVersion, textCtx...,
+			)
+			if result != legacyWorksheetRecordUnhandled {
+				if result == legacyWorksheetRecordHandledWithPosition {
+					pos = consumedPos
+				} else {
+					pos = nextPos
+				}
+				if id != biffFormula && id != biffShrFmla {
+					state.clearLastFormula()
+				}
+				continue
+			}
+		}
+		if family == legacyWorksheetRecordGeometry {
+			result, consumedPos := state.consumeGeometryRecord(data, pos, id, payload, sheet, rows, xfs)
+			if result != legacyWorksheetRecordUnhandled {
+				if result == legacyWorksheetRecordHandledWithPosition {
+					pos = consumedPos
+				} else {
+					pos = nextPos
+				}
+				state.clearLastFormula()
+				continue
+			}
+		}
+		if family == legacyWorksheetRecordObject {
+			result, consumedPos := state.consumeObjectRecord(data, pos, nextPos, id, payload, sheet, formulaCtx, textCtx...)
+			if result != legacyWorksheetRecordUnhandled {
+				if result == legacyWorksheetRecordHandledWithPosition {
+					pos = consumedPos
+				} else {
+					pos = nextPos
+				}
+				state.clearLastFormula()
+				continue
+			}
+		}
+		if family == legacyWorksheetRecordSemantic && state.consumeSemanticRecord(id, payload, sheet, formulaCtx, textCtx...) {
+			pos = nextPos
+			state.clearLastFormula()
+			continue
+		}
+		if family == legacyWorksheetRecordTable {
+			result, consumedPos := state.consumeTableRecord(data, pos, id, payload, sheet, rows)
+			if result != legacyWorksheetRecordUnhandled {
+				if result == legacyWorksheetRecordHandledWithPosition {
+					pos = consumedPos
+				} else {
+					pos = nextPos
+				}
+				state.clearLastFormula()
+				continue
+			}
+		}
+		if result, consumedPos, endWorksheet := consumeWorksheetControlRecord(data, pos, id, payload); result != legacyWorksheetRecordUnhandled {
+			if endWorksheet {
+				pos = nextPos
+				goto done
+			}
+			if result == legacyWorksheetRecordHandledWithPosition {
+				pos = consumedPos
+			} else {
+				pos = nextPos
+			}
+			state.clearLastFormula()
+			continue
+		}
+
+		if id != biffFormula && id != biffShrFmla {
+			state.clearLastFormula()
+		}
+		pos = nextPos
+	}
+done:
+	return state.finalizeWorksheet(sheet, rows, drawingStore, formulaCtx)
+}
 func parseLegacyPivotView(payload []byte) (*legacyPivotView, bool) {
 	if len(payload) < 42 {
 		return nil, false
@@ -5119,7 +5708,7 @@ func parseLegacyPivotView(payload []byte) (*legacyPivotView, bool) {
 	next := 42
 	if tableNameLen > 0 {
 		if name, n, ok := readXLUnicodeStringLen(payload, next, tableNameLen); ok {
-			view.Name = strings.TrimSpace(name)
+			view.Name = strings.Trim(strings.TrimSpace(name), "\x00")
 			next = n
 		}
 	}
@@ -5129,6 +5718,38 @@ func parseLegacyPivotView(payload []byte) (*legacyPivotView, bool) {
 		}
 	}
 	return view, true
+}
+
+func legacyTableAutoFilterRef(ref string, headerRowCount, totalsRowCount int) string {
+	if headerRowCount <= 0 {
+		return ""
+	}
+	bounds, ok := parseLegacyA1RangeBounds(ref)
+	if !ok {
+		return ""
+	}
+	lastRow := bounds.lastRow - totalsRowCount
+	if lastRow < bounds.firstRow {
+		lastRow = bounds.firstRow
+	}
+	return formatA1Ref(bounds.firstRow, bounds.firstCol) + ":" + formatA1Ref(lastRow, bounds.lastCol)
+}
+
+type legacyA1RangeBounds struct {
+	firstRow, firstCol, lastRow, lastCol int
+}
+
+func parseLegacyA1RangeBounds(ref string) (legacyA1RangeBounds, bool) {
+	parts := strings.Split(ref, ":")
+	if len(parts) != 2 {
+		return legacyA1RangeBounds{}, false
+	}
+	r1, c1, ok1 := parseA1CellRef(strings.ReplaceAll(parts[0], "$", ""))
+	r2, c2, ok2 := parseA1CellRef(strings.ReplaceAll(parts[1], "$", ""))
+	if !ok1 || !ok2 {
+		return legacyA1RangeBounds{}, false
+	}
+	return legacyA1RangeBounds{firstRow: r1, firstCol: c1, lastRow: r2, lastCol: c2}, true
 }
 
 func parseLegacyFeature11Table(payload []byte, rows map[int]*sheetir.Row) (*sheetir.Table, *legacyTableFeature, bool) {
@@ -5210,6 +5831,7 @@ func parseLegacyFeature11Table(payload []byte, rows map[int]*sheetir.Row) (*shee
 		HeaderRowCount: headerRowCount,
 		TotalsRowCount: totalsRowCount,
 		TotalsRowShown: totalsRowCount > 0,
+		AutoFilterRef:  legacyTableAutoFilterRef(ref, headerRowCount, totalsRowCount),
 		Columns:        buildLegacyTableColumns(rows, firstRow, firstCol, lastCol, headerRowCount),
 	}
 	return table, &legacyTableFeature{
@@ -5254,11 +5876,11 @@ func legacyTableBoundsFromRef(ref string) (firstRow, firstCol, lastCol int, ok b
 	if len(parts) != 2 {
 		return 0, 0, 0, false
 	}
-	startRow, startCol, ok := parseA1CellRef(parts[0])
+	startRow, startCol, ok := parseA1CellRef(strings.ReplaceAll(parts[0], "$", ""))
 	if !ok {
 		return 0, 0, 0, false
 	}
-	endRow, endCol, ok := parseA1CellRef(parts[1])
+	endRow, endCol, ok := parseA1CellRef(strings.ReplaceAll(parts[1], "$", ""))
 	if !ok {
 		return 0, 0, 0, false
 	}
@@ -5318,6 +5940,7 @@ func (view *legacyPivotView) addViewField(payload []byte) {
 		axisName = "axisPage"
 	}
 	view.fieldAxes = append(view.fieldAxes, axisName)
+	view.fieldData = append(view.fieldData, axis&0x0008 != 0)
 	if axis&0x0001 != 0 {
 		view.defaultRowOrder = append(view.defaultRowOrder, index)
 	}
@@ -5440,6 +6063,9 @@ func (view *legacyPivotView) resolve(cacheSources []legacyPivotCacheSource) *she
 		if index < len(view.fieldAxes) {
 			field.Axis = view.fieldAxes[index]
 		}
+		if index < len(view.fieldData) {
+			field.DataField = view.fieldData[index]
+		}
 		for _, item := range view.fieldItems[index] {
 			itemType := "data"
 			if item.itemType != 0 {
@@ -5492,7 +6118,7 @@ func (view *legacyPivotView) resolve(cacheSources []legacyPivotCacheSource) *she
 			NumFmtID:        field.numFmtID,
 		})
 	}
-	if pivot.Name == "" && pivot.LocationRef == "" && len(pivot.RowFields) == 0 && len(pivot.ColFields) == 0 && len(pivot.PageFields) == 0 && len(pivot.DataFields) == 0 {
+	if pivot.Name == "" && pivot.LocationRef == "" && len(pivot.Fields) == 0 && len(pivot.RowFields) == 0 && len(pivot.ColFields) == 0 && len(pivot.PageFields) == 0 && len(pivot.DataFields) == 0 {
 		return nil
 	}
 	return pivot
@@ -5609,21 +6235,22 @@ func buildLegacyPivotDataFieldName(subtotal, sourceField string) string {
 	}
 }
 
-func parseLabelSstCell(payload []byte, sst []string, xfs []legacyXF) *sheetir.Cell {
+func parseLabelSstCell(payload []byte, sst []legacySharedString, xfs []legacyXF) *sheetir.Cell {
 	if len(payload) < 10 {
 		return nil
 	}
 	idx := int(binary.LittleEndian.Uint32(payload[6:10]))
-	value := ""
+	value := legacySharedString{}
 	if idx >= 0 && idx < len(sst) {
-		value = strings.TrimSpace(sst[idx])
+		value = sst[idx]
 	}
 	return &sheetir.Cell{
-		Row:      int(binary.LittleEndian.Uint16(payload[0:2])) + 1,
-		Col:      int(binary.LittleEndian.Uint16(payload[2:4])) + 1,
-		Kind:     sheetir.CellString,
-		StrValue: value,
-		Style:    styleFromXFIndex(binary.LittleEndian.Uint16(payload[4:6]), xfs),
+		Row:          int(binary.LittleEndian.Uint16(payload[0:2])) + 1,
+		Col:          int(binary.LittleEndian.Uint16(payload[2:4])) + 1,
+		Kind:         sheetir.CellString,
+		StrValue:     value.Text,
+		RichTextRuns: cloneBIFFRichTextRuns(value.RichText),
+		Style:        styleFromXFIndex(binary.LittleEndian.Uint16(payload[4:6]), xfs),
 	}
 }
 
@@ -5660,22 +6287,43 @@ func parseLabelCellBIFF2(payload []byte) *sheetir.Cell {
 	}
 }
 
-func parseRStringCell(payload []byte, xfs []legacyXF) *sheetir.Cell {
-	// RSTRING: row(2) col(2) xf(2) cch(2) rgch(cch) cRuns(2) runs(4*cRuns)
-	if len(payload) < 8 {
+func legacyPaletteFromStyleCatalog(textCtx []legacyStyleCatalog) *[56]string {
+	if len(textCtx) == 0 {
+		return nil
+	}
+	return &textCtx[0].Palette
+}
+
+func parseRStringCell(payload []byte, xfs []legacyXF, textCtx ...legacyStyleCatalog) *sheetir.Cell {
+	// RSTRING: row(2) col(2) xf(2) cch(2) rgch(cch) cRuns(2) runs(4*cRuns).
+	if len(payload) < 10 {
 		return nil
 	}
 	cch := int(binary.LittleEndian.Uint16(payload[6:8]))
-	if 8+cch > len(payload) {
+	textEnd := 8 + cch
+	if textEnd+2 > len(payload) {
 		return nil
 	}
-	value := strings.TrimSpace(decodeBiffBytes(payload[8 : 8+cch]))
+	value := decodeBiffBytesRaw(payload[8:textEnd])
+	runCount := int(binary.LittleEndian.Uint16(payload[textEnd : textEnd+2]))
+	runPos := textEnd + 2
+	if runPos+runCount*4 > len(payload) {
+		return nil
+	}
+	specs := make([]legacyRichRunSpec, 0, runCount)
+	for i := 0; i < runCount; i++ {
+		base := runPos + i*4
+		specs = append(specs, legacyRichRunSpec{CharIndex: int(binary.LittleEndian.Uint16(payload[base : base+2])), FontIndex: int(binary.LittleEndian.Uint16(payload[base+2 : base+4]))})
+	}
+	var rich []*sheetir.RichTextRun
+	if len(textCtx) > 0 {
+		rich = canonicalBIFFRichTextRuns(value, specs, textCtx[0].Fonts, textCtx[0].Palette)
+	}
 	return &sheetir.Cell{
-		Row:      int(binary.LittleEndian.Uint16(payload[0:2])) + 1,
-		Col:      int(binary.LittleEndian.Uint16(payload[2:4])) + 1,
-		Kind:     sheetir.CellString,
-		StrValue: value,
-		Style:    styleFromXFIndex(binary.LittleEndian.Uint16(payload[4:6]), xfs),
+		Row:  int(binary.LittleEndian.Uint16(payload[0:2])) + 1,
+		Col:  int(binary.LittleEndian.Uint16(payload[2:4])) + 1,
+		Kind: sheetir.CellString, StrValue: value, RichTextRuns: rich,
+		Style: styleFromXFIndex(binary.LittleEndian.Uint16(payload[4:6]), xfs),
 	}
 }
 
@@ -5875,39 +6523,8 @@ func parseFormulaCell(payload []byte, xfs []legacyXF, workbookCtx legacyFormulaW
 			}
 		}
 	}
-	result := payload[6:14]
-	if binary.LittleEndian.Uint16(result[6:8]) != 0xFFFF {
-		cell.Kind = sheetir.CellNumber
-		cell.NumValue = math.Float64frombits(binary.LittleEndian.Uint64(result))
-		promoteNumericCellToDate(cell, workbookCtx.date1904)
-		return cell
-	}
-	// FormulaSpecialCachedValue encoding (mirrors POI FormulaSpecialCachedValue):
-	//   BIT_MARKER = 0xFFFF000000000000L (high 16 bits of the 8-byte double)
-	//   Low 6 bytes: [type(1), reserved(1), data(1), reserved(3)]
-	//   type 0x00 = STRING (needs trailing StringRecord)
-	//   type 0x01 = BOOLEAN (data byte at offset 2)
-	//   type 0x02 = ERROR_CODE (error code at offset 2)
-	//   type 0x03 = EMPTY (empty string result, may have trailing StringRecord)
-	switch result[0] {
-	case 0x00: // POI STRING — formula result is a string, needs trailing StringRecord
-		cell.Kind = sheetir.CellEmpty
-		return cell
-	case 0x01: // POI BOOLEAN
-		cell.Kind = sheetir.CellBool
-		cell.NumValue = float64(result[2])
-		return cell
-	case 0x02: // POI ERROR_CODE
-		cell.Kind = sheetir.CellError
-		cell.StrValue = biffErrorString(result[2])
-		return cell
-	case 0x03: // POI EMPTY — empty string result, may have trailing StringRecord
-		cell.Kind = sheetir.CellEmpty
-		return cell
-	default:
-		cell.Kind = sheetir.CellEmpty
-		return cell
-	}
+	applyBIFFFormulaCachedValue(cell, payload[6:14], workbookCtx.date1904, true)
+	return cell
 }
 
 func parseOldFormulaCell(payload []byte, xfs []legacyXF, workbookCtx legacyFormulaWorkbookContext, isBIFF2 bool) *sheetir.Cell {
@@ -5947,30 +6564,39 @@ func parseOldFormulaCell(payload []byte, xfs []legacyXF, workbookCtx legacyFormu
 			}
 		}
 	}
-	if isBIFF2 || binary.LittleEndian.Uint16(result[6:8]) != 0xFFFF {
+	applyBIFFFormulaCachedValue(cell, result, workbookCtx.date1904, !isBIFF2)
+	return cell
+}
+
+// applyBIFFFormulaCachedValue is the single BIFF formula-result projection path.
+// BIFF8 formula records may carry FormulaSpecialCachedValue; BIFF2 formula
+// records always carry an IEEE-754 numeric result.
+func applyBIFFFormulaCachedValue(cell *sheetir.Cell, result []byte, date1904 bool, allowSpecial bool) {
+	if cell == nil || len(result) < 8 {
+		return
+	}
+	if !allowSpecial || binary.LittleEndian.Uint16(result[6:8]) != 0xFFFF {
 		cell.Kind = sheetir.CellNumber
 		cell.NumValue = math.Float64frombits(binary.LittleEndian.Uint64(result))
-		promoteNumericCellToDate(cell, workbookCtx.date1904)
-		return cell
+		canonicalizeBIFFNumericCell(cell, date1904)
+		return
 	}
+
+	// FormulaSpecialCachedValue: low bytes are [type, reserved, data, ...]
+	// and the high 16 bits are 0xFFFF. String results are completed by the
+	// following STRING record; therefore their interim canonical kind is Empty.
 	switch result[0] {
-	case 0x00:
-		cell.Kind = sheetir.CellEmpty
-		return cell
 	case 0x01:
 		cell.Kind = sheetir.CellBool
 		cell.NumValue = float64(result[2])
-		return cell
 	case 0x02:
 		cell.Kind = sheetir.CellError
+		cell.NumValue = 0
 		cell.StrValue = biffErrorString(result[2])
-		return cell
-	case 0x03:
+	default: // 0x00 string, 0x03 empty, and unknown special values
 		cell.Kind = sheetir.CellEmpty
-		return cell
-	default:
-		cell.Kind = sheetir.CellEmpty
-		return cell
+		cell.NumValue = 0
+		cell.StrValue = ""
 	}
 }
 
@@ -6130,6 +6756,40 @@ func applyExpFormulaMetadata(rows map[int]*sheetir.Row, groups []*sheetir.ArrayF
 			cell.ArrayFormulaAnchor = group.AnchorRef
 		}
 	}
+}
+
+func canonicalLegacySharedFormulas(sharedFormulas map[string]legacySharedFormulaRecord, rows map[int]*sheetir.Row, workbookCtx legacyFormulaWorkbookContext) []*sheetir.SharedFormula {
+	if len(sharedFormulas) == 0 {
+		return nil
+	}
+	anchors := make([]string, 0, len(sharedFormulas))
+	for anchor := range sharedFormulas {
+		anchors = append(anchors, anchor)
+	}
+	sort.Strings(anchors)
+
+	out := make([]*sheetir.SharedFormula, 0, len(anchors))
+	for index, anchor := range anchors {
+		shared := sharedFormulas[anchor]
+		formula := ""
+		if cell := ensureCellByRef(rows, shared.AnchorRef); cell != nil {
+			formula = cell.Formula
+		}
+		if strings.TrimSpace(formula) == "" && len(shared.FormulaData) > 0 {
+			if decoded, ok := decodeBIFFFormula(shared.FormulaData, legacyFormulaDecodeContext{
+				workbook: workbookCtx,
+				row:      shared.TopRow + 1,
+				col:      shared.LeftCol + 1,
+			}); ok {
+				formula = decoded
+			}
+		}
+		out = append(out, &sheetir.SharedFormula{
+			Index: index, AnchorRef: shared.AnchorRef, RangeRef: shared.RangeRef, Formula: formula,
+			TopRow: shared.TopRow, LeftCol: shared.LeftCol, BottomRow: shared.BottomRow, RightCol: shared.RightCol,
+		})
+	}
+	return out
 }
 
 func applySharedFormulaMetadata(rows map[int]*sheetir.Row, sharedFormulas map[string]legacySharedFormulaRecord, expRefs map[string]string, workbookCtx legacyFormulaWorkbookContext) {
@@ -6891,7 +7551,11 @@ func applyPane(sheet *sheetir.Sheet, payload []byte, freezePanes bool) {
 	if sheet == nil || len(payload) < 4 {
 		return
 	}
-	// BIFF8 Pane record: xSplit (2), ySplit (2), topRowInBottomPane (2), leftColInRightPane (2), activePane (2).
+	// BIFF8 Pane record: xSplit (2), ySplit (2), topRowInBottomPane (2),
+	// leftColInRightPane (2), activePane (2). For frozen panes x/y are cell
+	// counts. For split panes they are physical split positions; preserve them
+	// in SplitX/SplitY while retaining the historical row/column compatibility
+	// view in SplitRows/SplitCols.
 	xSplit := int(binary.LittleEndian.Uint16(payload[0:2]))
 	ySplit := int(binary.LittleEndian.Uint16(payload[2:4]))
 	topRow := 0
@@ -6902,13 +7566,14 @@ func applyPane(sheet *sheetir.Sheet, payload []byte, freezePanes bool) {
 		leftCol = int(binary.LittleEndian.Uint16(payload[6:8]))
 		activePane = binary.LittleEndian.Uint16(payload[8:10])
 	}
+	sheet.SplitX = float64(xSplit)
+	sheet.SplitY = float64(ySplit)
 	if freezePanes {
-		// For frozen panes xSplit/ySplit are counts in cells.
+		sheet.PaneState = "frozen"
 		sheet.FrozenCols = xSplit
 		sheet.FrozenRows = ySplit
 	} else {
-		// MS-XLS 2.4.189 Pane: when the sheet is split rather than frozen, x/y are
-		// split positions in twips. Use rwTop/colLeft for renderer-facing pane metadata.
+		sheet.PaneState = "split"
 		sheet.SplitRows = topRow
 		sheet.SplitCols = leftCol
 	}
@@ -7060,29 +7725,109 @@ func applySetupRecord(sheet *sheetir.Sheet, payload []byte) {
 	if sheet.PageSetup == nil {
 		sheet.PageSetup = &sheetir.PageSetup{}
 	}
+	ps := sheet.PageSetup
 	paperSize := int(binary.LittleEndian.Uint16(payload[0:2]))
 	if paperSize > 0 {
-		sheet.PageSetup.PaperSize = paperSize
+		ps.PaperSize = paperSize
 	}
-	scale := int(binary.LittleEndian.Uint16(payload[2:4]))
-	fitWidth := int(binary.LittleEndian.Uint16(payload[6:8]))
-	fitHeight := int(binary.LittleEndian.Uint16(payload[8:10]))
+	ps.Scale = int(binary.LittleEndian.Uint16(payload[2:4]))
+	// Legacy SETUP files may encode fit-to-page by writing scale == 0.
+	// A later WSBOOL record is authoritative and may override this fallback.
+	ps.FitToPage = ps.Scale == 0
+	pageStart := int(binary.LittleEndian.Uint16(payload[4:6]))
+	ps.FitToWidth = int(binary.LittleEndian.Uint16(payload[6:8]))
+	ps.FitToHeight = int(binary.LittleEndian.Uint16(payload[8:10]))
 	grbit := binary.LittleEndian.Uint16(payload[10:12])
+
+	// SETUP option bits (MS-XLS / HSSF SetupRecord):
+	// bit 0 left-to-right page order, bit 1 landscape, bit 3 no color,
+	// bit 4 draft, bit 7 use authored first-page number.
 	if grbit&0x0002 != 0 {
-		sheet.PageSetup.Orientation = "landscape"
+		ps.Orientation = "landscape"
 	} else {
-		sheet.PageSetup.Orientation = "portrait"
+		ps.Orientation = "portrait"
 	}
-	if scale > 0 {
-		sheet.PageSetup.Scale = scale
+	if grbit&0x0001 != 0 {
+		ps.PageOrder = "overThenDown"
 	} else {
-		sheet.PageSetup.FitToPage = true
-		sheet.PageSetup.FitToWidth = fitWidth
-		sheet.PageSetup.FitToHeight = fitHeight
+		ps.PageOrder = "downThenOver"
+	}
+	ps.BlackAndWhite = grbit&0x0008 != 0
+	ps.Draft = grbit&0x0010 != 0
+	ps.UseFirstPageNumber = grbit&0x0080 != 0
+	if ps.UseFirstPageNumber {
+		ps.FirstPageNumber = pageStart
+	}
+	if len(payload) >= 16 {
+		ps.HorizontalDPI = int(binary.LittleEndian.Uint16(payload[12:14]))
+		ps.VerticalDPI = int(binary.LittleEndian.Uint16(payload[14:16]))
 	}
 	if len(payload) >= 32 {
-		sheet.PageSetup.MarginHeader = math.Float64frombits(binary.LittleEndian.Uint64(payload[16:24]))
-		sheet.PageSetup.MarginFooter = math.Float64frombits(binary.LittleEndian.Uint64(payload[24:32]))
+		ps.MarginHeader = math.Float64frombits(binary.LittleEndian.Uint64(payload[16:24]))
+		ps.MarginFooter = math.Float64frombits(binary.LittleEndian.Uint64(payload[24:32]))
+	}
+	if len(payload) >= 34 {
+		ps.Copies = int(binary.LittleEndian.Uint16(payload[32:34]))
+	}
+}
+
+func applyWSBoolRecord(sheet *sheetir.Sheet, payload []byte) {
+	if sheet == nil || len(payload) < 2 {
+		return
+	}
+	flags := binary.LittleEndian.Uint16(payload[:2])
+	sheet.DialogSheet = flags&0x0010 != 0
+	if sheet.PageSetup == nil {
+		sheet.PageSetup = &sheetir.PageSetup{}
+	}
+	// WSBOOL bit 8 is the BIFF authority for fit-to-page mode.
+	sheet.PageSetup.FitToPage = flags&0x0100 != 0
+}
+
+func parseSelectionRecord(payload []byte) (sheetir.PaneSelection, bool) {
+	if len(payload) < 9 {
+		return sheetir.PaneSelection{}, false
+	}
+	pane := uint16(payload[0])
+	activeRow := int(binary.LittleEndian.Uint16(payload[1:3]))
+	activeCol := int(binary.LittleEndian.Uint16(payload[3:5]))
+	activeRef := int(binary.LittleEndian.Uint16(payload[5:7]))
+	count := int(binary.LittleEndian.Uint16(payload[7:9]))
+	selection := sheetir.PaneSelection{
+		Pane:         legacyPaneName(pane),
+		ActiveCell:   formatA1Ref(activeRow+1, activeCol+1),
+		ActiveCellID: activeRef,
+	}
+	refs := make([]string, 0, count)
+	offset := 9
+	for i := 0; i < count && offset+6 <= len(payload); i++ {
+		firstRow := int(binary.LittleEndian.Uint16(payload[offset:offset+2])) + 1
+		lastRow := int(binary.LittleEndian.Uint16(payload[offset+2:offset+4])) + 1
+		firstCol := int(payload[offset+4]) + 1
+		lastCol := int(payload[offset+5]) + 1
+		first := formatA1Ref(firstRow, firstCol)
+		last := formatA1Ref(lastRow, lastCol)
+		if first == last {
+			refs = append(refs, first)
+		} else {
+			refs = append(refs, first+":"+last)
+		}
+		offset += 6
+	}
+	selection.SqRef = strings.Join(refs, " ")
+	return selection, true
+}
+
+func legacyPaneName(pane uint16) string {
+	switch pane {
+	case 0:
+		return "bottomRight"
+	case 1:
+		return "topRight"
+	case 2:
+		return "bottomLeft"
+	default:
+		return "topLeft"
 	}
 }
 
@@ -7122,38 +7867,64 @@ func applyHeaderFooterRecord(sheet *sheetir.Sheet, kind string, payload []byte) 
 // XLUnicodeString values. We map up to six strings in this order:
 // oddHeader, oddFooter, evenHeader, evenFooter, firstHeader, firstFooter.
 func applyHeaderFooterExtRecord(sheet *sheetir.Sheet, payload []byte) {
-	if sheet == nil || len(payload) < 28 {
+	// HEADERFOOTER (0x089C) payload:
+	//  0..11  FrtHeader
+	// 12..27  guidSView
+	// 28..29  grbitFlags
+	// 30..37  four character counts
+	// 38..     even/first strings
+	if sheet == nil || len(payload) < 38 {
 		return
 	}
 	if !isZeroGUID16(payload[12:28]) {
-		// Non-zero GUID belongs to a custom sheet view; skip for now.
+		// Non-zero GUID belongs to a custom sheet view.
 		return
 	}
-	values := parseHeaderFooterExtStrings(payload[28:])
-	if len(values) == 0 {
-		return
+	flags := binary.LittleEndian.Uint16(payload[28:30])
+	lengths := [4]int{
+		int(binary.LittleEndian.Uint16(payload[30:32])),
+		int(binary.LittleEndian.Uint16(payload[32:34])),
+		int(binary.LittleEndian.Uint16(payload[34:36])),
+		int(binary.LittleEndian.Uint16(payload[36:38])),
 	}
+	values := parseHeaderFooterExtStringsWithLengths(payload[38:], lengths)
+
 	if sheet.HeaderFooter == nil {
 		sheet.HeaderFooter = &sheetir.HeaderFooter{}
 	}
-	if len(values) > 0 && values[0] != "" {
-		sheet.HeaderFooter.OddHeader = values[0]
+	hf := sheet.HeaderFooter
+	hf.DifferentOddEven = flags&0x0001 != 0
+	hf.DifferentFirst = flags&0x0002 != 0
+	hf.ScaleWithDoc = flags&0x0004 != 0
+	hf.AlignWithMargins = flags&0x0008 != 0
+
+	// Odd header/footer text belongs to the ordinary HEADER/FOOTER records.
+	// HEADERFOOTER adds only even-page and first-page variants.
+	if hf.DifferentOddEven {
+		hf.EvenHeader = values[0]
+		hf.EvenFooter = values[1]
 	}
-	if len(values) > 1 && values[1] != "" {
-		sheet.HeaderFooter.OddFooter = values[1]
+	if hf.DifferentFirst {
+		hf.FirstHeader = values[2]
+		hf.FirstFooter = values[3]
 	}
-	if len(values) > 2 && values[2] != "" {
-		sheet.HeaderFooter.EvenHeader = values[2]
+}
+
+func parseHeaderFooterExtStringsWithLengths(payload []byte, lengths [4]int) [4]string {
+	var values [4]string
+	pos := 0
+	for index, chars := range lengths {
+		if chars <= 0 {
+			continue
+		}
+		text, next, ok := readXLUnicodeStringLen(payload, pos, chars)
+		if !ok || next <= pos {
+			break
+		}
+		values[index] = text
+		pos = next
 	}
-	if len(values) > 3 && values[3] != "" {
-		sheet.HeaderFooter.EvenFooter = values[3]
-	}
-	if len(values) > 4 && values[4] != "" {
-		sheet.HeaderFooter.FirstHeader = values[4]
-	}
-	if len(values) > 5 && values[5] != "" {
-		sheet.HeaderFooter.FirstFooter = values[5]
-	}
+	return values
 }
 
 func parseHeaderFooterExtStrings(payload []byte) []string {
@@ -7705,13 +8476,15 @@ func parseNoteComment(payload []byte) (legacyNote, bool) {
 	if len(payload) >= 8 {
 		objID = int(binary.LittleEndian.Uint16(payload[6:8]))
 	}
-	fallback := parseNoteAuthor(payload)
+	author := parseNoteAuthor(payload)
+	fallback := author
 	if fallback == "" {
 		fallback = "Comment"
 	}
 	return legacyNote{
 		objID:        objID,
 		ref:          formatA1Ref(row, col),
+		author:       author,
 		fallbackText: fallback,
 	}, true
 }
@@ -7795,6 +8568,72 @@ func parseTxOCommentCharCount(payload []byte) int {
 		}
 	}
 	return -1
+}
+
+// parseTxOFormattingRuns decodes the BIFF8 TXO formatting CONTINUE payload.
+// Each FormatRun is 8 bytes: ich (UTF-16 character offset), ifnt (font index),
+// followed by four reserved bytes. A terminal run at cchText may be present and
+// is harmless; canonical projection naturally gives it an empty range.
+func parseTxOFormattingRuns(payload []byte) []legacyRichRunSpec {
+	if len(payload) < 8 {
+		return nil
+	}
+	runs := make([]legacyRichRunSpec, 0, len(payload)/8)
+	for off := 0; off+8 <= len(payload); off += 8 {
+		runs = append(runs, legacyRichRunSpec{
+			CharIndex: int(binary.LittleEndian.Uint16(payload[off : off+2])),
+			FontIndex: int(binary.LittleEndian.Uint16(payload[off+2 : off+4])),
+		})
+	}
+	return runs
+}
+
+func canonicalBIFFRichTextRunsPreserveSingle(value string, specs []legacyRichRunSpec, fonts []legacyFont, palette [56]string) []*sheetir.RichTextRun {
+	if value == "" || len(specs) == 0 {
+		return nil
+	}
+	byteAt := func(units int) int {
+		if units <= 0 {
+			return 0
+		}
+		used := 0
+		for i, r := range value {
+			width := 1
+			if r > 0xFFFF {
+				width = 2
+			}
+			if used+width > units {
+				return i
+			}
+			used += width
+			if used == units {
+				return i + len(string(r))
+			}
+		}
+		return len(value)
+	}
+	out := make([]*sheetir.RichTextRun, 0, len(specs))
+	for i, spec := range specs {
+		start := byteAt(spec.CharIndex)
+		end := len(value)
+		if i+1 < len(specs) {
+			end = byteAt(specs[i+1].CharIndex)
+		}
+		if start < 0 || start > len(value) || end < start {
+			continue
+		}
+		text := value[start:end]
+		if text == "" {
+			continue
+		}
+		font := biffFontAt(fonts, uint16(spec.FontIndex))
+		out = append(out, &sheetir.RichTextRun{
+			Text: text, Bold: font.Bold, Italic: font.Italic, Underline: font.Underline,
+			UnderlineType: font.UnderlineType, Strike: font.Strike, VertAlign: font.VertAlign,
+			FontSizePt: font.HeightPt, FontColor: biffColorHex(font.ColorIdx, palette), FontFamily: font.Name,
+		})
+	}
+	return out
 }
 
 func parseLegacyTxOControlLink(payload []byte, formulaCtx legacyFormulaWorkbookContext) string {
@@ -8284,18 +9123,24 @@ func biffCFOperator(op byte) string {
 //   - cbFormula1 bytes: formula1 PTG (stored as hex)
 //   - cbFormula2 bytes: formula2 PTG (stored as hex)
 func parseCFRecord(payload []byte) *sheetir.CFRule {
-	if len(payload) < 28 {
+	return parseCFRecordWithPalette(payload, nil)
+}
+
+// parseCFRecordWithPalette decodes a classic BIFF8 CF record. Unlike CFRULE12,
+// the classic CF record does not contain a fixed 22-byte DxfN. It contains the
+// six-byte CFRuleBase formatting header followed by optional FontFormatting,
+// BorderFormatting and PatternFormatting blocks selected by formattingOptions.
+func parseCFRecordWithPalette(payload []byte, palette *[56]string) *sheetir.CFRule {
+	if len(payload) < 12 {
 		return nil
 	}
 	ct := payload[0]
 	op := payload[1]
 	cbFmt1 := int(binary.LittleEndian.Uint16(payload[2:4]))
 	cbFmt2 := int(binary.LittleEndian.Uint16(payload[4:6]))
-	// Skip 22-byte DxfN.
-	pos := 28
-	if pos+cbFmt1+cbFmt2 > len(payload) {
-		return nil
-	}
+	formattingOptions := binary.LittleEndian.Uint32(payload[6:10])
+	pos := 12 // formattingOptions (4) + formattingNotUsed (2)
+
 	rule := &sheetir.CFRule{}
 	switch ct {
 	case 1:
@@ -8306,7 +9151,52 @@ func parseCFRecord(payload []byte) *sheetir.CFRule {
 	default:
 		return nil
 	}
-	// Store raw PTG formula bytes as hex (full decoding is out of scope).
+
+	dxf := &sheetir.DxfStyle{}
+	hasDXF := false
+	if formattingOptions&0x04000000 != 0 { // FontFormatting, 118 bytes
+		if pos+118 > len(payload) {
+			return nil
+		}
+		applyClassicCFFontFormatting(dxf, payload[pos:pos+118], palette)
+		pos += 118
+		hasDXF = true
+	}
+	if formattingOptions&0x08000000 != 0 { // alignment block, 8 bytes; no canonical Dxf alignment surface yet
+		if pos+8 > len(payload) {
+			return nil
+		}
+		pos += 8
+	}
+	if formattingOptions&0x10000000 != 0 { // BorderFormatting, 8 bytes
+		if pos+8 > len(payload) {
+			return nil
+		}
+		applyClassicCFBorderFormatting(dxf, payload[pos:pos+8], palette)
+		pos += 8
+		hasDXF = true
+	}
+	if formattingOptions&0x20000000 != 0 { // PatternFormatting, 4 bytes
+		if pos+4 > len(payload) {
+			return nil
+		}
+		applyClassicCFPatternFormatting(dxf, payload[pos:pos+4], palette)
+		pos += 4
+		hasDXF = true
+	}
+	if formattingOptions&0x40000000 != 0 { // protection block, 4 bytes; no canonical Dxf protection surface yet
+		if pos+4 > len(payload) {
+			return nil
+		}
+		pos += 4
+	}
+
+	if pos+cbFmt1+cbFmt2 > len(payload) {
+		return nil
+	}
+	if hasDXF {
+		rule.DxfStyle = *dxf
+	}
 	if cbFmt1 > 0 {
 		rule.Formula = append(rule.Formula, fmt.Sprintf("ptg:%x", payload[pos:pos+cbFmt1]))
 		pos += cbFmt1
@@ -8315,6 +9205,90 @@ func parseCFRecord(payload []byte) *sheetir.CFRule {
 		rule.Formula = append(rule.Formula, fmt.Sprintf("ptg:%x", payload[pos:pos+cbFmt2]))
 	}
 	return rule
+}
+
+func applyClassicCFFontFormatting(dxf *sheetir.DxfStyle, ff []byte, palette *[56]string) {
+	if dxf == nil || len(ff) < 118 {
+		return
+	}
+	height := int(int32(binary.LittleEndian.Uint32(ff[64:68])))
+	fontOptions := binary.LittleEndian.Uint32(ff[68:72])
+	weight := int(binary.LittleEndian.Uint16(ff[72:74]))
+	escapement := int(binary.LittleEndian.Uint16(ff[74:76]))
+	underline := int(binary.LittleEndian.Uint16(ff[76:78]))
+	colorIdx := int(int32(binary.LittleEndian.Uint32(ff[80:84])))
+	modified := binary.LittleEndian.Uint32(ff[88:92])
+
+	// In FontFormatting option flags, a cleared bit means that property is modified.
+	if modified&0x00000002 == 0 {
+		v := fontOptions&0x00000002 != 0
+		dxf.Italic = &v
+	}
+	if modified&0x00000008 == 0 {
+		v := fontOptions&0x00000008 != 0
+		dxf.Outline = &v
+	}
+	if modified&0x00000010 == 0 {
+		v := fontOptions&0x00000010 != 0
+		dxf.Shadow = &v
+	}
+	if modified&0x00000080 == 0 {
+		v := fontOptions&0x00000080 != 0
+		dxf.Strike = &v
+	}
+	if int32(binary.LittleEndian.Uint32(ff[100:104])) == 0 {
+		v := weight >= 700
+		dxf.Bold = &v
+		dxf.FontWeight = legacyIntPtr(weight)
+	}
+	if int32(binary.LittleEndian.Uint32(ff[92:96])) == 0 {
+		dxf.EscapementType = legacyIntPtr(escapement)
+	}
+	if int32(binary.LittleEndian.Uint32(ff[96:100])) == 0 {
+		dxf.UnderlineType = legacyIntPtr(underline)
+		v := underline != 0
+		dxf.Underline = &v
+	}
+	if height != -1 {
+		dxf.FontHeight = legacyIntPtr(height)
+	}
+	if colorIdx >= 0 {
+		dxf.FontColorIndex = legacyIntPtr(colorIdx)
+		dxf.FontColor = resolveICV(colorIdx, palette)
+	}
+}
+
+func applyClassicCFBorderFormatting(dxf *sheetir.DxfStyle, bf []byte, palette *[56]string) {
+	if dxf == nil || len(bf) < 8 {
+		return
+	}
+	b1 := binary.LittleEndian.Uint32(bf[0:4])
+	b2 := binary.LittleEndian.Uint32(bf[4:8])
+	left, right := int(b1&0x0F), int((b1>>4)&0x0F)
+	top, bottom := int((b1>>8)&0x0F), int((b1>>12)&0x0F)
+	diag := int((b2 >> 21) & 0x0F)
+	dxf.BorderLeft, dxf.BorderRight = legacyIntPtr(left), legacyIntPtr(right)
+	dxf.BorderTop, dxf.BorderBottom = legacyIntPtr(top), legacyIntPtr(bottom)
+	dxf.BorderDiagonal = legacyIntPtr(diag)
+	dxf.LeftBorderColor = resolveICV(int((b1>>16)&0x7F), palette)
+	dxf.RightBorderColor = resolveICV(int((b1>>23)&0x7F), palette)
+	dxf.TopBorderColor = resolveICV(int(b2&0x7F), palette)
+	dxf.BottomBorderColor = resolveICV(int((b2>>7)&0x7F), palette)
+	dxf.DiagonalBorderColor = resolveICV(int((b2>>14)&0x7F), palette)
+	forward, backward := b1&0x40000000 != 0, b1&0x80000000 != 0
+	dxf.ForwardDiagonalOn, dxf.BackwardDiagonalOn = &forward, &backward
+}
+
+func applyClassicCFPatternFormatting(dxf *sheetir.DxfStyle, pf []byte, palette *[56]string) {
+	if dxf == nil || len(pf) < 4 {
+		return
+	}
+	styleWord := binary.LittleEndian.Uint16(pf[0:2])
+	colors := binary.LittleEndian.Uint16(pf[2:4])
+	pattern := int((styleWord >> 10) & 0x3F)
+	dxf.FillPattern = legacyIntPtr(pattern)
+	dxf.FillForegroundColor = resolveICV(int(colors&0x7F), palette)
+	dxf.FillBackgroundColor = resolveICV(int((colors>>7)&0x7F), palette)
 }
 
 // parseExtendedColor decodes a 16-byte ExtendedColor record (HSSF CTColor).
@@ -8685,7 +9659,7 @@ func parseExtFmtBlock(data []byte, palette *[56]string) *sheetir.DxfStyle {
 		right := int((b1 >> 4) & 0x0F)
 		top := int((b1 >> 8) & 0x0F)
 		bottom := int((b1 >> 12) & 0x0F)
-		diag := int((b2 >> 21) & 0x03)
+		diag := int((b2 >> 21) & 0x0F)
 		if left > 0 {
 			dxf.BorderLeft = &left
 		}
@@ -8722,8 +9696,8 @@ func parseExtFmtBlock(data []byte, palette *[56]string) *sheetir.DxfStyle {
 		if diagColor > 0 {
 			dxf.DiagonalBorderColor = resolveICV(diagColor, palette)
 		}
-		fwd := b2&0x00800000 != 0
-		bwd := b2&0x01000000 != 0
+		fwd := b1&(1<<31) != 0
+		bwd := b1&(1<<30) != 0
 		if fwd {
 			dxf.ForwardDiagonalOn = &fwd
 		}
@@ -8792,7 +9766,7 @@ func parseCF12Record(payload []byte, palette *[56]string) *sheetir.CFRule {
 	// Parse ext formatting block (formatting_options + FontFormatting/BorderFormatting/PatternFormatting).
 	pos := 22
 	if extFmtLen > 0 {
-		if dxf := parseExtFmtBlock(payload[pos:pos+extFmtLen], nil); dxf != nil {
+		if dxf := parseExtFmtBlock(payload[pos:pos+extFmtLen], palette); dxf != nil {
 			rule.DxfStyle = *dxf
 		}
 		pos += extFmtLen
@@ -8950,8 +9924,11 @@ func parseDVRecord(payload []byte, formulaCtx legacyFormulaWorkbookContext) *she
 	flags := binary.LittleEndian.Uint32(payload[0:4])
 	valType := biffDVType(uint8(flags & 0x0F))
 	operator := biffDVOperator(uint8((flags >> 20) & 0x0F))
+	errorStyle := biffDVErrorStyle(uint8((flags >> 4) & 0x07))
+	stringList := flags&(1<<7) != 0
 	allowBlank := flags&(1<<8) != 0
 	suppressCombo := flags&(1<<9) != 0
+	imeMode := biffDVIMEMode(uint8((flags >> 10) & 0xFF))
 	showInput := flags&(1<<18) != 0
 	showError := flags&(1<<19) != 0
 
@@ -9029,6 +10006,8 @@ func parseDVRecord(payload []byte, formulaCtx legacyFormulaWorkbookContext) *she
 		SqRef:            sqref,
 		Type:             valType,
 		Operator:         operator,
+		ErrorStyle:       errorStyle,
+		IMEMode:          imeMode,
 		AllowBlank:       allowBlank,
 		ShowDropDown:     suppressCombo,
 		ShowInputMessage: showInput,
@@ -9040,7 +10019,69 @@ func parseDVRecord(payload []byte, formulaCtx legacyFormulaWorkbookContext) *she
 		Formula1:         formula1,
 		Formula2:         formula2,
 	}
+	if valType == "list" && stringList {
+		dv.ListValues = biffDVInlineListValues(formula1)
+	}
 	return dv
+}
+
+func biffDVErrorStyle(v uint8) string {
+	switch v {
+	case 0:
+		return "stop"
+	case 1:
+		return "warning"
+	case 2:
+		return "information"
+	default:
+		return ""
+	}
+}
+
+func biffDVIMEMode(v uint8) string {
+	switch v {
+	case 0:
+		return "noControl"
+	case 1:
+		return "on"
+	case 2:
+		return "off"
+	case 3:
+		return "disabled"
+	case 4:
+		return "hiragana"
+	case 5:
+		return "fullKatakana"
+	case 6:
+		return "halfKatakana"
+	case 7:
+		return "fullAlpha"
+	case 8:
+		return "halfAlpha"
+	case 9:
+		return "fullHangul"
+	case 10:
+		return "halfHangul"
+	default:
+		return ""
+	}
+}
+
+func biffDVInlineListValues(formula string) []string {
+	formula = strings.TrimSpace(formula)
+	if len(formula) < 2 || formula[0] != '"' || formula[len(formula)-1] != '"' {
+		return nil
+	}
+	body := formula[1 : len(formula)-1]
+	if body == "" {
+		return []string{}
+	}
+	parts := strings.Split(body, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		values = append(values, strings.TrimSpace(part))
+	}
+	return values
 }
 
 // parseNameCommentRecord decodes a BIFF8 NameComment (0x0894) record payload.
@@ -9200,6 +10241,8 @@ func builtinNameString(id byte) string {
 		return "_xlnm.Print_Area"
 	case 0x07:
 		return "_xlnm.Print_Titles"
+	case 0x0D:
+		return "_xlnm._FilterDatabase"
 	default:
 		return fmt.Sprintf("_xlnm.BuiltIn_%02X", id)
 	}
@@ -9418,6 +10461,23 @@ func isPrintTitleColRange(v string) bool {
 //   - FILE moniker CLSID {00000303-0000-0000-C000-000000000046}: short filename + optional long address
 //   - STD moniker CLSID {79EAC9F0-BAF9-11CE-8C82-00AA004BA90B}: fileOpts + UTF-8 path
 //   - UNC path (hlstmfUNC flag set, no moniker): count + UTF-16LE string
+func parseHLINKTooltipRecord(payload []byte) (ref, tooltip string, ok bool) {
+	// HLINKTOOLTIP is a future record: FrtHeader (12), Ref8U (8), then a
+	// null-terminated UTF-16 screen tip.
+	if len(payload) < 22 {
+		return "", "", false
+	}
+	ref = biffRef8UToSqRef(payload[12:20])
+	if ref == "" {
+		return "", "", false
+	}
+	tooltip = strings.TrimSpace(strings.TrimRight(decodeBiffUTF16Raw(payload[20:]), "\x00"))
+	if tooltip == "" {
+		return "", "", false
+	}
+	return ref, tooltip, true
+}
+
 func parseHLINKRecord(payload []byte) (hlinkEntry, bool) {
 	const (
 		hlstmfHasMoniker        = 0x0001
@@ -9468,14 +10528,11 @@ func parseHLINKRecord(payload []byte) (hlinkEntry, bool) {
 		return strings.TrimRight(s, "\x00"), true
 	}
 
-	// Optional displayName (skip text; we use the URL as the link target).
+	// Optional displayName is authored hyperlink metadata, not merely decoration.
 	if hlstmf&hlstmfHasDisplayName != 0 {
-		if pos+4 > len(payload) {
-			return hlinkEntry{}, false
-		}
-		count := int(binary.LittleEndian.Uint32(payload[pos : pos+4]))
-		pos += 4 + count*2
-		if pos > len(payload) {
+		if display, ok := readUTF16Chunk(); ok {
+			e.display = display
+		} else {
 			return hlinkEntry{}, false
 		}
 	}
@@ -9598,10 +10655,14 @@ func parseHLINKRecord(payload []byte) (hlinkEntry, bool) {
 		}
 	}
 
-	// Optional location string (appended as #fragment).
-	if hlstmf&hlstmfHasLocationStr != 0 && url != "" {
+	// Optional location string. A location-only HLINK is an internal workbook link.
+	if hlstmf&hlstmfHasLocationStr != 0 {
 		if frag, ok := readUTF16Chunk(); ok && frag != "" {
-			url += "#" + frag
+			if url == "" {
+				url = "#" + frag
+			} else {
+				url += "#" + frag
+			}
 		}
 	}
 
@@ -9792,14 +10853,17 @@ func parseBIFFFont(payload []byte) legacyFont {
 	grbit := binary.LittleEndian.Uint16(payload[2:4])
 	icv := binary.LittleEndian.Uint16(payload[4:6])
 	bls := binary.LittleEndian.Uint16(payload[6:8])
+	sss := binary.LittleEndian.Uint16(payload[8:10])
 	uls := payload[10]
 	font := legacyFont{
-		HeightPt:  float64(heightTwips) / 20.0,
-		Bold:      bls >= 700,
-		Italic:    grbit&0x0002 != 0,
-		Strike:    grbit&0x0008 != 0,
-		Underline: uls != 0,
-		ColorIdx:  icv,
+		HeightPt:      float64(heightTwips) / 20.0,
+		Bold:          bls >= 700,
+		Italic:        grbit&0x0002 != 0,
+		Strike:        grbit&0x0008 != 0,
+		Underline:     uls != 0,
+		UnderlineType: biffUnderlineType(uls),
+		VertAlign:     biffFontVertAlign(sss),
+		ColorIdx:      icv,
 	}
 	// Font name: 1-byte char count + 1-byte flags + chars
 	if len(payload) >= 16 {
@@ -9814,76 +10878,142 @@ func parseBIFFFont(payload []byte) legacyFont {
 	return font
 }
 
+func biffUnderlineType(v byte) string {
+	switch v {
+	case 1:
+		return "single"
+	case 2:
+		return "double"
+	case 0x21:
+		return "singleAccounting"
+	case 0x22:
+		return "doubleAccounting"
+	default:
+		return ""
+	}
+}
+
+func biffFontVertAlign(v uint16) string {
+	switch v {
+	case 1:
+		return "superscript"
+	case 2:
+		return "subscript"
+	default:
+		return ""
+	}
+}
+
+func biffFillPattern(v uint8) string {
+	switch v {
+	case 0:
+		return "none"
+	case 1:
+		return "solid"
+	case 2:
+		return "mediumGray"
+	case 3:
+		return "darkGray"
+	case 4:
+		return "lightGray"
+	case 5:
+		return "darkHorizontal"
+	case 6:
+		return "darkVertical"
+	case 7:
+		return "darkDown"
+	case 8:
+		return "darkUp"
+	case 9:
+		return "darkGrid"
+	case 10:
+		return "darkTrellis"
+	case 11:
+		return "lightHorizontal"
+	case 12:
+		return "lightVertical"
+	case 13:
+		return "lightDown"
+	case 14:
+		return "lightUp"
+	case 15:
+		return "lightGrid"
+	case 16:
+		return "lightTrellis"
+	case 17:
+		return "gray125"
+	case 18:
+		return "gray0625"
+	default:
+		return ""
+	}
+}
+
 func parseBIFFXF(payload []byte, formatCodes map[uint16]string, fonts []legacyFont, palette [56]string) legacyXF {
 	if len(payload) < 4 {
 		return legacyXF{}
 	}
 	ifnt := binary.LittleEndian.Uint16(payload[0:2])
 	formatIndex := binary.LittleEndian.Uint16(payload[2:4])
-	xf := legacyXF{NumFmtCode: formatCodes[formatIndex]}
+	style := sheetir.CellStyle{NumFmtCode: formatCodes[formatIndex]}
 
-	// Resolve font properties into the XF directly.
+	// Resolve FONT into canonical style exactly once while ingesting the XF.
 	f := biffFontAt(fonts, ifnt)
-	xf.FontName = f.Name
-	xf.HeightPt = f.HeightPt
-	xf.Bold = f.Bold
-	xf.Italic = f.Italic
-	xf.Underline = f.Underline
-	xf.Strike = f.Strike
-	xf.FontColor = biffColorHex(f.ColorIdx, palette)
+	style.FontFamily = f.Name
+	style.FontSizePt = f.HeightPt
+	style.Bold = f.Bold
+	style.Italic = f.Italic
+	style.Underline = f.Underline
+	style.UnderlineType = f.UnderlineType
+	style.FontVertAlign = f.VertAlign
+	style.Strike = f.Strike
+	style.FontColor = biffColorHex(f.ColorIdx, palette)
 
-	// Protection flags at offset 4 (grbit, 2 bytes): bit 2=fLocked, bit 3=fHidden.
 	if len(payload) >= 6 {
 		grbit := binary.LittleEndian.Uint16(payload[4:6])
-		xf.Locked = grbit&0x0004 != 0
-		xf.FormulaHidden = grbit&0x0008 != 0
+		style.Locked = grbit&0x0004 != 0
+		style.FormulaHidden = grbit&0x0008 != 0
 	}
-
-	// Alignment byte at offset 6; text rotation (trot) at offset 8.
 	if len(payload) >= 8 {
 		alc := payload[6]
-		xf.HAlign = biffHAlign(alc & 0x07)
-		xf.WrapText = alc&0x08 != 0
-		xf.VAlign = biffVAlign((alc >> 4) & 0x07)
-	}
-	if len(payload) >= 9 {
-		// trot: 0=no rotation, 1-90=CCW degrees, 91-180=CW (value-90), 255=stacked.
-		// Matches the OOXML textRotation convention directly.
-		if trot := int(payload[8]); trot != 0 {
-			xf.TextRotation = trot
+		style.HAlign = biffHAlign(alc & 0x07)
+		style.WrapText = alc&0x08 != 0
+		style.VAlign = biffVAlign((alc >> 4) & 0x07)
+		if trot := int(payload[7]); trot != 0 {
+			style.TextRotation = trot
 		}
 	}
+	if len(payload) >= 9 {
+		textProps := payload[8]
+		style.Indent = int(textProps & 0x0F)
+		style.ShrinkToFit = textProps&0x10 != 0
+	}
 
-	// Border line styles and colors: uint32 at offset 10, uint32 at offset 14.
 	if len(payload) >= 14 {
 		b1 := binary.LittleEndian.Uint32(payload[10:14])
-		xf.BorderLeftStyle = biffBorderStyle(uint8(b1 & 0x0F))
-		xf.BorderRightStyle = biffBorderStyle(uint8((b1 >> 4) & 0x0F))
-		xf.BorderTopStyle = biffBorderStyle(uint8((b1 >> 8) & 0x0F))
-		xf.BorderBottomStyle = biffBorderStyle(uint8((b1 >> 12) & 0x0F))
-		xf.BorderLeftColor = biffColorHex(uint16((b1>>16)&0x7F), palette)
-		xf.BorderRightColor = biffColorHex(uint16((b1>>23)&0x7F), palette)
+		style.BorderLeft = sheetir.BorderStyle{Style: biffBorderStyle(uint8(b1 & 0x0F)), Color: biffColorHex(uint16((b1>>16)&0x7F), palette)}
+		style.BorderRight = sheetir.BorderStyle{Style: biffBorderStyle(uint8((b1 >> 4) & 0x0F)), Color: biffColorHex(uint16((b1>>23)&0x7F), palette)}
+		style.BorderTop.Style = biffBorderStyle(uint8((b1 >> 8) & 0x0F))
+		style.BorderBottom.Style = biffBorderStyle(uint8((b1 >> 12) & 0x0F))
+		style.BorderDiagonalDown = b1&(1<<30) != 0
+		style.BorderDiagonalUp = b1&(1<<31) != 0
 	}
 	if len(payload) >= 18 {
 		b2 := binary.LittleEndian.Uint32(payload[14:18])
-		xf.BorderTopColor = biffColorHex(uint16(b2&0x7F), palette)
-		xf.BorderBottomColor = biffColorHex(uint16((b2>>7)&0x7F), palette)
-		// Fill pattern: bits 26-31.
+		style.BorderTop.Color = biffColorHex(uint16(b2&0x7F), palette)
+		style.BorderBottom.Color = biffColorHex(uint16((b2>>7)&0x7F), palette)
+		style.BorderDiagonal = sheetir.BorderStyle{Style: biffBorderStyle(uint8((b2 >> 21) & 0x0F)), Color: biffColorHex(uint16((b2>>14)&0x7F), palette)}
 		fillPattern := uint8((b2 >> 26) & 0x3F)
-		// Foreground and background cell colors: uint16 at offset 18.
+		style.FillPattern = biffFillPattern(fillPattern)
 		if len(payload) >= 20 && fillPattern > 0 {
 			colors := binary.LittleEndian.Uint16(payload[18:20])
-			foreIdx := uint16(colors & 0x7F)
-			backIdx := uint16((colors >> 7) & 0x7F)
-			if fillPattern == 1 {
-				// Solid fill: foreground color is the cell background.
-				xf.BgColor = biffColorHex(foreIdx, palette)
-			} else if backIdx != 0x41 { // 0x41 = system window background
-				xf.BgColor = biffColorHex(backIdx, palette)
+			style.BgColor = biffColorHex(uint16(colors&0x7F), palette)
+			if backIdx := uint16((colors >> 7) & 0x7F); backIdx != 0x41 {
+				style.FillPatternBgColor = biffColorHex(backIdx, palette)
 			}
 		}
 	}
-	return xf
+	return legacyXF{Style: style}
 }
 
 // isDateNumFmt returns true if fmtCode contains unquoted date/time pattern
@@ -9957,10 +11087,10 @@ func excelSerialToDate(serial float64, date1904 bool) string {
 	return fmt.Sprintf("%04d-%02d-%02d", d.Year(), int(d.Month()), d.Day())
 }
 
-// promoteNumericCellToDate re-classifies a CellNumber cell as CellDate when
-// its format string is a date/time format.  The caller already constructed the
-// cell with Kind=CellNumber; this function mutates it in place.
-func promoteNumericCellToDate(cell *sheetir.Cell, date1904 bool) {
+// canonicalizeBIFFNumericCell is the single numeric-value semantic projection
+// used after BIFF NUMBER/RK/MULRK and numeric formula results are decoded. It
+// preserves the raw numeric value and classifies date-formatted values once.
+func canonicalizeBIFFNumericCell(cell *sheetir.Cell, date1904 bool) {
 	if cell == nil || cell.Kind != sheetir.CellNumber {
 		return
 	}
@@ -9977,28 +11107,9 @@ func styleFromXFIndex(xfIndex uint16, xfs []legacyXF) sheetir.CellStyle {
 	if int(xfIndex) >= len(xfs) {
 		return sheetir.CellStyle{}
 	}
-	xf := xfs[xfIndex]
-	return sheetir.CellStyle{
-		Bold:          xf.Bold,
-		Italic:        xf.Italic,
-		Underline:     xf.Underline,
-		Strike:        xf.Strike,
-		FontFamily:    xf.FontName,
-		FontSizePt:    xf.HeightPt,
-		FontColor:     xf.FontColor,
-		HAlign:        xf.HAlign,
-		VAlign:        xf.VAlign,
-		WrapText:      xf.WrapText,
-		BgColor:       xf.BgColor,
-		BorderLeft:    sheetir.BorderStyle{Style: xf.BorderLeftStyle, Color: xf.BorderLeftColor},
-		BorderRight:   sheetir.BorderStyle{Style: xf.BorderRightStyle, Color: xf.BorderRightColor},
-		BorderTop:     sheetir.BorderStyle{Style: xf.BorderTopStyle, Color: xf.BorderTopColor},
-		BorderBottom:  sheetir.BorderStyle{Style: xf.BorderBottomStyle, Color: xf.BorderBottomColor},
-		NumFmtCode:    xf.NumFmtCode,
-		TextRotation:  xf.TextRotation,
-		Locked:        xf.Locked,
-		FormulaHidden: xf.FormulaHidden,
-	}
+	// XF parsing already produced canonical style. Keep this lookup deliberately
+	// boring: there must be no second BIFF -> IR style interpretation path.
+	return xfs[xfIndex].Style
 }
 
 func biffHAlign(v uint8) string {
@@ -10013,6 +11124,10 @@ func biffHAlign(v uint8) string {
 		return "fill"
 	case 5:
 		return "justify"
+	case 6:
+		return "centerContinuous"
+	case 7:
+		return "distributed"
 	default:
 		return "general"
 	}
@@ -10026,23 +11141,48 @@ func biffVAlign(v uint8) string {
 		return "middle"
 	case 3:
 		return "justify"
+	case 4:
+		return "distributed"
 	default:
 		return "bottom"
 	}
 }
 
 func biffBorderStyle(v uint8) string {
+	// Preserve the BIFF line style as the canonical OOXML-style name. Rendering
+	// is responsible for choosing the closest CSS stroke; the parser must not
+	// flatten medium/dash-dot/hair variants into generic solid/dashed borders.
 	switch v {
 	case 0:
 		return ""
+	case 1:
+		return "thin"
+	case 2:
+		return "medium"
+	case 3:
+		return "dashed"
 	case 4:
 		return "dotted"
+	case 5:
+		return "thick"
 	case 6:
 		return "double"
-	case 3, 8, 9, 11, 13:
-		return "dashed"
+	case 7:
+		return "hair"
+	case 8:
+		return "mediumDashed"
+	case 9:
+		return "dashDot"
+	case 10:
+		return "mediumDashDot"
+	case 11:
+		return "dashDotDot"
+	case 12:
+		return "mediumDashDotDot"
+	case 13:
+		return "slantDashDot"
 	default:
-		return "solid"
+		return ""
 	}
 }
 

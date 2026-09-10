@@ -12,6 +12,7 @@ import (
 	"office/pkg/ooxml/chart"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/opc"
+	"office/pkg/sheet/parsers/legacy"
 	"office/pkg/sheet/parsers/ooxml/parts"
 	"office/pkg/sheet/parsers/ooxml/resolve"
 	"office/pkg/sheet/render"
@@ -66,6 +67,58 @@ func TestXlsxCorpusRender(t *testing.T) {
 	}
 	if totalDiags != 0 {
 		t.Fatalf("total unexpected corpus diagnostics = %d, want 0", totalDiags)
+	}
+}
+
+func TestXlsCorpusRender(t *testing.T) {
+	fixturesDir := repoPath(t, "testdata", "xls")
+	entries, err := os.ReadDir(fixturesDir)
+	if err != nil {
+		t.Fatalf("read fixtures dir: %v", err)
+	}
+
+	var count, totalDiags int
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".xls") {
+			continue
+		}
+		count++
+		path := filepath.Join(fixturesDir, entry.Name())
+		t.Run(entry.Name(), func(t *testing.T) {
+			wb, err := legacy.ParseXls(path)
+			if err != nil {
+				if isLegacyEncryptedWorkbookError(err) {
+					t.Skip("encrypted workbook requires password")
+				}
+				t.Fatalf("parse legacy XLS: %v", err)
+			}
+			totalDiags += countUnexpectedDiagnostics(wb.Diagnostics)
+
+			html, err := render.HTML(wb)
+			if err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			if !strings.Contains(html, "<!DOCTYPE html>") || !strings.Contains(html, "<table") {
+				t.Fatalf("unexpected HTML output")
+			}
+
+			// Corpus rendering is also a determinism gate: canonical XLS IR must
+			// produce byte-identical HTML when rendered repeatedly.
+			again, err := render.HTML(wb)
+			if err != nil {
+				t.Fatalf("second render: %v", err)
+			}
+			if html != again {
+				t.Fatal("legacy XLS render is not deterministic")
+			}
+		})
+	}
+
+	if count == 0 {
+		t.Fatal("no xls fixtures found")
+	}
+	if totalDiags != 0 {
+		t.Fatalf("total unexpected legacy corpus diagnostics = %d, want 0", totalDiags)
 	}
 }
 
@@ -924,6 +977,15 @@ func TestHTMLRendersConnectorDrawingsAsSVG(t *testing.T) {
 	if !strings.Contains(html, `<polygon points=`) {
 		t.Fatalf("expected arrowhead polygon in connector output, got: %s", html)
 	}
+}
+
+func isLegacyEncryptedWorkbookError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "encrypted workbook") &&
+		(strings.Contains(message, "invalid password") || strings.Contains(message, "password"))
 }
 
 func countUnexpectedDiagnostics(diagnostics diag.List) int {

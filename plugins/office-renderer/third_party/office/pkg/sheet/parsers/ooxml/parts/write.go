@@ -63,6 +63,7 @@ func WritePackage(pkg *Package, w io.Writer) error {
 
 		// Counters for pivot table/cache, chart, and VML drawing part numbering.
 		ptNum, cacheNum, chartNum := 0, 0, 0
+		tableNum := 0
 		vmlNum := 0
 		pkg.Workbook.PivotCaches = nil
 
@@ -157,7 +158,7 @@ func WritePackage(pkg *Package, w io.Writer) error {
 			if len(entry.Tables) > 0 && entry.Sheet != nil {
 				tp := &TableParts{Count: len(entry.Tables), Tables: make([]TablePart, len(entry.Tables))}
 				for ti, tbl := range entry.Tables {
-					tableNum := ti + 1
+					tableNum++
 					tablePartName := fmt.Sprintf("xl/tables/table%d.xml", tableNum)
 					tableRelID := fmt.Sprintf("rIdTable%d", tableNum)
 					tp.Tables[ti] = TablePart{RelID: tableRelID}

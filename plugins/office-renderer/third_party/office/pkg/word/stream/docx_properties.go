@@ -18,8 +18,10 @@ func paragraphFormatFromSAX(p wordsax.ParagraphProperties) wordir.ParagraphForma
 		LineRule:        p.LineRule,
 		KeepNext:        p.KeepNext,
 		KeepLines:       p.KeepLines,
-		PageBreakBefore: p.PageBreakBefore,
-		WidowControl:    p.WidowControl == nil || *p.WidowControl,
+		PageBreakBefore:  p.PageBreakBefore,
+		WidowControl:     p.WidowControl == nil || *p.WidowControl,
+		SnapToGrid:       p.SnapToGrid == nil || *p.SnapToGrid,
+		ContextualSpacing: p.ContextualSpacing,
 	}
 }
 
@@ -30,12 +32,19 @@ func runFormatFromSAX(r wordsax.RunProperties) wordir.RunFormat {
 		Strike:    cloneBoolPtr(r.Strike),
 		Underline: r.Underline,
 		Color:     r.Color,
-		FontASCII: r.FontFamily,
-		FontHAnsi: r.FontFamily,
+		FontASCII:        r.FontFamily,
+		FontHAnsi:        r.FontFamily,
+		BoldCS:           cloneBoolPtr(r.BoldCS),
+		CharacterSpacing: cloneIntPtr(r.CharacterSpacing),
+		Kerning:          cloneIntPtr(r.KerningHalfPoints),
 	}
 	if r.FontSizeHalfPoints != nil {
 		hp := *r.FontSizeHalfPoints
 		out.FontSize = &hp
+	}
+	if r.FontSizeCSHalfPoints != nil {
+		hp := *r.FontSizeCSHalfPoints
+		out.FontSizeCS = &hp
 	}
 	return out
 }

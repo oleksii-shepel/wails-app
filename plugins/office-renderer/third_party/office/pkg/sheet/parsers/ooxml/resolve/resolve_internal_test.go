@@ -234,3 +234,63 @@ func TestResolveTablesEnrichment(t *testing.T) {
 		t.Errorf("CalculatedColumnFormula = %q, want INT(H2/10)", col.CalculatedColumnFormula)
 	}
 }
+
+func TestPhase5OOXMLCalcPrUsesCanonicalWorkbookCalcSemantics(t *testing.T) {
+	id := 191029
+	full := true
+	force := true
+	cp := &parts.CalcPr{RefMode: "R1C1", CalcID: &id, FullCalcOnLoad: &full, ForceFullCalc: &force}
+	got := resolveWorkbookCalcPr(cp)
+	if got == nil || got.ReferenceMode != "R1C1" {
+		t.Fatalf("canonical calc settings = %#v", got)
+	}
+	if got.RecalcID == nil || *got.RecalcID != id {
+		t.Fatalf("RecalcID = %v, want %d", got.RecalcID, id)
+	}
+	if got.FullCalcOnLoad == nil || !*got.FullCalcOnLoad || got.ForceFullCalc == nil || !*got.ForceFullCalc {
+		t.Fatalf("full calculation flags = %#v", got)
+	}
+}
+
+func TestResolvePivotTablesCanonicalizesDefaultItemTypeAsData(t *testing.T) {
+	pt := &parts.PivotTableDefinition{
+		Name:     "Pivot1",
+		Location: parts.PivotLocation{Ref: "A3:B6"},
+		PivotFields: []parts.PivotField{{
+			Name:  "Field1",
+			Items: &parts.PivotItems{Count: 1, Items: []parts.PivotItem{{X: 0}}},
+		}},
+	}
+	resolved := resolvePivotTables([]*parts.PivotTableWithCache{{Table: pt}})
+	if len(resolved) != 1 || len(resolved[0].Fields) != 1 || len(resolved[0].Fields[0].Items) != 1 {
+		t.Fatalf("resolved pivot shape = %#v", resolved)
+	}
+	if got := resolved[0].Fields[0].Items[0].Type; got != "data" {
+		t.Fatalf("default pivot item type = %q, want canonical data", got)
+	}
+}
+
+func TestResolvePivotTablesDoesNotMaterializeCacheDisplayAsItemName(t *testing.T) {
+	pt := &parts.PivotTableDefinition{
+		Name:     "Pivot1",
+		Location: parts.PivotLocation{Ref: "A3:B6"},
+		PivotFields: []parts.PivotField{{
+			Name:  "Field1",
+			Items: &parts.PivotItems{Count: 1, Items: []parts.PivotItem{{X: 0}}},
+		}},
+	}
+	cache := &parts.PivotCacheDefinition{
+		CacheFields: &parts.CacheFields{Count: 1, Fields: []parts.CacheField{{
+			Name:        "Field1",
+			SharedItems: &parts.SharedItems{Count: 1, Items: []parts.SharedItem{{Type: "s", Value: "East"}}},
+		}}},
+	}
+	resolved := resolvePivotTables([]*parts.PivotTableWithCache{{Table: pt, Cache: cache}})
+	item := resolved[0].Fields[0].Items[0]
+	if item.Name != "" {
+		t.Fatalf("canonical explicit pivot item name = %q, want empty; cache display is derived data", item.Name)
+	}
+	if item.Type != "data" {
+		t.Fatalf("canonical default pivot item type = %q, want data", item.Type)
+	}
+}

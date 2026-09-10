@@ -291,6 +291,29 @@ func TestResolveHiddenColumns(t *testing.T) {
 	}
 }
 
+func TestResolveHiddenColumnPreservesAuthoredWidth(t *testing.T) {
+	ws := &parts.Worksheet{
+		Cols: []parts.ColRange{{Min: 2, Max: 2, Width: 17.25, CustomWidth: true, Hidden: true}},
+		Rows: []parts.Row{{Index: 1, Cells: []parts.Cell{{Ref: "A1", Value: "1"}}}},
+	}
+	entry := &parts.WorksheetEntry{SheetID: 1, Name: "Sheet1", Sheet: ws}
+	pkg := &parts.Package{
+		Workbook:   &parts.Workbook{Sheets: []parts.SheetRef{{Name: "Sheet1", SheetID: 1}}},
+		Worksheets: []*parts.WorksheetEntry{entry},
+	}
+	wb, err := resolve.ResolvePackage(pkg)
+	if err != nil {
+		t.Fatalf("ResolvePackage: %v", err)
+	}
+	sheet := wb.Sheets[0]
+	if !sheet.HiddenCols[2] {
+		t.Fatal("column B should remain hidden")
+	}
+	if got := sheet.ColumnWidths[2]; got != 17.25 {
+		t.Fatalf("hidden column B width = %v, want 17.25", got)
+	}
+}
+
 func TestResolveComments(t *testing.T) {
 	ws := &parts.Worksheet{
 		Rows: []parts.Row{{
@@ -1071,8 +1094,11 @@ func TestResolvePivotTablesIntegration(t *testing.T) {
 	if len(resolved.PageFields) != 1 || resolved.PageFields[0] != "Revenue" {
 		t.Errorf("PageFields: got %v, want [Revenue]", resolved.PageFields)
 	}
-	if len(resolved.Fields) != 4 || len(resolved.Fields[0].Items) != 2 || resolved.Fields[0].Items[0].Name != "East" || !resolved.Fields[0].Items[1].Hidden {
+	if len(resolved.Fields) != 4 || len(resolved.Fields[0].Items) != 2 || resolved.Fields[0].Items[0].Name != "" || !resolved.Fields[0].Items[1].Hidden {
 		t.Errorf("pivot field items = %#v", resolved.Fields)
+	}
+	if got := pivotCacheItemDisplayValueForIntegrationTest(cache, 0, resolved.Fields[0].Items[0].CacheIndex); got != "East" {
+		t.Errorf("pivot cache display value = %q, want East", got)
 	}
 	if len(resolved.PageFieldSelections) != 1 || resolved.PageFieldSelections[0].FieldName != "Revenue" || resolved.PageFieldSelections[0].ItemIndex != 1 {
 		t.Errorf("page selection = %#v", resolved.PageFieldSelections)
@@ -1090,6 +1116,17 @@ func TestResolvePivotTablesIntegration(t *testing.T) {
 	if df.NumFmtID != 4 {
 		t.Errorf("DataField.NumFmtID: got %d, want %d", df.NumFmtID, 4)
 	}
+}
+
+func pivotCacheItemDisplayValueForIntegrationTest(cache *parts.PivotCacheDefinition, fieldIndex, itemIndex int) string {
+	if cache == nil || cache.CacheFields == nil || fieldIndex < 0 || fieldIndex >= len(cache.CacheFields.Fields) {
+		return ""
+	}
+	items := cache.CacheFields.Fields[fieldIndex].SharedItems
+	if items == nil || itemIndex < 0 || itemIndex >= len(items.Items) {
+		return ""
+	}
+	return items.Items[itemIndex].Value
 }
 
 func intPtrForPivotTest(v int) *int { return &v }
@@ -1267,5 +1304,77 @@ func TestResolveFilterColumnsDynamicAndSortState(t *testing.T) {
 	}
 	if sheet.SortState.Conditions[1].Ref != "A2:A10" {
 		t.Fatalf("condition1 = %#v", sheet.SortState.Conditions[1])
+	}
+}
+
+func TestResolvePreservesLegacyDrawingVMLForCanonicalRoundTrip(t *testing.T) {
+	raw := []byte(`<xml xmlns:v="urn:schemas-microsoft-com:vml"><v:shape id="custom" data-unknown="keep-me"/></xml>`)
+	entry := &parts.WorksheetEntry{
+		SheetID:          1,
+		Name:             "Sheet1",
+		Sheet:            &parts.Worksheet{},
+		LegacyDrawingVML: raw,
+		VMLObjects: []parts.VMLObject{{
+			ID: "custom", Type: "#custom", Style: "width:20pt", Text: "Hello",
+		}},
+	}
+	pkg := &parts.Package{
+		Workbook:   &parts.Workbook{Sheets: []parts.SheetRef{{Name: "Sheet1", SheetID: 1}}},
+		Worksheets: []*parts.WorksheetEntry{entry},
+	}
+	wb, err := resolve.ResolvePackage(pkg)
+	if err != nil {
+		t.Fatalf("ResolvePackage: %v", err)
+	}
+	sheet := wb.Sheets[0]
+	if string(sheet.LegacyDrawingVML) != string(raw) {
+		t.Fatalf("legacy VML = %q, want exact source bytes %q", sheet.LegacyDrawingVML, raw)
+	}
+	if len(sheet.VMLObjects) != 1 || sheet.VMLObjects[0].ID != "custom" || sheet.VMLObjects[0].Text != "Hello" {
+		t.Fatalf("VML objects = %#v", sheet.VMLObjects)
+	}
+}
+
+func TestResolvePreservesHyperlinkAndCommentMetadata(t *testing.T) {
+	entry := &parts.WorksheetEntry{
+		SheetID: 1, Name: "Sheet1",
+		Sheet: &parts.Worksheet{
+			Rows:       []parts.Row{{Index: 1, Cells: []parts.Cell{{Ref: "A1", Type: "inlineStr", InlineStr: &parts.RichText{PlainText: "link"}}}}},
+			Hyperlinks: []parts.Hyperlink{{Ref: "A1:B1", RelID: "rId1", Display: "Open docs", Tooltip: "Documentation"}},
+		},
+		HyperlinkURLs: map[string]string{"rId1": "https://example.com/docs"},
+		Comments: &parts.Comments{
+			Authors: []string{"Ada"},
+			CommentList: []parts.CommentEntry{{
+				Ref: "A1", AuthorID: 0,
+				Text: parts.RichText{Runs: []parts.RTRun{{Text: "Review ", Properties: &parts.RTProps{Bold: &struct{}{}}}, {Text: "this"}}},
+			}},
+		},
+	}
+	pkg := &parts.Package{
+		Workbook:   &parts.Workbook{Sheets: []parts.SheetRef{{Name: "Sheet1", SheetID: 1}}},
+		Worksheets: []*parts.WorksheetEntry{entry},
+	}
+	wb, err := resolve.ResolvePackage(pkg)
+	if err != nil {
+		t.Fatalf("ResolvePackage: %v", err)
+	}
+	sheet := wb.Sheets[0]
+	if len(sheet.Hyperlinks) != 1 {
+		t.Fatalf("hyperlinks = %d, want 1", len(sheet.Hyperlinks))
+	}
+	hl := sheet.Hyperlinks[0]
+	if hl.Ref != "A1:B1" || hl.URL != "https://example.com/docs" || hl.Display != "Open docs" || hl.Tooltip != "Documentation" {
+		t.Fatalf("hyperlink metadata = %#v", hl)
+	}
+	if sheet.Rows[0].Cells[0].HyperlinkURL != "https://example.com/docs" {
+		t.Fatalf("cell hyperlink compatibility view lost")
+	}
+	note := sheet.Notes["A1"]
+	if note == nil || note.Author != "Ada" || note.Text != "Review this" || len(note.RichText) != 2 || !note.RichText[0].Bold {
+		t.Fatalf("note metadata = %#v", note)
+	}
+	if sheet.Comments["A1"] != "Review this" {
+		t.Fatalf("plain comment compatibility view lost")
 	}
 }

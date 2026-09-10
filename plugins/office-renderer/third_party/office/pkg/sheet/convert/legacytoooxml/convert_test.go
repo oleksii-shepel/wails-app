@@ -852,3 +852,73 @@ func TestConvertPivotTablesWithNamedSource(t *testing.T) {
 		t.Fatalf("expected 2 cache records, got %#v", ptc.Records)
 	}
 }
+
+func TestPhase5CanonicalWorkbookCalcSettingsRoundTripToOOXML(t *testing.T) {
+	mode := -1
+	count := 77
+	delta := 0.0025
+	iterate := true
+	save := false
+	precisionAsDisplayed := true
+	recalcID := 191029
+	full := true
+	force := true
+	wb := &sheetir.Workbook{Calc: &sheetir.WorkbookCalcSettings{
+		Mode:                 &mode,
+		IterationCount:       &count,
+		Iterate:              &iterate,
+		Delta:                &delta,
+		SaveRecalc:           &save,
+		PrecisionAsDisplayed: &precisionAsDisplayed,
+		ReferenceMode:        "R1C1",
+		RecalcID:             &recalcID,
+		FullCalcOnLoad:       &full,
+		ForceFullCalc:        &force,
+	}}
+	pkg, err := Convert(wb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp := pkg.Workbook.CalcPr
+	if cp == nil || cp.CalcMode != "autoNoTable" || cp.RefMode != "R1C1" {
+		t.Fatalf("calcPr = %#v", cp)
+	}
+	if cp.CalcID == nil || *cp.CalcID != recalcID || cp.IterateCount == nil || *cp.IterateCount != count {
+		t.Fatalf("calcPr ids/count = %#v", cp)
+	}
+	if cp.FullPrecision == nil || *cp.FullPrecision || cp.FullCalcOnLoad == nil || !*cp.FullCalcOnLoad || cp.ForceFullCalc == nil || !*cp.ForceFullCalc {
+		t.Fatalf("calcPr flags = %#v", cp)
+	}
+}
+
+func TestConvertPivotUsesCanonicalSemanticFieldNamesByPosition(t *testing.T) {
+	wb := &sheetir.Workbook{Sheets: []*sheetir.Sheet{
+		{Name: "Data", Rows: []*sheetir.Row{
+			{Index: 1, Cells: []*sheetir.Cell{
+				{Row: 1, Col: 1, Ref: "A1", Kind: sheetir.CellString, StrValue: "Source A"},
+				{Row: 1, Col: 2, Ref: "B1", Kind: sheetir.CellString, StrValue: "Source B"},
+			}},
+			{Index: 2, Cells: []*sheetir.Cell{
+				{Row: 2, Col: 1, Ref: "A2", Kind: sheetir.CellString, StrValue: "East"},
+				{Row: 2, Col: 2, Ref: "B2", Kind: sheetir.CellNumber, NumValue: 10},
+			}},
+		}},
+	}}
+	pt := &sheetir.PivotTable{
+		Name: "Pivot1", LocationRef: "A3:B6", SourceSheet: "Data", SourceRef: "A1:B2",
+		RowFields:  []string{"Field1"},
+		DataFields: []*sheetir.PivotDataField{{Name: "Sum", SourceFieldName: "Field2", Subtotal: "sum"}},
+		Fields:     []*sheetir.PivotField{{Name: "Field1", Axis: "axisRow"}, {Name: "Field2", DataField: true}},
+	}
+	next := 0
+	got, err := buildPivotTable(pt, wb, "Pivot", func() int { next++; return next })
+	if err != nil {
+		t.Fatalf("buildPivotTable: %v", err)
+	}
+	if len(got.Table.RowFields) != 1 || len(got.Table.DataFields) != 1 {
+		t.Fatalf("semantic pivot axes were lost: %#v", got.Table)
+	}
+	if got.Table.PivotFields[0].Name != "Field1" || got.Table.PivotFields[1].Name != "Field2" {
+		t.Fatalf("pivot field names = %#v", got.Table.PivotFields)
+	}
+}

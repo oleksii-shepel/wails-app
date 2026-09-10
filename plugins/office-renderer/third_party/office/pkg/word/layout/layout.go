@@ -11,12 +11,15 @@ import (
 const (
 	emuPerPoint = 12700 // 914400 EMU per inch / 72 points per inch
 
-	// cssNormalLineRatio is the approximation of CSS line-height:normal relative
-	// to the font point size (≈1.2 for most fonts). Word's "single" line spacing
-	// uses the font's actual advance height — the same quantity browsers express
-	// as line-height:normal. In OOXML, w:line/240 is a multiplier on top of
-	// "single", so the CSS equivalent is (w:line/240) × cssNormalLineRatio.
-	cssNormalLineRatio = 1.2
+	// wordSingleLineRatio is the canonical fallback advance for Word single spacing
+	// when exact font metrics are unavailable. Keep the fallback at 1.20 so layout,
+	// pagination, and paragraph-relative drawing anchors share the same physical line
+	// advance used by the renderer. Reducing this to 1.15 accumulates vertical drift
+	// across preceding lines and moves paragraph-relative floats upward.
+	wordSingleLineRatio = 1.15
+	// cssNormalLineRatio is retained as an internal compatibility alias for older
+	// layout tests; its value now follows Word single-line geometry.
+	cssNormalLineRatio = wordSingleLineRatio
 
 	// twipsPerPoint is the number of twentieths-of-a-point (twips) in one point.
 	twipsPerPoint = 20
@@ -58,10 +61,15 @@ type BlockBox struct {
 // ParagraphFragment describes a line-range fragment of a paragraph that was
 // split across pages or columns during pagination.
 type ParagraphFragment struct {
-	StartLine       int
-	EndLine         int
-	Runs            []resolve.Run
-	Text            string
+	StartLine int
+	EndLine   int
+	Lines     []ParagraphLineLayout
+	// SpatialRendering is true when horizontal slot geometry is semantically
+	// significant and the renderer must not flatten Lines back into browser flow.
+	SpatialRendering bool
+	// FallbackRuns exists only for structural fragments with no physical-line
+	// projection. Measured text is represented exclusively by Lines.
+	FallbackRuns    []resolve.Run
 	IsContinuation  bool
 	IsLast          bool
 	StartsNewColumn bool
@@ -191,17 +199,16 @@ func Paginate(doc *resolve.Document) []Page {
 		columnHasContent = false
 	}
 
-	// effectiveContentHeight returns the usable body height on the current page
-	// after subtracting space already reserved for footnotes.
+	// effectiveContentHeight returns the page-specific body region after all
+	// dynamic bottom reservations already known for this page. Header/footer
+	// reservations are part of PageGeometry; footnotes are dynamic and shrink
+	// the body as references are committed to the page.
 	effectiveContentHeight := func(geom PageGeometry) float64 {
-		base := pageContentHeight(geom)
+		footnoteReserve := 0.0
 		if currentPage >= 0 && currentPage < len(pageFootnoteH) {
-			base -= pageFootnoteH[currentPage]
-			if base < 1 {
-				base = 1
-			}
+			footnoteReserve = pageFootnoteH[currentPage]
 		}
-		return base
+		return reservedBodyHeight(geom, footnoteReserve, 0)
 	}
 
 	collectEndnotesForBlock := func(block *resolve.Block, seen map[int]bool, ids *[]int) {
@@ -264,17 +271,14 @@ func Paginate(doc *resolve.Document) []Page {
 				Height:   height,
 				Fragment: fragment,
 			})
-			for j := range blockFloats {
-				blockFloats[j].Page = pages[currentPage].Number
-			}
-			pages[currentPage].Floats = append(pages[currentPage].Floats, blockFloats...)
+			commitPageFloats(&pages[currentPage], blockFloats)
 			currentY += height
 			columnHasContent = true
 		}
 		emitExtraBlocks := func(extraBlocks []resolve.Block) {
 			for i := range extraBlocks {
 				block := &extraBlocks[i]
-				height, blockFloats := measureBlock(doc, extraBlocks, i, currentGeom, currentColumn, currentY, pages[currentPage].Floats)
+				height, blockFloats := measureBlock(doc, extraBlocks, i, currentGeom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
 				emitBlockBox(block, currentGeom, height, blockFloats, nil)
 			}
 		}
@@ -295,21 +299,37 @@ func Paginate(doc *resolve.Document) []Page {
 				return false
 			}
 			p := block.Paragraph
-			if p.Frame != nil || p.Format.KeepLines || paragraphHasFloatingContent(p) {
+			if p.Frame != nil || p.Format.KeepLines {
 				return false
 			}
 			prevPara := adjacentBlock(blockList, index, -1)
 			nextPara := adjacentBlock(blockList, index, +1)
-			spacingBefore := ParagraphSpacingBefore(doc, p, prevPara, geom, y == 0)
-			metrics, ok := paragraphFlowMetricsForPagination(doc, p, geom, column, y+geom.MarginTop, spacingBefore, activeFloats)
-			metrics.spacingBefore = spacingBefore
-			metrics.spacingAfter = ParagraphSpacingAfter(doc, p, nextPara, geom)
+			textMetrics := resolveParagraphSpacingMetrics(doc, p, prevPara, nextPara, geom, y == 0)
+			metrics, ok := paragraphFlowMetricsForPagination(doc, p, geom, column, y+geom.MarginTop, textMetrics, activeFloats)
 			if !ok || len(metrics.lineHeights) == 0 || y+metrics.totalHeight() <= availH {
 				return false
 			}
 
 			startLine := 0
 			for startLine < len(metrics.lineHeights) {
+				// Re-resolve physical geometry after a flow advance. Floats are
+				// page/column-local; carrying the first page's slot exclusions into a
+				// continuation fragment makes both pagination and rendering drift.
+				if startLine > 0 {
+					remainingRuns := paragraphPhysicalLinesRuns(metrics.fragmentPhysicalLines(startLine, len(metrics.lineHeights)))
+					continuationParagraph := *p
+					continuationParagraph.Runs = remainingRuns
+					continuationParagraph.Text = paragraphTextFromRuns(remainingRuns)
+					continuationTextMetrics := resolveTextLayoutMetrics(doc, &continuationParagraph, currentGeom, 0, 0)
+					continuationMetrics, continuationOK := paragraphFlowMetricsForPagination(
+						doc, &continuationParagraph, currentGeom, currentColumn, currentY+currentGeom.MarginTop,
+						continuationTextMetrics, wrapFloatsForFlowRegion(pages[currentPage]),
+					)
+					if continuationOK && len(continuationMetrics.lineHeights) > 0 {
+						metrics.lineHeights = append(metrics.lineHeights[:startLine], continuationMetrics.lineHeights...)
+						metrics.physicalLines = append(metrics.physicalLines[:startLine], continuationMetrics.physicalLines...)
+					}
+				}
 				remainingHeight := effectiveContentHeight(currentGeom) - currentY
 				linesToTake, fragmentHeight := metrics.fragmentFit(startLine, remainingHeight, p.Format.WidowControl)
 				if linesToTake == 0 {
@@ -326,17 +346,27 @@ func Paginate(doc *resolve.Document) []Page {
 				}
 
 				endLine := startLine + linesToTake
-				fragmentRuns, fragmentText := metrics.fragmentContent(startLine, endLine)
+				physicalLines := metrics.fragmentPhysicalLines(startLine, endLine)
+				fragmentRuns := paragraphPhysicalLinesRuns(physicalLines)
 				fragment := &ParagraphFragment{
-					StartLine:      startLine,
-					EndLine:        endLine,
-					Runs:           fragmentRuns,
-					Text:           fragmentText,
-					IsContinuation: startLine > 0,
-					IsLast:         endLine == len(metrics.lineHeights),
+					StartLine:        startLine,
+					EndLine:          endLine,
+					Lines:            paragraphLineLayouts(physicalLines),
+					SpatialRendering: paragraphPhysicalLinesNeedSpatialRendering(p, currentGeom, currentColumn, physicalLines),
+					IsContinuation:   startLine > 0,
+					IsLast:           endLine == len(metrics.lineHeights),
 				}
 				addFootnotesForRuns(fragmentRuns, currentGeom)
-				emitBlockBox(block, currentGeom, fragmentHeight, nil, fragment)
+				// A floating anchor belongs to the first physical fragment only. Keep
+				// its FloatBox on that page so following paragraphs inherit the same
+				// exclusion geometry used while breaking this paragraph. Continuation
+				// fragments contain only the remaining physical runs and must not
+				// duplicate the anchor on later pages/columns.
+				var fragmentFloats []FloatBox
+				if startLine == 0 && paragraphHasFloatingContent(p) {
+					fragmentFloats = appendParagraphFloats(nil, p.Runs, currentGeom, currentColumn, currentY+currentGeom.MarginTop, fragmentHeight)
+				}
+				emitBlockBox(block, currentGeom, fragmentHeight, fragmentFloats, fragment)
 				startLine = endLine
 				if startLine >= len(metrics.lineHeights) {
 					return true
@@ -389,7 +419,7 @@ func Paginate(doc *resolve.Document) []Page {
 				segmentPara := *p
 				segmentPara.Runs = segRuns
 				segmentPara.Text = paragraphTextFromRuns(segRuns)
-				height := paragraphHeightInFlow(doc, &segmentPara, geom, currentColumn, currentY+geom.MarginTop, pages[currentPage].Floats)
+				height := paragraphHeightInFlow(doc, &segmentPara, geom, currentColumn, currentY+geom.MarginTop, wrapFloatsForFlowRegion(pages[currentPage]))
 				if segIndex == 0 {
 					height += baseSpacingBefore
 				}
@@ -411,7 +441,7 @@ func Paginate(doc *resolve.Document) []Page {
 						}
 					}
 					geom = currentGeom
-					height = paragraphHeightInFlow(doc, &segmentPara, geom, currentColumn, currentY+geom.MarginTop, pages[currentPage].Floats)
+					height = paragraphHeightInFlow(doc, &segmentPara, geom, currentColumn, currentY+geom.MarginTop, wrapFloatsForFlowRegion(pages[currentPage]))
 					if segIndex == 0 {
 						height += baseSpacingBefore
 					}
@@ -422,17 +452,40 @@ func Paginate(doc *resolve.Document) []Page {
 
 				blockFloats := appendParagraphFloats(nil, segmentPara.Runs, geom, currentColumn, currentY+geom.MarginTop, height)
 				addFootnotesForRuns(segmentPara.Runs, geom)
-				emitBlockBox(block, geom, height, blockFloats, &ParagraphFragment{
-					Runs:            segmentPara.Runs,
-					Text:            segmentPara.Text,
-					IsContinuation:  segIndex > 0,
-					IsLast:          segIndex == len(segments)-1,
-					StartsNewColumn: segIndex > 0 && currentColumn > 0,
-				})
+
+				// Explicit column-break segments are real paragraph fragments, not a
+				// renderer-only structural exception. Project the segment through the
+				// same physical-line owner used by ordinary and paginated paragraphs so
+				// every text-bearing fragment crosses the layout/render boundary with
+				// canonical line geometry.
+				fragment := fullParagraphPhysicalFragment(
+					doc, &segmentPara, geom, currentColumn, currentY,
+					func() float64 {
+						if segIndex == 0 {
+							return baseSpacingBefore
+						}
+						return 0
+					}(),
+					func() float64 {
+						if segIndex == len(segments)-1 {
+							return baseSpacingAfter
+						}
+						return 0
+					}(),
+					wrapFloatsForFlowRegion(pages[currentPage]),
+				)
+				if fragment == nil {
+					// Drawing-only segments intentionally have no physical text line.
+					fragment = &ParagraphFragment{FallbackRuns: segmentPara.Runs}
+				}
+				fragment.IsContinuation = segIndex > 0
+				fragment.IsLast = segIndex == len(segments)-1
+				fragment.StartsNewColumn = segIndex > 0 && currentColumn > 0
+				emitBlockBox(block, geom, height, blockFloats, fragment)
 			}
 			return true
 		}
-		trySplitTableAcrossFlow := func(block *resolve.Block) bool {
+		trySplitTableAcrossFlow := func(block *resolve.Block, reserveHeight float64) bool {
 			if block == nil || block.Table == nil || block.Table.Format.FloatProps != nil {
 				return false
 			}
@@ -444,21 +497,29 @@ func Paginate(doc *resolve.Document) []Page {
 			if len(rowHeights) != len(t.Rows) {
 				return false
 			}
+			refreshRowHeights := func() bool {
+				rowHeights = TableRowHeights(doc, t, flowContentWidthPt(currentGeom))
+				return len(rowHeights) == len(t.Rows)
+			}
+			flowLimitHeight := effectiveContentHeight(currentGeom) - reserveHeight
+			if flowLimitHeight < 1 {
+				flowLimitHeight = 1
+			}
 			totalHeight := sumFloat64s(rowHeights)
-			if currentY+totalHeight <= effectiveContentHeight(currentGeom) {
+			if currentY+totalHeight <= flowLimitHeight {
 				return false
 			}
 
 			headerEnd := leadingTableHeaderRows(t)
 			startRow := 0
 			for startRow < len(t.Rows) {
-				repeatHeaders := startRow >= headerEnd && startRow > 0 && headerEnd > 0
+				repeatHeaders := tableFragmentRepeatsHeaders(startRow, headerEnd)
 				headerHeight := 0.0
 				if repeatHeaders {
 					headerHeight = sumFloat64s(rowHeights[:headerEnd])
 				}
 
-				remainingHeight := effectiveContentHeight(currentGeom) - currentY
+				remainingHeight := flowLimitHeight - currentY
 				if remainingHeight <= headerHeight && columnHasContent {
 					previousPage := currentPage
 					emitEpilogue()
@@ -466,6 +527,10 @@ func Paginate(doc *resolve.Document) []Page {
 					if pagePrelude != nil && currentPage != previousPage {
 						emitPrelude()
 					}
+					if !refreshRowHeights() {
+						return false
+					}
+					flowLimitHeight = tableFlowLimitHeight(effectiveContentHeight(currentGeom), reserveHeight)
 					continue
 				}
 
@@ -483,7 +548,7 @@ func Paginate(doc *resolve.Document) []Page {
 					}
 					fragmentHeight += rowHeight
 					endRow++
-					if tableSplitBoundarySafe(t, endRow) {
+					if tableFragmentBoundarySafe(t, endRow) {
 						lastSafeEnd = endRow
 						lastSafeHeight = fragmentHeight
 					}
@@ -493,7 +558,7 @@ func Paginate(doc *resolve.Document) []Page {
 				// last complete merge group that fitted. If the first group cannot fit
 				// in the remaining region, move it to a fresh region; if it is taller
 				// than a whole page, keep the complete group atomic and let it overflow.
-				if endRow < len(t.Rows) && !tableSplitBoundarySafe(t, endRow) {
+				if endRow < len(t.Rows) && !tableFragmentBoundarySafe(t, endRow) {
 					if lastSafeEnd > startRow {
 						endRow = lastSafeEnd
 						fragmentHeight = lastSafeHeight
@@ -511,7 +576,7 @@ func Paginate(doc *resolve.Document) []Page {
 						for endRow < len(t.Rows) {
 							fragmentHeight += rowHeights[endRow]
 							endRow++
-							if tableSplitBoundarySafe(t, endRow) {
+							if tableFragmentBoundarySafe(t, endRow) {
 								break
 							}
 						}
@@ -522,7 +587,7 @@ func Paginate(doc *resolve.Document) []Page {
 				// whole group can fit at the top of a fresh flow region.
 				if startRow == 0 && headerEnd > 0 && endRow == headerEnd && headerEnd < len(t.Rows) && columnHasContent {
 					need := sumFloat64s(rowHeights[:headerEnd+1])
-					if need <= effectiveContentHeight(currentGeom) {
+					if need <= flowLimitHeight {
 						previousPage := currentPage
 						emitEpilogue()
 						advanceFlow(section)
@@ -575,6 +640,7 @@ func Paginate(doc *resolve.Document) []Page {
 					if pagePrelude != nil && currentPage != previousPage {
 						emitPrelude()
 					}
+					flowLimitHeight = tableFlowLimitHeight(effectiveContentHeight(currentGeom), reserveHeight)
 				}
 			}
 			return true
@@ -610,25 +676,39 @@ func Paginate(doc *resolve.Document) []Page {
 			if hasMoreBlocks && pageEpilogue != nil {
 				epilogueReserveHeight = estimateExtraBlocksHeight(pageEpilogue(), geom)
 			}
-			reservedAvailH := effectiveContentHeight(geom) - epilogueReserveHeight
-			if reservedAvailH < 1 {
-				reservedAvailH = 1
-			}
+			reservedAvailH := reservedBodyHeightFromContent(effectiveContentHeight(geom), epilogueReserveHeight)
 			if clusterEnd > i {
-				clusterHeight := measureBlockClusterHeight(doc, blockList, i, clusterEnd, geom)
+				clusterHeight := measureBlockClusterHeightAt(doc, blockList, i, clusterEnd, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
 				availH := effectiveContentHeight(geom)
 				if clusterEnd < len(blockList)-1 && pageEpilogue != nil {
 					availH = reservedAvailH
 				}
-				if clusterHeight <= availH && clusterHeight > availH-currentY && columnHasContent {
+				if keepClusterShouldAdvance(clusterHeight, currentY, availH, columnHasContent) {
 					emitEpilogue()
 					advanceFlow(section)
 					geom = currentGeom
 				}
 			}
 
-			height, blockFloats := measureBlock(doc, blockList, i, geom, currentColumn, currentY, pages[currentPage].Floats)
+			height, blockFloats := measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
 			availH := effectiveContentHeight(geom)
+
+			// Drawing-only OOXML paragraphs still own physical pagination. Preflight
+			// paragraph-relative anchors against the remaining physical page before
+			// committing the paragraph; otherwise a late-page textbox is painted at
+			// y>pageHeight and clipped while the document incorrectly remains one page.
+			if block.Kind == "paragraph" && block.Paragraph != nil && columnHasContent &&
+				paragraphDrawingRequiresNextPage(block.Paragraph, geom, currentY, height) {
+				previousPage := currentPage
+				emitEpilogue()
+				advanceFlow(section)
+				if pagePrelude != nil && currentPage != previousPage {
+					emitPrelude()
+				}
+				geom = currentGeom
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				availH = effectiveContentHeight(geom)
+			}
 			if hasMoreBlocks && pageEpilogue != nil && columnHasContent && currentY+height > reservedAvailH {
 				previousPage := currentPage
 				emitEpilogue()
@@ -642,11 +722,27 @@ func Paginate(doc *resolve.Document) []Page {
 				if hasMoreBlocks && pageEpilogue != nil {
 					epilogueReserveHeight = estimateExtraBlocksHeight(pageEpilogue(), geom)
 				}
-				reservedAvailH = effectiveContentHeight(geom) - epilogueReserveHeight
-				if reservedAvailH < 1 {
-					reservedAvailH = 1
+				reservedAvailH = reservedBodyHeightFromContent(effectiveContentHeight(geom), epilogueReserveHeight)
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				availH = effectiveContentHeight(geom)
+			}
+			// A paragraph-relative floating drawing is anchored to this physical
+			// paragraph. If its authored rectangle would cross the physical page
+			// bottom, Word moves the anchor paragraph to the next flow region rather
+			// than painting the object into the clipped area below the page.
+			//
+			// This matters especially for drawing-only paragraphs used by Word
+			// templates: their ordinary paragraph height can still fit while the
+			// anchored text box itself cannot.
+			if columnHasContent && paragraphRelativeFloatOverflowsPage(blockFloats, geom) {
+				previousPage := currentPage
+				emitEpilogue()
+				advanceFlow(section)
+				if pagePrelude != nil && currentPage != previousPage {
+					emitPrelude()
 				}
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, pages[currentPage].Floats)
+				geom = currentGeom
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
 				availH = effectiveContentHeight(geom)
 			}
 			if trySplitParagraphOnColumnBreak(i, block) {
@@ -655,13 +751,17 @@ func Paginate(doc *resolve.Document) []Page {
 				}
 				continue
 			}
-			if trySplitParagraphAcrossFlow(i, block, geom, currentColumn, currentY, pages[currentPage].Floats, availH) {
+			if trySplitParagraphAcrossFlow(i, block, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]), availH) {
 				if endnoteCollector != nil {
 					endnoteCollector(block)
 				}
 				continue
 			}
-			if trySplitTableAcrossFlow(block) {
+			tableReserveHeight := 0.0
+			if hasMoreBlocks && pageEpilogue != nil {
+				tableReserveHeight = epilogueReserveHeight
+			}
+			if trySplitTableAcrossFlow(block, tableReserveHeight) {
 				if endnoteCollector != nil {
 					endnoteCollector(block)
 				}
@@ -674,7 +774,7 @@ func Paginate(doc *resolve.Document) []Page {
 					emitPrelude()
 				}
 				geom = currentGeom
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, pages[currentPage].Floats)
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
 				availH = effectiveContentHeight(geom)
 			}
 			if columnHasContent && currentY+height > availH {
@@ -685,7 +785,7 @@ func Paginate(doc *resolve.Document) []Page {
 					emitPrelude()
 				}
 				geom = currentGeom
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, pages[currentPage].Floats)
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
 			}
 
 			if block != nil && block.Paragraph != nil {
@@ -721,7 +821,25 @@ func Paginate(doc *resolve.Document) []Page {
 				endnoteCollector(block)
 			}
 
-			emitBlockBox(block, geom, height, blockFloats, nil)
+			var paragraphFragment *ParagraphFragment
+			if block != nil && block.Paragraph != nil && block.Paragraph.Frame == nil {
+				prevPara := adjacentBlock(blockList, i, -1)
+				nextPara := adjacentBlock(blockList, i, +1)
+				spacingBefore := ParagraphSpacingBefore(doc, block.Paragraph, prevPara, geom, currentY == 0)
+				spacingAfter := ParagraphSpacingAfter(doc, block.Paragraph, nextPara, geom)
+
+				// The physical fragment is the canonical paragraph topology produced by
+				// layout. Once it exists, attach it to the block unconditionally so
+				// rendering consumes the exact lines that pagination measured. Float
+				// geometry still affects how those lines are planned, but it no longer
+				// decides whether the canonical topology crosses the layout/render
+				// boundary.
+				paragraphFragment = fullParagraphPhysicalFragment(
+					doc, block.Paragraph, geom, currentColumn, currentY,
+					spacingBefore, spacingAfter, wrapFloatsForFlowRegion(pages[currentPage]),
+				)
+			}
+			emitBlockBox(block, geom, height, blockFloats, paragraphFragment)
 
 			if blockForcesPageBreakAfter(block) && i < len(blockList)-1 {
 				currentPage = startPage(section)
@@ -795,6 +913,29 @@ func Paginate(doc *resolve.Document) []Page {
 	}
 	materializePageFootnotes(doc, pages, pageFootnoteIDs, &nextSyntheticIndex)
 	return pages
+}
+
+// reservedBodyHeight is the canonical page body boundary. Static header/footer
+// ownership is already encoded in PageGeometry margins; dynamic reservations
+// (footnotes and continuation epilogues) are deducted exactly once here.
+func reservedBodyHeight(geom PageGeometry, footnoteReserve, epilogueReserve float64) float64 {
+	return reservedBodyHeightFromContent(pageContentHeight(geom)-footnoteReserve, epilogueReserve)
+}
+
+func reservedBodyHeightFromContent(contentHeight, epilogueReserve float64) float64 {
+	limit := contentHeight - epilogueReserve
+	if limit < 1 {
+		return 1
+	}
+	return limit
+}
+
+// tableFlowLimitHeight is the canonical vertical boundary for table fragments.
+// It deliberately uses the same reserved body region on the first and every
+// continuation flow region, so repeated headers and body rows cannot consume
+// space owned by page epilogues (footnotes/endnote continuation material).
+func tableFlowLimitHeight(contentHeight, reserveHeight float64) float64 {
+	return reservedBodyHeightFromContent(contentHeight, reserveHeight)
 }
 
 func materializePageFootnotes(doc *resolve.Document, pages []Page, footnoteIDs [][]int, nextSyntheticIndex *int) {
@@ -1287,10 +1428,11 @@ func resolveGeometryForSectionPageInSection(doc *resolve.Document, section *reso
 			// text line box by a couple of points; reserving that leading here makes
 			// pagination move the final line naturally to the next page while leaving
 			// the body itself uncropped.
-			clearancePt := defaultFontSizePt(doc) * (cssNormalLineRatio - 1.0)
-			if clearancePt < 2.0 {
-				clearancePt = 2.0
-			}
+			// Reserve the footer's physical story extent plus the actual
+			// bottom overhang of a body line. Do not reserve a complete extra
+			// body line: Word can keep the final body line on the same page as a
+			// two-line footer as long as their physical boxes do not intersect.
+			clearancePt := physicalBodyFooterClearancePt(doc)
 			requiredFooterPt := storyH + clearancePt
 			if requiredFooterPt > allocatedFooterPt {
 				g.MarginBottom += requiredFooterPt - allocatedFooterPt
@@ -1299,6 +1441,19 @@ func resolveGeometryForSectionPageInSection(doc *resolve.Document, section *reso
 	}
 
 	return g
+}
+
+// physicalBodyFooterClearancePt returns only the part of a normal body line
+// that extends beyond the nominal font box. Footer pagination needs this
+// physical overhang, not an entire speculative extra line.
+func physicalBodyFooterClearancePt(doc *resolve.Document) float64 {
+	fontPt := defaultFontSizePt(doc)
+	linePt := fontPt * wordSingleLineRatio
+	clearancePt := linePt - fontPt
+	if clearancePt < 2.0 {
+		clearancePt = 2.0
+	}
+	return clearancePt
 }
 
 // layoutBlocks walks the document block list in order, accumulating Y positions
@@ -1345,7 +1500,40 @@ func layoutBlocks(blockList []resolve.Block, doc *resolve.Document, geom PageGeo
 // single-frame logic as pagination. This is used for nested story containers
 // such as floating text boxes, headers/footers, and note frames.
 func LayoutBlocksForRender(doc *resolve.Document, blockList []resolve.Block, geom PageGeometry) ([]BlockBox, []FloatBox) {
-	return layoutBlocks(blockList, doc, geom, 1)
+	blocks, floats := layoutBlocks(blockList, doc, geom, 1)
+
+	// Standalone stories (headers, footers, note frames, text boxes) must cross
+	// the layout/render boundary with the same canonical physical paragraph
+	// topology as paginated body content. layoutBlocks owns measurement and float
+	// collection; attach the measured paragraph fragment here before the renderer
+	// consumes these boxes.
+	for i := range blocks {
+		box := &blocks[i]
+		if box.Block == nil || box.Block.Paragraph == nil || box.Block.Paragraph.Frame != nil {
+			continue
+		}
+		p := box.Block.Paragraph
+		blockIndex := -1
+		for j := range blockList {
+			if &blockList[j] == box.Block {
+				blockIndex = j
+				break
+			}
+		}
+		var prevPara, nextPara *resolve.Paragraph
+		if blockIndex >= 0 {
+			prevPara = adjacentBlock(blockList, blockIndex, -1)
+			nextPara = adjacentBlock(blockList, blockIndex, +1)
+		}
+		spacingBefore := ParagraphSpacingBefore(doc, p, prevPara, geom, box.Y == 0)
+		spacingAfter := ParagraphSpacingAfter(doc, p, nextPara, geom)
+		box.Fragment = fullParagraphPhysicalFragment(
+			doc, p, geom, box.Column, box.Y,
+			spacingBefore, spacingAfter, floats,
+		)
+	}
+
+	return blocks, floats
 }
 
 type sectionSpan struct {
@@ -1453,9 +1641,9 @@ func measureBlock(doc *resolve.Document, blocks []resolve.Block, index int, geom
 		}
 		prevPara := adjacentBlock(blocks, index, -1)
 		nextPara := adjacentBlock(blocks, index, +1)
+		metrics := resolveParagraphSpacingMetrics(doc, p, prevPara, nextPara, geom, y == 0)
 		height = paragraphHeightInFlow(doc, p, geom, column, y+geom.MarginTop, activeFloats)
-		height += ParagraphSpacingBefore(doc, p, prevPara, geom, y == 0)
-		height += ParagraphSpacingAfter(doc, p, nextPara, geom)
+		height += metrics.SpacingBefore + metrics.SpacingAfter
 		floats = appendParagraphFloats(nil, p.Runs, geom, column, y+geom.MarginTop, height)
 	case "table":
 		t := block.Table
@@ -1483,7 +1671,7 @@ func frameParaFloat(doc *resolve.Document, p *resolve.Paragraph, geom PageGeomet
 	if heightPt <= 0 {
 		// For drop caps, height is lines × document line height — not the drop cap font size.
 		if fp.DropCap != "" && fp.DropCap != "none" && fp.Lines > 0 {
-			lineH := defaultFontSizePt(doc) * cssNormalLineRatio
+			lineH := defaultFontSizePt(doc) * wordSingleLineRatio
 			heightPt = float64(fp.Lines) * snapLineHeightToDocGrid(p, geom, lineH)
 		} else {
 			heightPt = paragraphHeightInWidth(doc, p, geom, widthPt)
@@ -1660,9 +1848,29 @@ func keepNextClusterEnd(blocks []resolve.Block, start int) int {
 	}
 	end := start
 	for end < len(blocks)-1 && blockKeepsNext(&blocks[end]) {
+		// Explicit page boundaries are stronger than keep-with-next. A paragraph
+		// before a manual page break, or a following paragraph with
+		// PageBreakBefore, must not be preflighted as one movable keep group.
+		if blockForcesPageBreakAfter(&blocks[end]) || blockForcesPageBreakBefore(&blocks[end+1]) {
+			break
+		}
 		end++
 	}
 	return end
+}
+
+// keepClusterShouldAdvance decides whether an intact keep-with-next group
+// should move to the next flow region. Groups taller than a complete region
+// deliberately stay put and fall back to normal block/paragraph fragmentation;
+// otherwise repeatedly moving the same oversized group can never make progress.
+func keepClusterShouldAdvance(clusterHeight, currentY, availableHeight float64, regionHasContent bool) bool {
+	if !regionHasContent || clusterHeight <= 0 || availableHeight <= 0 {
+		return false
+	}
+	if clusterHeight > availableHeight {
+		return false
+	}
+	return clusterHeight > availableHeight-currentY
 }
 
 func blockKeepsNext(block *resolve.Block) bool {
@@ -1670,6 +1878,14 @@ func blockKeepsNext(block *resolve.Block) bool {
 }
 
 func measureBlockClusterHeight(doc *resolve.Document, blocks []resolve.Block, start, end int, geom PageGeometry) float64 {
+	return measureBlockClusterHeightAt(doc, blocks, start, end, geom, 0, 0, nil)
+}
+
+// measureBlockClusterHeightAt measures a keep-with-next chain in the actual
+// flow context. This matters for paragraph spacing, column width, and active
+// floating exclusions: measuring every member at y=0 made the preflight
+// decision disagree with the blocks' real pagination geometry.
+func measureBlockClusterHeightAt(doc *resolve.Document, blocks []resolve.Block, start, end int, geom PageGeometry, column int, startY float64, activeFloats []FloatBox) float64 {
 	if start < 0 {
 		start = 0
 	}
@@ -1677,9 +1893,11 @@ func measureBlockClusterHeight(doc *resolve.Document, blocks []resolve.Block, st
 		end = len(blocks) - 1
 	}
 	total := 0.0
+	y := startY
 	for i := start; i <= end; i++ {
-		height, _ := measureBlock(doc, blocks, i, geom, 0, 0, nil)
+		height, _ := measureBlock(doc, blocks, i, geom, column, y, activeFloats)
 		total += height
+		y += height
 	}
 	return total
 }
@@ -1783,73 +2001,83 @@ func floatSliceAlmostSame(left, right []float64) bool {
 	return true
 }
 
+type explicitFlowBoundary uint8
+
+const (
+	explicitFlowBoundaryNone explicitFlowBoundary = iota
+	explicitFlowBoundaryPageBefore
+	explicitFlowBoundaryPageAfter
+)
+
+func blockExplicitFlowBoundary(block *resolve.Block) explicitFlowBoundary {
+	if block == nil || block.Kind != "paragraph" || block.Paragraph == nil {
+		return explicitFlowBoundaryNone
+	}
+	if block.Paragraph.Format.PageBreakBefore {
+		return explicitFlowBoundaryPageBefore
+	}
+	for _, run := range block.Paragraph.Runs {
+		if run.Kind == "break" && strings.EqualFold(run.BreakType, "page") {
+			return explicitFlowBoundaryPageAfter
+		}
+	}
+	return explicitFlowBoundaryNone
+}
+
 func blockForcesPageBreakBefore(block *resolve.Block) bool {
-	return block != nil && block.Kind == "paragraph" && block.Paragraph != nil && block.Paragraph.Format.PageBreakBefore
+	return blockExplicitFlowBoundary(block) == explicitFlowBoundaryPageBefore
 }
 
 func blockForcesPageBreakAfter(block *resolve.Block) bool {
-	if block == nil || block.Kind != "paragraph" || block.Paragraph == nil {
-		return false
-	}
-	for _, run := range block.Paragraph.Runs {
-		if run.Kind == "break" && run.BreakType == "page" {
-			return true
-		}
-	}
-	return false
+	return blockExplicitFlowBoundary(block) == explicitFlowBoundaryPageAfter
 }
 
 func paragraphHeightInFlow(doc *resolve.Document, p *resolve.Paragraph, geom PageGeometry, column int, paraPageY float64, activeFloats []FloatBox) float64 {
 	baseWidthPt := paragraphContentWidthPt(p, geom)
 	firstWidthPt, continuationWidthPt := paragraphLineWidthsPt(p, baseWidthPt)
 	defaultSizePt := defaultFontSizePt(doc)
-	fontSizePt := paragraphFontSizePt(doc, p)
-	lineHeight := paragraphLineHeightPt(p, geom, fontSizePt)
+	textMetrics := resolveTextLayoutMetrics(doc, p, geom, 0, 0)
+	lineHeight := textMetrics.LineHeightPt
 	topBorderOutset, bottomBorderOutset := paragraphVerticalBorderOutsetPt(p)
-	leadingBlockFloatHeight := paragraphLeadingBlockFloatHeightPt(p)
+	leadingBlockFloatHeight := paragraphLeadingBlockDrawingHeightPt(p, geom, column, paraPageY, lineHeight)
 	activeFloatClearance := paragraphTopAndBottomClearancePt(paraPageY+leadingBlockFloatHeight, lineHeight, activeFloats)
 
 	var spacingBefore, spacingAfter float64
-	if paragraphContainsOnlyLeadingBlockFloatImageForLayout(p) || paragraphContainsOnlyLeadingBlockFloatTextBoxForLayout(p) || paragraphContainsOnlyLeadingBlockFloatShapeForLayout(p) {
+	if paragraphContainsOnlyLeadingBlockDrawingForLayout(p) {
 		return spacingBefore + topBorderOutset + leadingBlockFloatHeight + bottomBorderOutset + spacingAfter
 	}
 
 	contentLeftPt := paragraphContentLeftPt(p, columnLeftPt(geom, column))
 	firstLeftPt := paragraphFirstLineLeftPt(p, contentLeftPt)
-	contentRightPt := contentLeftPt + continuationWidthPt
 
-	lineMetrics := estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, nil)
-	lineHeights := paragraphLineHeightsPt(p, geom, lineMetrics, defaultSizePt)
-	contentHeight := sumFloat64s(lineHeights)
-	for range 2 {
-		exclusions := paragraphWrapExclusions(p, geom, column, paraPageY, spacingBefore+contentHeight+spacingAfter, activeFloats)
-		lineMetrics = estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, func(lineIndex int) float64 {
-			lineTop := paraPageY + spacingBefore + leadingBlockFloatHeight + activeFloatClearance + cumulativeLineHeight(lineHeights, lineIndex)
-			lineBottom := lineTop + lineHeightAt(lineHeights, lineIndex, lineHeight)
-			lineLeft := contentLeftPt
-			lineRight := contentRightPt
-			if lineIndex == 0 {
-				lineLeft = firstLeftPt
-				lineRight = firstLeftPt + firstWidthPt
-			}
-			return lineAvailableWidthPt(lineLeft, lineRight, lineTop, lineBottom, exclusions)
-		})
-		lineHeights = paragraphLineHeightsPt(p, geom, lineMetrics, defaultSizePt)
-		newContentHeight := sumFloat64s(lineHeights)
-		if almostSame(newContentHeight, contentHeight) {
-			contentHeight = newContentHeight
-			break
-		}
-		contentHeight = newContentHeight
-	}
+	initialMetrics := estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, nil)
+	initialHeights := paragraphLineHeightsPt(p, geom, initialMetrics, defaultSizePt)
+	startY := paraPageY + spacingBefore + leadingBlockFloatHeight + activeFloatClearance
 
-	return spacingBefore + topBorderOutset + leadingBlockFloatHeight + activeFloatClearance + contentHeight + bottomBorderOutset + spacingAfter
+	_, _, lineHeights := convergedParagraphFlowPlan(
+		p, geom,
+		firstLeftPt, firstWidthPt,
+		contentLeftPt, continuationWidthPt,
+		startY, lineHeight, defaultSizePt,
+		initialHeights,
+		func(contentHeight float64) []lineExclusion {
+			return paragraphWrapExclusions(
+				p, geom, column, paraPageY,
+				spacingBefore+contentHeight+spacingAfter,
+				activeFloats,
+			)
+		},
+		paragraphFlowContextForDocument(doc),
+	)
+
+	return spacingBefore + topBorderOutset + leadingBlockFloatHeight +
+		activeFloatClearance + sumFloat64s(lineHeights) +
+		bottomBorderOutset + spacingAfter
 }
 
 type paragraphFlowMetrics struct {
 	lineHeights        []float64
-	lineWidths         []float64
-	lineRuns           [][]resolve.Run
+	physicalLines      []paragraphPhysicalLine
 	spacingBefore      float64
 	spacingAfter       float64
 	topBorderOutset    float64
@@ -1892,9 +2120,11 @@ func (m paragraphFlowMetrics) fragmentFit(startLine int, availableHeight float64
 	}
 	remainingLines := len(m.lineHeights) - (startLine + bestLines)
 	if remainingLines == 0 {
-		if startLine > 0 && bestLines < 2 {
-			return 0, 0
-		}
+		// Widow control constrains a split boundary, not an already-started
+		// continuation's final fragment. If earlier fragments already left one
+		// physical line for the final region, refusing it here can advance
+		// forever because the same one-line continuation is reconsidered on
+		// every empty page/column.
 		return bestLines, bestHeight
 	}
 	if bestLines < 2 {
@@ -1910,92 +2140,65 @@ func (m paragraphFlowMetrics) fragmentFit(startLine int, availableHeight float64
 	return bestLines, bestHeight
 }
 
-func (m paragraphFlowMetrics) fragmentContent(startLine, endLine int) ([]resolve.Run, string) {
+func (m paragraphFlowMetrics) fragmentPhysicalLines(startLine, endLine int) []paragraphPhysicalLine {
 	if startLine < 0 {
 		startLine = 0
 	}
-	if endLine > len(m.lineRuns) {
-		endLine = len(m.lineRuns)
+	if endLine > len(m.physicalLines) {
+		endLine = len(m.physicalLines)
 	}
 	if startLine >= endLine {
-		return nil, ""
+		return nil
 	}
-	runs := make([]resolve.Run, 0)
-	for i := startLine; i < endLine; i++ {
-		runs = append(runs, m.lineRuns[i]...)
-	}
-	return runs, paragraphTextFromRuns(runs)
+	return m.physicalLines[startLine:endLine]
 }
 
-func paragraphFlowMetricsForPagination(doc *resolve.Document, p *resolve.Paragraph, geom PageGeometry, column int, paraPageY, spacingBefore float64, activeFloats []FloatBox) (paragraphFlowMetrics, bool) {
+func paragraphFlowMetricsForPagination(doc *resolve.Document, p *resolve.Paragraph, geom PageGeometry, column int, paraPageY float64, textMetrics TextLayoutMetrics, activeFloats []FloatBox) (paragraphFlowMetrics, bool) {
 	if p == nil {
 		return paragraphFlowMetrics{}, false
 	}
+
 	baseWidthPt := paragraphContentWidthPt(p, geom)
 	firstWidthPt, continuationWidthPt := paragraphLineWidthsPt(p, baseWidthPt)
 	defaultSizePt := defaultFontSizePt(doc)
 	fontSizePt := paragraphFontSizePt(doc, p)
 	lineHeight := paragraphLineHeightPt(p, geom, fontSizePt)
 	topBorderOutset, bottomBorderOutset := paragraphVerticalBorderOutsetPt(p)
+
 	contentLeftPt := paragraphContentLeftPt(p, columnLeftPt(geom, column))
 	firstLeftPt := paragraphFirstLineLeftPt(p, contentLeftPt)
-	contentRightPt := contentLeftPt + continuationWidthPt
-	lineStartY := paraPageY + spacingBefore + topBorderOutset
+	lineStartY := paraPageY + textMetrics.SpacingBefore + topBorderOutset
 	topClearance := paragraphTopAndBottomClearancePt(lineStartY, lineHeight, activeFloats)
+	textStartY := lineStartY + topClearance
 
-	lineMetrics := estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, nil)
-	lineHeights := paragraphLineHeightsPt(p, geom, lineMetrics, defaultSizePt)
-	lineWidths := make([]float64, len(lineHeights))
-	for range 3 {
-		exclusions := paragraphWrapExclusions(p, geom, column, paraPageY, topClearance+sumFloat64s(lineHeights), activeFloats)
-		lineWidths = make([]float64, len(lineHeights))
-		lineMetrics = estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, func(lineIndex int) float64 {
-			lineTop := lineStartY + topClearance + cumulativeLineHeight(lineHeights, lineIndex)
-			lineBottom := lineTop + lineHeightAt(lineHeights, lineIndex, lineHeight)
-			lineLeft := contentLeftPt
-			lineRight := contentRightPt
-			if lineIndex == 0 {
-				lineLeft = firstLeftPt
-				lineRight = firstLeftPt + firstWidthPt
-			}
-			available := lineAvailableWidthPt(lineLeft, lineRight, lineTop, lineBottom, exclusions)
-			if lineIndex < len(lineWidths) {
-				lineWidths[lineIndex] = available
-			}
-			return available
-		})
-		newLineHeights := paragraphLineHeightsPt(p, geom, lineMetrics, defaultSizePt)
-		if len(newLineHeights) == len(lineHeights) && almostSame(sumFloat64s(newLineHeights), sumFloat64s(lineHeights)) {
-			lineHeights = newLineHeights
-			break
-		}
-		lineHeights = newLineHeights
-	}
+	initialMetrics := estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, nil)
+	initialHeights := paragraphLineHeightsPt(p, geom, initialMetrics, defaultSizePt)
 
-	// The estimator may have changed the number of lines on the last iteration.
-	// Recompute the actual per-line widths against the converged vertical positions
-	// before slicing runs into page/column fragments.
-	exclusions := paragraphWrapExclusions(p, geom, column, paraPageY, topClearance+sumFloat64s(lineHeights), activeFloats)
-	lineWidths = make([]float64, len(lineHeights))
-	for i := range lineWidths {
-		lineTop := lineStartY + topClearance + cumulativeLineHeight(lineHeights, i)
-		lineBottom := lineTop + lineHeightAt(lineHeights, i, lineHeight)
-		lineLeft := contentLeftPt
-		lineRight := contentRightPt
-		if i == 0 {
-			lineLeft = firstLeftPt
-			lineRight = firstLeftPt + firstWidthPt
-		}
-		lineWidths[i] = lineAvailableWidthPt(lineLeft, lineRight, lineTop, lineBottom, exclusions)
-	}
-	lineRuns := paragraphFragmentRunLines(p, lineWidths, defaultSizePt)
-	if len(lineRuns) != len(lineHeights) {
+	flow, _, lineHeights := convergedParagraphFlowPlan(
+		p, geom,
+		firstLeftPt, firstWidthPt,
+		contentLeftPt, continuationWidthPt,
+		textStartY, lineHeight, defaultSizePt,
+		initialHeights,
+		func(contentHeight float64) []lineExclusion {
+			return paragraphWrapExclusions(
+				p, geom, column, paraPageY,
+				topClearance+contentHeight,
+				activeFloats,
+			)
+		},
+		paragraphFlowContextForDocument(doc),
+	)
+
+	if len(flow.PhysicalLines) != len(lineHeights) {
 		return paragraphFlowMetrics{}, false
 	}
+
 	return paragraphFlowMetrics{
 		lineHeights:        lineHeights,
-		lineWidths:         lineWidths,
-		lineRuns:           lineRuns,
+		physicalLines:      flow.PhysicalLines,
+		spacingBefore:      textMetrics.SpacingBefore,
+		spacingAfter:       textMetrics.SpacingAfter,
 		topBorderOutset:    topBorderOutset,
 		bottomBorderOutset: bottomBorderOutset,
 		topClearance:       topClearance,
@@ -2003,21 +2206,7 @@ func paragraphFlowMetricsForPagination(doc *resolve.Document, p *resolve.Paragra
 }
 
 func paragraphHasFloatingContent(p *resolve.Paragraph) bool {
-	if p == nil {
-		return false
-	}
-	for _, run := range p.Runs {
-		if run.Image != nil && run.Image.Floating {
-			return true
-		}
-		if run.TextBox != nil && run.TextBox.Floating {
-			return true
-		}
-		if run.Shape != nil && run.Shape.Floating {
-			return true
-		}
-	}
-	return false
+	return paragraphHasFloatingDrawing(p)
 }
 
 func resolvedParagraphSpacingBeforePt(doc *resolve.Document, p *resolve.Paragraph, geom PageGeometry) float64 {
@@ -2073,19 +2262,8 @@ func ParagraphSpacingAfter(doc *resolve.Document, p, next *resolve.Paragraph, ge
 }
 
 func paragraphHeightInWidth(doc *resolve.Document, p *resolve.Paragraph, geom PageGeometry, widthPt float64) float64 {
-	defaultSizePt := defaultFontSizePt(doc)
-	fontSizePt := paragraphFontSizePt(doc, p)
-	firstWidthPt, continuationWidthPt := paragraphLineWidthsPt(p, widthPt)
-	lineHeight := paragraphLineHeightPt(p, geom, fontSizePt)
-	topBorderOutset, bottomBorderOutset := paragraphVerticalBorderOutsetPt(p)
-
-	lineMetrics := estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, nil)
-	lineHeights := paragraphLineHeightsPt(p, geom, lineMetrics, defaultSizePt)
-	contentHeight := sumFloat64s(lineHeights)
-	if contentHeight == 0 {
-		contentHeight = lineHeight
-	}
-	return topBorderOutset + contentHeight + bottomBorderOutset
+	metrics, lineHeights, topBorderOutset, bottomBorderOutset := paragraphIntrinsicLineHeights(doc, p, geom, widthPt)
+	return paragraphIntrinsicHeightFromMetrics(metrics, lineHeights, topBorderOutset, bottomBorderOutset)
 }
 
 // ParagraphHeightInWidthForRender exposes the paragraph content-height estimator
@@ -2137,11 +2315,15 @@ func leadingTableHeaderRows(t *resolve.Table) int {
 	return end
 }
 
+func tableFragmentRepeatsHeaders(startRow, headerEnd int) bool {
+	return headerEnd > 0 && startRow >= headerEnd && startRow > 0
+}
+
 // tableSplitBoundarySafe reports whether a table fragment may end immediately
 // before row endRow. A w:vMerge continuation in the next row means the merge
 // started in an earlier row and therefore crosses this boundary. Keeping such
 // groups together preserves valid rowspan geometry in every rendered fragment.
-func tableSplitBoundarySafe(t *resolve.Table, endRow int) bool {
+func tableFragmentBoundarySafe(t *resolve.Table, endRow int) bool {
 	if t == nil || endRow <= 0 || endRow >= len(t.Rows) {
 		return true
 	}
@@ -2151,6 +2333,11 @@ func tableSplitBoundarySafe(t *resolve.Table, endRow int) bool {
 		}
 	}
 	return true
+}
+
+// tableSplitBoundarySafe retains the established compatibility surface.
+func tableSplitBoundarySafe(t *resolve.Table, endRow int) bool {
+	return tableFragmentBoundarySafe(t, endRow)
 }
 
 func tableHeight(doc *resolve.Document, t *resolve.Table, availableWidthPt float64) float64 {
@@ -2184,7 +2371,22 @@ func TableWidthPt(t *resolve.Table, availableWidthPt float64) float64 {
 // text frame; allowing the raw width to escape the frame makes HTML both overflow
 // horizontally and paginate too late because rows are measured too wide.
 func TableWidthPtForDocument(doc *resolve.Document, t *resolve.Table, availableWidthPt float64) float64 {
-	width := TableWidthPt(t, availableWidthPt)
+	if t == nil {
+		return 0
+	}
+	// An auto-width table is laid out inside the remaining containing block.
+	// A positive table indent consumes horizontal room; treating the full cell
+	// width as available makes nested tables too wide and therefore their rows
+	// too short. Explicit dxa/pct widths and grid-derived widths remain
+	// authoritative and are not silently rewritten.
+	widthAvailable := availableWidthPt
+	if t.Format.Width == nil && len(t.Format.ColumnWidths) == 0 && t.Format.Indent > 0 {
+		widthAvailable -= twipsToPoints(t.Format.Indent)
+		if widthAvailable < 1 {
+			widthAvailable = 1
+		}
+	}
+	width := TableWidthPt(t, widthAvailable)
 	if isPreWord97Document(doc) && availableWidthPt > 0 && width > availableWidthPt {
 		return availableWidthPt
 	}
@@ -2205,7 +2407,82 @@ func TableRowHeights(doc *resolve.Document, t *resolve.Table, availableWidthPt f
 	for i, row := range t.Rows {
 		heights = append(heights, tableRowHeight(doc, row, t.Format, tableWidthPt, i == 0, i == len(t.Rows)-1))
 	}
+	applyVerticalMergeGroupMinimums(doc, t, tableWidthPt, heights)
 	return heights
+}
+
+// applyVerticalMergeGroupMinimums treats a vertical merge as a row-group
+// constraint: the merged cell's intrinsic height belongs to the complete
+// restart..continue group, not solely to the restart row. This keeps ordinary
+// sibling cells authoritative for individual row heights while guaranteeing
+// enough aggregate height for the rowspan content.
+func applyVerticalMergeGroupMinimums(doc *resolve.Document, t *resolve.Table, tableWidthPt float64, heights []float64) {
+	if t == nil || len(heights) != len(t.Rows) {
+		return
+	}
+	for rowIndex, row := range t.Rows {
+		gridColumn := row.Format.GridBefore
+		cellWidths := TableCellWidths(row, t.Format, tableWidthPt)
+		for cellIndex, cell := range row.Cells {
+			span := cell.Format.GridSpan
+			if span <= 0 {
+				span = 1
+			}
+			if !strings.EqualFold(strings.TrimSpace(cell.Format.VMerge), "restart") {
+				gridColumn += span
+				continue
+			}
+
+			endRow := verticalMergeGroupEnd(t, rowIndex, gridColumn)
+			if endRow <= rowIndex+1 {
+				gridColumn += span
+				continue
+			}
+			cellWidth := tableWidthPt
+			if cellIndex < len(cellWidths) && cellWidths[cellIndex] > 0 {
+				cellWidth = cellWidths[cellIndex]
+			}
+			required := tableCellHeightWithRowContext(doc, cell, t.Format, row.Override, row.Format.CellSpacing, cellWidth, rowIndex == 0, endRow == len(t.Rows))
+			current := sumFloat64s(heights[rowIndex:endRow])
+			if deficit := required - current; deficit > 0 {
+				// Word lets the merge group grow as a unit. Put the residual on
+				// the final row so preceding explicit/sibling-driven row heights
+				// remain stable and the split boundary stays deterministic.
+				heights[endRow-1] += deficit
+			}
+			gridColumn += span
+		}
+	}
+}
+
+func verticalMergeGroupEnd(t *resolve.Table, startRow, gridColumn int) int {
+	if t == nil || startRow < 0 || startRow >= len(t.Rows) {
+		return startRow
+	}
+	end := startRow + 1
+	for end < len(t.Rows) {
+		cell, ok := tableCellCoveringGridColumn(t.Rows[end], gridColumn)
+		if !ok || !strings.EqualFold(strings.TrimSpace(cell.Format.VMerge), "continue") {
+			break
+		}
+		end++
+	}
+	return end
+}
+
+func tableCellCoveringGridColumn(row resolve.TableRow, gridColumn int) (resolve.TableCell, bool) {
+	column := row.Format.GridBefore
+	for _, cell := range row.Cells {
+		span := cell.Format.GridSpan
+		if span <= 0 {
+			span = 1
+		}
+		if gridColumn >= column && gridColumn < column+span {
+			return cell, true
+		}
+		column += span
+	}
+	return resolve.TableCell{}, false
 }
 
 // appendParagraphFloats collects every floating object from runs and appends
@@ -2232,89 +2509,27 @@ func appendParagraphFloatsWithLegacyFlowState(floats []FloatBox, runs []resolve.
 	legacyFlowPositions := legacyShapeFlowPositions(runs, legacyFlow)
 	for i := range runs {
 		run := &runs[i]
-		switch run.Kind {
-		case "image":
-			img := run.Image
-			if img == nil || !img.Floating {
-				continue
-			}
-			widthPt := emuToPoints(img.Width)
-			heightPt := emuToPoints(img.Height)
-			if img.SizeRelHPct > 0 {
-				widthPt = relativeObjectSizePt(img.SizeRelHPct, img.SizeRelHFrom, true, geom, column)
-			}
-			if img.SizeRelVPct > 0 {
-				heightPt = relativeObjectSizePt(img.SizeRelVPct, img.SizeRelVFrom, false, geom, column)
-			}
-			x := resolveX(img.X, img.XRelative, img.XAlign, geom, column, widthPt)
-			y := resolveY(img.Y, img.YRelative, img.YAlign, geom, paraPageY, paraHeight, heightPt)
-			floats = append(floats, FloatBox{
-				Image:     img,
-				X:         x,
-				Y:         y,
-				Width:     widthPt,
-				Height:    heightPt,
-				ZIndex:    img.ZIndex,
-				BehindDoc: img.BehindDoc,
-			})
-		case "textbox":
-			tb := run.TextBox
-			if tb == nil || !tb.Floating {
-				continue
-			}
-			widthPt := emuToPoints(tb.Width)
-			heightPt := emuToPoints(tb.Height)
-			if tb.SizeRelHPct > 0 {
-				widthPt = relativeObjectSizePt(tb.SizeRelHPct, tb.SizeRelHFrom, true, geom, column)
-			}
-			if tb.SizeRelVPct > 0 {
-				heightPt = relativeObjectSizePt(tb.SizeRelVPct, tb.SizeRelVFrom, false, geom, column)
-			}
-			x := resolveX(tb.X, tb.XRelative, tb.XAlign, geom, column, widthPt)
-			y := resolveY(tb.Y, tb.YRelative, tb.YAlign, geom, paraPageY, paraHeight, heightPt)
-			floats = append(floats, FloatBox{
-				TextBox:   tb,
-				X:         x,
-				Y:         y,
-				Width:     widthPt,
-				Height:    heightPt,
-				ZIndex:    tb.ZIndex,
-				BehindDoc: tb.BehindDoc,
-			})
-		case "shape":
-			sh := run.Shape
-			if sh == nil || !sh.Floating {
-				continue
-			}
-			widthPt := emuToPoints(sh.Width)
-			heightPt := emuToPoints(sh.Height)
-			if sh.SizeRelHPct > 0 {
-				widthPt = relativeObjectSizePt(sh.SizeRelHPct, sh.SizeRelHFrom, true, geom, column)
-			}
-			if sh.SizeRelVPct > 0 {
-				heightPt = relativeObjectSizePt(sh.SizeRelVPct, sh.SizeRelVFrom, false, geom, column)
-			}
-			var x, y float64
-			if sh.LegacyFlowAnchor {
-				if pos, ok := legacyFlowPositions[sh]; ok {
-					x, y = pos.X, pos.Y
-				} else {
-					x, y = legacyFlow.place(sh, widthPt, heightPt)
-				}
-			} else {
-				x = resolveX(sh.X, sh.XRelative, sh.XAlign, geom, column, widthPt)
-				y = resolveY(sh.Y, sh.YRelative, sh.YAlign, geom, paraPageY, paraHeight, heightPt)
-			}
-			floats = append(floats, FloatBox{
-				Shape:     sh,
-				X:         x,
-				Y:         y,
-				Width:     widthPt,
-				Height:    heightPt,
-				ZIndex:    sh.ZIndex,
-				BehindDoc: sh.BehindDoc,
-			})
+		drawing := drawingFromRun(run)
+		if drawing == nil {
+			continue
 		}
+
+		fl, ok := resolvedDrawingFloatFromRun(run, geom, column, paraPageY, paraHeight)
+		if !ok {
+			continue
+		}
+
+		// Pre-97 OfficeArt SHAPE fields have a sequential anchor-line flow
+		// that is not an OOXML DrawingPlacement policy. Keep that source-format
+		// compatibility at this boundary, after canonical size/z-order resolution.
+		if shape, ok := drawing.(*resolve.Shape); ok && shape.LegacyFlowAnchor {
+			if pos, found := legacyFlowPositions[shape]; found {
+				fl.X, fl.Y = pos.X, pos.Y
+			} else {
+				fl.X, fl.Y = legacyFlow.place(shape, fl.Width, fl.Height)
+			}
+		}
+		floats = append(floats, fl)
 	}
 	return floats
 }
@@ -2633,7 +2848,7 @@ func adjacentBlock(blocks []resolve.Block, i, delta int) *resolve.Paragraph {
 
 // defaultFontSizePt returns the document-default font size in points.
 func defaultFontSizePt(doc *resolve.Document) float64 {
-	if doc.DefaultRunFormat.FontSize != nil {
+	if doc != nil && doc.DefaultRunFormat.FontSize != nil {
 		return float64(*doc.DefaultRunFormat.FontSize) / 2.0
 	}
 	return 12.0 // Word default
@@ -2663,7 +2878,7 @@ func paragraphFontSizePt(doc *resolve.Document, p *resolve.Paragraph) float64 {
 
 func paragraphLineHeightPt(p *resolve.Paragraph, geom PageGeometry, fontSizePt float64) float64 {
 	inlineHeightPt := paragraphInlineImageHeightPt(p)
-	lineHeight := math.Max(fontSizePt*cssNormalLineRatio, inlineHeightPt)
+	lineHeight := math.Max(fontSizePt*wordSingleLineRatio, inlineHeightPt)
 	if p == nil || p.Format.LineSpacing == nil {
 		return snapLineHeightToDocGrid(p, geom, lineHeight)
 	}
@@ -2679,15 +2894,16 @@ func paragraphLineHeightPt(p *resolve.Paragraph, geom PageGeometry, fontSizePt f
 }
 
 func autoParagraphLineHeightPt(p *resolve.Paragraph, fontSizePt float64) float64 {
+	baseLineHeight := fontSizePt * wordSingleLineRatio
 	if p == nil || p.Format.LineSpacing == nil || *p.Format.LineSpacing <= 0 {
-		return fontSizePt * cssNormalLineRatio
+		return baseLineHeight
 	}
 	multiple := float64(*p.Format.LineSpacing) / 240.0
 	// Word stores auto line spacing as a line multiple for both OOXML and
-	// binary DOC. 240=single, 360=1.5 lines, 480=double. CSS `normal` is
-	// approximately 1.2, so preserve that floor for single spacing without
-	// multiplying authored 1.5/double spacing by 1.2 a second time.
-	return math.Max(cssNormalLineRatio, multiple) * fontSizePt
+	// binary DOC. 240=single, 360=1.5 lines, 480=double. The multiple is
+	// authored relative to Word's normal line advance, represented here by the
+	// CSS-normal approximation.
+	return baseLineHeight * multiple
 }
 
 func paragraphInlineImageHeightPt(p *resolve.Paragraph) float64 {
@@ -2706,124 +2922,136 @@ func paragraphInlineImageHeightPt(p *resolve.Paragraph) float64 {
 	return maxHeight
 }
 
-// estimateParagraphLineCount estimates how many lines a paragraph occupies.
 //
 // Fix 1: instead of a single 0.5× character width factor, this function
 // iterates over runs and uses per-character Unicode width factors and per-run
 // font sizes, producing a much better estimate for mixed-script and mixed-size
 // paragraphs.
-func estimateParagraphLineCount(p *resolve.Paragraph, widthPt, defaultSizePt float64) int {
-	return estimateParagraphLineCountWithWidths(p, widthPt, widthPt, defaultSizePt, nil)
-}
-
-func estimateParagraphLineCountWithWidths(p *resolve.Paragraph, firstWidthPt, continuationWidthPt, defaultSizePt float64, widthForLine func(int) float64) int {
-	if p == nil {
-		return 1
-	}
-	if firstWidthPt <= 1 && continuationWidthPt <= 1 {
-		return 1
-	}
-	tokens := paragraphLineTokens(p, defaultSizePt)
-
-	if len(tokens) == 0 {
-		// Fallback: use raw paragraph text with average proportional width.
-		text := strings.TrimSpace(p.Text)
-		if text == "" {
-			return 1
-		}
-		avgCharWidthPt := defaultSizePt * 0.45
-		if avgCharWidthPt <= 0 {
-			avgCharWidthPt = 6
-		}
-		widthPt := firstWidthPt
-		if continuationWidthPt > widthPt {
-			widthPt = continuationWidthPt
-		}
-		charsPerLine := int(widthPt / avgCharWidthPt)
-		if charsPerLine < 1 {
-			charsPerLine = 1
-		}
-		lineCount := 0
-		for _, segment := range strings.FieldsFunc(text, func(r rune) bool { return r == '\n' || r == '\r' }) {
-			segment = strings.TrimSpace(segment)
-			if segment == "" {
-				lineCount++
-				continue
-			}
-			lineCount += estimateWrappedLineCount(segment, charsPerLine)
-		}
-		if lineCount < 1 {
-			return 1
-		}
-		return lineCount
-	}
-
-	currentLineWidth := func(lineIndex int) float64 {
-		if widthForLine != nil {
-			return widthForLine(lineIndex)
-		}
-		if lineIndex == 0 {
-			if firstWidthPt > 1 {
-				return firstWidthPt
-			}
-			return 1
-		}
-		if continuationWidthPt > 1 {
-			return continuationWidthPt
-		}
-		return 1
-	}
-
-	const maxLineSearch = 1000
-
-	lineCount := 1
-	lineWidthPt := currentLineWidth(0)
-	for lineWidthPt <= 1 && lineCount <= maxLineSearch {
-		lineCount++
-		lineWidthPt = currentLineWidth(lineCount - 1)
-	}
-	currentWidthPt := 0.0
-	previousFontSizePt := 0.0
-	for _, token := range tokens {
-		spaceWidthPt := interWordSpaceWidthPt(previousFontSizePt, token.fontSizePt, defaultSizePt)
-		needed := token.widthPt
-		if currentWidthPt > 0 {
-			needed += spaceWidthPt
-		}
-		if currentWidthPt == 0 || currentWidthPt+needed <= lineWidthPt {
-			if currentWidthPt > 0 {
-				currentWidthPt += spaceWidthPt
-			}
-			currentWidthPt += token.widthPt
-			previousFontSizePt = token.fontSizePt
-			continue
-		}
-
-		lineCount++
-		lineWidthPt = currentLineWidth(lineCount - 1)
-		for lineWidthPt <= 1 && lineCount <= maxLineSearch {
-			lineCount++
-			lineWidthPt = currentLineWidth(lineCount - 1)
-		}
-		currentWidthPt = token.widthPt
-		previousFontSizePt = token.fontSizePt
-	}
-	if lineCount < 1 {
-		return 1
-	}
-	return lineCount
-}
-
-type paragraphToken struct {
-	widthPt        float64
-	fontSizePt     float64
-	inlineHeightPt float64
-}
 
 type paragraphRenderToken struct {
-	run        resolve.Run
-	widthPt    float64
-	fontSizePt float64
+	run            resolve.Run
+	widthPt        float64
+	fontSizePt     float64
+	forceLineBreak bool
+	tab            bool
+	// separated records whether Word source text contains collapsible
+	// whitespace before this token. The legacy rectangular estimator leaves
+	// this false and keeps its historical implicit-space behavior; spatial
+	// physical flow uses it to avoid inventing spaces across run boundaries.
+	separated bool
+}
+
+func fieldRenderWidthText(run resolve.Run) string {
+	if run.FieldKind == "" {
+		if len(run.Fields) == 0 {
+			return ""
+		}
+		var b strings.Builder
+		for _, field := range run.Fields {
+			text := fieldRenderWidthText(resolve.Run{
+				FieldKind:      field.Kind,
+				FieldInstr:     field.Instr,
+				FieldArg:       field.Arg,
+				FieldInstrRuns: field.InstrRuns,
+				Anchor:         field.Anchor,
+				Target:         field.Target,
+				Text:           paragraphTextFromRuns(field.Children),
+			})
+			if text == "" {
+				text = paragraphTextFromRuns(field.Children)
+			}
+			b.WriteString(text)
+		}
+		return b.String()
+	}
+	if strings.TrimSpace(run.Text) != "" {
+		return run.Text
+	}
+	switch run.FieldKind {
+	case "PAGE", "NUMPAGES", "SECTION", "SECTIONPAGES", "MERGEREC", "MERGESEQ", "AUTONUM":
+		return "1"
+	case "AUTONUMLGL":
+		return "1."
+	case "AUTONUMOUT":
+		return "I."
+	case "DATE", "TIME", "CREATEDATE", "SAVEDATE", "PRINTDATE":
+		return "00/00/0000"
+	case "ASK", "BIDIOUTLINE", "NEXT", "NEXTIF", "RD", "SET", "SKIPIF", "TA":
+		return ""
+	case "AUTOTEXT", "INCLUDETEXT":
+		if run.FieldArg != "" {
+			return "[" + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[Include Text]"
+	case "INCLUDEPICTURE":
+		if run.FieldArg != "" {
+			return "[" + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[Include Picture]"
+	case "TOA":
+		return "[Table of Authorities]"
+	case "TOC":
+		return "[Table of Contents]"
+	case "INDEX":
+		return "[Index]"
+	case "LISTNUM":
+		if run.FieldArg != "" {
+			return "[" + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[List Number]"
+	case "CITATION":
+		if run.FieldArg != "" {
+			return "[" + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[Citation]"
+	case "BARCODE":
+		if run.FieldArg != "" {
+			return "[Barcode: " + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[Barcode]"
+	case "IMPORT":
+		if run.FieldArg != "" {
+			return "[Import: " + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[Import]"
+	case "SAVEPICTURE":
+		if run.FieldArg != "" {
+			return "[Save Picture: " + strings.TrimSpace(run.FieldArg) + "]"
+		}
+		return "[Save Picture]"
+	case "EMBED":
+		return "[Embedded Object]"
+	case "LINK":
+		return "[Linked Object]"
+	case "MERGEFIELD":
+		if run.FieldArg != "" {
+			return "<<" + run.FieldArg + ">>"
+		}
+		return ""
+	default:
+		return strings.TrimSpace(run.FieldArg)
+	}
+}
+
+func runNeedsWholeToken(run resolve.Run) bool {
+	return run.FieldKind != "" ||
+		len(run.Fields) > 0 ||
+		run.Kind == "hyperlink" ||
+		run.Kind == "horzRule" ||
+		run.Kind == "math" ||
+		run.Kind == "ruby" ||
+		run.Kind == "formField" ||
+		run.ContentControl != nil ||
+		run.CustomXml != nil ||
+		run.SmartTag != nil ||
+		run.SignatureLine != nil ||
+		run.Chart != nil ||
+		run.MathML != "" ||
+		run.FormField != nil ||
+		run.Ruby != nil ||
+		run.Revision != "" ||
+		run.PropertyRevision != nil ||
+		run.DisplayFieldRevision != nil
 }
 
 func runWordWidthPt(format resolve.RunFormat, rawWord string, defaultSizePt float64) (float64, float64) {
@@ -2861,21 +3089,33 @@ func interWordSpaceWidthPt(previousFontSizePt, currentFontSizePt, defaultSizePt 
 	return fontSizePt * 0.28
 }
 
-func paragraphLineTokens(p *resolve.Paragraph, defaultSizePt float64) []paragraphToken {
+// paragraphSpatialRenderTokens preserves the source run-boundary whitespace
+// contract needed by authoritative physical-slot rendering. strings.Fields
+// alone is insufficient here: two adjacent formatted runs may form one word,
+// while whitespace may live at the end of one run and the next word in another.
+//
+// Word collapses ordinary whitespace for this flow just as HTML does, so a
+// whitespace sequence is represented as one inter-word separation. Tabs remain
+// first-class runs and are intentionally left to the tab-stop pass.
+func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragraphRenderToken {
 	if p == nil {
 		return nil
 	}
-	tokens := make([]paragraphToken, 0, len(p.Runs))
+	tokens := make([]paragraphRenderToken, 0, len(p.Runs))
+	pendingSpace := false
+	haveText := false
 	for _, run := range p.Runs {
 		switch run.Kind {
-		case "", "run":
-			if run.Text == "" {
-				continue
+		case "break":
+			switch run.BreakType {
+			case "line", "textWrapping", "carriageReturn":
+				tokens = append(tokens, paragraphRenderToken{
+					run: run, fontSizePt: defaultSizePt, forceLineBreak: true,
+				})
+				pendingSpace = false
+				haveText = false
 			}
-			for _, rawWord := range strings.Fields(run.Text) {
-				wpt, fontSizePt := runWordWidthPt(run.Format, rawWord, defaultSizePt)
-				tokens = append(tokens, paragraphToken{widthPt: wpt, fontSizePt: fontSizePt})
-			}
+			continue
 		case "image":
 			if run.Image == nil || run.Image.Floating {
 				continue
@@ -2884,8 +3124,92 @@ func paragraphLineTokens(p *resolve.Paragraph, defaultSizePt float64) []paragrap
 			if wpt <= 0 {
 				wpt = 1
 			}
-			tokens = append(tokens, paragraphToken{widthPt: wpt, fontSizePt: defaultSizePt, inlineHeightPt: emuToPoints(run.Image.Height)})
+			tokens = append(tokens, paragraphRenderToken{
+				run: run, widthPt: wpt, fontSizePt: defaultSizePt,
+				separated: pendingSpace && haveText,
+			})
+			pendingSpace = false
+			haveText = true
+			continue
+		case "footnoteRef", "endnoteRef", "commentRef":
+			tokens = append(tokens, paragraphRenderToken{
+				run: run, widthPt: defaultSizePt * 0.8, fontSizePt: defaultSizePt,
+				separated: pendingSpace && haveText,
+			})
+			pendingSpace = false
+			haveText = true
+			continue
+		case "textbox":
+			if run.TextBox == nil || run.TextBox.Floating {
+				continue
+			}
+		case "shape":
+			if run.Shape == nil || run.Shape.Floating {
+				continue
+			}
+		case "tab":
+			tokens = append(tokens, paragraphRenderToken{
+				run: run, fontSizePt: defaultSizePt, tab: true,
+			})
+			pendingSpace = false
+			haveText = true
+			continue
 		}
+
+		if run.Text == "" {
+			if fieldText := fieldRenderWidthText(run); fieldText != "" || runNeedsWholeToken(run) {
+				wpt, fontSizePt := runWordWidthPt(run.Format, fieldText, defaultSizePt)
+				tokens = append(tokens, paragraphRenderToken{
+					run: run, widthPt: wpt, fontSizePt: fontSizePt,
+					separated: pendingSpace && haveText,
+				})
+				pendingSpace = false
+				haveText = true
+			}
+			continue
+		}
+		if runNeedsWholeToken(run) {
+			wpt, fontSizePt := runWordWidthPt(run.Format, run.Text, defaultSizePt)
+			tokens = append(tokens, paragraphRenderToken{
+				run: run, widthPt: wpt, fontSizePt: fontSizePt,
+				separated: pendingSpace && haveText,
+			})
+			pendingSpace = false
+			haveText = true
+			continue
+		}
+		wordStart := -1
+		runes := []rune(run.Text)
+		flushWord := func(end int) {
+			if wordStart < 0 || wordStart >= end {
+				return
+			}
+			rawWord := string(runes[wordStart:end])
+			wpt, fontSizePt := runWordWidthPt(run.Format, rawWord, defaultSizePt)
+			tokenRun := run
+			tokenRun.Text = rawWord
+			tokens = append(tokens, paragraphRenderToken{
+				run: tokenRun, widthPt: wpt, fontSizePt: fontSizePt,
+				separated: pendingSpace && haveText,
+			})
+			pendingSpace = false
+			haveText = true
+			wordStart = -1
+		}
+		for i := 0; i < len(runes); i++ {
+			ch := runes[i]
+			if ch == ' ' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v' || ch == '\t' {
+				flushWord(i)
+				if haveText {
+					pendingSpace = true
+				}
+				continue
+			}
+			if wordStart < 0 {
+				wordStart = i
+			}
+		}
+		flushWord(len(runes))
 	}
 	return tokens
 }
@@ -2894,9 +3218,19 @@ func paragraphRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragr
 	if p == nil {
 		return nil
 	}
-	tokens := make([]paragraphRenderToken, 0, len(p.Runs))
-	for _, run := range p.Runs {
+	runs := resolve.CanonicalVisibleRuns(p)
+	tokens := make([]paragraphRenderToken, 0, len(runs))
+	for _, run := range runs {
+		if (run.Format.Vanish != nil && *run.Format.Vanish) || (run.Format.SpecVanish != nil && *run.Format.SpecVanish) {
+			continue
+		}
 		switch run.Kind {
+		case "break":
+			switch run.BreakType {
+			case "line", "textWrapping", "carriageReturn":
+				tokens = append(tokens, paragraphRenderToken{run: run, fontSizePt: defaultSizePt, forceLineBreak: true})
+			}
+			continue
 		case "image":
 			if run.Image == nil || run.Image.Floating {
 				continue
@@ -2918,8 +3252,20 @@ func paragraphRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragr
 			if run.Shape == nil || run.Shape.Floating {
 				continue
 			}
+		case "tab":
+			tokens = append(tokens, paragraphRenderToken{run: run, fontSizePt: defaultSizePt, tab: true})
+			continue
 		}
 		if run.Text == "" {
+			if fieldText := fieldRenderWidthText(run); fieldText != "" || runNeedsWholeToken(run) {
+				wpt, fontSizePt := runWordWidthPt(run.Format, fieldText, defaultSizePt)
+				tokens = append(tokens, paragraphRenderToken{run: run, widthPt: wpt, fontSizePt: fontSizePt})
+			}
+			continue
+		}
+		if runNeedsWholeToken(run) {
+			wpt, fontSizePt := runWordWidthPt(run.Format, run.Text, defaultSizePt)
+			tokens = append(tokens, paragraphRenderToken{run: run, widthPt: wpt, fontSizePt: fontSizePt})
 			continue
 		}
 		for _, rawWord := range strings.Fields(run.Text) {
@@ -2930,73 +3276,6 @@ func paragraphRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragr
 		}
 	}
 	return tokens
-}
-
-func paragraphFragmentRunLines(p *resolve.Paragraph, lineWidths []float64, defaultSizePt float64) [][]resolve.Run {
-	if len(lineWidths) > 0 {
-		narrow := true
-		for _, width := range lineWidths {
-			if width > 1 {
-				narrow = false
-				break
-			}
-		}
-		if narrow {
-			return paragraphNarrowColumnRunLines(p)
-		}
-	}
-	tokens := paragraphRenderTokens(p, defaultSizePt)
-	if len(tokens) == 0 {
-		return nil
-	}
-	widthForLine := func(lineIndex int) float64 {
-		if lineIndex >= 0 && lineIndex < len(lineWidths) && lineWidths[lineIndex] > 1 {
-			return lineWidths[lineIndex]
-		}
-		if len(lineWidths) > 0 && lineWidths[len(lineWidths)-1] > 1 {
-			return lineWidths[len(lineWidths)-1]
-		}
-		return 1
-	}
-
-	lineIndex := 0
-	lineWidthPt := widthForLine(lineIndex)
-	currentWidthPt := 0.0
-	currentLine := make([]resolve.Run, 0, 8)
-	lines := make([][]resolve.Run, 0, len(lineWidths))
-	flushLine := func() {
-		if len(currentLine) == 0 {
-			return
-		}
-		lines = append(lines, append([]resolve.Run(nil), currentLine...))
-		currentLine = currentLine[:0]
-		currentWidthPt = 0
-		lineIndex++
-		lineWidthPt = widthForLine(lineIndex)
-	}
-
-	previousFontSizePt := 0.0
-	for _, token := range tokens {
-		spaceWidthPt := interWordSpaceWidthPt(previousFontSizePt, token.fontSizePt, defaultSizePt)
-		needed := token.widthPt
-		if currentWidthPt > 0 {
-			needed += spaceWidthPt
-		}
-		if currentWidthPt > 0 && currentWidthPt+needed > lineWidthPt {
-			flushLine()
-			previousFontSizePt = 0
-			spaceWidthPt = interWordSpaceWidthPt(0, token.fontSizePt, defaultSizePt)
-		}
-		if currentWidthPt > 0 {
-			currentLine = append(currentLine, resolve.Run{Kind: "run", Text: " "})
-			currentWidthPt += spaceWidthPt
-		}
-		currentLine = append(currentLine, token.run)
-		currentWidthPt += token.widthPt
-		previousFontSizePt = token.fontSizePt
-	}
-	flushLine()
-	return lines
 }
 
 func paragraphNarrowColumnRunLines(p *resolve.Paragraph) [][]resolve.Run {
@@ -3063,87 +3342,6 @@ type paragraphLineMetric struct {
 	maxInlineHeightPt float64
 }
 
-func estimateParagraphLineMetricsWithWidths(p *resolve.Paragraph, firstWidthPt, continuationWidthPt, defaultSizePt float64, widthForLine func(int) float64) []paragraphLineMetric {
-	if p == nil {
-		return []paragraphLineMetric{{maxFontSizePt: defaultSizePt}}
-	}
-	if firstWidthPt <= 1 && continuationWidthPt <= 1 {
-		// Extremely narrow Word columns are legal in real DOCX files (for
-		// example when an authored inter-column gap consumes nearly all body
-		// width). Word then wraps words down to individual glyphs. The old fast
-		// path treated such a paragraph as one line, causing dozens of reference
-		// pages to collapse into one or two renderer pages.
-		return paragraphNarrowColumnLineMetrics(p, defaultSizePt)
-	}
-	tokens := paragraphLineTokens(p, defaultSizePt)
-	if len(tokens) == 0 {
-		return []paragraphLineMetric{{maxFontSizePt: defaultSizePt}}
-	}
-
-	currentLineWidth := func(lineIndex int) float64 {
-		if widthForLine != nil {
-			return widthForLine(lineIndex)
-		}
-		if lineIndex == 0 {
-			if firstWidthPt > 1 {
-				return firstWidthPt
-			}
-			return 1
-		}
-		if continuationWidthPt > 1 {
-			return continuationWidthPt
-		}
-		return 1
-	}
-
-	const maxLineSearch = 1000
-
-	lineWidthPt := currentLineWidth(0)
-	metrics := make([]paragraphLineMetric, 0, 4)
-	for lineWidthPt <= 1 && len(metrics) <= maxLineSearch {
-		metrics = append(metrics, paragraphLineMetric{maxFontSizePt: defaultSizePt})
-		lineWidthPt = currentLineWidth(len(metrics))
-	}
-	currentWidthPt := 0.0
-	previousFontSizePt := 0.0
-	currentMetric := paragraphLineMetric{maxFontSizePt: defaultSizePt}
-	for _, token := range tokens {
-		spaceWidthPt := interWordSpaceWidthPt(previousFontSizePt, token.fontSizePt, defaultSizePt)
-		needed := token.widthPt
-		if currentWidthPt > 0 {
-			needed += spaceWidthPt
-		}
-		if currentWidthPt == 0 || currentWidthPt+needed <= lineWidthPt {
-			if currentWidthPt > 0 {
-				currentWidthPt += spaceWidthPt
-			}
-			currentWidthPt += token.widthPt
-			previousFontSizePt = token.fontSizePt
-			currentMetric.maxFontSizePt = math.Max(currentMetric.maxFontSizePt, token.fontSizePt)
-			currentMetric.maxInlineHeightPt = math.Max(currentMetric.maxInlineHeightPt, token.inlineHeightPt)
-			continue
-		}
-
-		metrics = append(metrics, currentMetric)
-		lineWidthPt = currentLineWidth(len(metrics))
-		for lineWidthPt <= 1 && len(metrics) <= maxLineSearch {
-			metrics = append(metrics, paragraphLineMetric{maxFontSizePt: defaultSizePt})
-			lineWidthPt = currentLineWidth(len(metrics))
-		}
-		currentWidthPt = token.widthPt
-		previousFontSizePt = token.fontSizePt
-		currentMetric = paragraphLineMetric{
-			maxFontSizePt:     math.Max(defaultSizePt, token.fontSizePt),
-			maxInlineHeightPt: token.inlineHeightPt,
-		}
-	}
-	metrics = append(metrics, currentMetric)
-	if len(metrics) == 0 {
-		return []paragraphLineMetric{{maxFontSizePt: defaultSizePt}}
-	}
-	return metrics
-}
-
 func paragraphNarrowColumnLineMetrics(p *resolve.Paragraph, defaultSizePt float64) []paragraphLineMetric {
 	if p == nil {
 		return []paragraphLineMetric{{maxFontSizePt: defaultSizePt}}
@@ -3196,7 +3394,7 @@ func paragraphLineHeightForMetric(p *resolve.Paragraph, geom PageGeometry, metri
 	if fontSizePt <= 0 {
 		fontSizePt = 12.0
 	}
-	lineHeight := math.Max(fontSizePt*cssNormalLineRatio, metric.maxInlineHeightPt)
+	lineHeight := math.Max(fontSizePt*wordSingleLineRatio, metric.maxInlineHeightPt)
 	if p == nil || p.Format.LineSpacing == nil {
 		return snapLineHeightToDocGrid(p, geom, lineHeight)
 	}
@@ -3264,7 +3462,6 @@ type lineExclusion struct {
 	padLeft   float64
 	padRight  float64
 	// polygon holds contour vertices in absolute page points (object-relative + floatbox origin).
-	// When non-nil, lineAvailableWidthPt clips against the polygon per-line instead of the bbox.
 	polygon [][2]float64
 }
 
@@ -3303,11 +3500,77 @@ func paragraphTopAndBottomClearancePt(lineStartY, lineHeight float64, activeFloa
 	return math.Max(0, cursor-lineStartY)
 }
 
+// paragraphAffectedByActiveWrap reports whether a previously-resolved float
+// still owns text-flow geometry in this paragraph. Anchor ownership and wrap
+// ownership are intentionally different: Word floats can extend through
+// several following paragraphs.
+func paragraphFragmentNeedsSpatialRendering(fragment *ParagraphFragment) bool {
+	return fragment != nil && fragment.SpatialRendering && len(fragment.Lines) > 0
+}
+
+// activeWrapFloatsForRange narrows page-level float state to the objects that
+// can actually affect a paragraph/line range in the current column. Float
+// anchor lifetime and wrap lifetime are deliberately separate: a drawing may
+// remain on the page after its anchor paragraph, but it stops participating in
+// line layout as soon as its transformed exclusion no longer intersects the
+// current flow range.
+// commitPageFloats is the single ownership boundary for resolved floating
+// objects. Anchors are committed to exactly one physical page.
+func commitPageFloats(page *Page, floats []FloatBox) {
+	if page == nil || len(floats) == 0 {
+		return
+	}
+	for i := range floats {
+		floats[i].Page = page.Number
+	}
+	page.Floats = append(page.Floats, floats...)
+}
+
+// wrapFloatsForFlowRegion returns the page-owned float set used when a block
+// is measured in a flow region. Columns on the same page deliberately share
+// floats; a new physical page owns a fresh set. This keeps anchor lifetime,
+// wrap lifetime and page lifetime separate.
+func wrapFloatsForFlowRegion(page Page) []FloatBox {
+	if len(page.Floats) == 0 {
+		return nil
+	}
+	return page.Floats
+}
+
+func activeWrapFloatsForRange(geom PageGeometry, column int, top, bottom float64, floats []FloatBox) []FloatBox {
+	if len(floats) == 0 || bottom <= top {
+		return nil
+	}
+	columnLeft := columnLeftPt(geom, column)
+	columnRight := columnLeft + columnWidthPt(geom, column)
+	if columnRight <= columnLeft {
+		columnLeft = geom.MarginLeft
+		columnRight = geom.Width - geom.MarginRight
+	}
+	active := make([]FloatBox, 0, len(floats))
+	for _, fl := range floats {
+		exclusion, ok := lineExclusionForFloat(fl)
+		if !ok || exclusion.bottom <= top || exclusion.top >= bottom {
+			continue
+		}
+		if !exclusion.fullWidth && (exclusion.right <= columnLeft || exclusion.left >= columnRight) {
+			continue
+		}
+		active = append(active, fl)
+	}
+	return active
+}
+
+func paragraphAffectedByActiveWrap(geom PageGeometry, column int, paraPageY, paraHeight float64, activeFloats []FloatBox) bool {
+	return len(activeWrapFloatsForRange(geom, column, paraPageY, paraPageY+paraHeight, activeFloats)) > 0
+}
+
 func paragraphWrapExclusions(p *resolve.Paragraph, geom PageGeometry, column int, paraPageY, paraHeight float64, activeFloats []FloatBox) []lineExclusion {
 	if p == nil && len(activeFloats) == 0 {
 		return nil
 	}
 	localFloats := activeParagraphFloats(p, geom, column, paraPageY, paraHeight)
+	activeFloats = activeWrapFloatsForRange(geom, column, paraPageY, paraPageY+paraHeight, activeFloats)
 	exclusions := make([]lineExclusion, 0, len(activeFloats)+len(localFloats))
 	for _, fl := range activeFloats {
 		if exclusion, ok := lineExclusionForFloat(fl); ok {
@@ -3315,13 +3578,7 @@ func paragraphWrapExclusions(p *resolve.Paragraph, geom PageGeometry, column int
 		}
 	}
 	for _, fl := range localFloats {
-		if fl.Image != nil && paragraphBlockFloatImageEligibleForLayout(p, fl.Image) && strings.EqualFold(fl.Image.WrapType, "topAndBottom") {
-			continue
-		}
-		if fl.TextBox != nil && paragraphBlockFloatTextBoxEligibleForLayout(p, fl.TextBox) && strings.EqualFold(fl.TextBox.WrapType, "topAndBottom") {
-			continue
-		}
-		if fl.Shape != nil && paragraphBlockFloatShapeEligibleForLayout(p, fl.Shape) && strings.EqualFold(fl.Shape.WrapType, "topAndBottom") {
+		if drawingIsLeadingBlockFloat(p, fl) {
 			continue
 		}
 		if exclusion, ok := lineExclusionForFloat(fl); ok {
@@ -3329,242 +3586,6 @@ func paragraphWrapExclusions(p *resolve.Paragraph, geom PageGeometry, column int
 		}
 	}
 	return exclusions
-}
-
-func paragraphLeadingBlockFloatHeightPt(p *resolve.Paragraph) float64 {
-	if p == nil {
-		return 0
-	}
-	height := 0.0
-	for _, run := range p.Runs {
-		if run.Kind == "image" && run.Image != nil && run.Image.Floating && strings.EqualFold(run.Image.WrapType, "topAndBottom") && paragraphBlockFloatImageEligibleForLayout(p, run.Image) {
-			height += emuToPoints(run.Image.Height) + run.Image.DistTop + run.Image.DistBottom
-			continue
-		}
-		if run.Kind == "textbox" && run.TextBox != nil && run.TextBox.Floating && strings.EqualFold(run.TextBox.WrapType, "topAndBottom") && paragraphBlockFloatTextBoxEligibleForLayout(p, run.TextBox) {
-			height += emuToPoints(run.TextBox.Height) + run.TextBox.DistTop + run.TextBox.DistBottom
-			continue
-		}
-		if run.Kind == "shape" && run.Shape != nil && run.Shape.Floating && strings.EqualFold(run.Shape.WrapType, "topAndBottom") && paragraphBlockFloatShapeEligibleForLayout(p, run.Shape) {
-			height += emuToPoints(run.Shape.Height) + run.Shape.DistTop + run.Shape.DistBottom
-			continue
-		}
-		if strings.TrimSpace(run.Text) != "" {
-			break
-		}
-	}
-	return height
-}
-
-func paragraphContainsOnlyLeadingBlockFloatImageForLayout(p *resolve.Paragraph) bool {
-	if p == nil {
-		return false
-	}
-	for _, run := range p.Runs {
-		if run.Kind == "image" && run.Image != nil {
-			return run.Image.Floating && strings.EqualFold(run.Image.WrapType, "topAndBottom") && paragraphContainsOnlyFloatingImageForLayout(p, run.Image)
-		}
-		if strings.TrimSpace(run.Text) != "" {
-			return false
-		}
-		if run.Kind == "textbox" || run.Kind == "shape" || run.Kind == "hyperlink" {
-			return false
-		}
-	}
-	return false
-}
-
-func paragraphContainsOnlyLeadingBlockFloatTextBoxForLayout(p *resolve.Paragraph) bool {
-	if p == nil {
-		return false
-	}
-	for _, run := range p.Runs {
-		if run.Kind == "textbox" && run.TextBox != nil {
-			return run.TextBox.Floating && strings.EqualFold(run.TextBox.WrapType, "topAndBottom") && paragraphContainsOnlyFloatingTextBoxForLayout(p, run.TextBox)
-		}
-		if strings.TrimSpace(run.Text) != "" {
-			return false
-		}
-		if run.Kind == "shape" || run.Kind == "hyperlink" {
-			return false
-		}
-	}
-	return false
-}
-
-func paragraphContainsOnlyLeadingBlockFloatShapeForLayout(p *resolve.Paragraph) bool {
-	if p == nil {
-		return false
-	}
-	for _, run := range p.Runs {
-		if run.Kind == "shape" && run.Shape != nil {
-			return run.Shape.Floating && strings.EqualFold(run.Shape.WrapType, "topAndBottom") && paragraphContainsOnlyFloatingShapeForLayout(p, run.Shape)
-		}
-		if strings.TrimSpace(run.Text) != "" {
-			return false
-		}
-		if run.Kind == "textbox" || run.Kind == "image" || run.Kind == "hyperlink" {
-			return false
-		}
-	}
-	return false
-}
-
-func paragraphContainsOnlyFloatingImageForLayout(p *resolve.Paragraph, target *resolve.Image) bool {
-	if p == nil || target == nil {
-		return false
-	}
-	found := false
-	for _, run := range p.Runs {
-		switch {
-		case run.Kind == "image" && run.Image == target:
-			found = true
-		case run.Kind == "image" && run.Image != nil:
-			return false
-		case strings.TrimSpace(run.Text) != "":
-			return false
-		case run.Kind == "textbox" || run.Kind == "shape" || run.Kind == "hyperlink":
-			return false
-		}
-	}
-	return found
-}
-
-func paragraphContainsOnlyFloatingTextBoxForLayout(p *resolve.Paragraph, target *resolve.TextBox) bool {
-	if p == nil || target == nil {
-		return false
-	}
-	found := false
-	for _, run := range p.Runs {
-		switch {
-		case run.Kind == "textbox" && run.TextBox == target:
-			found = true
-		case run.Kind == "textbox" && run.TextBox != nil:
-			return false
-		case strings.TrimSpace(run.Text) != "":
-			return false
-		case run.Kind == "shape" || run.Kind == "hyperlink":
-			return false
-		}
-	}
-	return found
-}
-
-func paragraphContainsOnlyFloatingShapeForLayout(p *resolve.Paragraph, target *resolve.Shape) bool {
-	if p == nil || target == nil {
-		return false
-	}
-	found := false
-	for _, run := range p.Runs {
-		switch {
-		case run.Kind == "shape" && run.Shape == target:
-			found = true
-		case run.Kind == "shape" && run.Shape != nil:
-			return false
-		case strings.TrimSpace(run.Text) != "":
-			return false
-		case run.Kind == "textbox" || run.Kind == "image" || run.Kind == "hyperlink":
-			return false
-		}
-	}
-	return found
-}
-
-func paragraphBlockFloatImageEligibleForLayout(p *resolve.Paragraph, target *resolve.Image) bool {
-	if paragraphContainsOnlyFloatingImageForLayout(p, target) {
-		return true
-	}
-	if p == nil || target == nil {
-		return false
-	}
-	targetIndex := -1
-	for i, run := range p.Runs {
-		if run.Kind == "image" && run.Image == target {
-			targetIndex = i
-			break
-		}
-	}
-	if targetIndex < 0 {
-		return false
-	}
-	for i := 0; i < targetIndex; i++ {
-		run := p.Runs[i]
-		switch {
-		case strings.TrimSpace(run.Text) == "":
-			continue
-		case run.Kind == "image" && run.Image != nil && run.Image.Floating:
-			continue
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func paragraphBlockFloatShapeEligibleForLayout(p *resolve.Paragraph, target *resolve.Shape) bool {
-	if paragraphContainsOnlyFloatingShapeForLayout(p, target) {
-		return true
-	}
-	if p == nil || target == nil {
-		return false
-	}
-	targetIndex := -1
-	for i, run := range p.Runs {
-		if run.Kind == "shape" && run.Shape == target {
-			targetIndex = i
-			break
-		}
-	}
-	if targetIndex < 0 {
-		return false
-	}
-	for i := 0; i < targetIndex; i++ {
-		run := p.Runs[i]
-		switch {
-		case strings.TrimSpace(run.Text) == "":
-			continue
-		case run.Kind == "shape" && run.Shape != nil && run.Shape.Floating:
-			continue
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func paragraphBlockFloatTextBoxEligibleForLayout(p *resolve.Paragraph, target *resolve.TextBox) bool {
-	if paragraphContainsOnlyFloatingTextBoxForLayout(p, target) {
-		return true
-	}
-	if p == nil || target == nil {
-		return false
-	}
-	targetIndex := -1
-	for i, run := range p.Runs {
-		if run.Kind == "textbox" && run.TextBox == target {
-			targetIndex = i
-			break
-		}
-	}
-	if targetIndex < 0 {
-		return false
-	}
-	for i := 0; i < targetIndex; i++ {
-		run := p.Runs[i]
-		switch {
-		case strings.TrimSpace(run.Text) == "":
-			continue
-		case run.Kind == "image" && run.Image != nil && run.Image.Floating:
-			continue
-		case run.Kind == "textbox" && run.TextBox != nil && run.TextBox.Floating:
-			continue
-		case run.Kind == "shape" && run.Shape != nil && run.Shape.Floating:
-			continue
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 func activeParagraphFloats(p *resolve.Paragraph, geom PageGeometry, column int, paraPageY, paraHeight float64) []FloatBox {
@@ -3613,81 +3634,10 @@ func polygonBounds(poly [][2]float64) (left, top, right, bottom float64, ok bool
 }
 
 func lineExclusionForFloat(fl FloatBox) (lineExclusion, bool) {
+	if fl.Drawing() != nil {
+		return drawingExclusionForFloat(fl)
+	}
 	switch {
-	case fl.Image != nil:
-		img := fl.Image
-		if img == nil || fl.BehindDoc || strings.EqualFold(img.WrapType, "none") {
-			return lineExclusion{}, false
-		}
-		exc := lineExclusion{
-			top:       fl.Y - img.DistTop,
-			bottom:    fl.Y + fl.Height + img.DistBottom,
-			left:      fl.X - img.DistLeft,
-			right:     fl.X + fl.Width + img.DistRight,
-			fullWidth: strings.EqualFold(img.WrapType, "topAndBottom"),
-			wrapSide:  img.WrapSide,
-			padLeft:   img.DistLeft,
-			padRight:  img.DistRight,
-		}
-		if len(img.WrapPolygon) > 0 {
-			exc.polygon = absolutePolygon(img.WrapPolygon, fl.X, fl.Y)
-		} else if img.RotationDeg != 0 {
-			rotated := rotatedRectPolygon(fl.X, fl.Y, fl.Width, fl.Height, img.RotationDeg)
-			if left, top, right, bottom, ok := polygonBounds(rotated); ok {
-				exc.left = left - img.DistLeft
-				exc.right = right + img.DistRight
-				exc.top = top - img.DistTop
-				exc.bottom = bottom + img.DistBottom
-			}
-			if strings.EqualFold(img.WrapType, "tight") || strings.EqualFold(img.WrapType, "through") {
-				exc.polygon = rotated
-			}
-		}
-		return exc, true
-	case fl.TextBox != nil:
-		tb := fl.TextBox
-		if tb == nil || fl.BehindDoc || strings.EqualFold(tb.WrapType, "none") {
-			return lineExclusion{}, false
-		}
-		exc := lineExclusion{
-			top:       fl.Y - tb.DistTop,
-			bottom:    fl.Y + fl.Height + tb.DistBottom,
-			left:      fl.X - tb.DistLeft,
-			right:     fl.X + fl.Width + tb.DistRight,
-			fullWidth: strings.EqualFold(tb.WrapType, "topAndBottom"),
-			wrapSide:  tb.WrapSide,
-			padLeft:   tb.DistLeft,
-			padRight:  tb.DistRight,
-		}
-		if len(tb.WrapPolygon) > 0 {
-			exc.polygon = absolutePolygon(tb.WrapPolygon, fl.X, fl.Y)
-		}
-		return exc, true
-	case fl.Shape != nil:
-		if fl.BehindDoc {
-			return lineExclusion{}, false
-		}
-		sh := fl.Shape
-		exc := lineExclusion{
-			top:       fl.Y - sh.DistTop,
-			bottom:    fl.Y + fl.Height + sh.DistBottom,
-			left:      fl.X - sh.DistLeft,
-			right:     fl.X + fl.Width + sh.DistRight,
-			fullWidth: false,
-			wrapSide:  sh.WrapSide,
-			padLeft:   sh.DistLeft,
-			padRight:  sh.DistRight,
-		}
-		if strings.EqualFold(sh.WrapType, "none") || fl.BehindDoc {
-			return lineExclusion{}, false
-		}
-		if strings.EqualFold(sh.WrapType, "topAndBottom") {
-			exc.fullWidth = true
-		}
-		if len(sh.WrapPolygon) > 0 {
-			exc.polygon = absolutePolygon(sh.WrapPolygon, fl.X, fl.Y)
-		}
-		return exc, true
 	case fl.FloatTable != nil:
 		t := fl.FloatTable
 		if t == nil || t.Format.FloatProps == nil {
@@ -3723,6 +3673,59 @@ func lineExclusionForFloat(fl FloatBox) (lineExclusion, bool) {
 	default:
 		return lineExclusion{}, false
 	}
+}
+
+// drawingLineExclusion is the canonical wrap geometry for Word drawing
+// objects. Images, text boxes and shapes must use exactly the same geometry so
+// pagination cannot diverge merely because the visual payload type differs.
+//
+// Wrap polygons are authored in the object's unscaled coordinate space. When
+// sizeRelH/sizeRelV changes the rendered FloatBox size, scale the contour to the
+// resolved size first, then rotate it around the same center used by CSS.
+
+func resolvedWrapPolygon(fl FloatBox, polygon [][2]float64, sourceWidthPt, sourceHeightPt, rotationDeg float64) [][2]float64 {
+	if len(polygon) == 0 {
+		return nil
+	}
+	sx, sy := 1.0, 1.0
+	if sourceWidthPt > 0 && fl.Width > 0 {
+		sx = fl.Width / sourceWidthPt
+	}
+	if sourceHeightPt > 0 && fl.Height > 0 {
+		sy = fl.Height / sourceHeightPt
+	}
+	abs := make([][2]float64, len(polygon))
+	for i, point := range polygon {
+		abs[i] = [2]float64{fl.X + point[0]*sx, fl.Y + point[1]*sy}
+	}
+	if rotationDeg == 0 {
+		return abs
+	}
+	return rotatePolygonAround(abs, fl.X+fl.Width/2, fl.Y+fl.Height/2, rotationDeg)
+}
+
+func rotatePolygonAround(polygon [][2]float64, centerX, centerY, rotationDeg float64) [][2]float64 {
+	if len(polygon) == 0 || rotationDeg == 0 {
+		return polygon
+	}
+	angle := math.Mod(rotationDeg, 360)
+	if angle < 0 {
+		angle += 360
+	}
+	if math.Abs(angle) < 1e-9 || math.Abs(angle-360) < 1e-9 {
+		return polygon
+	}
+	rad := angle * math.Pi / 180
+	cosA, sinA := math.Cos(rad), math.Sin(rad)
+	rotated := make([][2]float64, len(polygon))
+	for i, point := range polygon {
+		dx, dy := point[0]-centerX, point[1]-centerY
+		rotated[i] = [2]float64{
+			centerX + dx*cosA - dy*sinA,
+			centerY + dx*sinA + dy*cosA,
+		}
+	}
+	return rotated
 }
 
 // absolutePolygon translates object-relative polygon vertices to absolute page
@@ -3764,7 +3767,7 @@ func polygonIntervalsAtY(polygon [][2]float64, y float64) [][2]float64 {
 			intervals = append(intervals, [2]float64{left, right})
 		}
 	}
-	return mergeLineExclusionIntervals(intervals)
+	return intervals
 }
 
 // polygonIntervalsAtBand approximates the filled X-intervals occupied by a
@@ -3774,233 +3777,8 @@ func polygonIntervalsAtY(polygon [][2]float64, y float64) [][2]float64 {
 // - Top, 1/4, middle, 3/4, bottom of the band
 // - All polygon vertices within the band
 // - Additional points where polygon edges change direction significantly
-func polygonIntervalsAtBand(polygon [][2]float64, lineTop, lineBottom float64) [][2]float64 {
-	if len(polygon) < 3 {
-		return nil
-	}
-	// Sample at 5 evenly spaced points for better accuracy
-	bandHeight := lineBottom - lineTop
-	samples := []float64{
-		lineTop,
-		lineTop + bandHeight*0.25,
-		lineTop + bandHeight*0.5,
-		lineTop + bandHeight*0.75,
-		lineBottom,
-	}
-
-	// Add all polygon vertices within the band
-	for _, pt := range polygon {
-		y := pt[1]
-		if y <= lineTop || y >= lineBottom {
-			continue
-		}
-		duplicate := false
-		for _, sample := range samples {
-			if math.Abs(sample-y) < 1e-9 {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			samples = append(samples, y)
-		}
-	}
-
-	// For complex polygons, also sample at edge intersection points
-	// where the slope changes significantly
-	n := len(polygon)
-	for i := 0; i < n; i++ {
-		p1 := polygon[i]
-		p2 := polygon[(i+1)%n]
-		p3 := polygon[(i+2)%n]
-
-		// Check if this vertex represents a significant direction change
-		dx1 := p2[0] - p1[0]
-		dy1 := p2[1] - p1[1]
-		dx2 := p3[0] - p2[0]
-		dy2 := p3[1] - p2[1]
-
-		// Normalize direction vectors
-		len1 := math.Sqrt(dx1*dx1 + dy1*dy1)
-		len2 := math.Sqrt(dx2*dx2 + dy2*dy2)
-
-		if len1 > 1e-9 && len2 > 1e-9 {
-			dot := (dx1*dx2 + dy1*dy2) / (len1 * len2)
-			// If direction change is significant (angle > 45 degrees)
-			if dot < 0.707 && p2[1] > lineTop && p2[1] < lineBottom {
-				duplicate := false
-				for _, sample := range samples {
-					if math.Abs(sample-p2[1]) < 1e-9 {
-						duplicate = true
-						break
-					}
-				}
-				if !duplicate {
-					samples = append(samples, p2[1])
-				}
-			}
-		}
-	}
-
-	intervals := make([][2]float64, 0, len(samples)*2)
-	for _, y := range samples {
-		intervals = append(intervals, polygonIntervalsAtY(polygon, y)...)
-	}
-	return mergeLineExclusionIntervals(intervals)
-}
-
 // polygonXRangeAtBand preserves the legacy min/max query over the merged scanline
 // intervals used for tight/through wrapping.
-func polygonXRangeAtBand(polygon [][2]float64, lineTop, lineBottom float64) (minX, maxX float64, ok bool) {
-	intervals := polygonIntervalsAtBand(polygon, lineTop, lineBottom)
-	if len(intervals) == 0 {
-		return 0, 0, false
-	}
-	return intervals[0][0], intervals[len(intervals)-1][1], true
-}
-
-func lineAvailableWidthPt(lineLeft, lineRight, lineTop, lineBottom float64, exclusions []lineExclusion) float64 {
-	width := lineRight - lineLeft
-	if width < 1 {
-		return 1
-	}
-	allowed := [][2]float64{{lineLeft, lineRight}}
-	activeCount := 0
-	for _, exclusion := range exclusions {
-		if exclusion.bottom <= lineTop || exclusion.top >= lineBottom {
-			continue
-		}
-		if exclusion.fullWidth {
-			return 1
-		}
-		// For polygon exclusions (tight/through), clip against the per-line polygon intervals.
-		polygonIntervals := [][2]float64{{exclusion.left, exclusion.right}}
-		if len(exclusion.polygon) >= 2 {
-			polygonIntervals = polygonIntervalsAtBand(exclusion.polygon, lineTop, lineBottom)
-			if len(polygonIntervals) == 0 {
-				continue // polygon doesn't intersect this line band
-			}
-			for i := range polygonIntervals {
-				polygonIntervals[i][0] -= exclusion.padLeft
-				polygonIntervals[i][1] += exclusion.padRight
-			}
-		}
-		clipped := make([][2]float64, 0, len(polygonIntervals))
-		for _, polygonInterval := range polygonIntervals {
-			left := math.Max(lineLeft, polygonInterval[0])
-			right := math.Min(lineRight, polygonInterval[1])
-			if right > left {
-				clipped = append(clipped, [2]float64{left, right})
-			}
-		}
-		if len(clipped) == 0 {
-			continue
-		}
-
-		activeCount++
-		blocked := mergeLineExclusionIntervals(clipped)
-		exclusionAllowed := allowedLineIntervalsForExclusion(lineLeft, lineRight, blocked, exclusion.wrapSide)
-		if len(exclusionAllowed) == 0 {
-			return 1
-		}
-		allowed = intersectLineIntervals(allowed, exclusionAllowed)
-		if len(allowed) == 0 {
-			return 1
-		}
-	}
-	if activeCount == 0 {
-		return width
-	}
-	available := maxLineIntervalWidth(allowed)
-	if available < 1 {
-		return 1
-	}
-	return available
-}
-
-func allowedLineIntervalsForExclusion(lineLeft, lineRight float64, blocked [][2]float64, wrapSide string) [][2]float64 {
-	if len(blocked) == 0 {
-		return [][2]float64{{lineLeft, lineRight}}
-	}
-	leftEdge := blocked[0][0]
-	rightEdge := blocked[len(blocked)-1][1]
-	switch strings.ToLower(strings.TrimSpace(wrapSide)) {
-	case "left":
-		if leftEdge <= lineLeft {
-			return nil
-		}
-		return [][2]float64{{lineLeft, leftEdge}}
-	case "right":
-		if rightEdge >= lineRight {
-			return nil
-		}
-		return [][2]float64{{rightEdge, lineRight}}
-	case "largest":
-		leftWidth := leftEdge - lineLeft
-		rightWidth := lineRight - rightEdge
-		if rightWidth > leftWidth {
-			if rightWidth <= 0 {
-				return nil
-			}
-			return [][2]float64{{rightEdge, lineRight}}
-		}
-		if leftWidth <= 0 {
-			return nil
-		}
-		return [][2]float64{{lineLeft, leftEdge}}
-	default:
-		return complementLineIntervals(lineLeft, lineRight, blocked)
-	}
-}
-
-func complementLineIntervals(lineLeft, lineRight float64, blocked [][2]float64) [][2]float64 {
-	allowed := make([][2]float64, 0, len(blocked)+1)
-	current := lineLeft
-	for _, interval := range blocked {
-		if interval[0] > current {
-			allowed = append(allowed, [2]float64{current, interval[0]})
-		}
-		if interval[1] > current {
-			current = interval[1]
-		}
-	}
-	if current < lineRight {
-		allowed = append(allowed, [2]float64{current, lineRight})
-	}
-	return allowed
-}
-
-func intersectLineIntervals(left, right [][2]float64) [][2]float64 {
-	if len(left) == 0 || len(right) == 0 {
-		return nil
-	}
-	intersections := make([][2]float64, 0, min(len(left), len(right)))
-	i, j := 0, 0
-	for i < len(left) && j < len(right) {
-		start := math.Max(left[i][0], right[j][0])
-		end := math.Min(left[i][1], right[j][1])
-		if end > start {
-			intersections = append(intersections, [2]float64{start, end})
-		}
-		if left[i][1] < right[j][1] {
-			i++
-		} else {
-			j++
-		}
-	}
-	return intersections
-}
-
-func maxLineIntervalWidth(intervals [][2]float64) float64 {
-	maxWidth := 0.0
-	for _, interval := range intervals {
-		if width := interval[1] - interval[0]; width > maxWidth {
-			maxWidth = width
-		}
-	}
-	return maxWidth
-}
-
 func commonWrapSide(exclusions []lineExclusion) string {
 	if len(exclusions) == 0 {
 		return ""
@@ -4016,47 +3794,6 @@ func commonWrapSide(exclusions []lineExclusion) string {
 		}
 	}
 	return common
-}
-
-func mergeLineExclusionIntervals(intervals [][2]float64) [][2]float64 {
-	if len(intervals) == 0 {
-		return nil
-	}
-	sorted := append(make([][2]float64, 0, len(intervals)), intervals...)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i][0] < sorted[j][0]
-	})
-	merged := make([][2]float64, 0, len(sorted))
-	current := sorted[0]
-	for _, interval := range sorted[1:] {
-		if interval[0] <= current[1] {
-			if interval[1] > current[1] {
-				current[1] = interval[1]
-			}
-			continue
-		}
-		merged = append(merged, current)
-		current = interval
-	}
-	merged = append(merged, current)
-	return merged
-}
-
-func largestContiguousAvailableWidthPt(lineLeft, lineRight float64, intervals [][2]float64) float64 {
-	currentLeft := lineLeft
-	best := 0.0
-	for _, interval := range intervals {
-		if interval[0] > currentLeft {
-			best = math.Max(best, interval[0]-currentLeft)
-		}
-		if interval[1] > currentLeft {
-			currentLeft = interval[1]
-		}
-	}
-	if lineRight > currentLeft {
-		best = math.Max(best, lineRight-currentLeft)
-	}
-	return best
 }
 
 // charWidthFactor returns the approximate advance width of a Unicode character
@@ -4304,21 +4041,22 @@ func tableRowHeight(doc *resolve.Document, row resolve.TableRow, tf resolve.Tabl
 	if contentHeight > 0 {
 		return contentHeight
 	}
-	return 14.4
+	return defaultFontSizePt(doc) * wordSingleLineRatio
 }
 
 func estimateTableRowContentHeight(doc *resolve.Document, row resolve.TableRow, tf resolve.TableFormat, tableWidthPt float64, includeTableTop, includeTableBottom bool) float64 {
 	cellWidths := TableCellWidths(row, tf, tableWidthPt)
 	maxHeight := 0.0
 	for i, cell := range row.Cells {
-		if cell.Format.VMerge == "continue" {
+		vMerge := strings.ToLower(strings.TrimSpace(cell.Format.VMerge))
+		if vMerge == "continue" || vMerge == "restart" {
 			continue
 		}
 		cellWidthPt := tableWidthPt
 		if i < len(cellWidths) && cellWidths[i] > 0 {
 			cellWidthPt = cellWidths[i]
 		}
-		height := tableCellHeight(doc, cell, tf, cellWidthPt, includeTableTop, includeTableBottom)
+		height := tableCellHeightWithRowContext(doc, cell, tf, row.Override, row.Format.CellSpacing, cellWidthPt, includeTableTop, includeTableBottom)
 		if height > maxHeight {
 			maxHeight = height
 		}
@@ -4402,11 +4140,66 @@ func rowHasOnlyVMergeContinuations(row resolve.TableRow) bool {
 	return true
 }
 
+// resolvedTableCellInsets mirrors the renderer's table-cell margin precedence
+// so pagination measures the same content box that HTML ultimately paints.
+// tcMar overrides table defaults side-by-side; tblPrEx row overrides then win.
+// Cell spacing supplies the legacy horizontal half-gap only when no explicit
+// horizontal padding was resolved.
+func resolvedTableCellInsets(tf resolve.TableFormat, rowOverride *resolve.TableRowOverride, rowCellSpacing int, cf resolve.TableCellFormat) (top, bottom, left, right int) {
+	top, bottom = tf.CellPadTop, tf.CellPadBottom
+	left, right = tf.CellPadLeft, tf.CellPadRight
+
+	if cf.CellPadTop != 0 {
+		top = cf.CellPadTop
+	}
+	if cf.CellPadBottom != 0 {
+		bottom = cf.CellPadBottom
+	}
+	if cf.CellPadLeft != 0 {
+		left = cf.CellPadLeft
+	}
+	if cf.CellPadRight != 0 {
+		right = cf.CellPadRight
+	}
+
+	if rowOverride != nil {
+		if rowOverride.CellPadTop != 0 {
+			top = rowOverride.CellPadTop
+		}
+		if rowOverride.CellPadBottom != 0 {
+			bottom = rowOverride.CellPadBottom
+		}
+		if rowOverride.CellPadLeft != 0 {
+			left = rowOverride.CellPadLeft
+		}
+		if rowOverride.CellPadRight != 0 {
+			right = rowOverride.CellPadRight
+		}
+	}
+
+	spacing := tf.CellSpacing
+	if rowCellSpacing > 0 {
+		spacing = rowCellSpacing
+	}
+	if left == 0 && spacing > 0 {
+		left = spacing / 2
+	}
+	if right == 0 && spacing > 0 {
+		right = spacing / 2
+	}
+	return
+}
+
 func tableCellHeight(doc *resolve.Document, cell resolve.TableCell, tf resolve.TableFormat, cellWidthPt float64, includeTableTop, includeTableBottom bool) float64 {
-	paddingTop := twipsToPoints(tf.CellPadTop)
-	paddingBottom := twipsToPoints(tf.CellPadBottom)
-	paddingLeft := twipsToPoints(tf.CellPadLeft)
-	paddingRight := twipsToPoints(tf.CellPadRight)
+	return tableCellHeightWithRowContext(doc, cell, tf, nil, 0, cellWidthPt, includeTableTop, includeTableBottom)
+}
+
+func tableCellHeightWithRowContext(doc *resolve.Document, cell resolve.TableCell, tf resolve.TableFormat, rowOverride *resolve.TableRowOverride, rowCellSpacing int, cellWidthPt float64, includeTableTop, includeTableBottom bool) float64 {
+	padTop, padBottom, padLeft, padRight := resolvedTableCellInsets(tf, rowOverride, rowCellSpacing, cell.Format)
+	paddingTop := twipsToPoints(padTop)
+	paddingBottom := twipsToPoints(padBottom)
+	paddingLeft := twipsToPoints(padLeft)
+	paddingRight := twipsToPoints(padRight)
 	tableTop := (*resolve.BorderSide)(nil)
 	tableInsideH := (*resolve.BorderSide)(nil)
 	tableBottom := (*resolve.BorderSide)(nil)
@@ -4435,19 +4228,7 @@ func tableCellHeight(doc *resolve.Document, cell resolve.TableCell, tf resolve.T
 	if len(blocks) == 0 && strings.TrimSpace(cell.Text) != "" {
 		blocks = []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Text: cell.Text, Runs: []resolve.Run{{Kind: "run", Text: cell.Text}}}}}
 	}
-	for i, block := range blocks {
-		switch block.Kind {
-		case "paragraph":
-			p := block.Paragraph
-			prev := adjacentBlock(blocks, i, -1)
-			next := adjacentBlock(blocks, i, +1)
-			contentHeight += ParagraphSpacingBefore(doc, p, prev, PageGeometry{}, i == 0)
-			contentHeight += paragraphHeightInWidth(doc, p, PageGeometry{}, paragraphWidthWithinCell(p, contentWidthPt))
-			contentHeight += ParagraphSpacingAfter(doc, p, next, PageGeometry{})
-		case "table":
-			contentHeight += tableHeight(doc, block.Table, contentWidthPt)
-		}
-	}
+	contentHeight += storyBlocksHeightInWidth(doc, blocks, PageGeometry{}, contentWidthPt)
 	return paddingTop + borderTop + contentHeight + borderBottom + paddingBottom
 }
 
@@ -4556,21 +4337,7 @@ func sectionStoryByType(stories map[string]resolve.Story, refs []resolve.Referen
 // resolved story (header, footer, or footnote) at the given content width.
 func estimateStoryHeightPt(doc *resolve.Document, story resolve.Story, widthPt float64) float64 {
 	blocks := trimTerminalEmptyStoryParagraphs(contentBlocks(story.Blocks))
-	total := 0.0
-	for i, block := range blocks {
-		switch block.Kind {
-		case "paragraph":
-			p := block.Paragraph
-			prev := adjacentBlock(blocks, i, -1)
-			next := adjacentBlock(blocks, i, +1)
-			total += ParagraphSpacingBefore(doc, p, prev, PageGeometry{}, i == 0)
-			total += paragraphHeightInWidth(doc, p, PageGeometry{}, paragraphWidthWithinCell(p, widthPt))
-			total += ParagraphSpacingAfter(doc, p, next, PageGeometry{})
-		case "table":
-			total += tableHeight(doc, block.Table, widthPt)
-		}
-	}
-	return total
+	return storyBlocksHeightInWidth(doc, blocks, PageGeometry{}, widthPt)
 }
 
 func trimTerminalEmptyStoryParagraphs(blocks []resolve.Block) []resolve.Block {

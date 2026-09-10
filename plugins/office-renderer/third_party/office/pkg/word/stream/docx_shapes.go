@@ -14,8 +14,15 @@ import (
 	wordsax "office/pkg/word/parsers/ooxml/sax"
 )
 
+func docxDrawingCarriesShape(raw wordsax.Event) bool {
+	if raw.DrawingGraphicKind == "shape" {
+		return true
+	}
+	return raw.DrawingHasTextBox || strings.Contains(raw.RawXML, "txbxContent")
+}
+
 func docxShapeFromDrawing(raw wordsax.Event) (*wordir.Shape, error) {
-	if raw.DrawingGraphicKind != "shape" || raw.RawXML == "" {
+	if raw.RawXML == "" || !docxDrawingCarriesShape(raw) {
 		return nil, nil
 	}
 
@@ -27,6 +34,9 @@ func docxShapeFromDrawing(raw wordsax.Event) (*wordir.Shape, error) {
 	var fillColor, strokeColor string
 	var strokeWidthEMU int64
 	var preset string
+	var vmlX, vmlY int64
+	var vmlFloating bool
+	var vmlShape bool
 	var inShapeProps, inLine, inSolidFill bool
 	var fillTarget string
 	var shapePropsDepth, lineDepth, solidDepth int
@@ -45,6 +55,24 @@ func docxShapeFromDrawing(raw wordsax.Event) (*wordir.Shape, error) {
 		case xml.StartElement:
 			depth++
 			switch t.Name.Local {
+			case "shape", "rect", "roundrect", "oval":
+				if t.Name.Space == "urn:schemas-microsoft-com:vml" {
+					vmlShape = true
+					style := xmlAttr(t, "style")
+					shape.Width, shape.Height = parseDOCXVMLStyleExtent(style)
+					vmlX, vmlY, vmlFloating = parseDOCXVMLStylePosition(style)
+					fillColor = normalizeDOCXVMLColor(xmlAttr(t, "fillcolor"))
+					strokeColor = normalizeDOCXVMLColor(xmlAttr(t, "strokecolor"))
+					strokeWidthEMU = parseDOCXVMLDimensionEMU(xmlAttr(t, "strokeweight"))
+					switch t.Name.Local {
+					case "roundrect":
+						preset = "roundRect"
+					case "oval":
+						preset = "ellipse"
+					default:
+						preset = "rect"
+					}
+				}
 			case "spPr":
 				if !inShapeProps {
 					inShapeProps = true
@@ -136,31 +164,26 @@ func docxShapeFromDrawing(raw wordsax.Event) (*wordir.Shape, error) {
 		shape.LineStyle = line
 	}
 
-	applyAnchoredShapePosition(shape, raw)
+	if vmlShape {
+		shape.Floating = vmlFloating
+		shape.X, shape.Y = vmlX, vmlY
+		shape.XRelative, shape.YRelative = "page", "page"
+		shape.WrapType = "square"
+		if shape.TextBox != nil {
+			shape.TextBox.Floating = vmlFloating
+			shape.TextBox.X, shape.TextBox.Y = vmlX, vmlY
+			shape.TextBox.XRelative, shape.TextBox.YRelative = "page", "page"
+			shape.TextBox.Width, shape.TextBox.Height = shape.Width, shape.Height
+			shape.TextBox.WrapType = "square"
+		}
+	} else {
+		applyAnchoredShapePosition(shape, raw)
+	}
 	if shape.TextBox != nil {
-		shape.TextBox.Floating = shape.Floating
-		shape.TextBox.X = shape.X
-		shape.TextBox.Y = shape.Y
-		shape.TextBox.Width = shape.Width
-		shape.TextBox.Height = shape.Height
-		shape.TextBox.XRelative = shape.XRelative
-		shape.TextBox.YRelative = shape.YRelative
-		shape.TextBox.XAlign = shape.XAlign
-		shape.TextBox.YAlign = shape.YAlign
-		shape.TextBox.ZIndex = shape.ZIndex
-		shape.TextBox.BehindDoc = shape.BehindDoc
-		shape.TextBox.WrapType = shape.WrapType
-		shape.TextBox.WrapSide = shape.WrapSide
-		shape.TextBox.DistTop = shape.DistTop
-		shape.TextBox.DistBottom = shape.DistBottom
-		shape.TextBox.DistLeft = shape.DistLeft
-		shape.TextBox.DistRight = shape.DistRight
+		shape.DrawingPlacement().ApplyToTextBox(shape.TextBox)
 		shape.TextBox.FillColor = fillColor
 		shape.TextBox.BorderColor = strokeColor
 		shape.TextBox.BorderWidth = float64(strokeWidthEMU) / 12700.0
-		shape.TextBox.RotationDeg = shape.RotationDeg
-		shape.TextBox.FlipH = shape.FlipH
-		shape.TextBox.FlipV = shape.FlipV
 	}
 
 	kind := officeartir.ShapeAuto
@@ -190,65 +213,29 @@ func applyAnchoredShapePosition(shape *wordir.Shape, raw wordsax.Event) {
 		return
 	}
 	anchor := raw.DrawingModel.Anchor
-	shape.Floating = true
-	shape.ZIndex = anchor.RelativeHeight
-	shape.BehindDoc = anchor.BehindDoc != 0
-	shape.Locked = anchor.Locked
-	shape.LayoutInCell = anchor.LayoutInCell
-	shape.AllowOverlap = anchor.AllowOverlap
+	placement := drawingPlacementFromAnchor(anchor)
+	placement.Width = shape.Width
+	placement.Height = shape.Height
+	placement.RotationDeg = shape.RotationDeg
+	placement.FlipH = shape.FlipH
+	placement.FlipV = shape.FlipV
 	if anchor.PositionH != nil {
-		shape.X = anchor.PositionH.PosOffset
-		shape.XRelative = anchor.PositionH.RelativeFrom
-		shape.XAlign = anchor.PositionH.Align
+		placement.X = anchor.PositionH.PosOffset
+		placement.XRelative = anchor.PositionH.RelativeFrom
+		placement.XAlign = anchor.PositionH.Align
 		if anchor.PositionH.Pct != 0 {
-			shape.X = anchor.PositionH.Pct
+			placement.X = anchor.PositionH.Pct
 		}
 	}
 	if anchor.PositionV != nil {
-		shape.Y = anchor.PositionV.PosOffset
-		shape.YRelative = anchor.PositionV.RelativeFrom
-		shape.YAlign = anchor.PositionV.Align
+		placement.Y = anchor.PositionV.PosOffset
+		placement.YRelative = anchor.PositionV.RelativeFrom
+		placement.YAlign = anchor.PositionV.Align
 		if anchor.PositionV.Pct != 0 {
-			shape.Y = anchor.PositionV.Pct
+			placement.Y = anchor.PositionV.Pct
 		}
 	}
-	if anchor.WrapNone != nil {
-		shape.WrapType = "none"
-	} else if anchor.WrapSquare != nil {
-		shape.WrapType = "square"
-		shape.WrapSide = anchor.WrapSquare.WrapText
-	} else if anchor.WrapTight != nil {
-		shape.WrapType = "tight"
-		shape.WrapSide = anchor.WrapTight.WrapText
-	} else if anchor.WrapThrough != nil {
-		shape.WrapType = "through"
-		shape.WrapSide = anchor.WrapThrough.WrapText
-	} else if anchor.WrapTopAndBottom != nil {
-		shape.WrapType = "topAndBottom"
-	}
-	shape.DistTop = float64(anchor.DistT) / 12700.0
-	shape.DistBottom = float64(anchor.DistB) / 12700.0
-	shape.DistLeft = float64(anchor.DistL) / 12700.0
-	shape.DistRight = float64(anchor.DistR) / 12700.0
-	if anchor.SimplePosAttr && anchor.SimplePos != nil {
-		shape.SimplePosAttr = true
-		shape.SimplePosX = anchor.SimplePos.X
-		shape.SimplePosY = anchor.SimplePos.Y
-	}
-	if anchor.EffectExtent != nil {
-		shape.EffectExtentL = anchor.EffectExtent.L
-		shape.EffectExtentT = anchor.EffectExtent.T
-		shape.EffectExtentR = anchor.EffectExtent.R
-		shape.EffectExtentB = anchor.EffectExtent.B
-	}
-	if anchor.SizeRelH != nil {
-		shape.SizeRelHPct = anchor.SizeRelH.Pct
-		shape.SizeRelHFrom = anchor.SizeRelH.RelativeFrom
-	}
-	if anchor.SizeRelV != nil {
-		shape.SizeRelVPct = anchor.SizeRelV.Pct
-		shape.SizeRelVFrom = anchor.SizeRelV.RelativeFrom
-	}
+	placement.ApplyTo(shape)
 }
 
 func applyDOCXTextBoxBodyProps(shape *wordir.Shape, start xml.StartElement) {
@@ -323,8 +310,25 @@ func parseDOCXTextBoxParagraph(dec *xml.Decoder, end xml.StartElement) (*wordir.
 				}
 				p.StyleID = props.StyleID
 				p.Format = paragraphFormatFromSAX(props)
+				if props.NumberingID != nil {
+					level := 0
+					if props.NumberingLevel != nil {
+						level = *props.NumberingLevel
+					}
+					p.Numbering = &wordir.Numbering{NumID: *props.NumberingID, Level: level}
+				}
 			case "r":
 				runs, text, err := parseDOCXTextBoxRun(dec, t)
+				if err != nil {
+					return nil, err
+				}
+				p.Runs = append(p.Runs, runs...)
+				p.Text += text
+			case "hyperlink", "smartTag", "sdt":
+				// Text boxes frequently wrap contact data and other visible text in
+				// w:hyperlink (and occasionally compatibility containers). The old
+				// parser skipped the whole wrapper, leaving an empty positioned box.
+				runs, text, err := parseDOCXTextBoxRunContainer(dec, t)
 				if err != nil {
 					return nil, err
 				}
@@ -338,6 +342,47 @@ func parseDOCXTextBoxParagraph(dec *xml.Decoder, end xml.StartElement) (*wordir.
 		case xml.EndElement:
 			if t.Name == end.Name {
 				return p, nil
+			}
+		}
+	}
+}
+
+// parseDOCXTextBoxRunContainer preserves visible runs nested in wrappers such
+// as w:hyperlink. It intentionally ignores the wrapper metadata here; the
+// textbox's visible content must not disappear merely because it is linked.
+func parseDOCXTextBoxRunContainer(dec *xml.Decoder, end xml.StartElement) ([]wordir.Run, string, error) {
+	var out []wordir.Run
+	var text strings.Builder
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, "", err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "r":
+				runs, value, err := parseDOCXTextBoxRun(dec, t)
+				if err != nil {
+					return nil, "", err
+				}
+				out = append(out, runs...)
+				text.WriteString(value)
+			case "hyperlink", "smartTag", "sdt", "sdtContent":
+				runs, value, err := parseDOCXTextBoxRunContainer(dec, t)
+				if err != nil {
+					return nil, "", err
+				}
+				out = append(out, runs...)
+				text.WriteString(value)
+			default:
+				if err := dec.Skip(); err != nil {
+					return nil, "", err
+				}
+			}
+		case xml.EndElement:
+			if t.Name == end.Name {
+				return out, text.String(), nil
 			}
 		}
 	}
@@ -378,11 +423,8 @@ func parseDOCXTextBoxRun(dec *xml.Decoder, end xml.StartElement) ([]wordir.Run, 
 					return nil, "", err
 				}
 			case "br", "cr":
-				breakType := xmlAttr(t, "type")
-				if breakType == "" {
-					breakType = "textWrapping"
-				}
-				out = append(out, wordir.Run{Kind: "break", BreakType: breakType, StyleID: props.StyleID, Format: runFormatFromSAX(props)})
+				out = append(out, wordir.Run{Kind: "break", StyleID: props.StyleID, Format: runFormatFromSAX(props)})
+				text.WriteByte('\n')
 				if err := dec.Skip(); err != nil {
 					return nil, "", err
 				}
@@ -399,34 +441,58 @@ func parseDOCXTextBoxRun(dec *xml.Decoder, end xml.StartElement) ([]wordir.Run, 
 	}
 }
 
-func xmlAttr(start xml.StartElement, local string) string {
-	for _, attr := range start.Attr {
-		if attr.Name.Local == local {
-			return attr.Value
+func parseDOCXVMLStyleExtent(style string) (int64, int64) {
+	props := parseDOCXVMLStyle(style)
+	return parseDOCXVMLDimensionEMU(props["width"]), parseDOCXVMLDimensionEMU(props["height"])
+}
+
+func parseDOCXVMLStylePosition(style string) (int64, int64, bool) {
+	props := parseDOCXVMLStyle(style)
+	x := parseDOCXVMLDimensionEMU(props["margin-left"])
+	y := parseDOCXVMLDimensionEMU(props["margin-top"])
+	position := strings.ToLower(strings.TrimSpace(props["position"]))
+	return x, y, position == "absolute" || position == "relative"
+}
+
+func parseDOCXVMLStyle(style string) map[string]string {
+	out := map[string]string{}
+	for _, item := range strings.Split(style, ";") {
+		key, value, ok := strings.Cut(item, ":")
+		if ok {
+			out[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
 		}
 	}
-	return ""
+	return out
 }
 
-func xmlOnOff(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "t", "on", "yes":
-		return true
-	default:
-		return false
-	}
-}
-
-func parseInt64Default(value string, fallback int64) int64 {
-	value = strings.TrimSpace(value)
+func parseDOCXVMLDimensionEMU(value string) int64 {
+	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
-		return fallback
+		return 0
 	}
-	v, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return fallback
+	scale := 12700.0
+	switch {
+	case strings.HasSuffix(value, "pt"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "pt"))
+	case strings.HasSuffix(value, "in"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "in")); scale = 914400
+	case strings.HasSuffix(value, "cm"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "cm")); scale = 360000
+	case strings.HasSuffix(value, "mm"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "mm")); scale = 36000
+	case strings.HasSuffix(value, "px"):
+		value = strings.TrimSpace(strings.TrimSuffix(value, "px")); scale = 9525
 	}
-	return v
+	v, err := strconv.ParseFloat(value, 64)
+	if err != nil { return 0 }
+	return int64(v * scale)
+}
+
+func normalizeDOCXVMLColor(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "#")
+	if len(value) == 6 { return strings.ToUpper(value) }
+	return ""
 }
 
 func appendDOCXShapeRun(session *LayoutSession, event Event) error {
@@ -439,11 +505,12 @@ func appendDOCXShapeRun(session *LayoutSession, event Event) error {
 	}
 	shape, err := docxShapeFromDrawing(raw)
 	if err != nil {
-		return fmt.Errorf("word stream: resolve DOCX shape: %w", err)
+		return fmt.Errorf("word stream: decode shape: %w", err)
 	}
 	if shape == nil {
 		return StreamUnsupportedEventError{Type: event.Type}
 	}
+	resolveDOCXShapeTextBoxSemantics(session, shape)
 	session.ensureParagraph()
 	run := wordir.Run{Kind: "shape", Shape: shape, StyleID: event.RunStyleID}
 	if event.RunFormat != nil {
@@ -451,4 +518,51 @@ func appendDOCXShapeRun(session *LayoutSession, event Event) error {
 	}
 	session.paragraph.Runs = append(session.paragraph.Runs, run)
 	return nil
+}
+
+
+func resolveDOCXShapeTextBoxSemantics(session *LayoutSession, shape *wordir.Shape) {
+	if session == nil || shape == nil || shape.TextBox == nil || session.metadata == nil {
+		return
+	}
+	for i := range shape.TextBox.Blocks {
+		block := &shape.TextBox.Blocks[i]
+		if block.Paragraph == nil {
+			continue
+		}
+		p := block.Paragraph
+		var direct *wordir.NumberingReference
+		if p.Numbering != nil {
+			direct = &wordir.NumberingReference{NumID: p.Numbering.NumID, Level: p.Numbering.Level}
+		}
+		numbering, list := session.metadata.ResolveParagraphNumbering(p.StyleID, direct)
+		p.Numbering = numbering
+		p.List = list
+	}
+}
+
+func xmlAttr(start xml.StartElement, local string) string {
+	for _, attr := range start.Attr {
+		if attr.Name.Local == local {
+			return attr.Value
+		}
+	}
+	return ""
+}
+
+func xmlOnOff(value string) bool {
+	value = strings.TrimSpace(strings.ToLower(value))
+	return value == "1" || value == "true" || value == "on"
+}
+
+func parseInt64Default(value string, fallback int64) int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

@@ -1,13 +1,10 @@
 package legacy
 
 import (
-	"bytes"
 	"encoding/binary"
-	"strings"
 
 	wordir "office/pkg/word/ir"
 	docbinary "office/pkg/word/parsers/doc/binary"
-	"office/pkg/word/parsers/doc/word97"
 )
 
 type legacyNoteData struct {
@@ -15,41 +12,6 @@ type legacyNoteData struct {
 	Stories    map[int]wordir.Story
 	AuthorByID map[int]string
 	DateByID   map[int]string
-}
-
-func loadCanonicalWord97SideStoryRanges(wordStream, tableStream []byte, fibBase, cbRgFcLcb int, counts docbinary.StoryCounts) word97.SideStoryRanges {
-	layout := docbinary.Word97Layout{FibBase: fibBase, CbRgFcLcb: cbRgFcLcb}
-	return word97.LoadSideStoryRanges(bytes.NewReader(tableStream), int64(len(tableStream)), wordStream, layout, counts)
-}
-
-func canonicalStoryCounts(counts legacyStoryCounts) docbinary.StoryCounts {
-	return docbinary.StoryCounts{
-		Text: counts.Text, Ftn: counts.Ftn, Hdr: counts.Hdr, Mcr: counts.Mcr,
-		Atn: counts.Atn, Edn: counts.Edn, Txbx: counts.Txbx, HdrTxbx: counts.HdrTxbx,
-	}
-}
-
-func buildLegacyNoteDataFromRanges(wordStream, clxData []byte, ranges []word97.ReferencedStoryRange, chpxEntries []chpxEntry, papxEntries []papxEntry) *legacyNoteData {
-	if len(ranges) == 0 {
-		return nil
-	}
-	data := &legacyNoteData{RefByCP: make(map[int]int, len(ranges)), Stories: make(map[int]wordir.Story, len(ranges))}
-	opened := canonicalLosslessStoryCore(clxData, chpxEntries, papxEntries)
-	for _, item := range ranges {
-		data.RefByCP[item.ReferenceCP] = item.ID
-		if opened == nil {
-			continue
-		}
-		story := materializeCanonicalLosslessStory(wordStream, opened, item.Range.StartCP, item.Range.EndCP)
-		if len(story.Blocks) == 0 && len(story.Paragraphs) == 0 && len(story.Tables) == 0 {
-			continue
-		}
-		data.Stories[item.ID] = story
-	}
-	if len(data.RefByCP) == 0 && len(data.Stories) == 0 {
-		return nil
-	}
-	return data
 }
 
 // Shared compatibility FIB accessor. Several old-format adapters still use it;
@@ -75,11 +37,11 @@ func absInt(v int) int {
 	return v
 }
 
-func injectDocNoteRefs(runs []docRun, refByCP map[int]int, kind string) []docRun {
+func injectDocNoteRefs(runs []binaryWordRun, refByCP map[int]int, kind string) []binaryWordRun {
 	if len(refByCP) == 0 {
 		return runs
 	}
-	out := make([]docRun, 0, len(runs)+len(refByCP))
+	out := make([]binaryWordRun, 0, len(runs)+len(refByCP))
 	for _, r := range runs {
 		if r.Kind != "" || r.Text == "" {
 			out = append(out, r)
@@ -104,7 +66,7 @@ func injectDocNoteRefs(runs []docRun, refByCP map[int]int, kind string) []docRun
 			if i > segmentStart {
 				out = append(out, cloneDocRunWithText(r, string(runes[segmentStart:i]), segmentStartCP))
 			}
-			out = append(out, docRun{Kind: kind, NoteID: noteID, Format: r.Format, ParaFormat: r.ParaFormat, StartCP: cp, Revision: r.Revision})
+			out = append(out, binaryWordRun{Kind: kind, NoteID: noteID, Format: r.Format, ParaFormat: r.ParaFormat, StartCP: cp, Revision: r.Revision})
 			cp++
 			segmentStart = i + 1
 			segmentStartCP = cp
@@ -120,11 +82,6 @@ func injectDocNoteRefs(runs []docRun, refByCP map[int]int, kind string) []docRun
 	return out
 }
 
-func cloneDocRunWithText(src docRun, text string, startCP int) docRun {
-	return docRun{Text: text, Format: src.Format, ParaFormat: src.ParaFormat, Target: src.Target, Kind: src.Kind, NoteID: src.NoteID, StartCP: startCP, CommentID: src.CommentID, Revision: src.Revision, Spec: src.Spec, Image: src.Image}
-}
-
-func buildLegacyStoryFromRuns(runs []docRun) wordir.Story {
-	doc := buildLegacyDocFromRuns("", applyDocFieldsToRuns(runs))
-	return wordir.Story{Paragraphs: doc.Paragraphs, Tables: doc.Tables, Blocks: doc.Blocks, Text: normalizeLegacyText(strings.TrimSpace(joinDocRunsText(runs)))}
+func cloneDocRunWithText(src binaryWordRun, text string, startCP int) binaryWordRun {
+	return binaryWordRun{Text: text, Format: src.Format, ParaFormat: src.ParaFormat, Target: src.Target, Kind: src.Kind, NoteID: src.NoteID, StartCP: startCP, CommentID: src.CommentID, Revision: src.Revision, Spec: src.Spec, Image: src.Image}
 }

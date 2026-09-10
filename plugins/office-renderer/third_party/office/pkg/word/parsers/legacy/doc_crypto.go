@@ -10,10 +10,6 @@ import (
 	"office/pkg/ooxml/crypt"
 )
 
-// DocPassword holds the decryption password for legacy DOC files.
-// An empty string means "no password provided".
-var DocPassword string
-
 const (
 	docFibBaseLen       = 68
 	docRC4RekeyInterval = 512
@@ -22,6 +18,16 @@ const (
 	docFlagWhichTblStm = 0x0200
 	docFlagObfuscated  = 0x8000
 )
+
+type legacyDocEncryptionError struct {
+	message string
+}
+
+func (e *legacyDocEncryptionError) Error() string { return "legacy doc: " + e.message }
+
+func legacyDocEncryptionErrorf(format string, args ...any) error {
+	return &legacyDocEncryptionError{message: fmt.Sprintf(format, args...)}
+}
 
 type docEncryptionMode int
 
@@ -43,10 +49,9 @@ type docEncryptionInfo struct {
 	verifier              uint16 // XOR verifier
 }
 
-// maybeDecryptDocStreams checks if the CFB container holds an encrypted .doc
-// and, when a password is available, decrypts the relevant streams and returns
-// a new CFB file with plaintext contents.
-func maybeDecryptDocStreams(f *cfb.File) (*cfb.File, error) {
+// maybeDecryptDocStreamsWithPassword checks if the CFB container holds an encrypted .doc
+// and decrypts it using a password scoped to this call.
+func maybeDecryptDocStreamsWithPassword(f *cfb.File, password string) (*cfb.File, error) {
 	wordStream, ok := f.Stream("WordDocument")
 	if !ok {
 		wordStream, ok = f.Stream("Ole")
@@ -64,8 +69,8 @@ func maybeDecryptDocStreams(f *cfb.File) (*cfb.File, error) {
 		return f, nil
 	}
 
-	if DocPassword == "" {
-		return nil, fmt.Errorf("legacy doc: document is encrypted but no password was provided")
+	if password == "" {
+		return nil, legacyDocEncryptionErrorf("document is encrypted but no password was provided")
 	}
 
 	tableName := "0Table"
@@ -74,7 +79,7 @@ func maybeDecryptDocStreams(f *cfb.File) (*cfb.File, error) {
 	}
 	tableStream, ok := f.Stream(tableName)
 	if !ok {
-		return nil, fmt.Errorf("legacy doc: encrypted document missing %s stream", tableName)
+		return nil, legacyDocEncryptionErrorf("encrypted document missing %s stream", tableName)
 	}
 
 	lKey := binary.LittleEndian.Uint32(wordStream[14:18])
@@ -84,17 +89,17 @@ func maybeDecryptDocStreams(f *cfb.File) (*cfb.File, error) {
 		return nil, err
 	}
 
-	keyMaterial, err := verifyDocPassword(info)
+	keyMaterial, err := verifyDocPasswordWithPassword(info, password)
 	if err != nil {
 		return nil, err
 	}
 
-	decryptedWordDoc := decryptDocStream(wordStream, docFibBaseLen, info, keyMaterial)
-	decryptedTable := decryptDocStream(tableStream, int(lKey), info, keyMaterial)
+	decryptedWordDoc := decryptDocStreamWithPassword(wordStream, docFibBaseLen, info, keyMaterial, password)
+	decryptedTable := decryptDocStreamWithPassword(tableStream, int(lKey), info, keyMaterial, password)
 
 	var decryptedData []byte
 	if dataStream, ok := f.Stream("Data"); ok && len(dataStream) > 0 {
-		decryptedData = decryptDocStream(dataStream, 0, info, keyMaterial)
+		decryptedData = decryptDocStreamWithPassword(dataStream, 0, info, keyMaterial, password)
 	}
 
 	return rebuildDocCFB(f, decryptedWordDoc, decryptedTable, decryptedData, tableName)
@@ -105,7 +110,7 @@ func parseDocEncryptionInfo(wordStream, tableStream []byte, flags uint16, lKey u
 		// XOR mode: lKey contains the 16-bit verifier in the low word,
 		// and the 16-bit key is read from the first 2 bytes of the table stream.
 		if len(tableStream) < 4 {
-			return nil, fmt.Errorf("legacy doc: XOR encryption info too short")
+			return nil, legacyDocEncryptionErrorf("XOR encryption info too short")
 		}
 		return &docEncryptionInfo{
 			mode:     docModeXOR,
@@ -115,11 +120,11 @@ func parseDocEncryptionInfo(wordStream, tableStream []byte, flags uint16, lKey u
 	}
 
 	if int(lKey) > len(tableStream) {
-		return nil, fmt.Errorf("legacy doc: encryption header size %d exceeds table stream length %d", lKey, len(tableStream))
+		return nil, legacyDocEncryptionErrorf("encryption header size %d exceeds table stream length %d", lKey, len(tableStream))
 	}
 	header := tableStream[:lKey]
 	if len(header) < 4 {
-		return nil, fmt.Errorf("legacy doc: encryption header too short (%d bytes)", len(header))
+		return nil, legacyDocEncryptionErrorf("encryption header too short (%d bytes)", len(header))
 	}
 
 	versionMajor := binary.LittleEndian.Uint16(header[0:2])
@@ -129,7 +134,7 @@ func parseDocEncryptionInfo(wordStream, tableStream []byte, flags uint16, lKey u
 	case versionMajor == 1 && versionMinor == 1:
 		// Binary RC4
 		if len(header) < 52 {
-			return nil, fmt.Errorf("legacy doc: Binary RC4 encryption header too short (%d bytes)", len(header))
+			return nil, legacyDocEncryptionErrorf("Binary RC4 encryption header too short (%d bytes)", len(header))
 		}
 		return &docEncryptionInfo{
 			mode:                  docModeBinaryRC4,
@@ -145,7 +150,7 @@ func parseDocEncryptionInfo(wordStream, tableStream []byte, flags uint16, lKey u
 		// CryptoAPI RC4
 		cryptoInfo, err := crypt.ParseCryptoAPIEncryptionInfo(header)
 		if err != nil {
-			return nil, fmt.Errorf("legacy doc: %w", err)
+			return nil, legacyDocEncryptionErrorf("%v", err)
 		}
 		return &docEncryptionInfo{
 			mode:                  docModeCryptoAPI,
@@ -158,42 +163,42 @@ func parseDocEncryptionInfo(wordStream, tableStream []byte, flags uint16, lKey u
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("legacy doc: unsupported encryption version %d.%d", versionMajor, versionMinor)
+		return nil, legacyDocEncryptionErrorf("unsupported encryption version %d.%d", versionMajor, versionMinor)
 	}
 }
 
-func verifyDocPassword(info *docEncryptionInfo) ([]byte, error) {
+func verifyDocPasswordWithPassword(info *docEncryptionInfo, password string) ([]byte, error) {
 	switch info.mode {
 	case docModeXOR:
-		if uint16(crypt.CreateXorKey1(DocPassword)) != info.key || uint16(crypt.CreateXorVerifier1(DocPassword)) != info.verifier {
-			return nil, fmt.Errorf("legacy doc: invalid password for XOR-encrypted document")
+		if uint16(crypt.CreateXorKey1(password)) != info.key || uint16(crypt.CreateXorVerifier1(password)) != info.verifier {
+			return nil, legacyDocEncryptionErrorf("invalid password for XOR-encrypted document")
 		}
 		return nil, nil // XOR doesn't use key material
 	case docModeBinaryRC4:
-		keyMaterial, err := crypt.VerifyBinaryRC4Password(DocPassword, info.salt, info.encryptedVerifier, info.encryptedVerifierHash)
+		keyMaterial, err := crypt.VerifyBinaryRC4Password(password, info.salt, info.encryptedVerifier, info.encryptedVerifierHash)
 		if err != nil {
-			return nil, fmt.Errorf("legacy doc: Binary RC4 verifier error: %w", err)
+			return nil, legacyDocEncryptionErrorf("Binary RC4 verifier error: %v", err)
 		}
 		if keyMaterial == nil {
-			return nil, fmt.Errorf("legacy doc: invalid password for Binary RC4-encrypted document")
+			return nil, legacyDocEncryptionErrorf("invalid password for Binary RC4-encrypted document")
 		}
 		return keyMaterial, nil
 	case docModeCryptoAPI:
-		keyMaterial, err := crypt.VerifyCryptoAPIPassword(DocPassword, info.hashAlg, info.keyBits,
+		keyMaterial, err := crypt.VerifyCryptoAPIPassword(password, info.hashAlg, info.keyBits,
 			info.salt, info.encryptedVerifier, info.encryptedVerifierHash, info.verifierHashSize)
 		if err != nil {
-			return nil, fmt.Errorf("legacy doc: CryptoAPI verifier error: %w", err)
+			return nil, legacyDocEncryptionErrorf("CryptoAPI verifier error: %v", err)
 		}
 		if keyMaterial == nil {
-			return nil, fmt.Errorf("legacy doc: invalid password for CryptoAPI-encrypted document")
+			return nil, legacyDocEncryptionErrorf("invalid password for CryptoAPI-encrypted document")
 		}
 		return keyMaterial, nil
 	default:
-		return nil, fmt.Errorf("legacy doc: unsupported encryption mode")
+		return nil, legacyDocEncryptionErrorf("unsupported encryption mode")
 	}
 }
 
-func decryptDocStream(stream []byte, offset int, info *docEncryptionInfo, keyMaterial []byte) []byte {
+func decryptDocStreamWithPassword(stream []byte, offset int, info *docEncryptionInfo, keyMaterial []byte, password string) []byte {
 	if offset >= len(stream) {
 		return append([]byte(nil), stream...)
 	}
@@ -202,7 +207,7 @@ func decryptDocStream(stream []byte, offset int, info *docEncryptionInfo, keyMat
 
 	switch info.mode {
 	case docModeXOR:
-		xorArray := crypt.CreateXorArray1(DocPassword)
+		xorArray := crypt.CreateXorArray1(password)
 		for i := offset; i < len(stream); i++ {
 			idx := i % 16
 			b := stream[i]
@@ -211,21 +216,25 @@ func decryptDocStream(stream []byte, offset int, info *docEncryptionInfo, keyMat
 			out[i] = b
 		}
 	case docModeBinaryRC4, docModeCryptoAPI:
-		// Block counter is based on stream position / chunkSize (512), not on
-		// the start of the encrypted portion. Chunks are aligned to 512-byte
-		// boundaries from the beginning of the stream.
+		// RC4 is re-keyed for each physical 512-byte stream block. If encryption
+		// starts inside a block (WordDocument keeps its FIB prefix plaintext and
+		// table streams keep the encryption header plaintext), the cipher must be
+		// advanced to that byte position before decrypting the encrypted suffix.
 		for block := 0; block*docRC4RekeyInterval < len(stream); block++ {
-			chunkStart := block * docRC4RekeyInterval
-			chunkEnd := chunkStart + docRC4RekeyInterval
-			if chunkEnd > len(stream) {
-				chunkEnd = len(stream)
+			blockStart := block * docRC4RekeyInterval
+			blockEnd := blockStart + docRC4RekeyInterval
+			if blockEnd > len(stream) {
+				blockEnd = len(stream)
 			}
+
+			chunkStart := blockStart
 			if chunkStart < offset {
 				chunkStart = offset
 			}
-			if chunkStart >= chunkEnd {
+			if chunkStart >= blockEnd {
 				continue
 			}
+
 			var blockKey []byte
 			if info.mode == docModeBinaryRC4 {
 				blockKey = crypt.DeriveBinaryRC4BlockKey(keyMaterial, block)
@@ -233,7 +242,12 @@ func decryptDocStream(stream []byte, offset int, info *docEncryptionInfo, keyMat
 				blockKey = crypt.DeriveCryptoAPIBlockKey(keyMaterial, info.hashAlg, info.keyBits, block)
 			}
 			cipher, _ := rc4.NewCipher(blockKey)
-			cipher.XORKeyStream(out[chunkStart:chunkEnd], stream[chunkStart:chunkEnd])
+
+			if skip := chunkStart - blockStart; skip > 0 {
+				discard := make([]byte, skip)
+				cipher.XORKeyStream(discard, discard)
+			}
+			cipher.XORKeyStream(out[chunkStart:blockEnd], stream[chunkStart:blockEnd])
 		}
 	}
 	return out

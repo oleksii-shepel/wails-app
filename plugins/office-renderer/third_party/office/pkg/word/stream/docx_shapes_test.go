@@ -3,8 +3,8 @@ package stream
 import (
 	"testing"
 
-	wordsax "office/pkg/word/parsers/ooxml/sax"
 	wordparts "office/pkg/word/parsers/ooxml/parts"
+	wordsax "office/pkg/word/parsers/ooxml/sax"
 )
 
 func TestDOCXShapeFromDrawingBuildsWordAndOfficeArtIR(t *testing.T) {
@@ -41,9 +41,24 @@ func TestDOCXShapeFromDrawingBuildsWordAndOfficeArtIR(t *testing.T) {
 			DistB:          25400,
 			DistL:          38100,
 			DistR:          50800,
+			Locked:         true,
+			LayoutInCell:   true,
+			AllowOverlap:   true,
+			SimplePosAttr:  true,
+			SimplePos:      &wordparts.SimplePos{X: 111000, Y: 222000},
+			EffectExtent:   &wordparts.EffectExtent{L: 12700, T: 25400, R: 38100, B: 50800},
+			SizeRelH:       &wordparts.SizeRel{RelativeFrom: "margin", Pct: 80000},
+			SizeRelV:       &wordparts.SizeRel{RelativeFrom: "page", Pct: 120000},
 			PositionH:      &wordparts.DrawingPosition{RelativeFrom: "page", PosOffset: 100000},
 			PositionV:      &wordparts.DrawingPosition{RelativeFrom: "paragraph", PosOffset: 200000},
-			WrapSquare:     &wordparts.DrawingWrapSided{WrapText: "bothSides"},
+			WrapTight: &wordparts.DrawingWrapSided{
+				DrawingWrapDistances: wordparts.DrawingWrapDistances{DistT: 6350, DistL: 25400},
+				WrapText:             "bothSides",
+				Polygon: &wordparts.WrapPolygon{
+					Start:  wordparts.WrapPolygonPt{X: 0, Y: 0},
+					LineTo: []wordparts.WrapPolygonPt{{X: 1270000, Y: 0}, {X: 1270000, Y: 635000}},
+				},
+			},
 		}},
 	}
 
@@ -60,7 +75,7 @@ func TestDOCXShapeFromDrawingBuildsWordAndOfficeArtIR(t *testing.T) {
 	if !shape.Floating || shape.X != 100000 || shape.Y != 200000 || shape.XRelative != "page" || shape.YRelative != "paragraph" {
 		t.Fatalf("anchor = floating=%v x=%d y=%d xRel=%q yRel=%q", shape.Floating, shape.X, shape.Y, shape.XRelative, shape.YRelative)
 	}
-	if shape.WrapType != "square" || shape.WrapSide != "bothSides" || !shape.BehindDoc || shape.ZIndex != 7 {
+	if shape.WrapType != "tight" || shape.WrapSide != "bothSides" || !shape.BehindDoc || shape.ZIndex != 7 {
 		t.Fatalf("wrap/z = %q %q behind=%v z=%d", shape.WrapType, shape.WrapSide, shape.BehindDoc, shape.ZIndex)
 	}
 	if shape.FillColor != "336699" || shape.StrokeColor != "112233" || shape.StrokeWidth != 25400 {
@@ -68,6 +83,18 @@ func TestDOCXShapeFromDrawingBuildsWordAndOfficeArtIR(t *testing.T) {
 	}
 	if shape.RotationDeg != 90 || !shape.FlipH {
 		t.Fatalf("transform = rotation %v flipH=%v", shape.RotationDeg, shape.FlipH)
+	}
+	if !shape.SimplePosAttr || shape.SimplePosX != 111000 || shape.SimplePosY != 222000 || !shape.Locked || !shape.LayoutInCell || !shape.AllowOverlap {
+		t.Fatalf("advanced anchor flags = %#v", shape)
+	}
+	if shape.EffectExtentL != 12700 || shape.EffectExtentB != 50800 || shape.SizeRelHPct != 80000 || shape.SizeRelHFrom != "margin" || shape.SizeRelVPct != 120000 || shape.SizeRelVFrom != "page" {
+		t.Fatalf("advanced anchor geometry = %#v", shape)
+	}
+	if len(shape.WrapPolygon) != 3 || shape.WrapPolygon[1] != [2]float64{100, 0} || shape.WrapPolygon[2] != [2]float64{100, 50} {
+		t.Fatalf("wrap polygon = %#v", shape.WrapPolygon)
+	}
+	if shape.DistTop != 0.5 || shape.DistBottom != 2 || shape.DistLeft != 2 || shape.DistRight != 4 {
+		t.Fatalf("wrap distances = %v/%v/%v/%v", shape.DistTop, shape.DistBottom, shape.DistLeft, shape.DistRight)
 	}
 	if shape.TextBox == nil || len(shape.TextBox.Blocks) != 1 || shape.TextBox.Blocks[0].Paragraph == nil {
 		t.Fatalf("textbox = %#v", shape.TextBox)
@@ -81,6 +108,12 @@ func TestDOCXShapeFromDrawingBuildsWordAndOfficeArtIR(t *testing.T) {
 	}
 	if shape.TextBox.NoWrap != true || shape.TextBox.Anchor != "ctr" {
 		t.Fatalf("textbox body props = %#v", shape.TextBox)
+	}
+	if !shape.TextBox.SimplePosAttr || shape.TextBox.SimplePosX != shape.SimplePosX || shape.TextBox.EffectExtentR != shape.EffectExtentR || shape.TextBox.SizeRelVPct != shape.SizeRelVPct || !shape.TextBox.Locked || !shape.TextBox.LayoutInCell || !shape.TextBox.AllowOverlap {
+		t.Fatalf("textbox anchor semantics = %#v", shape.TextBox)
+	}
+	if len(shape.TextBox.WrapPolygon) != len(shape.WrapPolygon) || shape.TextBox.DistTop != shape.DistTop || shape.TextBox.DistLeft != shape.DistLeft {
+		t.Fatalf("textbox wrap semantics = %#v", shape.TextBox)
 	}
 	if shape.OfficeArt == nil {
 		t.Fatal("canonical OfficeArt shape is nil")

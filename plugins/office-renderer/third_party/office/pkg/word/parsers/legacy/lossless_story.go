@@ -1,56 +1,15 @@
 package legacy
 
 import (
-	"bytes"
 	"strings"
 
 	wordir "office/pkg/word/ir"
-	docbinary "office/pkg/word/parsers/doc/binary"
-	word97 "office/pkg/word/parsers/doc/word97"
 )
 
-// canonicalLosslessStoryCore adapts the remaining lossless legacy CLX/CHPX/PAPX
-// storage into the canonical Word97 story materializer. Story semantics live in
-// word97; this helper is only the compatibility boundary for old callers.
-func canonicalLosslessStoryCore(clxData []byte, chpxEntries []chpxEntry, papxEntries []papxEntry) *word97.OpenCore {
-	complex := docbinary.ParseComplexFileTable(clxData)
-	if complex == nil || len(complex.PlcPcd) == 0 {
-		return nil
-	}
-	return &word97.OpenCore{
-		Complex: complex,
-		CHPX:    toSequentialCHPXEntries(chpxEntries),
-		PAPX:    toSequentialPAPXEntries(papxEntries),
-	}
-}
-
-func materializeCanonicalLosslessStory(wordStream []byte, opened *word97.OpenCore, startCP, endCP int) wordir.Story {
-	if len(wordStream) == 0 || opened == nil || startCP >= endCP {
-		return wordir.Story{}
-	}
-	story := word97.MaterializeStoryRange(
-		bytes.NewReader(wordStream),
-		int64(len(wordStream)),
-		opened,
-		word97.StoryRange{StartCP: startCP, EndCP: endCP},
-	)
-	stripLeadingStoryControlMarker(&story)
-	return story
-}
-
-func materializeCanonicalLosslessStoryRange(wordStream, clxData []byte, startCP, endCP int, chpxEntries []chpxEntry, papxEntries []papxEntry) wordir.Story {
-	return materializeCanonicalLosslessStory(
-		wordStream,
-		canonicalLosslessStoryCore(clxData, chpxEntries, papxEntries),
-		startCP,
-		endCP,
-	)
-}
-
 // splitCanonicalStoryOnBreak divides a canonical story at explicit break runs
-// without falling back to the old DOC run/story builder. It is primarily used
-// for legacy textbox stories where form-feed characters delimit independent
-// textbox payloads, but it intentionally operates on shared word IR.
+// without falling back to the old DOC run/story builder. It is retained for the
+// pre-Word97 textbox compatibility surface and intentionally operates only on
+// shared word IR.
 func splitCanonicalStoryOnBreak(story wordir.Story, breakType string) []wordir.Story {
 	if len(story.Blocks) == 0 {
 		if story.Text == "" && len(story.Paragraphs) == 0 && len(story.Tables) == 0 {

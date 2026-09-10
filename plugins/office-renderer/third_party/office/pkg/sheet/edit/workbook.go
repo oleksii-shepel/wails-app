@@ -7,11 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"office/pkg/ooxml/opc"
 	legacytoooxml "office/pkg/sheet/convert/legacytoooxml"
 	sheetir "office/pkg/sheet/ir"
+	sheetooxml "office/pkg/sheet/parsers/ooxml"
 	sheetparts "office/pkg/sheet/parsers/ooxml/parts"
-	sheetresolve "office/pkg/sheet/parsers/ooxml/resolve"
 )
 
 // Workbook is an editable wrapper around the spreadsheet IR.
@@ -83,15 +82,7 @@ func OpenIR(ir *sheetir.Workbook) (*Workbook, error) {
 
 // OpenXLSX loads an XLSX package into editable IR.
 func OpenXLSX(r io.ReaderAt, size int64) (*Workbook, error) {
-	opcPkg, err := opc.OpenReaderAt(r, size)
-	if err != nil {
-		return nil, err
-	}
-	xlPkg, err := sheetparts.LoadPackage(opcPkg)
-	if err != nil {
-		return nil, err
-	}
-	ir, err := sheetresolve.ResolvePackage(xlPkg)
+	ir, xlPkg, err := sheetooxml.ParseReaderAtWithPackage(r, size)
 	if err != nil {
 		return nil, err
 	}

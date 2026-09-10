@@ -24,6 +24,10 @@ type ParagraphProperties struct {
 	KeepLines       bool
 	PageBreakBefore bool
 	WidowControl    *bool
+	SnapToGrid      *bool
+	ContextualSpacing bool
+	NumberingID     *int
+	NumberingLevel  *int
 }
 
 // RunProperties is the layout-critical subset of w:rPr promoted by the SAX
@@ -37,6 +41,10 @@ type RunProperties struct {
 	Color              string
 	FontFamily         string
 	FontSizeHalfPoints *int
+	FontSizeCSHalfPoints *int
+	BoldCS             *bool
+	CharacterSpacing   *int
+	KerningHalfPoints  *int
 }
 
 // HeaderFooterReference is a format-neutral section story reference. ID is the
@@ -105,6 +113,18 @@ func parseParagraphPropertiesRich(dec *xml.Decoder, start xml.StartElement) (Par
 			case "widowControl":
 				v := onOffElement(t, true)
 				out.WidowControl = &v
+			case "snapToGrid":
+				v := onOffElement(t, true)
+				out.SnapToGrid = &v
+			case "contextualSpacing":
+				out.ContextualSpacing = onOffElement(t, true)
+			case "numPr":
+				id, level, err := parseParagraphNumberingProperties(dec, t)
+				if err != nil {
+					return out, err
+				}
+				out.NumberingID, out.NumberingLevel = id, level
+				continue
 			}
 			if err := dec.Skip(); err != nil {
 				return out, err
@@ -112,6 +132,33 @@ func parseParagraphPropertiesRich(dec *xml.Decoder, start xml.StartElement) (Par
 		case xml.EndElement:
 			if t.Name == start.Name {
 				return out, nil
+			}
+		}
+	}
+}
+
+
+func parseParagraphNumberingProperties(dec *xml.Decoder, start xml.StartElement) (*int, *int, error) {
+	var id, level *int
+	for {
+		token, err := dec.Token()
+		if err != nil {
+			return nil, nil, err
+		}
+		switch t := token.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "numId":
+				id = intAttr(t, "val")
+			case "ilvl":
+				level = intAttr(t, "val")
+			}
+			if err := dec.Skip(); err != nil {
+				return nil, nil, err
+			}
+		case xml.EndElement:
+			if t.Name == start.Name {
+				return id, level, nil
 			}
 		}
 	}
@@ -132,6 +179,9 @@ func parseRunProperties(dec *xml.Decoder, start xml.StartElement) (RunProperties
 			case "b":
 				v := onOffElement(t, true)
 				out.Bold = &v
+			case "bCs":
+				v := onOffElement(t, true)
+				out.BoldCS = &v
 			case "i":
 				v := onOffElement(t, true)
 				out.Italic = &v
@@ -152,6 +202,12 @@ func parseRunProperties(dec *xml.Decoder, start xml.StartElement) (RunProperties
 				}
 			case "sz":
 				out.FontSizeHalfPoints = intAttr(t, "val")
+			case "szCs":
+				out.FontSizeCSHalfPoints = intAttr(t, "val")
+			case "spacing":
+				out.CharacterSpacing = intAttr(t, "val")
+			case "kern":
+				out.KerningHalfPoints = intAttr(t, "val")
 			}
 			if err := dec.Skip(); err != nil {
 				return out, err

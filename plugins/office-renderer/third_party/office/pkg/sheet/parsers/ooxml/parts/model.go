@@ -184,12 +184,16 @@ type FileSharing struct {
 
 // CalcPr represents xl/workbook.xml > calcPr. ECMA-376 §18.2.2.
 type CalcPr struct {
-	CalcMode      string   `xml:"calcMode,attr,omitempty"` // "auto"|"manual"|"autoNoTable"
-	Iterate       *bool    `xml:"iterate,attr,omitempty"`
-	IterateCount  *int     `xml:"iterateCount,attr,omitempty"`
-	IterateDelta  *float64 `xml:"iterateDelta,attr,omitempty"`
-	CalcOnSave    *bool    `xml:"calcOnSave,attr,omitempty"`
-	FullPrecision *bool    `xml:"fullPrecision,attr,omitempty"`
+	CalcMode       string   `xml:"calcMode,attr,omitempty"` // "auto"|"manual"|"autoNoTable"
+	RefMode        string   `xml:"refMode,attr,omitempty"`  // "A1"|"R1C1"
+	CalcID         *int     `xml:"calcId,attr,omitempty"`
+	Iterate        *bool    `xml:"iterate,attr,omitempty"`
+	IterateCount   *int     `xml:"iterateCount,attr,omitempty"`
+	IterateDelta   *float64 `xml:"iterateDelta,attr,omitempty"`
+	CalcOnSave     *bool    `xml:"calcOnSave,attr,omitempty"`
+	FullPrecision  *bool    `xml:"fullPrecision,attr,omitempty"`
+	FullCalcOnLoad *bool    `xml:"fullCalcOnLoad,attr,omitempty"`
+	ForceFullCalc  *bool    `xml:"forceFullCalc,attr,omitempty"`
 }
 
 // Workbook represents xl/workbook.xml.
@@ -505,11 +509,20 @@ type SheetDimension struct {
 
 // SheetView describes a view configuration for this worksheet.
 type SheetView struct {
-	TabSelected    bool  `xml:"tabSelected,attr,omitempty"`
-	WorkbookViewID int   `xml:"workbookViewId,attr"`
-	ZoomScale      int   `xml:"zoomScale,attr,omitempty"`
-	ShowGridLines  *bool `xml:"showGridLines,attr"`
-	Pane           *Pane `xml:"pane"`
+	TabSelected    bool        `xml:"tabSelected,attr,omitempty"`
+	WorkbookViewID int         `xml:"workbookViewId,attr"`
+	ZoomScale      int         `xml:"zoomScale,attr,omitempty"`
+	ShowGridLines  *bool       `xml:"showGridLines,attr"`
+	Pane           *Pane       `xml:"pane"`
+	Selections     []Selection `xml:"selection"`
+}
+
+// Selection describes one active selection within a worksheet pane.
+type Selection struct {
+	Pane         string `xml:"pane,attr,omitempty"`
+	ActiveCell   string `xml:"activeCell,attr,omitempty"`
+	ActiveCellID int    `xml:"activeCellId,attr,omitempty"`
+	SqRef        string `xml:"sqref,attr,omitempty"`
 }
 
 // Pane describes a frozen or split pane configuration.
@@ -680,6 +693,8 @@ type DataValidation struct {
 	SqRef            string `xml:"sqref,attr"`
 	Type             string `xml:"type,attr,omitempty"`
 	Operator         string `xml:"operator,attr,omitempty"`
+	ErrorStyle       string `xml:"errorStyle,attr,omitempty"`
+	IMEMode          string `xml:"imeMode,attr,omitempty"`
 	AllowBlank       bool   `xml:"allowBlank,attr,omitempty"`
 	ShowDropDown     bool   `xml:"showDropDown,attr,omitempty"`
 	ShowInputMessage bool   `xml:"showInputMessage,attr,omitempty"`
@@ -829,12 +844,20 @@ type HeaderFooter struct {
 // PageSetup records the <pageSetup> element in a worksheet.
 // ECMA-376 Part 1 §18.3.1.63.
 type PageSetup struct {
-	PaperSize   int    `xml:"paperSize,attr,omitempty"`
-	Orientation string `xml:"orientation,attr,omitempty"` // "portrait" | "landscape"
-	FitToPage   bool   `xml:"fitToPage,attr,omitempty"`
-	FitToWidth  int    `xml:"fitToWidth,attr,omitempty"`
-	FitToHeight int    `xml:"fitToHeight,attr,omitempty"`
-	Scale       int    `xml:"scale,attr,omitempty"`
+	PaperSize          int    `xml:"paperSize,attr,omitempty"`
+	Orientation        string `xml:"orientation,attr,omitempty"` // "portrait" | "landscape"
+	FitToPage          bool   `xml:"fitToPage,attr,omitempty"`
+	FitToWidth         int    `xml:"fitToWidth,attr,omitempty"`
+	FitToHeight        int    `xml:"fitToHeight,attr,omitempty"`
+	Scale              int    `xml:"scale,attr,omitempty"`
+	FirstPageNumber    int    `xml:"firstPageNumber,attr,omitempty"`
+	UseFirstPageNumber bool   `xml:"useFirstPageNumber,attr,omitempty"`
+	PageOrder          string `xml:"pageOrder,attr,omitempty"`
+	BlackAndWhite      bool   `xml:"blackAndWhite,attr,omitempty"`
+	Draft              bool   `xml:"draft,attr,omitempty"`
+	HorizontalDPI      int    `xml:"horizontalDpi,attr,omitempty"`
+	VerticalDPI        int    `xml:"verticalDpi,attr,omitempty"`
+	Copies             int    `xml:"copies,attr,omitempty"`
 }
 
 // Comments represents xl/comments.xml.
@@ -990,8 +1013,9 @@ type RTRun struct {
 type RTProps struct {
 	Bold      *struct{}  `xml:"b"`
 	Italic    *struct{}  `xml:"i"`
-	Underline *struct{}  `xml:"u"`
+	Underline *StringVal `xml:"u"`
 	Strike    *struct{}  `xml:"strike"`
+	VertAlign *StringVal `xml:"vertAlign"`
 	FontSize  *FloatVal  `xml:"sz"`
 	Color     *ColorVal  `xml:"color"`
 	FontName  *StringVal `xml:"name"`
@@ -1049,8 +1073,13 @@ type DxfFill struct {
 	PatternFill *PatternFill `xml:"patternFill"`
 }
 
-// DxfBorder holds border overrides inside a dxf (placeholder, not yet rendered).
-type DxfBorder struct{}
+// DxfBorder holds border overrides inside a differential format.
+type DxfBorder struct {
+	Left   *BorderSide `xml:"left"`
+	Right  *BorderSide `xml:"right"`
+	Top    *BorderSide `xml:"top"`
+	Bottom *BorderSide `xml:"bottom"`
+}
 
 // FontTable represents an embedded font table if present.
 type FontTable struct {
@@ -1165,8 +1194,9 @@ type NumFmt struct {
 type Font struct {
 	Bold      *struct{}  `xml:"b"`
 	Italic    *struct{}  `xml:"i"`
-	Underline *struct{}  `xml:"u"`
+	Underline *StringVal `xml:"u"`
 	Strike    *struct{}  `xml:"strike"`
+	VertAlign *StringVal `xml:"vertAlign"`
 	Size      *FloatVal  `xml:"sz"`
 	Color     *ColorVal  `xml:"color"`
 	Name      *StringVal `xml:"name"`
@@ -1188,10 +1218,15 @@ type PatternFill struct {
 
 // Border describes a border entry.
 type Border struct {
-	Left   *BorderSide `xml:"left"`
-	Right  *BorderSide `xml:"right"`
-	Top    *BorderSide `xml:"top"`
-	Bottom *BorderSide `xml:"bottom"`
+	Left         *BorderSide `xml:"left"`
+	Right        *BorderSide `xml:"right"`
+	Top          *BorderSide `xml:"top"`
+	Bottom       *BorderSide `xml:"bottom"`
+	Diagonal     *BorderSide `xml:"diagonal"`
+	Vertical     *BorderSide `xml:"vertical"`
+	Horizontal   *BorderSide `xml:"horizontal"`
+	DiagonalUp   bool        `xml:"diagonalUp,attr,omitempty"`
+	DiagonalDown bool        `xml:"diagonalDown,attr,omitempty"`
 }
 
 // BorderSide is one side of a border.
@@ -1202,14 +1237,19 @@ type BorderSide struct {
 
 // Xf is a cell format (xf) record, indexing font/fill/border/numFmt.
 type Xf struct {
-	NumFmtID        int             `xml:"numFmtId,attr"`
-	FontID          int             `xml:"fontId,attr"`
-	FillID          int             `xml:"fillId,attr"`
-	BorderID        int             `xml:"borderId,attr"`
-	XfID            int             `xml:"xfId,attr,omitempty"`
-	ApplyProtection bool            `xml:"applyProtection,attr,omitempty"`
-	Alignment       *Alignment      `xml:"alignment"`
-	Protection      *CellProtection `xml:"protection"`
+	NumFmtID          int             `xml:"numFmtId,attr"`
+	FontID            int             `xml:"fontId,attr"`
+	FillID            int             `xml:"fillId,attr"`
+	BorderID          int             `xml:"borderId,attr"`
+	XfID              int             `xml:"xfId,attr,omitempty"`
+	ApplyNumberFormat bool            `xml:"applyNumberFormat,attr,omitempty"`
+	ApplyFont         bool            `xml:"applyFont,attr,omitempty"`
+	ApplyFill         bool            `xml:"applyFill,attr,omitempty"`
+	ApplyBorder       bool            `xml:"applyBorder,attr,omitempty"`
+	ApplyAlignment    bool            `xml:"applyAlignment,attr,omitempty"`
+	ApplyProtection   bool            `xml:"applyProtection,attr,omitempty"`
+	Alignment         *Alignment      `xml:"alignment"`
+	Protection        *CellProtection `xml:"protection"`
 }
 
 // Alignment describes cell alignment.
@@ -1217,6 +1257,8 @@ type Alignment struct {
 	Horizontal   string `xml:"horizontal,attr,omitempty"`
 	Vertical     string `xml:"vertical,attr,omitempty"`
 	WrapText     bool   `xml:"wrapText,attr,omitempty"`
+	ShrinkToFit  bool   `xml:"shrinkToFit,attr,omitempty"`
+	Indent       int    `xml:"indent,attr,omitempty"`
 	TextRotation int    `xml:"textRotation,attr,omitempty"`
 }
 
@@ -1295,6 +1337,11 @@ type XDRPos struct {
 }
 
 // XDROneCellAnchor is xdr:oneCellAnchor.
+type XDRClientData struct {
+	LocksWithSheet  *bool `xml:"fLocksWithSheet,attr"`
+	PrintsWithSheet *bool `xml:"fPrintsWithSheet,attr"`
+}
+
 type XDROneCellAnchor struct {
 	From         XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing from"`
 	Ext          XDRExtent        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing ext"`
@@ -1302,16 +1349,19 @@ type XDROneCellAnchor struct {
 	GraphicFrame *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
 	Shape        *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
 	GroupShape   *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
+	ClientData   *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
 }
 
 // XDRTwoCellAnchor is xdr:twoCellAnchor.
 type XDRTwoCellAnchor struct {
+	EditAs       string           `xml:"editAs,attr,omitempty"`
 	From         XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing from"`
 	To           XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing to"`
 	Pic          *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
 	GraphicFrame *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
 	Shape        *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
 	GroupShape   *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
+	ClientData   *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
 }
 
 // XDRAbsoluteAnchor is xdr:absoluteAnchor.
@@ -1322,6 +1372,7 @@ type XDRAbsoluteAnchor struct {
 	GraphicFrame *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
 	Shape        *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
 	GroupShape   *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
+	ClientData   *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
 }
 
 // XDRCNvPr is xdr:cNvPr — common non-visual drawing properties.
@@ -1346,7 +1397,17 @@ type XDRNvPicPr struct {
 
 // XDRBlipFill is xdr:blipFill.
 type XDRBlipFill struct {
-	Blip XDRBlip `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip"`
+	Blip    XDRBlip     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip"`
+	SrcRect *XDRSrcRect `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect"`
+}
+
+// XDRSrcRect is a:srcRect. Values are thousandths of a percent (0..100000)
+// cropped from each source-image edge.
+type XDRSrcRect struct {
+	Left   int `xml:"l,attr,omitempty"`
+	Top    int `xml:"t,attr,omitempty"`
+	Right  int `xml:"r,attr,omitempty"`
+	Bottom int `xml:"b,attr,omitempty"`
 }
 
 // XDRBlip is a:blip — references an image via relationship ID.

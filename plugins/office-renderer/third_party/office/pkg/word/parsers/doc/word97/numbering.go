@@ -353,36 +353,70 @@ func (c *NumberingCatalog) ApplyToDocument(doc *wordir.Document) {
 		doc.NumberingDefinitions = append(doc.NumberingDefinitions, def)
 	}
 	for i := range doc.Paragraphs {
-		p := &doc.Paragraphs[i]
-		if p.Numbering == nil {
-			continue
+		c.applyParagraphNumbering(&doc.Paragraphs[i])
+	}
+	c.applyBlockNumbering(doc.Blocks)
+}
+
+func (c *NumberingCatalog) applyParagraphNumbering(p *wordir.Paragraph) {
+	if c == nil || p == nil || p.Numbering == nil {
+		return
+	}
+	inst, ok := c.Instances[p.Numbering.NumID]
+	if !ok {
+		return
+	}
+	lvl, ok := findNumberingLevel(c.Abstract[inst.AbstractNumID], p.Numbering.Level)
+	if !ok {
+		return
+	}
+	start, format := effectiveLevel(inst, lvl)
+	p.Numbering.AbstractNumID = inst.AbstractNumID
+	p.Numbering.Start = start
+	p.Numbering.Format = format
+	p.Numbering.Text = lvl.Text
+	p.Numbering.IndentLeft = lvl.IndentLeft
+	p.Numbering.IndentFirstLine = lvl.IndentFirstLine
+	p.Numbering.IndentHanging = lvl.IndentHanging
+	p.Numbering.RunFormat = cloneNumberingRunFormat(lvl.RunFormat)
+	if override, ok := inst.Overrides[lvl.Level]; ok {
+		v := cloneLegacyOverride(override)
+		p.Numbering.LegacyOverride = &v
+	}
+	kind := "ordered"
+	if format == "bullet" {
+		kind = "bullet"
+	}
+	p.List = &wordir.ListMarker{Kind: kind, Level: lvl.Level, Start: start, Format: format, Template: lvl.Text}
+}
+
+func (c *NumberingCatalog) applyBlockNumbering(blocks []wordir.Block) {
+	for i := range blocks {
+		block := &blocks[i]
+		if block.Paragraph != nil {
+			c.applyParagraphNumbering(block.Paragraph)
 		}
-		inst, ok := c.Instances[p.Numbering.NumID]
-		if !ok {
-			continue
+		if block.Table != nil {
+			c.applyTableNumbering(block.Table)
 		}
-		lvl, ok := findNumberingLevel(c.Abstract[inst.AbstractNumID], p.Numbering.Level)
-		if !ok {
-			continue
+	}
+}
+
+func (c *NumberingCatalog) applyTableNumbering(table *wordir.Table) {
+	if table == nil {
+		return
+	}
+	for ri := range table.Rows {
+		for ci := range table.Rows[ri].Cells {
+			cell := &table.Rows[ri].Cells[ci]
+			for pi := range cell.Paragraphs {
+				c.applyParagraphNumbering(&cell.Paragraphs[pi])
+			}
+			c.applyBlockNumbering(cell.Blocks)
+			for ti := range cell.Tables {
+				c.applyTableNumbering(&cell.Tables[ti])
+			}
 		}
-		start, format := effectiveLevel(inst, lvl)
-		p.Numbering.AbstractNumID = inst.AbstractNumID
-		p.Numbering.Start = start
-		p.Numbering.Format = format
-		p.Numbering.Text = lvl.Text
-		p.Numbering.IndentLeft = lvl.IndentLeft
-		p.Numbering.IndentFirstLine = lvl.IndentFirstLine
-		p.Numbering.IndentHanging = lvl.IndentHanging
-		p.Numbering.RunFormat = cloneNumberingRunFormat(lvl.RunFormat)
-		if override, ok := inst.Overrides[lvl.Level]; ok {
-			v := cloneLegacyOverride(override)
-			p.Numbering.LegacyOverride = &v
-		}
-		kind := "ordered"
-		if format == "bullet" {
-			kind = "bullet"
-		}
-		p.List = &wordir.ListMarker{Kind: kind, Level: lvl.Level, Start: start, Format: format, Template: lvl.Text}
 	}
 }
 
@@ -413,8 +447,20 @@ func cloneNumberingRunFormat(src *wordir.RunFormat) *wordir.RunFormat {
 		return nil
 	}
 	v := *src
-	cloneBool := func(p *bool) *bool { if p == nil { return nil }; x := *p; return &x }
-	cloneInt := func(p *int) *int { if p == nil { return nil }; x := *p; return &x }
+	cloneBool := func(p *bool) *bool {
+		if p == nil {
+			return nil
+		}
+		x := *p
+		return &x
+	}
+	cloneInt := func(p *int) *int {
+		if p == nil {
+			return nil
+		}
+		x := *p
+		return &x
+	}
 	v.Bold = cloneBool(src.Bold)
 	v.Italic = cloneBool(src.Italic)
 	v.Caps = cloneBool(src.Caps)
@@ -433,8 +479,17 @@ func cloneNumberingRunFormat(src *wordir.RunFormat) *wordir.RunFormat {
 
 func cloneLegacyOverride(src wordir.LegacyNumberingOverride) wordir.LegacyNumberingOverride {
 	out := src
-	if src.Start != nil { v := *src.Start; out.Start = &v }
-	if src.Restart != nil { v := *src.Restart; out.Restart = &v }
-	if src.RestartOnLevel != nil { v := *src.RestartOnLevel; out.RestartOnLevel = &v }
+	if src.Start != nil {
+		v := *src.Start
+		out.Start = &v
+	}
+	if src.Restart != nil {
+		v := *src.Restart
+		out.Restart = &v
+	}
+	if src.RestartOnLevel != nil {
+		v := *src.RestartOnLevel
+		out.RestartOnLevel = &v
+	}
 	return out
 }

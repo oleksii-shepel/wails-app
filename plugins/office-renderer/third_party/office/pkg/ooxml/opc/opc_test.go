@@ -153,9 +153,7 @@ func TestOpenStreamDetectsWordPackage(t *testing.T) {
 }
 
 func TestOpenStreamDecryptsEncryptedOLEPackage(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "solrcell"
-	defer func() { opc.Password = oldPassword }()
+	password := "solrcell"
 
 	file, err := os.Open(repoPath(t, "testdata", "docx", "bug53475-password-is-solrcell.docx"))
 	if err != nil {
@@ -165,7 +163,7 @@ func TestOpenStreamDecryptsEncryptedOLEPackage(t *testing.T) {
 		_ = file.Close()
 	}()
 
-	pkg, err := opc.OpenStream(io.LimitReader(file, 1<<62))
+	pkg, err := opc.OpenStreamWithOptions(io.LimitReader(file, 1<<62), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open encrypted stream: %v", err)
 	}
@@ -178,11 +176,9 @@ func TestOpenStreamDecryptsEncryptedOLEPackage(t *testing.T) {
 }
 
 func TestOpenDecryptsStandardEncryptedOLEPackage(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "solrcell"
-	defer func() { opc.Password = oldPassword }()
+	password := "solrcell"
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "docx", "bug53475-password-is-solrcell.docx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "docx", "bug53475-password-is-solrcell.docx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open encrypted standard package: %v", err)
 	}
@@ -195,11 +191,9 @@ func TestOpenDecryptsStandardEncryptedOLEPackage(t *testing.T) {
 }
 
 func TestOpenDecryptsAgileEncryptedOLEPackage(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = ""
-	defer func() { opc.Password = oldPassword }()
+	password := ""
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "docx", "protected_agile.docx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "docx", "protected_agile.docx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open encrypted agile package: %v", err)
 	}
@@ -212,11 +206,9 @@ func TestOpenDecryptsAgileEncryptedOLEPackage(t *testing.T) {
 }
 
 func TestOpenDecryptsPasswordProtectedOLEPackage(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "Test001!!"
-	defer func() { opc.Password = oldPassword }()
+	password := "Test001!!"
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "xlsx", "60320-protected.xlsx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "xlsx", "60320-protected.xlsx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open password-protected package: %v", err)
 	}
@@ -229,11 +221,9 @@ func TestOpenDecryptsPasswordProtectedOLEPackage(t *testing.T) {
 }
 
 func TestOpenDecryptsStandardAES256OLEPackage(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "pass"
-	defer func() { opc.Password = oldPassword }()
+	password := "pass"
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "docx", "bug53475-password-is-pass.docx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "docx", "bug53475-password-is-pass.docx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open encrypted standard AES-256 package: %v", err)
 	}
@@ -246,11 +236,9 @@ func TestOpenDecryptsStandardAES256OLEPackage(t *testing.T) {
 }
 
 func TestOpenDecryptsStandardOLEPackageWithTikaPassword(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "tika"
-	defer func() { opc.Password = oldPassword }()
+	password := "tika"
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "xlsx", "protected_passtika.xlsx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "xlsx", "protected_passtika.xlsx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open protected_passtika.xlsx: %v", err)
 	}
@@ -263,11 +251,9 @@ func TestOpenDecryptsStandardOLEPackageWithTikaPassword(t *testing.T) {
 }
 
 func TestOpenDecryptsStandardOLEPackageWithPwd123(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "pwd123"
-	defer func() { opc.Password = oldPassword }()
+	password := "pwd123"
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "xlsx", "extenxls_pwd123.xlsx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "xlsx", "extenxls_pwd123.xlsx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open extenxls_pwd123.xlsx: %v", err)
 	}
@@ -280,11 +266,9 @@ func TestOpenDecryptsStandardOLEPackageWithPwd123(t *testing.T) {
 }
 
 func TestOpenDecryptsAgileSHA512OLEPackage(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "this is a test"
-	defer func() { opc.Password = oldPassword }()
+	password := "this is a test"
 
-	pkg, err := opc.Open(repoPath(t, "testdata", "xlsx", "protected_sha512.xlsx"))
+	pkg, err := opc.OpenWithOptions(repoPath(t, "testdata", "xlsx", "protected_sha512.xlsx"), opc.OpenOptions{Password: password})
 	if err != nil {
 		t.Fatalf("open protected_sha512.xlsx: %v", err)
 	}
@@ -297,11 +281,9 @@ func TestOpenDecryptsAgileSHA512OLEPackage(t *testing.T) {
 }
 
 func TestOpenRejectsWrongOOXMLPassword(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "wrong"
-	defer func() { opc.Password = oldPassword }()
+	password := "wrong"
 
-	_, err := opc.Open(repoPath(t, "testdata", "xlsx", "60320-protected.xlsx"))
+	_, err := opc.OpenWithOptions(repoPath(t, "testdata", "xlsx", "60320-protected.xlsx"), opc.OpenOptions{Password: password})
 	if err == nil {
 		t.Fatal("expected invalid password error")
 	}
@@ -311,11 +293,9 @@ func TestOpenRejectsWrongOOXMLPassword(t *testing.T) {
 }
 
 func TestOpenRejectsWrongStandardOOXMLPassword(t *testing.T) {
-	oldPassword := opc.Password
-	opc.Password = "wrong"
-	defer func() { opc.Password = oldPassword }()
+	password := "wrong"
 
-	_, err := opc.Open(repoPath(t, "testdata", "docx", "bug53475-password-is-solrcell.docx"))
+	_, err := opc.OpenWithOptions(repoPath(t, "testdata", "docx", "bug53475-password-is-solrcell.docx"), opc.OpenOptions{Password: password})
 	if err == nil {
 		t.Fatal("expected invalid password error")
 	}

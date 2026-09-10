@@ -28,33 +28,51 @@ function viewerFrameScrollbarStyle(): string {
     --aether-scrollbar-thumb-hover: ${tokens['--vsc-scrollbar-thumb-hover']};
     --aether-scrollbar-thumb-active: ${tokens['--vsc-scrollbar-thumb-active']};
   }
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
   *::-webkit-scrollbar {
-    width: var(--aether-scrollbar-size);
-    height: var(--aether-scrollbar-size);
-    background: transparent;
+    width: var(--aether-scrollbar-size) !important;
+    height: var(--aether-scrollbar-size) !important;
+    background: transparent !important;
   }
+  html::-webkit-scrollbar-track,
+  body::-webkit-scrollbar-track,
   *::-webkit-scrollbar-track,
+  html::-webkit-scrollbar-track-piece,
+  body::-webkit-scrollbar-track-piece,
   *::-webkit-scrollbar-track-piece,
-  *::-webkit-scrollbar-corner { background: var(--aether-scrollbar-track); }
+  html::-webkit-scrollbar-corner,
+  body::-webkit-scrollbar-corner,
+  *::-webkit-scrollbar-corner { background: var(--aether-scrollbar-track) !important; }
+  html::-webkit-scrollbar-thumb,
+  body::-webkit-scrollbar-thumb,
   *::-webkit-scrollbar-thumb {
-    min-width: 20px;
-    min-height: 20px;
-    border: 0;
-    border-radius: 0;
-    background: var(--aether-scrollbar-thumb);
-    background-clip: border-box;
+    min-width: 20px !important;
+    min-height: 20px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: var(--aether-scrollbar-thumb) !important;
+    background-clip: border-box !important;
   }
-  *::-webkit-scrollbar-thumb:hover { background: var(--aether-scrollbar-thumb-hover); }
-  *::-webkit-scrollbar-thumb:active { background: var(--aether-scrollbar-thumb-active); }
+  html::-webkit-scrollbar-thumb:hover,
+  body::-webkit-scrollbar-thumb:hover,
+  *::-webkit-scrollbar-thumb:hover { background: var(--aether-scrollbar-thumb-hover) !important; }
+  html::-webkit-scrollbar-thumb:active,
+  body::-webkit-scrollbar-thumb:active,
+  *::-webkit-scrollbar-thumb:active { background: var(--aether-scrollbar-thumb-active) !important; }
   *::-webkit-scrollbar-button,
   *::-webkit-scrollbar-button:single-button,
   *::-webkit-scrollbar-button:vertical,
-  *::-webkit-scrollbar-button:horizontal {
+  *::-webkit-scrollbar-button:horizontal,
+  *::-webkit-scrollbar-button:vertical:decrement,
+  *::-webkit-scrollbar-button:vertical:increment,
+  *::-webkit-scrollbar-button:horizontal:decrement,
+  *::-webkit-scrollbar-button:horizontal:increment {
     -webkit-appearance: none;
     appearance: none;
-    display: none;
-    width: 0;
-    height: 0;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
 </style>`;
 }
@@ -65,12 +83,12 @@ export function withViewerFrameScrollbars(source: string): string {
   }
 
   const style = viewerFrameScrollbarStyle();
-  if (/<\/head\s*>/i.test(source)) {
-    return source.replace(/<\/head\s*>/i, `${style}</head>`);
-  }
-
   if (/<head\b[^>]*>/i.test(source)) {
     return source.replace(/<head\b[^>]*>/i, `$&${style}`);
+  }
+
+  if (/<\/head\s*>/i.test(source)) {
+    return source.replace(/<\/head\s*>/i, `${style}</head>`);
   }
 
   return `<!doctype html><html><head>${style}</head><body>${source}</body></html>`;

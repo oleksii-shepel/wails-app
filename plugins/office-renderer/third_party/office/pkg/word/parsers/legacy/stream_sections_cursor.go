@@ -13,7 +13,7 @@ import (
 type legacySectionBoundaryRunCursor struct {
 	inner      legacyRunCursor
 	boundaries []int
-	queue      []docRun
+	queue      []binaryWordRun
 }
 
 func newLegacySectionBoundaryRunCursor(inner legacyRunCursor, sections []wordir.Section) legacyRunCursor {
@@ -40,7 +40,7 @@ func newLegacySectionBoundaryRunCursor(inner legacyRunCursor, sections []wordir.
 	return &legacySectionBoundaryRunCursor{inner: inner, boundaries: uniq}
 }
 
-func (c *legacySectionBoundaryRunCursor) Next() (docRun, bool, error) {
+func (c *legacySectionBoundaryRunCursor) Next() (binaryWordRun, bool, error) {
 	for {
 		if len(c.queue) > 0 {
 			run := c.queue[0]
@@ -55,7 +55,7 @@ func (c *legacySectionBoundaryRunCursor) Next() (docRun, bool, error) {
 	}
 }
 
-func (c *legacySectionBoundaryRunCursor) expand(run docRun) {
+func (c *legacySectionBoundaryRunCursor) expand(run binaryWordRun) {
 	if run.Kind != "" || run.Text == "" {
 		c.queue = append(c.queue, run)
 		return

@@ -31,43 +31,96 @@ const (
 type EventType string
 
 const (
-	EventStartWorkbook EventType = "startWorkbook"
-	EventEndWorkbook   EventType = "endWorkbook"
-	EventStartSheet    EventType = "startSheet"
-	EventEndSheet      EventType = "endSheet"
-	EventStartRow      EventType = "startRow"
-	EventEndRow        EventType = "endRow"
-	EventCell          EventType = "cell"
-	EventComment       EventType = "comment"
+	EventStartWorkbook   EventType = "startWorkbook"
+	EventEndWorkbook     EventType = "endWorkbook"
+	EventStartSheet      EventType = "startSheet"
+	EventEndSheet        EventType = "endSheet"
+	EventStartRow        EventType = "startRow"
+	EventEndRow          EventType = "endRow"
+	EventCell            EventType = "cell"
+	EventComment         EventType = "comment"
+	EventSheetFormat     EventType = "sheetFormat"
+	EventColumn          EventType = "column"
+	EventSheetView       EventType = "sheetView"
+	EventPaneSelection   EventType = "paneSelection"
+	EventMergedCell      EventType = "mergedCell"
+	EventPrintOptions    EventType = "printOptions"
+	EventPageMargins     EventType = "pageMargins"
+	EventPageSetup       EventType = "pageSetup"
+	EventRowBreaks       EventType = "rowBreaks"
+	EventColBreaks       EventType = "colBreaks"
+	EventSheetProtection EventType = "sheetProtection"
+	EventDataValidation  EventType = "dataValidation"
+	EventConditionalFmt  EventType = "conditionalFormatting"
+	EventAutoFilter      EventType = "autoFilter"
 )
 
 // Event is a single streamed SpreadsheetML event.
 type Event struct {
-	Type              EventType
-	PartName          string
-	SheetIndex        int
-	SheetID           int
-	SheetName         string
-	Hidden            bool
-	RowIndex          int
-	ColIndex          int
-	CellRef           string
-	CellType          string
-	StyleIndex        int
-	Formula           string
-	RawValue          string
-	Text              string
-	HyperlinkTarget   string
-	HyperlinkLocation string
-	HyperlinkDisplay  string
-	HyperlinkTooltip  string
-	CommentAuthor     string
-	CommentText       string
-	RowHeight         float64
-	RowHidden         bool
-	RowStyleIndex     int
-	RowOutlineLevel   int
-	RowCollapsed      bool
+	Type               EventType
+	PartName           string
+	SheetIndex         int
+	SheetID            int
+	SheetName          string
+	Hidden             bool
+	RowIndex           int
+	ColIndex           int
+	CellRef            string
+	CellType           string
+	StyleIndex         int
+	Formula            string
+	FormulaType        string
+	FormulaRef         string
+	FormulaSharedIndex *int
+	RawValue           string
+	Text               string
+	HyperlinkTarget    string
+	HyperlinkLocation  string
+	HyperlinkDisplay   string
+	HyperlinkTooltip   string
+	CommentAuthor      string
+	CommentText        string
+	RowHeight          float64
+	RowHidden          bool
+	RowStyleIndex      int
+	RowOutlineLevel    int
+	RowCollapsed       bool
+
+	DefaultColWidth    float64
+	DefaultRowHeight   float64
+	DefaultRowCustom   bool
+	DefaultRowZero     bool
+	RowOutlineLevelMax int
+	ColOutlineLevelMax int
+
+	ColumnMin    int
+	ColumnMax    int
+	ColumnWidth  float64
+	ColumnHidden bool
+
+	ZoomScale             int
+	ShowGridLines         *bool
+	PaneState             string
+	SplitX                float64
+	SplitY                float64
+	TopLeftCell           string
+	ActivePane            string
+	SelectionPane         string
+	SelectionActiveCell   string
+	SelectionActiveCellID int
+	SelectionSqRef        string
+
+	MergeRef string
+
+	PrintOptions    *sheetparts.PrintOptions
+	PageMargins     *sheetparts.PageMargins
+	PageSetup       *sheetparts.PageSetup
+	PageBreaks      *sheetparts.PageBreaks
+	SheetProtection *sheetparts.SheetProtection
+	DataValidation  *sheetparts.DataValidation
+	ConditionalFmt  *sheetparts.ConditionalFmt
+	AutoFilter      *sheetparts.AutoFilter
+	CommentRichText *sheetparts.RichText
 }
 
 // Handler consumes spreadsheet events.
@@ -231,12 +284,15 @@ type rowMeta struct {
 }
 
 type cellMeta struct {
-	ref        string
-	styleIndex int
-	cellType   string
-	formula    string
-	rawValue   string
-	inlineText string
+	ref                string
+	styleIndex         int
+	cellType           string
+	formula            string
+	formulaType        string
+	formulaRef         string
+	formulaSharedIndex *int
+	rawValue           string
+	inlineText         string
 }
 
 type hyperlinkInfo struct {
@@ -251,6 +307,7 @@ type commentInfo struct {
 	ref    string
 	author string
 	text   string
+	rich   sheetparts.RichText
 }
 
 func walkSource(src packageSource, handler Handler, opts Options) error {
@@ -305,6 +362,70 @@ func walkSource(src packageSource, handler Handler, opts Options) error {
 	return handler.HandleEvent(Event{Type: EventEndWorkbook, PartName: mainPart})
 }
 
+type sheetFormatMeta struct {
+	defaultColWidth, defaultRowHeight      float64
+	customHeight, zeroHeight               bool
+	rowOutlineLevelMax, colOutlineLevelMax int
+}
+type columnMeta struct {
+	min, max int
+	width    float64
+	hidden   bool
+}
+type sheetViewMeta struct {
+	zoomScale     int
+	showGridLines *bool
+}
+type paneMeta struct {
+	state                   string
+	xSplit, ySplit          float64
+	topLeftCell, activePane string
+}
+type selectionMeta struct {
+	pane, activeCell, sqRef string
+	activeCellID            int
+}
+
+func attrInt(start xml.StartElement, name string) int {
+	v, _ := strconv.Atoi(attrValue(start, name))
+	return v
+}
+func attrFloat(start xml.StartElement, name string) float64 {
+	v, _ := strconv.ParseFloat(attrValue(start, name), 64)
+	return v
+}
+func attrBoolPtr(start xml.StartElement, name string) *bool {
+	raw := attrValue(start, name)
+	if raw == "" {
+		return nil
+	}
+	v := raw == "1" || strings.EqualFold(raw, "true")
+	return &v
+}
+func parseSheetFormatMeta(start xml.StartElement) sheetFormatMeta {
+	return sheetFormatMeta{
+		defaultColWidth: attrFloat(start, "defaultColWidth"), defaultRowHeight: attrFloat(start, "defaultRowHeight"),
+		customHeight:       attrValue(start, "customHeight") == "1" || strings.EqualFold(attrValue(start, "customHeight"), "true"),
+		zeroHeight:         attrValue(start, "zeroHeight") == "1" || strings.EqualFold(attrValue(start, "zeroHeight"), "true"),
+		rowOutlineLevelMax: attrInt(start, "outlineLevelRow"), colOutlineLevelMax: attrInt(start, "outlineLevelCol"),
+	}
+}
+func parseColumnMeta(start xml.StartElement) columnMeta {
+	return columnMeta{min: attrInt(start, "min"), max: attrInt(start, "max"), width: attrFloat(start, "width"),
+		hidden: attrValue(start, "hidden") == "1" || strings.EqualFold(attrValue(start, "hidden"), "true")}
+}
+func parseSheetViewMeta(start xml.StartElement) sheetViewMeta {
+	return sheetViewMeta{zoomScale: attrInt(start, "zoomScale"), showGridLines: attrBoolPtr(start, "showGridLines")}
+}
+func parsePaneMeta(start xml.StartElement) paneMeta {
+	return paneMeta{state: attrValue(start, "state"), xSplit: attrFloat(start, "xSplit"), ySplit: attrFloat(start, "ySplit"),
+		topLeftCell: attrValue(start, "topLeftCell"), activePane: attrValue(start, "activePane")}
+}
+func parseSelectionMeta(start xml.StartElement) selectionMeta {
+	return selectionMeta{pane: attrValue(start, "pane"), activeCell: attrValue(start, "activeCell"),
+		activeCellID: attrInt(start, "activeCellId"), sqRef: attrValue(start, "sqref")}
+}
+
 func walkWorksheet(src packageSource, handler Handler, opts Options, sheetIndex int, sheet sheetRef, sharedStrings []string) error {
 	hyperlinks, err := loadWorksheetHyperlinks(src, sheet.partName)
 	if err != nil {
@@ -342,6 +463,132 @@ func walkWorksheet(src packageSource, handler Handler, opts Options, sheetIndex 
 		switch t := token.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "sheetFormatPr":
+				format := parseSheetFormatMeta(t)
+				if err := handler.HandleEvent(Event{
+					Type: EventSheetFormat, PartName: sheet.partName, SheetIndex: sheetIndex,
+					SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden,
+					DefaultColWidth: format.defaultColWidth, DefaultRowHeight: format.defaultRowHeight,
+					DefaultRowCustom: format.customHeight, DefaultRowZero: format.zeroHeight,
+					RowOutlineLevelMax: format.rowOutlineLevelMax, ColOutlineLevelMax: format.colOutlineLevelMax,
+				}); err != nil {
+					return err
+				}
+			case "col":
+				col := parseColumnMeta(t)
+				if err := handler.HandleEvent(Event{
+					Type: EventColumn, PartName: sheet.partName, SheetIndex: sheetIndex,
+					SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden,
+					ColumnMin: col.min, ColumnMax: col.max, ColumnWidth: col.width, ColumnHidden: col.hidden,
+				}); err != nil {
+					return err
+				}
+			case "sheetView":
+				view := parseSheetViewMeta(t)
+				if err := handler.HandleEvent(Event{
+					Type: EventSheetView, PartName: sheet.partName, SheetIndex: sheetIndex,
+					SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden,
+					ZoomScale: view.zoomScale, ShowGridLines: view.showGridLines,
+				}); err != nil {
+					return err
+				}
+			case "pane":
+				pane := parsePaneMeta(t)
+				if err := handler.HandleEvent(Event{
+					Type: EventSheetView, PartName: sheet.partName, SheetIndex: sheetIndex,
+					SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden,
+					PaneState: pane.state, SplitX: pane.xSplit, SplitY: pane.ySplit,
+					TopLeftCell: pane.topLeftCell, ActivePane: pane.activePane,
+				}); err != nil {
+					return err
+				}
+			case "selection":
+				sel := parseSelectionMeta(t)
+				if err := handler.HandleEvent(Event{
+					Type: EventPaneSelection, PartName: sheet.partName, SheetIndex: sheetIndex,
+					SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden,
+					SelectionPane: sel.pane, SelectionActiveCell: sel.activeCell,
+					SelectionActiveCellID: sel.activeCellID, SelectionSqRef: sel.sqRef,
+				}); err != nil {
+					return err
+				}
+			case "mergeCell":
+				if ref := attrValue(t, "ref"); ref != "" {
+					if err := handler.HandleEvent(Event{
+						Type: EventMergedCell, PartName: sheet.partName, SheetIndex: sheetIndex,
+						SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, MergeRef: ref,
+					}); err != nil {
+						return err
+					}
+				}
+			case "printOptions":
+				var value sheetparts.PrintOptions
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventPrintOptions, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, PrintOptions: &value}); err != nil {
+					return err
+				}
+			case "pageMargins":
+				var value sheetparts.PageMargins
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventPageMargins, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, PageMargins: &value}); err != nil {
+					return err
+				}
+			case "pageSetup":
+				var value sheetparts.PageSetup
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventPageSetup, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, PageSetup: &value}); err != nil {
+					return err
+				}
+			case "rowBreaks", "colBreaks":
+				var value sheetparts.PageBreaks
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				typ := EventRowBreaks
+				if t.Name.Local == "colBreaks" {
+					typ = EventColBreaks
+				}
+				if err := handler.HandleEvent(Event{Type: typ, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, PageBreaks: &value}); err != nil {
+					return err
+				}
+			case "sheetProtection":
+				var value sheetparts.SheetProtection
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventSheetProtection, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, SheetProtection: &value}); err != nil {
+					return err
+				}
+			case "dataValidation":
+				var value sheetparts.DataValidation
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventDataValidation, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, DataValidation: &value}); err != nil {
+					return err
+				}
+			case "conditionalFormatting":
+				var value sheetparts.ConditionalFmt
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventConditionalFmt, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, ConditionalFmt: &value}); err != nil {
+					return err
+				}
+			case "autoFilter":
+				var value sheetparts.AutoFilter
+				if err := dec.DecodeElement(&value, &t); err != nil {
+					return err
+				}
+				if err := handler.HandleEvent(Event{Type: EventAutoFilter, PartName: sheet.partName, SheetIndex: sheetIndex, SheetID: sheet.sheetID, SheetName: sheet.name, Hidden: sheet.hidden, AutoFilter: &value}); err != nil {
+					return err
+				}
 			case "row":
 				currentRow = parseRowMeta(t)
 				rowOpen = true
@@ -374,31 +621,35 @@ func walkWorksheet(src packageSource, handler Handler, opts Options, sheetIndex 
 					emittedComments[strings.ToUpper(cell.ref)] = true
 				}
 				if err := handler.HandleEvent(Event{
-					Type:              EventCell,
-					PartName:          sheet.partName,
-					SheetIndex:        sheetIndex,
-					SheetID:           sheet.sheetID,
-					SheetName:         sheet.name,
-					Hidden:            sheet.hidden,
-					RowIndex:          currentRow.index,
-					ColIndex:          colIndex,
-					CellRef:           cell.ref,
-					CellType:          cell.cellType,
-					StyleIndex:        cell.styleIndex,
-					Formula:           cell.formula,
-					RawValue:          cell.rawValue,
-					Text:              text,
-					HyperlinkTarget:   hyperlink.target,
-					HyperlinkLocation: hyperlink.location,
-					HyperlinkDisplay:  hyperlink.display,
-					HyperlinkTooltip:  hyperlink.tooltip,
-					CommentAuthor:     comment.author,
-					CommentText:       comment.text,
-					RowHeight:         currentRow.height,
-					RowHidden:         currentRow.hidden,
-					RowStyleIndex:     currentRow.styleIndex,
-					RowOutlineLevel:   currentRow.outlineLevel,
-					RowCollapsed:      currentRow.collapsed,
+					Type:               EventCell,
+					PartName:           sheet.partName,
+					SheetIndex:         sheetIndex,
+					SheetID:            sheet.sheetID,
+					SheetName:          sheet.name,
+					Hidden:             sheet.hidden,
+					RowIndex:           currentRow.index,
+					ColIndex:           colIndex,
+					CellRef:            cell.ref,
+					CellType:           cell.cellType,
+					StyleIndex:         cell.styleIndex,
+					Formula:            cell.formula,
+					FormulaType:        cell.formulaType,
+					FormulaRef:         cell.formulaRef,
+					FormulaSharedIndex: cell.formulaSharedIndex,
+					RawValue:           cell.rawValue,
+					Text:               text,
+					HyperlinkTarget:    hyperlink.target,
+					HyperlinkLocation:  hyperlink.location,
+					HyperlinkDisplay:   hyperlink.display,
+					HyperlinkTooltip:   hyperlink.tooltip,
+					CommentAuthor:      comment.author,
+					CommentText:        comment.text,
+					CommentRichText:    &comment.rich,
+					RowHeight:          currentRow.height,
+					RowHidden:          currentRow.hidden,
+					RowStyleIndex:      currentRow.styleIndex,
+					RowOutlineLevel:    currentRow.outlineLevel,
+					RowCollapsed:       currentRow.collapsed,
 				}); err != nil {
 					return err
 				}
@@ -435,17 +686,18 @@ func walkWorksheet(src packageSource, handler Handler, opts Options, sheetIndex 
 			colIndex := colIndexFromRef(comment.ref)
 			rowIndex := rowIndexFromRef(comment.ref)
 			if err := handler.HandleEvent(Event{
-				Type:          EventComment,
-				PartName:      sheet.partName,
-				SheetIndex:    sheetIndex,
-				SheetID:       sheet.sheetID,
-				SheetName:     sheet.name,
-				Hidden:        sheet.hidden,
-				RowIndex:      rowIndex,
-				ColIndex:      colIndex,
-				CellRef:       comment.ref,
-				CommentAuthor: comment.author,
-				CommentText:   comment.text,
+				Type:            EventComment,
+				PartName:        sheet.partName,
+				SheetIndex:      sheetIndex,
+				SheetID:         sheet.sheetID,
+				SheetName:       sheet.name,
+				Hidden:          sheet.hidden,
+				RowIndex:        rowIndex,
+				ColIndex:        colIndex,
+				CellRef:         comment.ref,
+				CommentAuthor:   comment.author,
+				CommentText:     comment.text,
+				CommentRichText: &comment.rich,
 			}); err != nil {
 				return err
 			}
@@ -632,6 +884,7 @@ func loadWorksheetComments(src packageSource, sheetPart string, include bool) ([
 				ref:    strings.TrimSpace(comment.Ref),
 				author: author,
 				text:   comment.Text.PlainValue(),
+				rich:   comment.Text,
 			})
 		}
 		return out, nil
@@ -670,6 +923,9 @@ func parseCellMeta(dec *xml.Decoder, start xml.StartElement) (cellMeta, error) {
 					return cell, err
 				}
 				cell.formula = strings.TrimSpace(formula.Text)
+				cell.formulaType = strings.TrimSpace(formula.Type)
+				cell.formulaRef = strings.TrimSpace(formula.Ref)
+				cell.formulaSharedIndex = formula.SharedIndex
 			case "v":
 				var value string
 				if err := dec.DecodeElement(&value, &t); err != nil {

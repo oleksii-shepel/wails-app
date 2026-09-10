@@ -21,7 +21,7 @@ func TestParseWorksheetHandlesBlankCell(t *testing.T) {
 	data = appendBiffRecord(data, biffBlank, blankCellPayload(0, 1, 1))
 	data = appendBiffRecord(data, biffEOF, nil)
 
-	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Blank"}, nil, []legacyXF{{}, {NumFmtCode: "@"}})
+	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Blank"}, nil, []legacyXF{{}, {Style: sheetir.CellStyle{NumFmtCode: "@"}}})
 	if sheet == nil {
 		t.Fatal("expected sheet")
 	}
@@ -48,7 +48,7 @@ func TestParseWorksheetHandlesMulBlankCells(t *testing.T) {
 	data = appendBiffRecord(data, biffMulBlank, mulBlankPayload(2, 0, []uint16{1, 2, 1}))
 	data = appendBiffRecord(data, biffEOF, nil)
 
-	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "MulBlank"}, nil, []legacyXF{{}, {NumFmtCode: "0.00"}, {NumFmtCode: "m/d/yy"}})
+	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "MulBlank"}, nil, []legacyXF{{}, {Style: sheetir.CellStyle{NumFmtCode: "0.00"}}, {Style: sheetir.CellStyle{NumFmtCode: "m/d/yy"}}})
 	if sheet == nil {
 		t.Fatal("expected sheet")
 	}
@@ -208,7 +208,7 @@ func TestParseWorksheetBuildsTableColumnsFromHeaderRowCellText(t *testing.T) {
 	data = appendBiffRecord(data, biffFeat, featPayload(0, 2, 0, 1, 1, 1))
 	data = appendBiffRecord(data, biffEOF, nil)
 
-	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Tables"}, []string{" Name ", "Score"}, nil)
+	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Tables"}, []legacySharedString{{Text: " Name "}, {Text: "Score"}}, nil)
 	if sheet == nil {
 		t.Fatal("expected sheet")
 	}
@@ -248,7 +248,7 @@ func TestParseWorksheetBuildsFeature11TableStyleAndDisplayName(t *testing.T) {
 	data = appendBiffRecord(data, biffList12, legacyList12DisplayNamePayload(9, "Sales_Table", "ignored"))
 	data = appendBiffRecord(data, biffEOF, nil)
 
-	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Tables"}, []string{" Name ", "Score"}, nil)
+	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Tables"}, []legacySharedString{{Text: " Name "}, {Text: "Score"}}, nil)
 	if sheet == nil {
 		t.Fatal("expected sheet")
 	}
@@ -653,7 +653,7 @@ func TestParseWorksheetExtractsLegacyPivotTableView(t *testing.T) {
 	data = appendBiffRecord(data, biffSXDI, pivotDataFieldPayload(3, 0, 4, "Sum of Sales"))
 	data = appendBiffRecord(data, biffEOF, nil)
 
-	sheet := parseWorksheetWithDrawingStore(data, boundSheet{offset: 0, name: "Pivot"}, nil, nil, nil, legacyFormulaWorkbookContext{
+	sheet := parseBIFFWorksheet(data, boundSheet{offset: 0, name: "Pivot"}, nil, nil, nil, legacyFormulaWorkbookContext{
 		pivotCaches: []legacyPivotCacheSource{{
 			SourceSheet: "Data",
 			SourceRef:   "A1:D20",
@@ -701,7 +701,7 @@ func TestParseWorksheetPreservesLegacyPivotItemsAndPageSelection(t *testing.T) {
 	data = appendBiffRecord(data, biffSXPI, pivotPageFieldSelectionPayload(0, 1))
 	data = appendBiffRecord(data, biffEOF, nil)
 
-	sheet := parseWorksheetWithDrawingStore(data, boundSheet{offset: 0, name: "Pivot"}, nil, nil, nil, legacyFormulaWorkbookContext{})
+	sheet := parseBIFFWorksheet(data, boundSheet{offset: 0, name: "Pivot"}, nil, nil, nil, legacyFormulaWorkbookContext{})
 	if sheet == nil || len(sheet.PivotTables) != 1 {
 		t.Fatalf("pivot tables = %#v", sheet)
 	}
@@ -1138,6 +1138,7 @@ func TestParseWorksheetCapturesFitToPageFromSetupRecord(t *testing.T) {
 
 	data := appendBiffRecord(nil, biffBOF, []byte{0x10, 0x00, 0x06, 0x00})
 	data = appendBiffRecord(data, biffSetup, payload)
+	data = appendBiffRecord(data, biffWSBool, []byte{0x00, 0x01}) // fit-to-page bit
 	data = appendBiffRecord(data, biffEOF, nil)
 
 	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "FitToPage"}, nil, nil)
@@ -1582,29 +1583,27 @@ func TestApplyHeaderFooterRecordSkipsEmptyText(t *testing.T) {
 }
 
 func TestApplyHeaderFooterExtRecordCapturesOddEvenFirstStrings(t *testing.T) {
-	encodeXLUnicode := func(s string) []byte {
-		b := make([]byte, 3, 3+len(s))
-		binary.LittleEndian.PutUint16(b[0:2], uint16(len(s)))
-		b[2] = 0x00 // compressed
-		return append(b, []byte(s)...)
+	encodeText := func(value string) []byte {
+		// XLUnicodeStringNoCch body used after the explicit HEADERFOOTER cch fields.
+		return append([]byte{0x00}, []byte(value)...)
 	}
-	payload := make([]byte, 28) // 12-byte future header + 16-byte GUID (all zero=current sheet)
-	for _, s := range []string{"OH", "OF", "EH", "EF", "FH", "FF"} {
-		payload = append(payload, encodeXLUnicode(s)...)
+	payload := make([]byte, 38)
+	binary.LittleEndian.PutUint16(payload[28:30], 0x000F)
+	for i, value := range []string{"EH", "EF", "FH", "FF"} {
+		binary.LittleEndian.PutUint16(payload[30+i*2:32+i*2], uint16(len(value)))
+		payload = append(payload, encodeText(value)...)
 	}
-	sheet := &sheetir.Sheet{}
+	sheet := &sheetir.Sheet{HeaderFooter: &sheetir.HeaderFooter{OddHeader: "OH", OddFooter: "OF"}}
 	applyHeaderFooterExtRecord(sheet, payload)
-	if sheet.HeaderFooter == nil {
-		t.Fatal("expected HeaderFooter")
+	hf := sheet.HeaderFooter
+	if hf.OddHeader != "OH" || hf.OddFooter != "OF" {
+		t.Fatalf("HEADERFOOTER replaced ordinary odd header/footer: %+v", hf)
 	}
-	if sheet.HeaderFooter.OddHeader != "OH" || sheet.HeaderFooter.OddFooter != "OF" {
-		t.Fatalf("odd header/footer = %q/%q, want OH/OF", sheet.HeaderFooter.OddHeader, sheet.HeaderFooter.OddFooter)
+	if hf.EvenHeader != "EH" || hf.EvenFooter != "EF" || hf.FirstHeader != "FH" || hf.FirstFooter != "FF" {
+		t.Fatalf("extended header/footer strings not projected canonically: %+v", hf)
 	}
-	if sheet.HeaderFooter.EvenHeader != "EH" || sheet.HeaderFooter.EvenFooter != "EF" {
-		t.Fatalf("even header/footer = %q/%q, want EH/EF", sheet.HeaderFooter.EvenHeader, sheet.HeaderFooter.EvenFooter)
-	}
-	if sheet.HeaderFooter.FirstHeader != "FH" || sheet.HeaderFooter.FirstFooter != "FF" {
-		t.Fatalf("first header/footer = %q/%q, want FH/FF", sheet.HeaderFooter.FirstHeader, sheet.HeaderFooter.FirstFooter)
+	if !hf.DifferentOddEven || !hf.DifferentFirst || !hf.ScaleWithDoc || !hf.AlignWithMargins {
+		t.Fatalf("extended header/footer flags not projected canonically: %+v", hf)
 	}
 }
 
@@ -3335,17 +3334,17 @@ func TestParseBIFFXFResolvesFont(t *testing.T) {
 	fmts := defaultBIFFFormatCodes()
 	// ifnt=1 → fonts[1] = Arial bold italic
 	xf := parseBIFFXF(makeXFPayload(1, 0, 2, 0, false, 0, 0, 0), fmts, fonts, defaultBIFFPalette)
-	if xf.FontName != "Arial" {
-		t.Fatalf("FontName = %q, want Arial", xf.FontName)
+	if xf.Style.FontFamily != "Arial" {
+		t.Fatalf("FontName = %q, want Arial", xf.Style.FontFamily)
 	}
-	if !xf.Bold {
+	if !xf.Style.Bold {
 		t.Fatalf("Bold = false, want true")
 	}
-	if !xf.Italic {
+	if !xf.Style.Italic {
 		t.Fatalf("Italic = false, want true")
 	}
-	if xf.HAlign != "center" {
-		t.Fatalf("HAlign = %q, want center", xf.HAlign)
+	if xf.Style.HAlign != "center" {
+		t.Fatalf("HAlign = %q, want center", xf.Style.HAlign)
 	}
 }
 
@@ -3353,8 +3352,8 @@ func TestParseBIFFXFResolvesFillColor(t *testing.T) {
 	fmts := defaultBIFFFormatCodes()
 	// fillPattern=1 (solid), foreIdx=0x0A (red)
 	xf := parseBIFFXF(makeXFPayload(0, 0, 0, 0, false, 1, 0x0A, 0x09), fmts, nil, defaultBIFFPalette)
-	if xf.BgColor != "FF0000" {
-		t.Fatalf("BgColor = %q, want FF0000 (red solid fill)", xf.BgColor)
+	if xf.Style.BgColor != "FF0000" {
+		t.Fatalf("BgColor = %q, want FF0000 (red solid fill)", xf.Style.BgColor)
 	}
 }
 
@@ -3391,12 +3390,12 @@ func TestStyleFromXFIndexPopulatesAllFields(t *testing.T) {
 
 func TestParseBIFFXFTextRotation(t *testing.T) {
 	fmts := defaultBIFFFormatCodes()
-	// Build a 20-byte XF payload; trot is at byte 8.
+	// Build a 20-byte BIFF8 XF payload; trot is at byte 7.
 	p := make([]byte, 20)
-	p[8] = 45 // 45° CCW
+	p[7] = 45 // 45° CCW
 	xf := parseBIFFXF(p, fmts, nil, defaultBIFFPalette)
-	if xf.TextRotation != 45 {
-		t.Fatalf("TextRotation = %d, want 45", xf.TextRotation)
+	if xf.Style.TextRotation != 45 {
+		t.Fatalf("TextRotation = %d, want 45", xf.Style.TextRotation)
 	}
 	style := styleFromXFIndex(0, []legacyXF{xf})
 	if style.TextRotation != 45 {
@@ -3408,18 +3407,18 @@ func TestParseBIFFXFTextRotationZeroIgnored(t *testing.T) {
 	fmts := defaultBIFFFormatCodes()
 	p := make([]byte, 20) // all zeros
 	xf := parseBIFFXF(p, fmts, nil, defaultBIFFPalette)
-	if xf.TextRotation != 0 {
-		t.Fatalf("TextRotation = %d, want 0 for horizontal text", xf.TextRotation)
+	if xf.Style.TextRotation != 0 {
+		t.Fatalf("TextRotation = %d, want 0 for horizontal text", xf.Style.TextRotation)
 	}
 }
 
 func TestParseBIFFXFTextRotationStacked(t *testing.T) {
 	fmts := defaultBIFFFormatCodes()
 	p := make([]byte, 20)
-	p[8] = 255 // stacked
+	p[7] = 255 // BIFF8 trot stacked
 	xf := parseBIFFXF(p, fmts, nil, defaultBIFFPalette)
-	if xf.TextRotation != 255 {
-		t.Fatalf("TextRotation = %d, want 255 for stacked text", xf.TextRotation)
+	if xf.Style.TextRotation != 255 {
+		t.Fatalf("TextRotation = %d, want 255 for stacked text", xf.Style.TextRotation)
 	}
 }
 
@@ -3459,15 +3458,14 @@ func TestParseCONDFMTSqRef(t *testing.T) {
 }
 
 func TestParseCFRecordCellIs(t *testing.T) {
-	// ct=1 (cellIs), op=3 (equal), cbFormula1=2, cbFormula2=0, 22-byte DxfN, 2 formula bytes.
-	p := make([]byte, 30)
+	// Classic CFRuleBase header is 12 bytes when no formatting blocks are present.
+	p := make([]byte, 14)
 	p[0] = 1                                 // ct=cellIs
 	p[1] = 3                                 // op=equal
 	binary.LittleEndian.PutUint16(p[2:4], 2) // cbFormula1=2
 	binary.LittleEndian.PutUint16(p[4:6], 0) // cbFormula2=0
-	// 22 bytes DxfN at p[6..27]
-	p[28] = 0x1E // formula byte 1
-	p[29] = 0x00 // formula byte 2
+	p[12] = 0x1E                             // formula byte 1
+	p[13] = 0x00                             // formula byte 2
 	rule := parseCFRecord(p)
 	if rule == nil {
 		t.Fatal("parseCFRecord returned nil")
@@ -3764,13 +3762,12 @@ func TestParseWorksheetRejectsCFTypeMismatch(t *testing.T) {
 // TestParseCFRecordExpression verifies that a CF record with ct=2 (expression)
 // is decoded correctly.
 func TestParseCFRecordExpression(t *testing.T) {
-	p := make([]byte, 30)
+	p := make([]byte, 14)
 	p[0] = 2                                 // ct=expression
 	binary.LittleEndian.PutUint16(p[2:4], 2) // cbFormula1=2
 	binary.LittleEndian.PutUint16(p[4:6], 0) // cbFormula2=0
-	// 22 bytes DxfN at p[6..27]
-	p[28] = 0x1E // formula byte 1
-	p[29] = 0x00 // formula byte 2
+	p[12] = 0x1E                             // formula byte 1
+	p[13] = 0x00                             // formula byte 2
 	rule := parseCFRecord(p)
 	if rule == nil {
 		t.Fatal("parseCFRecord returned nil")
@@ -3842,10 +3839,10 @@ func TestParseCF12RecordFilter(t *testing.T) {
 	}
 }
 
-// TestParseCFRecordShortPayload verifies that a CF record with a payload
-// shorter than 28 bytes returns nil.
+// TestParseCFRecordShortPayload verifies that a CF record shorter than the
+// 12-byte CFRuleBase header returns nil.
 func TestParseCFRecordShortPayload(t *testing.T) {
-	p := make([]byte, 27)
+	p := make([]byte, 11)
 	rule := parseCFRecord(p)
 	if rule != nil {
 		t.Fatal("parseCFRecord should return nil for short payload")
@@ -4354,12 +4351,12 @@ func TestParseNumberCellPromotedToDate(t *testing.T) {
 	binary.LittleEndian.PutUint16(payload[4:6], 1) // xfIndex
 	binary.LittleEndian.PutUint64(payload[6:14], math.Float64bits(44927))
 
-	xfs := []legacyXF{{}, {NumFmtCode: "dd/mm/yyyy"}}
+	xfs := []legacyXF{{}, {Style: sheetir.CellStyle{NumFmtCode: "dd/mm/yyyy"}}}
 	cell := parseNumberCell(payload, xfs)
 	if cell == nil {
 		t.Fatal("parseNumberCell returned nil")
 	}
-	promoteNumericCellToDate(cell, false)
+	canonicalizeBIFFNumericCell(cell, false)
 	if cell.Kind != sheetir.CellDate {
 		t.Fatalf("Kind = %v, want CellDate", cell.Kind)
 	}
@@ -4374,10 +4371,10 @@ func TestParseBIFFXFProtectionLockedHidden(t *testing.T) {
 	payload := make([]byte, 20)
 	binary.LittleEndian.PutUint16(payload[4:6], 0x000C) // fLocked | fHidden
 	xf := parseBIFFXF(payload, nil, nil, defaultBIFFPalette)
-	if !xf.Locked {
+	if !xf.Style.Locked {
 		t.Error("expected Locked=true")
 	}
-	if !xf.FormulaHidden {
+	if !xf.Style.FormulaHidden {
 		t.Error("expected FormulaHidden=true")
 	}
 }
@@ -4386,10 +4383,10 @@ func TestParseBIFFXFProtectionLockedOnly(t *testing.T) {
 	payload := make([]byte, 20)
 	binary.LittleEndian.PutUint16(payload[4:6], 0x0004) // bit 2 only = fLocked
 	xf := parseBIFFXF(payload, nil, nil, defaultBIFFPalette)
-	if !xf.Locked {
+	if !xf.Style.Locked {
 		t.Error("expected Locked=true")
 	}
-	if xf.FormulaHidden {
+	if xf.Style.FormulaHidden {
 		t.Error("expected FormulaHidden=false")
 	}
 }
@@ -4398,10 +4395,10 @@ func TestParseBIFFXFProtectionNone(t *testing.T) {
 	payload := make([]byte, 20)
 	// grbit = 0x0000: no protection flags
 	xf := parseBIFFXF(payload, nil, nil, defaultBIFFPalette)
-	if xf.Locked {
+	if xf.Style.Locked {
 		t.Error("expected Locked=false")
 	}
-	if xf.FormulaHidden {
+	if xf.Style.FormulaHidden {
 		t.Error("expected FormulaHidden=false")
 	}
 }
@@ -4499,8 +4496,8 @@ func TestParseWorkbookGlobalsAppliesPaletteOverrideToXFs(t *testing.T) {
 	if len(xfs) != 1 {
 		t.Fatalf("xfs = %d, want 1", len(xfs))
 	}
-	if xfs[0].BgColor != "228B22" {
-		t.Fatalf("BgColor = %q, want 228B22 (palette-overridden icv=0x0A)", xfs[0].BgColor)
+	if xfs[0].Style.BgColor != "228B22" {
+		t.Fatalf("BgColor = %q, want 228B22 (palette-overridden icv=0x0A)", xfs[0].Style.BgColor)
 	}
 }
 
@@ -4539,8 +4536,8 @@ func TestParseWorkbookGlobalsResolvesXFsAgainstLatePaletteRecord(t *testing.T) {
 	if len(xfs) != 1 {
 		t.Fatalf("xfs = %d, want 1", len(xfs))
 	}
-	if xfs[0].BgColor != "800000" {
-		t.Fatalf("BgColor = %q, want 800000 (late-palette-overridden icv=0x0A)", xfs[0].BgColor)
+	if xfs[0].Style.BgColor != "800000" {
+		t.Fatalf("BgColor = %q, want 800000 (late-palette-overridden icv=0x0A)", xfs[0].Style.BgColor)
 	}
 }
 
@@ -4608,12 +4605,12 @@ func TestParseNumberCellPromotedToDateHonors1904Mode(t *testing.T) {
 	binary.LittleEndian.PutUint16(payload[4:6], 1)
 	binary.LittleEndian.PutUint64(payload[6:14], math.Float64bits(43465))
 
-	xfs := []legacyXF{{}, {NumFmtCode: "yyyy-mm-dd"}}
+	xfs := []legacyXF{{}, {Style: sheetir.CellStyle{NumFmtCode: "yyyy-mm-dd"}}}
 	cell := parseNumberCell(payload, xfs)
 	if cell == nil {
 		t.Fatal("parseNumberCell returned nil")
 	}
-	promoteNumericCellToDate(cell, true)
+	canonicalizeBIFFNumericCell(cell, true)
 	if cell.Kind != sheetir.CellDate {
 		t.Fatalf("Kind = %v, want CellDate", cell.Kind)
 	}
@@ -4641,7 +4638,7 @@ func makeBiffStylePayloadUser(xfIndex uint16, name string) []byte {
 	return p
 }
 
-func TestBuildStyleNamesBuiltinStyles(t *testing.T) {
+func TestBuildLegacyStyleCatalogBuiltinStyles(t *testing.T) {
 	cases := []struct {
 		id    byte
 		level byte
@@ -4659,44 +4656,44 @@ func TestBuildStyleNamesBuiltinStyles(t *testing.T) {
 	}
 	for _, c := range cases {
 		payload := makeBiffStylePayloadBuiltin(5, c.id, c.level)
-		got := buildStyleNames([][]byte{payload})
+		got := buildLegacyStyleCatalog([][]byte{payload}).Names
 		if got[5] != c.want {
 			t.Errorf("id=%d level=%d: got %q, want %q", c.id, c.level, got[5], c.want)
 		}
 	}
 }
 
-func TestBuildStyleNamesUserDefined(t *testing.T) {
+func TestBuildLegacyStyleCatalogUserDefined(t *testing.T) {
 	payload := makeBiffStylePayloadUser(2, "MyStyle")
-	got := buildStyleNames([][]byte{payload})
+	got := buildLegacyStyleCatalog([][]byte{payload}).Names
 	if got[2] != "MyStyle" {
 		t.Errorf("user-defined: got %q, want MyStyle", got[2])
 	}
 }
 
-func TestBuildStyleNamesRejectsShortPayloads(t *testing.T) {
+func TestBuildLegacyStyleCatalogRejectsShortPayloads(t *testing.T) {
 	cases := [][]byte{
 		nil,
 		{0x00},
 		{0x00, 0x80, 0x00}, // built-in, len=3 (need 4)
 	}
 	for _, p := range cases {
-		got := buildStyleNames([][]byte{p})
+		got := buildLegacyStyleCatalog([][]byte{p}).Names
 		if len(got) != 0 {
 			t.Errorf("short payload % x: got non-empty map %v", p, got)
 		}
 	}
 }
 
-func TestBuildStyleNamesIgnoresUnknownBuiltinID(t *testing.T) {
+func TestBuildLegacyStyleCatalogIgnoresUnknownBuiltinID(t *testing.T) {
 	payload := makeBiffStylePayloadBuiltin(0, 0xFF, 0)
-	got := buildStyleNames([][]byte{payload})
+	got := buildLegacyStyleCatalog([][]byte{payload}).Names
 	if len(got) != 0 {
 		t.Errorf("unknown builtin id 0xFF: expected empty map, got %v", got)
 	}
 }
 
-func TestParseWorkbookGlobalsCapturesStyleNames(t *testing.T) {
+func TestParseWorkbookGlobalsCapturesCanonicalStyleCatalog(t *testing.T) {
 	writeRecord := func(b []byte, id uint16, payload []byte) []byte {
 		var hdr [4]byte
 		binary.LittleEndian.PutUint16(hdr[0:2], id)
@@ -4712,15 +4709,24 @@ func TestParseWorkbookGlobalsCapturesStyleNames(t *testing.T) {
 	b = writeRecord(b, biffStyle, makeBiffStylePayloadUser(3, "Heading 1"))
 	b = writeRecord(b, biffEOF, nil)
 
-	_, _, _, _, _, _, _, styleNames, _, err := parseWorkbookGlobals(b)
+	_, _, _, _, _, _, _, styleCatalog, _, err := parseWorkbookGlobals(b)
 	if err != nil {
 		t.Fatalf("parseWorkbookGlobals: %v", err)
 	}
-	if styleNames[0] != "Normal" {
-		t.Errorf("xf[0] = %q, want Normal", styleNames[0])
+	if styleCatalog.Names[0] != "Normal" {
+		t.Errorf("xf[0] = %q, want Normal", styleCatalog.Names[0])
 	}
-	if styleNames[3] != "Heading 1" {
-		t.Errorf("xf[3] = %q, want Heading 1", styleNames[3])
+	if styleCatalog.Names[3] != "Heading 1" {
+		t.Errorf("xf[3] = %q, want Heading 1", styleCatalog.Names[3])
+	}
+	if len(styleCatalog.Records) != 2 {
+		t.Fatalf("STYLE records = %d, want 2", len(styleCatalog.Records))
+	}
+	if styleCatalog.Records[0].BuiltinID == nil || *styleCatalog.Records[0].BuiltinID != 0 {
+		t.Fatalf("Normal builtin id = %v, want 0", styleCatalog.Records[0].BuiltinID)
+	}
+	if styleCatalog.Records[1].BuiltinID != nil {
+		t.Fatalf("user style builtin id = %v, want nil", styleCatalog.Records[1].BuiltinID)
 	}
 }
 
@@ -7856,5 +7862,967 @@ func TestLegacyChartRadarSurfaceAnd3DRecords(t *testing.T) {
 	chart = drawings[0].Chart.Chart.(*chartpkg.Chart)
 	if chart.ChartType != chartpkg.ChartSurface {
 		t.Fatalf("surface type = %v", chart.ChartType)
+	}
+}
+
+func TestPhase5SetupProjectsCanonicalPrintSemantics(t *testing.T) {
+	payload := make([]byte, 34)
+	binary.LittleEndian.PutUint16(payload[0:2], 9)
+	binary.LittleEndian.PutUint16(payload[2:4], 85)
+	binary.LittleEndian.PutUint16(payload[4:6], 7)
+	binary.LittleEndian.PutUint16(payload[6:8], 2)
+	binary.LittleEndian.PutUint16(payload[8:10], 3)
+	binary.LittleEndian.PutUint16(payload[10:12], 0x0001|0x0002|0x0008|0x0010|0x0080)
+	binary.LittleEndian.PutUint16(payload[12:14], 600)
+	binary.LittleEndian.PutUint16(payload[14:16], 300)
+	binary.LittleEndian.PutUint64(payload[16:24], math.Float64bits(0.25))
+	binary.LittleEndian.PutUint64(payload[24:32], math.Float64bits(0.35))
+	binary.LittleEndian.PutUint16(payload[32:34], 4)
+
+	sheet := &sheetir.Sheet{}
+	applySetupRecord(sheet, payload)
+	ps := sheet.PageSetup
+	if ps == nil {
+		t.Fatal("PageSetup = nil")
+	}
+	if ps.PaperSize != 9 || ps.Scale != 85 || ps.FitToWidth != 2 || ps.FitToHeight != 3 {
+		t.Fatalf("basic setup = %+v", *ps)
+	}
+	if ps.PageOrder != "overThenDown" || ps.Orientation != "landscape" {
+		t.Fatalf("order/orientation = %q/%q", ps.PageOrder, ps.Orientation)
+	}
+	if !ps.BlackAndWhite || !ps.Draft || !ps.UseFirstPageNumber || ps.FirstPageNumber != 7 {
+		t.Fatalf("print flags = %+v", *ps)
+	}
+	if ps.HorizontalDPI != 600 || ps.VerticalDPI != 300 || ps.Copies != 4 {
+		t.Fatalf("printer hints = %d/%d copies=%d", ps.HorizontalDPI, ps.VerticalDPI, ps.Copies)
+	}
+	if ps.MarginHeader != 0.25 || ps.MarginFooter != 0.35 {
+		t.Fatalf("header/footer margins = %v/%v", ps.MarginHeader, ps.MarginFooter)
+	}
+}
+
+func TestPhase5WSBoolOwnsFitToPageSemantics(t *testing.T) {
+	sheet := &sheetir.Sheet{PageSetup: &sheetir.PageSetup{Scale: 85, FitToWidth: 1, FitToHeight: 2}}
+	applyWSBoolRecord(sheet, []byte{0x00, 0x01})
+	if !sheet.PageSetup.FitToPage {
+		t.Fatal("FitToPage = false, want true from WSBOOL bit 8")
+	}
+	applyWSBoolRecord(sheet, []byte{0x00, 0x00})
+	if sheet.PageSetup.FitToPage {
+		t.Fatal("FitToPage = true, want false when WSBOOL bit 8 is clear")
+	}
+}
+
+func TestPhase5PaneAndSelectionProjectCanonicalViewState(t *testing.T) {
+	sheet := &sheetir.Sheet{}
+	pane := make([]byte, 10)
+	binary.LittleEndian.PutUint16(pane[0:2], 1200)
+	binary.LittleEndian.PutUint16(pane[2:4], 900)
+	binary.LittleEndian.PutUint16(pane[4:6], 5)
+	binary.LittleEndian.PutUint16(pane[6:8], 3)
+	binary.LittleEndian.PutUint16(pane[8:10], 0)
+	applyPane(sheet, pane, false)
+	if sheet.PaneState != "split" || sheet.SplitX != 1200 || sheet.SplitY != 900 {
+		t.Fatalf("canonical split = state %q x=%v y=%v", sheet.PaneState, sheet.SplitX, sheet.SplitY)
+	}
+	if sheet.SplitRows != 5 || sheet.SplitCols != 3 || sheet.ActivePane != "bottomRight" || sheet.TopLeftCell != "D6" {
+		t.Fatalf("compatibility pane view = rows=%d cols=%d active=%q topLeft=%q", sheet.SplitRows, sheet.SplitCols, sheet.ActivePane, sheet.TopLeftCell)
+	}
+
+	selectionPayload := make([]byte, 21)
+	selectionPayload[0] = 0
+	binary.LittleEndian.PutUint16(selectionPayload[1:3], 5)
+	binary.LittleEndian.PutUint16(selectionPayload[3:5], 3)
+	binary.LittleEndian.PutUint16(selectionPayload[5:7], 1)
+	binary.LittleEndian.PutUint16(selectionPayload[7:9], 2)
+	binary.LittleEndian.PutUint16(selectionPayload[9:11], 5)
+	binary.LittleEndian.PutUint16(selectionPayload[11:13], 5)
+	selectionPayload[13], selectionPayload[14] = 3, 3
+	binary.LittleEndian.PutUint16(selectionPayload[15:17], 7)
+	binary.LittleEndian.PutUint16(selectionPayload[17:19], 8)
+	selectionPayload[19], selectionPayload[20] = 1, 2
+	selection, ok := parseSelectionRecord(selectionPayload)
+	if !ok {
+		t.Fatal("parseSelectionRecord returned false")
+	}
+	if selection.Pane != "bottomRight" || selection.ActiveCell != "D6" || selection.ActiveCellID != 1 || selection.SqRef != "D6 B8:C9" {
+		t.Fatalf("selection = %+v", selection)
+	}
+}
+
+func TestPhase5HLINKPreservesDisplayAndInternalLocation(t *testing.T) {
+	const (
+		hlstmfHasLocationStr = 0x0008
+		hlstmfHasDisplayName = 0x0010
+	)
+	display := "Jump to totals"
+	location := "Summary!A1"
+	header := make([]byte, 32)
+	binary.LittleEndian.PutUint16(header[0:2], 1)
+	binary.LittleEndian.PutUint16(header[2:4], 2)
+	binary.LittleEndian.PutUint16(header[4:6], 0)
+	binary.LittleEndian.PutUint16(header[6:8], 1)
+	binary.LittleEndian.PutUint32(header[24:28], 2)
+	binary.LittleEndian.PutUint32(header[28:32], hlstmfHasLocationStr|hlstmfHasDisplayName)
+
+	appendWide := func(dst []byte, text string) []byte {
+		text += "\x00"
+		count := make([]byte, 4)
+		binary.LittleEndian.PutUint32(count, uint32(len(text)))
+		dst = append(dst, count...)
+		return append(dst, encodeUTF16LE(text)...)
+	}
+	payload := appendWide(header, display)
+	payload = appendWide(payload, location)
+
+	hl, ok := parseHLINKRecord(payload)
+	if !ok {
+		t.Fatal("parseHLINKRecord returned ok=false")
+	}
+	if hl.display != display {
+		t.Fatalf("display = %q, want %q", hl.display, display)
+	}
+	if hl.url != "#"+location {
+		t.Fatalf("url = %q, want internal location %q", hl.url, "#"+location)
+	}
+	if hl.firstRow != 1 || hl.lastRow != 2 || hl.firstCol != 0 || hl.lastCol != 1 {
+		t.Fatalf("range = rows %d..%d cols %d..%d", hl.firstRow, hl.lastRow, hl.firstCol, hl.lastCol)
+	}
+}
+
+func TestPhase5LegacyNotesPreserveCanonicalAuthor(t *testing.T) {
+	data := appendBiffRecord(nil, biffBOF, []byte{0x10, 0x00, 0x06, 0x00})
+	data = appendBiffRecord(data, biffNote, notePayload(2, 2, 0, "Reviewer"))
+	data = appendBiffRecord(data, biffEOF, nil)
+
+	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "CommentsAuthor"}, nil, nil)
+	if sheet == nil || sheet.Notes == nil || sheet.Notes["C3"] == nil {
+		t.Fatalf("canonical note missing: %#v", sheet)
+	}
+	note := sheet.Notes["C3"]
+	if note.Author != "Reviewer" || note.Text != "Reviewer" || note.Ref != "C3" {
+		t.Fatalf("canonical note = %#v", note)
+	}
+	if sheet.Comments["C3"] != note.Text {
+		t.Fatalf("compatibility comment = %q, canonical = %q", sheet.Comments["C3"], note.Text)
+	}
+}
+
+func TestPhase5BIFFFontProjectsCanonicalUnderlineAndVerticalAlignment(t *testing.T) {
+	payload := make([]byte, 16)
+	binary.LittleEndian.PutUint16(payload[0:2], 220) // 11pt
+	binary.LittleEndian.PutUint16(payload[6:8], 700) // bold
+	binary.LittleEndian.PutUint16(payload[8:10], 1)  // superscript
+	payload[10] = 0x22                               // double accounting underline
+
+	font := parseBIFFFont(payload)
+	if !font.Underline || font.UnderlineType != "doubleAccounting" {
+		t.Fatalf("underline = (%v,%q), want doubleAccounting", font.Underline, font.UnderlineType)
+	}
+	if font.VertAlign != "superscript" {
+		t.Fatalf("vert align = %q, want superscript", font.VertAlign)
+	}
+}
+
+func TestPhase5BIFFXFProjectsCanonicalAlignmentAndPatternFill(t *testing.T) {
+	font := legacyFont{Underline: true, UnderlineType: "double", VertAlign: "subscript"}
+	payload := make([]byte, 20)
+	binary.LittleEndian.PutUint16(payload[0:2], 0)
+	payload[6] = 0x07 | 0x08 | (0x04 << 4) // distributed + wrap + distributed vertical
+	payload[7] = 45                        // rotation
+	payload[8] = 0x10 | 0x03               // shrink-to-fit + indent 3
+
+	// Pattern type 5 (darkHorizontal), foreground 8, background 9.
+	b2 := uint32(5) << 26
+	binary.LittleEndian.PutUint32(payload[14:18], b2)
+	binary.LittleEndian.PutUint16(payload[18:20], uint16(8)|uint16(9)<<7)
+
+	xf := parseBIFFXF(payload, nil, []legacyFont{font}, [56]string{})
+	style := styleFromXFIndex(0, []legacyXF{xf})
+	if style.HAlign != "distributed" || style.VAlign != "distributed" || !style.WrapText {
+		t.Fatalf("alignment = (%q,%q,wrap=%v)", style.HAlign, style.VAlign, style.WrapText)
+	}
+	if style.TextRotation != 45 || !style.ShrinkToFit || style.Indent != 3 {
+		t.Fatalf("text layout = (rotation=%d, shrink=%v, indent=%d)", style.TextRotation, style.ShrinkToFit, style.Indent)
+	}
+	if style.UnderlineType != "double" || style.FontVertAlign != "subscript" {
+		t.Fatalf("font semantics = (underline=%q, vert=%q)", style.UnderlineType, style.FontVertAlign)
+	}
+	if style.FillPattern != "darkHorizontal" {
+		t.Fatalf("fill pattern = %q, want darkHorizontal", style.FillPattern)
+	}
+}
+
+func TestPhase5BIFFXFUsesRotationByteNotTextPropertyByte(t *testing.T) {
+	payload := make([]byte, 20)
+	payload[7] = 30
+	payload[8] = 0x14 // indent 4 + shrink-to-fit; must not become rotation 20
+	xf := parseBIFFXF(payload, nil, nil, [56]string{})
+	if xf.Style.TextRotation != 30 || xf.Style.Indent != 4 || !xf.Style.ShrinkToFit {
+		t.Fatalf("xf text semantics = rotation %d indent %d shrink %v", xf.Style.TextRotation, xf.Style.Indent, xf.Style.ShrinkToFit)
+	}
+}
+
+func TestPhase5BIFFBorderStylesPreserveCanonicalNames(t *testing.T) {
+	cases := map[uint8]string{
+		0: "", 1: "thin", 2: "medium", 3: "dashed", 4: "dotted",
+		5: "thick", 6: "double", 7: "hair", 8: "mediumDashed",
+		9: "dashDot", 10: "mediumDashDot", 11: "dashDotDot",
+		12: "mediumDashDotDot", 13: "slantDashDot",
+	}
+	for raw, want := range cases {
+		if got := biffBorderStyle(raw); got != want {
+			t.Fatalf("biffBorderStyle(%d) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestPhase5BIFFXFProjectsDiagonalBorderIntoCanonicalStyle(t *testing.T) {
+	p := make([]byte, 20)
+	// left=thin, right=medium, top=dashed, bottom=dotted; diagonal down+up.
+	b1 := uint32(1) | uint32(2)<<4 | uint32(3)<<8 | uint32(4)<<12 |
+		uint32(0x08)<<16 | uint32(0x09)<<23 | uint32(3)<<30
+	binary.LittleEndian.PutUint32(p[10:14], b1)
+	// top/bottom/diagonal palette colors and diagonal style=double.
+	b2 := uint32(0x0A) | uint32(0x0B)<<7 | uint32(0x0C)<<14 | uint32(6)<<21
+	binary.LittleEndian.PutUint32(p[14:18], b2)
+
+	xf := parseBIFFXF(p, nil, nil, defaultBIFFPalette)
+	style := styleFromXFIndex(0, []legacyXF{xf})
+	if style.BorderLeft.Style != "thin" || style.BorderRight.Style != "medium" ||
+		style.BorderTop.Style != "dashed" || style.BorderBottom.Style != "dotted" {
+		t.Fatalf("side border styles = %#v %#v %#v %#v", style.BorderLeft, style.BorderRight, style.BorderTop, style.BorderBottom)
+	}
+	if style.BorderDiagonal.Style != "double" || !style.BorderDiagonalUp || !style.BorderDiagonalDown {
+		t.Fatalf("diagonal border = %#v up=%v down=%v", style.BorderDiagonal, style.BorderDiagonalUp, style.BorderDiagonalDown)
+	}
+	if style.BorderDiagonal.Color == "" {
+		t.Fatal("diagonal border color was not resolved")
+	}
+}
+
+func TestPhase5BIFFExtFmtPreservesBorderAndPatternDetails(t *testing.T) {
+	data := make([]byte, 6+8+4)
+	binary.LittleEndian.PutUint32(data[0:4], 0x10000000|0x20000000)
+	// Border block: medium left, double right, dotted top, thick bottom.
+	b1 := uint32(2) | uint32(6)<<4 | uint32(4)<<8 | uint32(5)<<12 |
+		uint32(0x08)<<16 | uint32(0x09)<<23 | uint32(1)<<30 | uint32(1)<<31
+	binary.LittleEndian.PutUint32(data[6:10], b1)
+	b2 := uint32(0x0A) | uint32(0x0B)<<7 | uint32(0x0C)<<14 | uint32(6)<<21
+	binary.LittleEndian.PutUint32(data[10:14], b2)
+	// Pattern block: pattern 9 (darkGrid), foreground/background palette entries.
+	binary.LittleEndian.PutUint16(data[14:16], 9)
+	data[16], data[17] = 0x08, 0x09
+
+	dxf := parseExtFmtBlock(data, &defaultBIFFPalette)
+	if dxf == nil || dxf.BorderLeft == nil || *dxf.BorderLeft != 2 ||
+		dxf.BorderRight == nil || *dxf.BorderRight != 6 ||
+		dxf.BorderDiagonal == nil || *dxf.BorderDiagonal != 6 {
+		t.Fatalf("conditional border fidelity = %#v", dxf)
+	}
+	if dxf.ForwardDiagonalOn == nil || !*dxf.ForwardDiagonalOn ||
+		dxf.BackwardDiagonalOn == nil || !*dxf.BackwardDiagonalOn {
+		t.Fatalf("conditional diagonal directions = %#v", dxf)
+	}
+	if dxf.FillPattern == nil || *dxf.FillPattern != 9 || dxf.FillForegroundColor == "" || dxf.FillBackgroundColor == "" {
+		t.Fatalf("conditional pattern fidelity = %#v", dxf)
+	}
+}
+
+func TestPhase5BIFFFormulaCachedValueUsesCanonicalProjection(t *testing.T) {
+	dateCell := &sheetir.Cell{Style: sheetir.CellStyle{NumFmtCode: "yyyy-mm-dd"}}
+	var numeric [8]byte
+	binary.LittleEndian.PutUint64(numeric[:], math.Float64bits(2))
+	applyBIFFFormulaCachedValue(dateCell, numeric[:], false, true)
+	if dateCell.Kind != sheetir.CellDate || dateCell.StrValue != "1900-01-02" || dateCell.NumValue != 2 {
+		t.Fatalf("numeric formula projection = %#v, want canonical date preserving serial", dateCell)
+	}
+
+	boolCell := &sheetir.Cell{}
+	special := []byte{0x01, 0x00, 0x01, 0, 0, 0, 0xFF, 0xFF}
+	applyBIFFFormulaCachedValue(boolCell, special, false, true)
+	if boolCell.Kind != sheetir.CellBool || boolCell.NumValue != 1 {
+		t.Fatalf("boolean formula projection = %#v", boolCell)
+	}
+
+	errCell := &sheetir.Cell{}
+	special = []byte{0x02, 0x00, 0x07, 0, 0, 0, 0xFF, 0xFF}
+	applyBIFFFormulaCachedValue(errCell, special, false, true)
+	if errCell.Kind != sheetir.CellError || errCell.StrValue == "" {
+		t.Fatalf("error formula projection = %#v", errCell)
+	}
+}
+
+func TestPhase5BIFFNamedStylesProjectToCanonicalWorkbookModel(t *testing.T) {
+	builtinID := 0
+	catalog := legacyStyleCatalog{
+		Records: []legacyStyleRecord{
+			{XFIndex: 0, Name: "Normal", BuiltinID: &builtinID},
+			{XFIndex: 2, Name: "Heading 1"},
+		},
+		Names: map[int]string{0: "Normal", 2: "Heading 1"},
+	}
+	xfs := []legacyXF{
+		{Style: sheetir.CellStyle{FontFamily: "Arial", FontSizePt: 10}},
+		{Style: sheetir.CellStyle{}},
+		{Style: sheetir.CellStyle{Bold: true, FontSizePt: 14}},
+	}
+	namedXFs, namedStyles := buildLegacyNamedCellStyles(catalog, xfs)
+	if len(namedXFs) != 2 {
+		t.Fatalf("named style XFs = %d, want 2", len(namedXFs))
+	}
+	if len(namedStyles) != 2 {
+		t.Fatalf("named styles = %d, want 2", len(namedStyles))
+	}
+	if namedStyles[0].Name != "Normal" || namedStyles[0].BuiltinID == nil || *namedStyles[0].BuiltinID != 0 {
+		t.Fatalf("Normal metadata = %#v", namedStyles[0])
+	}
+	if namedStyles[0].StyleXFIndex != 0 || namedStyles[0].Style != namedXFs[0] {
+		t.Fatalf("Normal canonical style ownership = %#v / %#v", namedStyles[0], namedXFs[0])
+	}
+	if namedStyles[1].Name != "Heading 1" || namedStyles[1].BuiltinID != nil {
+		t.Fatalf("user style metadata = %#v", namedStyles[1])
+	}
+	if !namedStyles[1].Style.Bold || namedStyles[1].StyleXFIndex != 1 {
+		t.Fatalf("user style canonical projection = %#v", namedStyles[1])
+	}
+}
+
+func TestPhase5BIFFNamedStylesDeduplicateSharedStyleXF(t *testing.T) {
+	catalog := legacyStyleCatalog{Records: []legacyStyleRecord{
+		{XFIndex: 1, Name: "First"},
+		{XFIndex: 1, Name: "Alias"},
+	}}
+	xfs := []legacyXF{{}, {Style: sheetir.CellStyle{Italic: true}}}
+	namedXFs, namedStyles := buildLegacyNamedCellStyles(catalog, xfs)
+	if len(namedXFs) != 1 {
+		t.Fatalf("shared named style XF count = %d, want 1", len(namedXFs))
+	}
+	if len(namedStyles) != 2 || namedStyles[0].StyleXFIndex != 0 || namedStyles[1].StyleXFIndex != 0 {
+		t.Fatalf("shared named style indexes = %#v", namedStyles)
+	}
+}
+
+func TestPhase5BIFFNamedStylesSkipInvalidXFReferences(t *testing.T) {
+	catalog := legacyStyleCatalog{Records: []legacyStyleRecord{{XFIndex: 7, Name: "Broken"}}}
+	namedXFs, namedStyles := buildLegacyNamedCellStyles(catalog, []legacyXF{{}})
+	if namedXFs != nil || namedStyles != nil {
+		t.Fatalf("invalid STYLE XF reference projected canonical styles: %#v %#v", namedXFs, namedStyles)
+	}
+}
+
+func TestPhase5BIFFSSTRichTextProjectsCanonicalRuns(t *testing.T) {
+	fonts := []legacyFont{
+		{Name: "Arial", HeightPt: 10, Bold: true, ColorIdx: 10},
+		{Name: "Calibri", HeightPt: 11, Italic: true, Underline: true, UnderlineType: "single", VertAlign: "superscript", ColorIdx: 12},
+	}
+	palette := defaultBIFFPalette
+
+	// SST header: total=1, unique=1. XLUnicodeRichExtendedString: cch=10,
+	// fRichSt=1, cRun=2, compressed text, then two (ich,ifnt) runs.
+	payload := make([]byte, 0, 64)
+	put32 := func(v uint32) {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], v)
+		payload = append(payload, b[:]...)
+	}
+	put16 := func(v uint16) {
+		var b [2]byte
+		binary.LittleEndian.PutUint16(b[:], v)
+		payload = append(payload, b[:]...)
+	}
+	put32(1)
+	put32(1)
+	put16(10)
+	payload = append(payload, 0x08)
+	put16(2)
+	payload = append(payload, []byte("HelloWorld")...)
+	put16(0)
+	put16(0)
+	put16(5)
+	put16(1)
+
+	sst := parseSharedStrings(payload, fonts, palette)
+	if len(sst) != 1 || sst[0].Text != "HelloWorld" {
+		t.Fatalf("SST = %#v", sst)
+	}
+	if len(sst[0].RichText) != 2 {
+		t.Fatalf("rich runs = %#v", sst[0].RichText)
+	}
+	if got := sst[0].RichText[0]; got.Text != "Hello" || !got.Bold || got.FontFamily != "Arial" {
+		t.Fatalf("first run = %#v", got)
+	}
+	if got := sst[0].RichText[1]; got.Text != "World" || !got.Italic || got.UnderlineType != "single" || got.VertAlign != "superscript" || got.FontFamily != "Calibri" {
+		t.Fatalf("second run = %#v", got)
+	}
+}
+
+func TestPhase5BIFFLabelSSTCarriesCanonicalRichText(t *testing.T) {
+	sst := []legacySharedString{{Text: "AB", RichText: []*sheetir.RichTextRun{{Text: "A", Bold: true}, {Text: "B", Italic: true}}}}
+	payload := make([]byte, 10)
+	binary.LittleEndian.PutUint16(payload[0:2], 1)
+	binary.LittleEndian.PutUint16(payload[2:4], 2)
+	binary.LittleEndian.PutUint32(payload[6:10], 0)
+	cell := parseLabelSstCell(payload, sst, nil)
+	if cell == nil || cell.StrValue != "AB" || len(cell.RichTextRuns) != 2 {
+		t.Fatalf("cell = %#v", cell)
+	}
+	if cell.RichTextRuns[0] == sst[0].RichText[0] {
+		t.Fatal("LABELSST must clone shared rich-text runs")
+	}
+}
+
+func TestPhase5BIFFRStringProjectsCanonicalRuns(t *testing.T) {
+	fonts := []legacyFont{{Name: "Arial", HeightPt: 10, Bold: true, ColorIdx: 10}, {Name: "Calibri", HeightPt: 11, Italic: true, ColorIdx: 12}}
+	ctx := legacyStyleCatalog{Fonts: fonts, Palette: defaultBIFFPalette}
+	payload := make([]byte, 0, 32)
+	put16 := func(v uint16) {
+		var b [2]byte
+		binary.LittleEndian.PutUint16(b[:], v)
+		payload = append(payload, b[:]...)
+	}
+	put16(0)
+	put16(0)
+	put16(0)
+	put16(4)
+	payload = append(payload, []byte("Test")...)
+	put16(2)
+	put16(0)
+	put16(0)
+	put16(2)
+	put16(1)
+	cell := parseRStringCell(payload, nil, ctx)
+	if cell == nil || cell.StrValue != "Test" || len(cell.RichTextRuns) != 2 {
+		t.Fatalf("cell = %#v", cell)
+	}
+	if !cell.RichTextRuns[0].Bold || cell.RichTextRuns[0].Text != "Te" {
+		t.Fatalf("first run = %#v", cell.RichTextRuns[0])
+	}
+	if !cell.RichTextRuns[1].Italic || cell.RichTextRuns[1].Text != "st" {
+		t.Fatalf("second run = %#v", cell.RichTextRuns[1])
+	}
+}
+
+func TestPhase5ParseTxOFormattingRunsUsesEightByteRecords(t *testing.T) {
+	payload := make([]byte, 16)
+	binary.LittleEndian.PutUint16(payload[0:2], 0)
+	binary.LittleEndian.PutUint16(payload[2:4], 3)
+	binary.LittleEndian.PutUint16(payload[8:10], 5)
+	binary.LittleEndian.PutUint16(payload[10:12], 7)
+
+	runs := parseTxOFormattingRuns(payload)
+	if len(runs) != 2 {
+		t.Fatalf("TXO formatting runs = %d, want 2", len(runs))
+	}
+	if runs[0].CharIndex != 0 || runs[0].FontIndex != 3 || runs[1].CharIndex != 5 || runs[1].FontIndex != 7 {
+		t.Fatalf("TXO formatting runs = %#v", runs)
+	}
+}
+
+func TestPhase5BIFFTxOCommentPreservesCanonicalRichText(t *testing.T) {
+	data := appendBiffRecord(nil, biffBOF, []byte{0x10, 0x00, 0x06, 0x00})
+	data = appendBiffRecord(data, biffObj, objPayload(legacyObjTypeNote, 9))
+	data = appendBiffRecord(data, biffTxO, txoPayload(10))
+	data = appendBiffRecord(data, biffContinue, append([]byte{0x00}, []byte("HelloWorld")...))
+
+	formatting := make([]byte, 16)
+	binary.LittleEndian.PutUint16(formatting[0:2], 0)
+	binary.LittleEndian.PutUint16(formatting[2:4], 0)
+	binary.LittleEndian.PutUint16(formatting[8:10], 5)
+	binary.LittleEndian.PutUint16(formatting[10:12], 1)
+	data = appendBiffRecord(data, biffContinue, formatting)
+	data = appendBiffRecord(data, biffNote, notePayload(0, 0, 9, "Reviewer"))
+	data = appendBiffRecord(data, biffEOF, nil)
+
+	ctx := legacyStyleCatalog{Fonts: []legacyFont{
+		{Name: "Arial", HeightPt: 10},
+		{Name: "Arial", HeightPt: 10, Bold: true},
+	}}
+	sheet := parseBIFFWorksheet(data, boundSheet{offset: 0, name: "RichNote"}, nil, nil, nil, legacyFormulaWorkbookContext{}, ctx)
+	if sheet == nil || sheet.Notes == nil || sheet.Notes["A1"] == nil {
+		t.Fatal("canonical A1 note missing")
+	}
+	note := sheet.Notes["A1"]
+	if note.Text != "HelloWorld" || note.Author != "Reviewer" {
+		t.Fatalf("note = %#v", note)
+	}
+	if len(note.RichText) != 2 {
+		t.Fatalf("note rich-text runs = %#v, want 2", note.RichText)
+	}
+	if note.RichText[0].Text != "Hello" || note.RichText[0].Bold {
+		t.Fatalf("first note run = %#v", note.RichText[0])
+	}
+	if note.RichText[1].Text != "World" || !note.RichText[1].Bold {
+		t.Fatalf("second note run = %#v", note.RichText[1])
+	}
+	if sheet.Comments["A1"] != "HelloWorld" {
+		t.Fatalf("plain-text compatibility comment = %q", sheet.Comments["A1"])
+	}
+}
+
+func TestPhase5BIFFDataValidationCanonicalFlags(t *testing.T) {
+	if got := biffDVErrorStyle(0); got != "stop" {
+		t.Fatalf("error style 0 = %q", got)
+	}
+	if got := biffDVErrorStyle(1); got != "warning" {
+		t.Fatalf("error style 1 = %q", got)
+	}
+	if got := biffDVErrorStyle(2); got != "information" {
+		t.Fatalf("error style 2 = %q", got)
+	}
+	if got := biffDVErrorStyle(7); got != "" {
+		t.Fatalf("reserved error style = %q", got)
+	}
+
+	wantIME := []string{"noControl", "on", "off", "disabled", "hiragana", "fullKatakana", "halfKatakana", "fullAlpha", "halfAlpha", "fullHangul", "halfHangul"}
+	for i, want := range wantIME {
+		if got := biffDVIMEMode(uint8(i)); got != want {
+			t.Fatalf("IME mode %d = %q, want %q", i, got, want)
+		}
+	}
+	if got := biffDVIMEMode(0xff); got != "" {
+		t.Fatalf("reserved IME mode = %q", got)
+	}
+}
+
+func TestPhase5BIFFInlineValidationListUsesCanonicalListValues(t *testing.T) {
+	got := biffDVInlineListValues(`"Red, Green,Blue"`)
+	want := []string{"Red", "Green", "Blue"}
+	if len(got) != len(want) {
+		t.Fatalf("list values = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("list value %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if got := biffDVInlineListValues("A1:A3"); got != nil {
+		t.Fatalf("range validation resolved as inline list: %#v", got)
+	}
+}
+
+func TestPhase5BIFFWorkbookCalcSemanticsConvergeCanonically(t *testing.T) {
+	data := appendBiffRecord(nil, biffBOF, []byte{0x00, 0x06, 0x05, 0x00})
+	refMode := make([]byte, 2)
+	binary.LittleEndian.PutUint16(refMode, 0) // R1C1
+	data = appendBiffRecord(data, biffRefMode, refMode)
+	recalc := make([]byte, 8)
+	binary.LittleEndian.PutUint16(recalc[0:2], biffRecalcId)
+	binary.LittleEndian.PutUint32(recalc[4:8], 191029)
+	data = appendBiffRecord(data, biffRecalcId, recalc)
+	data = appendBiffRecord(data, biffUncalced, []byte{0, 0})
+	data = appendBiffRecord(data, biffEOF, nil)
+
+	meta := parseLegacyWorkbookMetadata(data)
+	if meta.Calc == nil {
+		t.Fatal("canonical workbook calc settings missing")
+	}
+	if meta.Calc.ReferenceMode != "R1C1" {
+		t.Fatalf("ReferenceMode = %q, want R1C1", meta.Calc.ReferenceMode)
+	}
+	if meta.Calc.RecalcID == nil || *meta.Calc.RecalcID != 191029 {
+		t.Fatalf("RecalcID = %v, want 191029", meta.Calc.RecalcID)
+	}
+	if meta.Calc.FullCalcOnLoad == nil || !*meta.Calc.FullCalcOnLoad {
+		t.Fatalf("FullCalcOnLoad = %v, want true", meta.Calc.FullCalcOnLoad)
+	}
+	if meta.Calc.ForceFullCalc == nil || !*meta.Calc.ForceFullCalc {
+		t.Fatalf("ForceFullCalc = %v, want true", meta.Calc.ForceFullCalc)
+	}
+}
+
+func TestPhase5BIFFReferenceModeCanonicalValues(t *testing.T) {
+	p := make([]byte, 2)
+	binary.LittleEndian.PutUint16(p, 1)
+	if got := parseRefModeRecord(p); got != "A1" {
+		t.Fatalf("REFMODE 1 = %q, want A1", got)
+	}
+	binary.LittleEndian.PutUint16(p, 0)
+	if got := parseRefModeRecord(p); got != "R1C1" {
+		t.Fatalf("REFMODE 0 = %q, want R1C1", got)
+	}
+}
+
+func TestPhase5ClassicCFUsesVariableFormattingBlocks(t *testing.T) {
+	// cellIs/equal, no formulas, border + pattern blocks.
+	p := make([]byte, 12+8+4)
+	p[0], p[1] = 1, 3
+	binary.LittleEndian.PutUint32(p[6:10], 0x10000000|0x20000000)
+	// Border: left=thin, right=medium, top=dashed, bottom=double;
+	// palette indexes 8/9/10/11, diagonal dotted with both directions.
+	b1 := uint32(1) | uint32(2)<<4 | uint32(3)<<8 | uint32(6)<<12 |
+		uint32(8)<<16 | uint32(9)<<23 | uint32(1)<<30 | uint32(1)<<31
+	b2 := uint32(10) | uint32(11)<<7 | uint32(12)<<14 | uint32(7)<<21
+	binary.LittleEndian.PutUint32(p[12:16], b1)
+	binary.LittleEndian.PutUint32(p[16:20], b2)
+	// Pattern style=solid (1), foreground=13, background=14.
+	binary.LittleEndian.PutUint16(p[20:22], 1<<10)
+	binary.LittleEndian.PutUint16(p[22:24], uint16(13)|uint16(14)<<7)
+
+	rule := parseCFRecord(p)
+	if rule == nil {
+		t.Fatal("parseCFRecord returned nil")
+	}
+	d := rule.DxfStyle
+	if d.BorderLeft == nil || *d.BorderLeft != 1 || d.BorderRight == nil || *d.BorderRight != 2 ||
+		d.BorderTop == nil || *d.BorderTop != 3 || d.BorderBottom == nil || *d.BorderBottom != 6 ||
+		d.BorderDiagonal == nil || *d.BorderDiagonal != 7 {
+		t.Fatalf("classic CF border fidelity = %#v", d)
+	}
+	if d.ForwardDiagonalOn == nil || !*d.ForwardDiagonalOn || d.BackwardDiagonalOn == nil || !*d.BackwardDiagonalOn {
+		t.Fatalf("classic CF diagonal directions = %#v", d)
+	}
+	if d.FillPattern == nil || *d.FillPattern != 1 {
+		t.Fatalf("classic CF pattern = %#v", d)
+	}
+}
+
+func TestPhase5ClassicCFFontFormattingUsesBIFFOffsets(t *testing.T) {
+	p := make([]byte, 12+118)
+	p[0] = 2 // expression
+	binary.LittleEndian.PutUint32(p[6:10], 0x04000000)
+	ff := p[12:]
+	binary.LittleEndian.PutUint32(ff[64:68], 240)                   // 12pt in twentieths
+	binary.LittleEndian.PutUint32(ff[68:72], 0x00000002|0x00000080) // italic + strike
+	binary.LittleEndian.PutUint16(ff[72:74], 700)
+	binary.LittleEndian.PutUint16(ff[74:76], 1)
+	binary.LittleEndian.PutUint16(ff[76:78], 2)
+	binary.LittleEndian.PutUint32(ff[80:84], 10)
+	// Zero means modified for these flags.
+	binary.LittleEndian.PutUint32(ff[88:92], 0)
+	binary.LittleEndian.PutUint32(ff[92:96], 0)
+	binary.LittleEndian.PutUint32(ff[96:100], 0)
+	binary.LittleEndian.PutUint32(ff[100:104], 0)
+
+	rule := parseCFRecord(p)
+	if rule == nil {
+		t.Fatal("parseCFRecord returned nil")
+	}
+	d := rule.DxfStyle
+	if d.Bold == nil || !*d.Bold || d.Italic == nil || !*d.Italic || d.Strike == nil || !*d.Strike {
+		t.Fatalf("classic CF font style = %#v", d)
+	}
+	if d.FontHeight == nil || *d.FontHeight != 240 || d.FontWeight == nil || *d.FontWeight != 700 {
+		t.Fatalf("classic CF font metrics = %#v", d)
+	}
+	if d.UnderlineType == nil || *d.UnderlineType != 2 || d.EscapementType == nil || *d.EscapementType != 1 {
+		t.Fatalf("classic CF font decoration = %#v", d)
+	}
+}
+
+func TestPhase5RawWorksheetContentRecognizesCanonicalMetadata(t *testing.T) {
+	cases := []struct {
+		name  string
+		sheet *sheetir.Sheet
+	}{
+		{"note", &sheetir.Sheet{Notes: map[string]*sheetir.CommentNote{"A1": {Ref: "A1", Text: "note"}}}},
+		{"hyperlink", &sheetir.Sheet{Hyperlinks: []*sheetir.Hyperlink{{Ref: "A1", URL: "https://example.com"}}}},
+		{"validation", &sheetir.Sheet{DataValidations: []*sheetir.DataValidation{{SqRef: "A1"}}}},
+		{"conditional-format", &sheetir.Sheet{CFRules: []*sheetir.CFRule{{SqRef: "A1"}}}},
+		{"print-setup", &sheetir.Sheet{PageSetup: &sheetir.PageSetup{}}},
+		{"form-control", &sheetir.Sheet{FormControls: []*sheetir.FormControl{{}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !rawWorksheetHasContent(tc.sheet) {
+				t.Fatal("canonical worksheet metadata was treated as empty")
+			}
+		})
+	}
+	if rawWorksheetHasContent(&sheetir.Sheet{}) {
+		t.Fatal("empty worksheet reported content")
+	}
+}
+
+func TestPhase5Window2ProjectsCanonicalGridlineVisibility(t *testing.T) {
+	data := appendBiffRecord(nil, biffBOF, []byte{
+		0x00, 0x06,
+		0x10, 0x00,
+	})
+	data = appendBiffRecord(data, biffWindow2, []byte{0x00, 0x00})
+	data = appendBiffRecord(data, biffEOF, nil)
+
+	sheet := parseWorksheet(data, boundSheet{offset: 0, name: "Gridlines"}, nil, nil)
+	if sheet == nil || sheet.ShowGridLines == nil {
+		t.Fatal("WINDOW2 must project explicit canonical gridline visibility")
+	}
+	if *sheet.ShowGridLines {
+		t.Fatal("ShowGridLines = true, want false when WINDOW2 display-gridlines bit is clear")
+	}
+
+	data = appendBiffRecord(nil, biffBOF, []byte{0x00, 0x06, 0x10, 0x00})
+	data = appendBiffRecord(data, biffWindow2, []byte{0x02, 0x00})
+	data = appendBiffRecord(data, biffEOF, nil)
+	sheet = parseWorksheet(data, boundSheet{offset: 0, name: "Gridlines"}, nil, nil)
+	if sheet == nil || sheet.ShowGridLines == nil || !*sheet.ShowGridLines {
+		t.Fatal("ShowGridLines = false/unset, want true from WINDOW2 display-gridlines bit")
+	}
+}
+
+func TestPhase5FilterDatabaseProjectsCanonicalAutoFilterRange(t *testing.T) {
+	localSheet := 0
+	workbook := &sheetir.Workbook{
+		Sheets: []*sheetir.Sheet{{Name: "Data", AutoFilterRef: "A1:C20"}},
+		DefinedNames: []*sheetir.DefinedName{{
+			Name: "_xlnm._FilterDatabase", LocalSheetID: &localSheet, Value: "'Data'!$B$3:$F$40",
+		}},
+	}
+	applyLegacyAutoFilterRanges(workbook)
+	if got := workbook.Sheets[0].AutoFilterRef; got != "$B$3:$F$40" {
+		t.Fatalf("AutoFilterRef = %q, want authoritative FilterDatabase range", got)
+	}
+	if got := builtinNameString(0x0D); got != "_xlnm._FilterDatabase" {
+		t.Fatalf("built-in FilterDatabase name = %q", got)
+	}
+}
+
+func TestPhase5SharedFormulaGroupsProjectCanonicalMetadata(t *testing.T) {
+	rows := map[int]*sheetir.Row{}
+	anchor := ensureCellByRef(rows, "B2")
+	anchor.Formula = "A2+1"
+	shared := map[string]legacySharedFormulaRecord{
+		"B2": {AnchorRef: "B2", RangeRef: "B2:B5", TopRow: 1, LeftCol: 1, BottomRow: 4, RightCol: 1},
+	}
+	got := canonicalLegacySharedFormulas(shared, rows, legacyFormulaWorkbookContext{})
+	if len(got) != 1 {
+		t.Fatalf("SharedFormulas = %d, want 1", len(got))
+	}
+	if got[0].AnchorRef != "B2" || got[0].RangeRef != "B2:B5" || got[0].Formula != "A2+1" {
+		t.Fatalf("canonical shared formula = %+v", got[0])
+	}
+}
+
+func TestPhase5ExtendedHeaderFooterProjectsCanonicalFlags(t *testing.T) {
+	encodeText := func(value string) []byte {
+		// XLUnicodeStringNoCch body used after the explicit HEADERFOOTER cch fields.
+		return append([]byte{0x00}, []byte(value)...)
+	}
+	payload := make([]byte, 38)
+	binary.LittleEndian.PutUint16(payload[28:30], 0x000F)
+	for i, value := range []string{"EH", "EF", "FH", "FF"} {
+		binary.LittleEndian.PutUint16(payload[30+i*2:32+i*2], uint16(len(value)))
+		payload = append(payload, encodeText(value)...)
+	}
+	sheet := &sheetir.Sheet{HeaderFooter: &sheetir.HeaderFooter{OddHeader: "OH", OddFooter: "OF"}}
+	applyHeaderFooterExtRecord(sheet, payload)
+	hf := sheet.HeaderFooter
+	if hf.OddHeader != "OH" || hf.OddFooter != "OF" {
+		t.Fatalf("HEADERFOOTER replaced ordinary odd header/footer: %+v", hf)
+	}
+	if hf.EvenHeader != "EH" || hf.EvenFooter != "EF" || hf.FirstHeader != "FH" || hf.FirstFooter != "FF" {
+		t.Fatalf("extended header/footer strings not projected canonically: %+v", hf)
+	}
+	if !hf.DifferentOddEven || !hf.DifferentFirst || !hf.ScaleWithDoc || !hf.AlignWithMargins {
+		t.Fatalf("extended header/footer flags not projected canonically: %+v", hf)
+	}
+}
+
+func TestPhase5LegacyTableProjectsCanonicalAutoFilterRange(t *testing.T) {
+	if got := legacyTableAutoFilterRef("A1:D20", 1, 0); got != "A1:D20" {
+		t.Fatalf("table AutoFilterRef = %q, want A1:D20", got)
+	}
+	if got := legacyTableAutoFilterRef("$B$3:$F$40", 1, 1); got != "B3:F39" {
+		t.Fatalf("table AutoFilterRef with totals row = %q, want B3:F39", got)
+	}
+}
+
+func TestPhase5HLINKTooltipProjectsCanonicalMetadata(t *testing.T) {
+	payload := make([]byte, 20)
+	// Ref8U at offset 12: B2:B2, zero-based row/column coordinates.
+	binary.LittleEndian.PutUint16(payload[12:14], 1)
+	binary.LittleEndian.PutUint16(payload[14:16], 1)
+	binary.LittleEndian.PutUint16(payload[16:18], 1)
+	binary.LittleEndian.PutUint16(payload[18:20], 1)
+	for _, r := range "Open documentation\x00" {
+		payload = append(payload, byte(r), 0)
+	}
+	ref, tooltip, ok := parseHLINKTooltipRecord(payload)
+	if !ok || ref != "B2" || tooltip != "Open documentation" {
+		t.Fatalf("HLINKTOOLTIP = (%q, %q, %v), want (B2, Open documentation, true)", ref, tooltip, ok)
+	}
+}
+
+func TestPhase5LegacyTableBoundsAcceptCanonicalAbsoluteRefs(t *testing.T) {
+	firstRow, firstCol, lastCol, ok := legacyTableBoundsFromRef("$B$3:$F$40")
+	if !ok || firstRow != 3 || firstCol != 2 || lastCol != 6 {
+		t.Fatalf("absolute table bounds = (%d,%d,%d,%v), want (3,2,6,true)", firstRow, firstCol, lastCol, ok)
+	}
+}
+
+func TestPhase5LegacyTableAutoFilterExcludesTotalsRows(t *testing.T) {
+	if got := legacyTableAutoFilterRef("$B$3:$F$40", 1, 2); got != "B3:F38" {
+		t.Fatalf("table AutoFilterRef = %q, want B3:F38", got)
+	}
+}
+
+func TestPhase5LegacyTableWithoutHeaderHasNoEmbeddedAutoFilter(t *testing.T) {
+	if got := legacyTableAutoFilterRef("A1:D20", 0, 0); got != "" {
+		t.Fatalf("headerless table AutoFilterRef = %q, want empty", got)
+	}
+}
+
+func TestPhase5PivotDataAxisProjectsCanonicalDataFieldFlag(t *testing.T) {
+	view := &legacyPivotView{
+		fieldItems:     make(map[int][]legacyPivotItem),
+		pageSelections: make(map[int]int),
+		currentField:   -1,
+	}
+	view.addViewField(pivotViewFieldPayload(0x0008, "Sales"))
+	pivot := view.resolve(nil)
+	if pivot == nil || len(pivot.Fields) != 1 {
+		t.Fatalf("pivot fields = %#v, want one field", pivot)
+	}
+	if !pivot.Fields[0].DataField {
+		t.Fatalf("pivot data-axis field = %#v, want DataField=true", pivot.Fields[0])
+	}
+}
+
+func TestPhase5PivotFieldMetadataSurvivesWithoutLayoutAxis(t *testing.T) {
+	view := &legacyPivotView{
+		fieldItems:     make(map[int][]legacyPivotItem),
+		pageSelections: make(map[int]int),
+		currentField:   -1,
+	}
+	view.addViewField(pivotViewFieldPayload(0x0000, "Standalone"))
+	pivot := view.resolve(nil)
+	if pivot == nil || len(pivot.Fields) != 1 || pivot.Fields[0].Name != "Standalone" {
+		t.Fatalf("axis-neutral pivot field was discarded: %#v", pivot)
+	}
+}
+
+type phase5XLSCorpusExpectation struct {
+	file  string
+	check func(*testing.T, *sheetir.Workbook)
+}
+
+func TestPhase5XLSCanonicalCorpusGate(t *testing.T) {
+	fixturesDir := filepath.Join("..", "..", "..", "..", "testdata", "xls")
+	entries, err := os.ReadDir(fixturesDir)
+	if err != nil {
+		t.Fatalf("read XLS corpus: %v", err)
+	}
+
+	featureChecks := map[string]func(*testing.T, *sheetir.Workbook){
+		"apache-SimpleWithImages.xls":   requireCanonicalXLSDrawing,
+		"libre-file-with-png-image.xls": requireCanonicalXLSDrawing,
+		"libre-external-ref.xls":        requireCanonicalXLSExternalLink,
+	}
+
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".xls") {
+			continue
+		}
+		count++
+		name := entry.Name()
+		t.Run(name, func(t *testing.T) {
+			workbook, err := ParseXls(filepath.Join(fixturesDir, name))
+			if err != nil {
+				if isEncryptedLegacyCorpusWorkbookError(err) {
+					t.Skip("encrypted workbook requires password")
+				}
+				t.Fatalf("ParseXls(%s): %v", name, err)
+			}
+			requireCanonicalXLSWorkbook(t, workbook)
+			if check := featureChecks[name]; check != nil {
+				check(t, workbook)
+			}
+			assertCanonicalXLSCollections(t, workbook)
+		})
+	}
+	if count == 0 {
+		t.Fatal("no XLS corpus fixtures found")
+	}
+}
+
+func isEncryptedLegacyCorpusWorkbookError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "encrypted workbook") && strings.Contains(message, "password")
+}
+
+func requireCanonicalXLSWorkbook(t *testing.T, workbook *sheetir.Workbook) {
+	t.Helper()
+	if workbook == nil || len(workbook.Sheets) == 0 {
+		t.Fatal("canonical XLS workbook has no sheets")
+	}
+}
+
+func requireCanonicalXLSDrawing(t *testing.T, workbook *sheetir.Workbook) {
+	t.Helper()
+	requireCanonicalXLSWorkbook(t, workbook)
+	for _, sheet := range workbook.Sheets {
+		if len(sheet.Drawings) > 0 {
+			return
+		}
+	}
+	t.Fatal("XLS drawing corpus fixture lost canonical drawings")
+}
+
+func requireCanonicalXLSExternalLink(t *testing.T, workbook *sheetir.Workbook) {
+	t.Helper()
+	requireCanonicalXLSWorkbook(t, workbook)
+	if len(workbook.ExternalLinks) == 0 {
+		t.Fatal("XLS external-reference corpus fixture lost canonical external links")
+	}
+}
+
+func assertCanonicalXLSCollections(t *testing.T, workbook *sheetir.Workbook) {
+	t.Helper()
+	if workbook == nil {
+		t.Fatal("nil canonical workbook")
+	}
+	for sheetIndex, sheet := range workbook.Sheets {
+		if sheet == nil {
+			t.Fatalf("sheet %d is nil", sheetIndex)
+		}
+		lastRow := 0
+		for _, row := range sheet.Rows {
+			if row == nil {
+				t.Fatalf("sheet %q contains nil row", sheet.Name)
+			}
+			if row.Index <= lastRow {
+				t.Fatalf("sheet %q rows are not canonical ascending order: %d after %d", sheet.Name, row.Index, lastRow)
+			}
+			lastRow = row.Index
+			lastCol := 0
+			for _, cell := range row.Cells {
+				if cell == nil {
+					t.Fatalf("sheet %q row %d contains nil cell", sheet.Name, row.Index)
+				}
+				if cell.Col <= lastCol {
+					t.Fatalf("sheet %q row %d cells are not canonical ascending order: %d after %d", sheet.Name, row.Index, cell.Col, lastCol)
+				}
+				lastCol = cell.Col
+			}
+		}
+		for _, table := range sheet.Tables {
+			if table == nil || table.Ref == "" || table.Name == "" {
+				t.Fatalf("sheet %q contains incomplete canonical table: %#v", sheet.Name, table)
+			}
+		}
+		for _, pivot := range sheet.PivotTables {
+			if pivot == nil {
+				t.Fatalf("sheet %q contains nil canonical pivot", sheet.Name)
+			}
+		}
+		for _, hyperlink := range sheet.Hyperlinks {
+			if hyperlink == nil || hyperlink.Ref == "" || hyperlink.URL == "" {
+				t.Fatalf("sheet %q contains incomplete canonical hyperlink: %#v", sheet.Name, hyperlink)
+			}
+		}
+	}
+}
+
+func TestPhase5PivotViewDropsLegacyNULName(t *testing.T) {
+	view, ok := parseLegacyPivotView(pivotViewPayload(0, 1, 0, 1, 0, 0, 0, 0, 0, true, true, "\x00", "Values"))
+	if !ok {
+		t.Fatal("parseLegacyPivotView failed")
+	}
+	if view.Name != "" {
+		t.Fatalf("pivot name = %q, want empty canonical name", view.Name)
 	}
 }

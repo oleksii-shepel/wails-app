@@ -1,14 +1,12 @@
 package legacy
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"unicode"
 
 	"office/pkg/ooxml/cfb"
 	wordir "office/pkg/word/ir"
-	word97 "office/pkg/word/parsers/doc/word97"
 )
 
 type legacyHeaderFooterData struct {
@@ -24,56 +22,17 @@ type legacyHeaderFooterData struct {
 	EndnoteContinuationNotice  wordir.Story
 }
 
-// loadDocHeadersFooters is now a compatibility projection only. Word97 CLX,
-// PlcfHdd, story ranges and CHPX/PAPX materialization are owned by doc/word97.
-// Pre-Word97 retains its separate old-format story adapter.
-func loadDocHeadersFooters(wordStream []byte, f *cfb.File, sectionCount int) *legacyHeaderFooterData {
-	if nFib, ok := legacyDocFibVersion(wordStream); ok && nFib >= legacyDocFibWord97 && f != nil {
-		snapshot, err := word97.OpenSnapshotReaderAt(bytes.NewReader(wordStream), int64(len(wordStream)), f)
-		if err != nil || snapshot == nil || snapshot.Context == nil {
-			return nil
-		}
-		return legacyHeaderFooterDataFromCanonical(snapshot.Context, sectionCount)
-	}
+// loadDocHeadersFooters is the pre-Word97 compatibility story adapter.
+// Normal Word97 headers, footers and note separators are projected directly
+// from the canonical Word97 snapshot; this adapter is pre-Word97 only.
+func loadDocHeadersFooters(wordStream []byte, _ *cfb.File, _ int) *legacyHeaderFooterData {
 	return loadPreWord97HeaderFooterStories(wordStream)
 }
 
-func legacyHeaderFooterDataFromCanonical(ctx *word97.Context, sectionCount int) *legacyHeaderFooterData {
-	if ctx == nil {
-		return nil
-	}
-	if len(ctx.Sections) > sectionCount {
-		sectionCount = len(ctx.Sections)
-	}
-	if sectionCount <= 0 && (len(ctx.Headers) > 0 || len(ctx.Footers) > 0) {
-		sectionCount = 1
-	}
-	data := &legacyHeaderFooterData{
-		Headers:        cloneLegacyStoryMap(ctx.Headers),
-		Footers:        cloneLegacyStoryMap(ctx.Footers),
-		SectionHeaders: make([][]wordir.Reference, sectionCount),
-		SectionFooters: make([][]wordir.Reference, sectionCount),
-	}
-	for i := 0; i < len(ctx.Sections) && i < sectionCount; i++ {
-		data.SectionHeaders[i] = append([]wordir.Reference(nil), ctx.Sections[i].Headers...)
-		data.SectionFooters[i] = append([]wordir.Reference(nil), ctx.Sections[i].Footers...)
-	}
-	if ctx.FootnoteSeparator != nil { data.FootnoteSeparator = *ctx.FootnoteSeparator }
-	if ctx.FootnoteContinuationSep != nil { data.FootnoteContinuationSep = *ctx.FootnoteContinuationSep }
-	if ctx.FootnoteContinuationNotice != nil { data.FootnoteContinuationNotice = *ctx.FootnoteContinuationNotice }
-	if ctx.EndnoteSeparator != nil { data.EndnoteSeparator = *ctx.EndnoteSeparator }
-	if ctx.EndnoteContinuationSep != nil { data.EndnoteContinuationSep = *ctx.EndnoteContinuationSep }
-	if ctx.EndnoteContinuationNotice != nil { data.EndnoteContinuationNotice = *ctx.EndnoteContinuationNotice }
-	if data.Headers == nil && data.Footers == nil &&
-		data.FootnoteSeparator.Text == "" && data.FootnoteContinuationSep.Text == "" && data.FootnoteContinuationNotice.Text == "" &&
-		data.EndnoteSeparator.Text == "" && data.EndnoteContinuationSep.Text == "" && data.EndnoteContinuationNotice.Text == "" {
-		return nil
-	}
-	return data
-}
-
 func cloneLegacyStoryMap(src map[string]wordir.Story) map[string]wordir.Story {
-	if len(src) == 0 { return nil }
+	if len(src) == 0 {
+		return nil
+	}
 	out := make(map[string]wordir.Story, len(src))
 	for key, story := range src {
 		copyStory := story
@@ -102,18 +61,36 @@ func buildLegacyHeaderFooterDataFromSlots(noteStories [6]wordir.Story, slots [][
 	prevFooters := map[string]wordir.Reference{}
 	for sectionIndex := 0; sectionIndex < sectionCount; sectionIndex++ {
 		var group [6]wordir.Story
-		if sectionIndex < len(slots) { group = slots[sectionIndex] }
+		if sectionIndex < len(slots) {
+			group = slots[sectionIndex]
+		}
 		data.SectionHeaders[sectionIndex] = buildLegacyHeaderReferences(data.Headers, group, sectionIndex, prevHeaders)
 		data.SectionFooters[sectionIndex] = buildLegacyFooterReferences(data.Footers, group, sectionIndex, prevFooters)
 	}
-	if noteStories[3].Text != "" { data.EndnoteSeparator = noteStories[3] }
-	if noteStories[4].Text != "" { data.EndnoteContinuationSep = noteStories[4] }
-	if noteStories[5].Text != "" { data.EndnoteContinuationNotice = noteStories[5] }
-	if noteStories[0].Text != "" { data.FootnoteSeparator = noteStories[0] }
-	if noteStories[1].Text != "" { data.FootnoteContinuationSep = noteStories[1] }
-	if noteStories[2].Text != "" { data.FootnoteContinuationNotice = noteStories[2] }
-	if len(data.Headers) == 0 { data.Headers = nil }
-	if len(data.Footers) == 0 { data.Footers = nil }
+	if noteStories[3].Text != "" {
+		data.EndnoteSeparator = noteStories[3]
+	}
+	if noteStories[4].Text != "" {
+		data.EndnoteContinuationSep = noteStories[4]
+	}
+	if noteStories[5].Text != "" {
+		data.EndnoteContinuationNotice = noteStories[5]
+	}
+	if noteStories[0].Text != "" {
+		data.FootnoteSeparator = noteStories[0]
+	}
+	if noteStories[1].Text != "" {
+		data.FootnoteContinuationSep = noteStories[1]
+	}
+	if noteStories[2].Text != "" {
+		data.FootnoteContinuationNotice = noteStories[2]
+	}
+	if len(data.Headers) == 0 {
+		data.Headers = nil
+	}
+	if len(data.Footers) == 0 {
+		data.Footers = nil
+	}
 	if data.Headers == nil && data.Footers == nil &&
 		data.FootnoteSeparator.Text == "" && data.FootnoteContinuationSep.Text == "" && data.FootnoteContinuationNotice.Text == "" &&
 		data.EndnoteSeparator.Text == "" && data.EndnoteContinuationSep.Text == "" && data.EndnoteContinuationNotice.Text == "" {
@@ -123,7 +100,10 @@ func buildLegacyHeaderFooterDataFromSlots(noteStories [6]wordir.Story, slots [][
 }
 
 func buildLegacyHeaderReferences(stories map[string]wordir.Story, group [6]wordir.Story, sectionIndex int, prev map[string]wordir.Reference) []wordir.Reference {
-	specs := []struct { slot int; refType, label string }{
+	specs := []struct {
+		slot           int
+		refType, label string
+	}{
 		{slot: 0, refType: "even", label: "even"},
 		{slot: 1, refType: "default", label: "default"},
 		{slot: 4, refType: "first", label: "first"},
@@ -132,7 +112,10 @@ func buildLegacyHeaderReferences(stories map[string]wordir.Story, group [6]wordi
 }
 
 func buildLegacyFooterReferences(stories map[string]wordir.Story, group [6]wordir.Story, sectionIndex int, prev map[string]wordir.Reference) []wordir.Reference {
-	specs := []struct { slot int; refType, label string }{
+	specs := []struct {
+		slot           int
+		refType, label string
+	}{
 		{slot: 2, refType: "even", label: "even"},
 		{slot: 3, refType: "default", label: "default"},
 		{slot: 5, refType: "first", label: "first"},
@@ -140,12 +123,17 @@ func buildLegacyFooterReferences(stories map[string]wordir.Story, group [6]wordi
 	return buildLegacyHeaderFooterRefs(stories, group, sectionIndex, prev, "footer", specs)
 }
 
-func buildLegacyHeaderFooterRefs(stories map[string]wordir.Story, group [6]wordir.Story, sectionIndex int, prev map[string]wordir.Reference, kind string, specs []struct { slot int; refType, label string }) []wordir.Reference {
+func buildLegacyHeaderFooterRefs(stories map[string]wordir.Story, group [6]wordir.Story, sectionIndex int, prev map[string]wordir.Reference, kind string, specs []struct {
+	slot           int
+	refType, label string
+}) []wordir.Reference {
 	refs := make([]wordir.Reference, 0, len(specs))
 	for _, spec := range specs {
 		story := group[spec.slot]
 		if story.Text == "" {
-			if ref, ok := prev[spec.refType]; ok { refs = append(refs, ref) }
+			if ref, ok := prev[spec.refType]; ok {
+				refs = append(refs, ref)
+			}
 			continue
 		}
 		partName := fmt.Sprintf("legacy-%s-s%d-%s", kind, sectionIndex+1, spec.label)
@@ -158,41 +146,55 @@ func buildLegacyHeaderFooterRefs(stories map[string]wordir.Story, group [6]wordi
 }
 
 func buildHdrFtrStoryFromRaw(raw string) wordir.Story {
-	runs := applyDocFieldsToRuns([]docRun{{Text: raw}})
+	runs := applyPreWord97FieldsToRuns([]binaryWordRun{{Text: raw}})
 	return buildHdrFtrStoryFromRuns(runs)
 }
 
-func buildHdrFtrStoryFromRuns(runs []docRun) wordir.Story {
-	runs = applyDocFieldsToRuns(runs)
-	normalized := make([]docRun, 0, len(runs))
+func buildHdrFtrStoryFromRuns(runs []binaryWordRun) wordir.Story {
+	runs = applyPreWord97FieldsToRuns(runs)
+	normalized := make([]binaryWordRun, 0, len(runs))
 	for _, run := range runs {
-		if run.Format.Vanish != nil && *run.Format.Vanish { continue }
+		if run.Format.Vanish != nil && *run.Format.Vanish {
+			continue
+		}
 		run.Text = normalizeLegacyStoryText(run.Text)
-		if run.Text == "" && run.Kind == "" && run.Image == nil { continue }
+		if run.Text == "" && run.Kind == "" && run.Image == nil {
+			continue
+		}
 		normalized = append(normalized, run)
 	}
 	normalized = applyLegacyHeaderFooterFieldHeuristics(normalized)
-	if len(normalized) == 0 { return wordir.Story{} }
+	if len(normalized) == 0 {
+		return wordir.Story{}
+	}
 	lineSlices := splitDocRunsIntoLines(normalized)
-	if len(lineSlices) == 0 { return wordir.Story{} }
+	if len(lineSlices) == 0 {
+		return wordir.Story{}
+	}
 	paragraphs := make([]wordir.Paragraph, 0, len(lineSlices))
 	blocks := make([]wordir.Block, 0, len(lineSlices))
 	textParts := make([]string, 0, len(lineSlices))
 	for _, lineRuns := range lineSlices {
-		if lineSliceIsLegacyListBoundary(lineRuns) { continue }
+		if lineSliceIsLegacyListBoundary(lineRuns) {
+			continue
+		}
 		paragraph, _ := buildLegacyParagraphFromRuns(len(paragraphs), lineRuns, nil, nil, nil, nil)
-		if paragraph.Text == "" && len(paragraph.Runs) == 0 { continue }
+		if paragraph.Text == "" && len(paragraph.Runs) == 0 {
+			continue
+		}
 		paragraphs = append(paragraphs, paragraph)
 		blocks = append(blocks, wordir.Block{Index: len(blocks), Kind: "paragraph", Paragraph: &paragraphs[len(paragraphs)-1]})
 		textParts = append(textParts, paragraphs[len(paragraphs)-1].Text)
 	}
 	text := strings.TrimSpace(strings.Join(textParts, "\n"))
-	if len(paragraphs) == 0 || text == "" { return wordir.Story{} }
+	if len(paragraphs) == 0 || text == "" {
+		return wordir.Story{}
+	}
 	return wordir.Story{Paragraphs: paragraphs, Blocks: blocks, Text: text}
 }
 
-func applyLegacyHeaderFooterFieldHeuristics(runs []docRun) []docRun {
-	out := make([]docRun, 0, len(runs))
+func applyLegacyHeaderFooterFieldHeuristics(runs []binaryWordRun) []binaryWordRun {
+	out := make([]binaryWordRun, 0, len(runs))
 	for _, run := range runs {
 		if run.FieldKind != "" || run.Target != "" || run.Kind != "" {
 			out = append(out, run)
@@ -203,37 +205,63 @@ func applyLegacyHeaderFooterFieldHeuristics(runs []docRun) []docRun {
 	return out
 }
 
-func splitLegacyHeaderFooterTextRun(run docRun) []docRun {
+func splitLegacyHeaderFooterTextRun(run binaryWordRun) []binaryWordRun {
 	text := run.Text
 	if !strings.Contains(text, "PAGE ") && !strings.Contains(text, "FILENAME ") && !strings.Contains(text, "AUTHOR ") && !strings.Contains(text, "DATE ") {
-		return []docRun{run}
+		return []binaryWordRun{run}
 	}
-	out := make([]docRun, 0, 3)
+	out := make([]binaryWordRun, 0, 3)
 	for {
 		idx, kind, prefixLen := findLegacyHeaderFooterField(text)
 		if idx < 0 {
-			if text != "" { run.Text = text; out = append(out, run) }
+			if text != "" {
+				run.Text = text
+				out = append(out, run)
+			}
 			return out
 		}
 		if idx > 0 {
-			prefix := run; prefix.Text = text[:idx]; out = append(out, prefix)
+			prefix := run
+			prefix.Text = text[:idx]
+			out = append(out, prefix)
 		}
 		rest := text[idx+prefixLen:]
 		valueLen := 0
 		switch kind {
 		case "PAGE", "FILENAME", "AUTHOR":
-			for valueLen < len(rest) { ch := rest[valueLen]; if ch == '\t' || ch == '\n' { break }; valueLen++ }
+			for valueLen < len(rest) {
+				ch := rest[valueLen]
+				if ch == '\t' || ch == '\n' {
+					break
+				}
+				valueLen++
+			}
 		case "DATE":
-			if tab := strings.IndexAny(rest, "\t\n"); tab >= 0 { valueLen = tab } else { valueLen = len(rest) }
+			if tab := strings.IndexAny(rest, "\t\n"); tab >= 0 {
+				valueLen = tab
+			} else {
+				valueLen = len(rest)
+			}
 			if quote := strings.LastIndexByte(rest[:valueLen], '"'); quote >= 0 && quote+1 < valueLen {
-				for quote+1 < valueLen && rest[quote+1] == ' ' { quote++ }
-				rest = rest[quote+1:]; valueLen = len(rest)
+				for quote+1 < valueLen && rest[quote+1] == ' ' {
+					quote++
+				}
+				rest = rest[quote+1:]
+				valueLen = len(rest)
 			}
 		}
-		if valueLen == 0 { run.Text = text; out = append(out, run); return out }
+		if valueLen == 0 {
+			run.Text = text
+			out = append(out, run)
+			return out
+		}
 		field := run
 		field.Text = strings.TrimSpace(rest[:valueLen])
-		if kind == "PAGE" { field.FieldKind = "PAGE"; field.FieldArg = ""; field.Anchor = "" }
+		if kind == "PAGE" {
+			field.FieldKind = "PAGE"
+			field.FieldArg = ""
+			field.Anchor = ""
+		}
 		out = append(out, field)
 		text = rest[valueLen:]
 	}
@@ -241,15 +269,21 @@ func splitLegacyHeaderFooterTextRun(run docRun) []docRun {
 
 func findLegacyHeaderFooterField(text string) (idx int, kind string, prefixLen int) {
 	best := -1
-	for _, candidate := range []struct { kind, prefix string }{
+	for _, candidate := range []struct{ kind, prefix string }{
 		{kind: "PAGE", prefix: "PAGE "},
 		{kind: "FILENAME", prefix: "FILENAME "},
 		{kind: "AUTHOR", prefix: "AUTHOR "},
 		{kind: "DATE", prefix: "DATE "},
 	} {
 		i := strings.Index(text, candidate.prefix)
-		if i < 0 { continue }
-		if best < 0 || i < best { best = i; kind = candidate.kind; prefixLen = len(candidate.prefix) }
+		if i < 0 {
+			continue
+		}
+		if best < 0 || i < best {
+			best = i
+			kind = candidate.kind
+			prefixLen = len(candidate.prefix)
+		}
 	}
 	return best, kind, prefixLen
 }
@@ -263,9 +297,12 @@ func normalizeLegacyStoryText(text string) string {
 	var b strings.Builder
 	for _, r := range text {
 		switch {
-		case r == '\n' || r == '\t': b.WriteRune(r)
-		case r == '\u0000': continue
-		case unicode.IsPrint(r): b.WriteRune(r)
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r == '\u0000':
+			continue
+		case unicode.IsPrint(r):
+			b.WriteRune(r)
 		}
 	}
 	return b.String()

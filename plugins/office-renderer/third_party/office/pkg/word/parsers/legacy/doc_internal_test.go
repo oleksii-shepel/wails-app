@@ -30,10 +30,10 @@ func TestMinLegacyTableCols(t *testing.T) {
 }
 
 func TestLineSliceIsCellMark(t *testing.T) {
-	if lineSliceIsCellMark([]docRun{{ParaFormat: wordir.ParagraphFormat{IsTableCellTrailingParagraph: true}}}) != true {
+	if lineSliceIsCellMark([]binaryWordRun{{ParaFormat: wordir.ParagraphFormat{IsTableCellTrailingParagraph: true}}}) != true {
 		t.Error("expected true for cell mark slice")
 	}
-	if lineSliceIsCellMark([]docRun{{Text: "hello"}}) != false {
+	if lineSliceIsCellMark([]binaryWordRun{{Text: "hello"}}) != false {
 		t.Error("expected false for non-cell-mark slice")
 	}
 	if lineSliceIsCellMark(nil) != false {
@@ -42,16 +42,16 @@ func TestLineSliceIsCellMark(t *testing.T) {
 }
 
 func TestLineSliceIsExplicitBlankParagraph(t *testing.T) {
-	if lineSliceIsExplicitBlankParagraph([]docRun{{Text: ""}}) != true {
+	if lineSliceIsExplicitBlankParagraph([]binaryWordRun{{Text: ""}}) != true {
 		t.Error("expected true for blank paragraph")
 	}
-	if lineSliceIsExplicitBlankParagraph([]docRun{{Text: "x"}}) != false {
+	if lineSliceIsExplicitBlankParagraph([]binaryWordRun{{Text: "x"}}) != false {
 		t.Error("expected false for non-blank paragraph")
 	}
 	if lineSliceIsExplicitBlankParagraph(nil) != false {
 		t.Error("expected false for nil slice")
 	}
-	if lineSliceIsExplicitBlankParagraph([]docRun{{Kind: "run", Text: ""}}) != false {
+	if lineSliceIsExplicitBlankParagraph([]binaryWordRun{{Kind: "run", Text: ""}}) != false {
 		t.Error("expected false when kind is set")
 	}
 }
@@ -123,7 +123,7 @@ func TestLegacyTableRowPropsClearHMerge(t *testing.T) {
 	}
 }
 func TestDocRunsToIRRunsConvertsLiteralTabsToSemanticTabs(t *testing.T) {
-	runs := docRunsToIRRunsImpl([]docRun{{Text: "Column1\tColumn2\tColumn3"}}, wordir.RunFormat{}, map[*docField]bool{})
+	runs := binaryWordRunsToIRRunsImpl([]binaryWordRun{{Text: "Column1\tColumn2\tColumn3"}}, wordir.RunFormat{}, map[*binaryWordField]bool{})
 	if len(runs) != 5 {
 		t.Fatalf("runs = %#v, want 5 text/tab runs", runs)
 	}
@@ -134,11 +134,11 @@ func TestDocRunsToIRRunsConvertsLiteralTabsToSemanticTabs(t *testing.T) {
 
 func TestProcessLegacyObjectAnchorsDistinguishesPictureDataFromOLE(t *testing.T) {
 	image := &wordir.Image{MIMEType: "image/png"}
-	picture := processLegacyObjectAnchors([]docRun{{Text: "\x01", Data: true}}, []*wordir.Image{image})
+	picture := processLegacyObjectAnchors([]binaryWordRun{{Text: "\x01", Data: true}}, []*wordir.Image{image})
 	if len(picture) != 1 || picture[0].Kind != "image" || picture[0].Image != image {
 		t.Fatalf("picture anchor = %#v, want image", picture)
 	}
-	ole := processLegacyObjectAnchors([]docRun{{Text: "\x01", Spec: true, Obj: true}}, []*wordir.Image{image})
+	ole := processLegacyObjectAnchors([]binaryWordRun{{Text: "\x01", Spec: true, Obj: true}}, []*wordir.Image{image})
 	if len(ole) != 1 || ole[0].Kind != "olePlaceholder" {
 		t.Fatalf("OLE anchor = %#v, want OLE placeholder", ole)
 	}

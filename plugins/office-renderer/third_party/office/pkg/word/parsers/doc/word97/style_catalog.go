@@ -189,19 +189,98 @@ func (c *StyleCatalog) ApplyToDocument(doc *wordir.Document) {
 	}
 
 	for i := range doc.Paragraphs {
-		paragraph := &doc.Paragraphs[i]
-		if index := paragraph.LegacyStyleIndex(); index != nil {
-			if style, ok := c.ParagraphByIndex[*index]; ok {
-				paragraph.StyleID = style.ID
-			}
+		c.applyParagraph(&doc.Paragraphs[i])
+	}
+	c.applyBlockStyles(doc.Blocks)
+	c.applyStoryMapStyles(doc.Headers)
+	c.applyStoryMapStyles(doc.Footers)
+	c.applyStoryStyles(&doc.FootnoteSeparator)
+	c.applyStoryStyles(&doc.FootnoteContinuationSep)
+	c.applyStoryStyles(&doc.FootnoteContinuationNotice)
+	c.applyStoryStyles(&doc.EndnoteSeparator)
+	c.applyStoryStyles(&doc.EndnoteContinuationSep)
+	c.applyStoryStyles(&doc.EndnoteContinuationNotice)
+	for id, story := range doc.Footnotes {
+		c.applyStoryStyles(&story)
+		doc.Footnotes[id] = story
+	}
+	for id, story := range doc.Endnotes {
+		c.applyStoryStyles(&story)
+		doc.Endnotes[id] = story
+	}
+	for id, story := range doc.Comments {
+		c.applyStoryStyles(&story)
+		doc.Comments[id] = story
+	}
+}
+
+func (c *StyleCatalog) applyStoryMapStyles(stories map[string]wordir.Story) {
+	for key, story := range stories {
+		c.applyStoryStyles(&story)
+		stories[key] = story
+	}
+}
+
+func (c *StyleCatalog) applyStoryStyles(story *wordir.Story) {
+	if c == nil || story == nil {
+		return
+	}
+	for i := range story.Paragraphs {
+		c.applyParagraph(&story.Paragraphs[i])
+	}
+	c.applyBlockStyles(story.Blocks)
+	for i := range story.Tables {
+		c.applyTableStyles(&story.Tables[i])
+	}
+}
+
+func (c *StyleCatalog) applyParagraph(paragraph *wordir.Paragraph) {
+	if c == nil || paragraph == nil {
+		return
+	}
+	if index := paragraph.LegacyStyleIndex(); index != nil {
+		if style, ok := c.ParagraphByIndex[*index]; ok {
+			paragraph.StyleID = style.ID
+			paragraph.StyleName = style.Name
+			paragraph.StylePath = append([]string(nil), style.StylePath...)
 		}
-		for j := range paragraph.Runs {
-			run := &paragraph.Runs[j]
-			if run.Source == nil || run.Source.StyleIndex == nil {
-				continue
+	}
+	for j := range paragraph.Runs {
+		run := &paragraph.Runs[j]
+		if run.Source == nil || run.Source.StyleIndex == nil {
+			continue
+		}
+		if style, ok := c.CharacterByIndex[*run.Source.StyleIndex]; ok {
+			run.StyleID = style.ID
+		}
+	}
+}
+
+func (c *StyleCatalog) applyBlockStyles(blocks []wordir.Block) {
+	for i := range blocks {
+		block := &blocks[i]
+		if block.Paragraph != nil {
+			c.applyParagraph(block.Paragraph)
+		}
+		if block.Table != nil {
+			c.applyTableStyles(block.Table)
+		}
+	}
+}
+
+func (c *StyleCatalog) applyTableStyles(table *wordir.Table) {
+	if table == nil {
+		return
+	}
+	for ri := range table.Rows {
+		for ci := range table.Rows[ri].Cells {
+			cell := &table.Rows[ri].Cells[ci]
+			for pi := range cell.Paragraphs {
+				c.applyParagraph(&cell.Paragraphs[pi])
 			}
-			if style, ok := c.CharacterByIndex[*run.Source.StyleIndex]; ok {
-				run.StyleID = style.ID
+			c.applyBlockStyles(cell.Blocks)
+			for ti := range cell.Tables {
+				c.applyTableStyles(&cell.Tables[ti])
 			}
 		}
 	}

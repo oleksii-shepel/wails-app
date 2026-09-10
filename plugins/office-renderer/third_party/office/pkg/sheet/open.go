@@ -8,11 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"office/pkg/ooxml/opc"
 	sheetedit "office/pkg/sheet/edit"
 	sheetlegacy "office/pkg/sheet/parsers/legacy"
-	sheetparts "office/pkg/sheet/parsers/ooxml/parts"
-	sheetresolve "office/pkg/sheet/parsers/ooxml/resolve"
+	sheetir "office/pkg/sheet/ir"
+	sheetooxml "office/pkg/sheet/parsers/ooxml"
 	sheetrender "office/pkg/sheet/render"
 	sheetstream "office/pkg/sheet/stream"
 )
@@ -27,7 +26,7 @@ const (
 )
 
 // Workbook is the resolved, format-neutral spreadsheet model returned by Open and OpenBytes.
-type Workbook = sheetresolve.Workbook
+type Workbook = sheetir.Workbook
 
 // HTMLOptions configures high-level HTML rendering.
 type HTMLOptions = sheetrender.HTMLOptions
@@ -78,18 +77,9 @@ func OpenBytes(data []byte, filename ...string) (*Workbook, error) {
 	}
 
 	if DetectFormat(data) == FormatXLSX {
-		reader := bytes.NewReader(data)
-		pkg, err := opc.OpenReaderAt(reader, int64(len(data)))
+		wb, err := sheetooxml.ParseBytes(data)
 		if err != nil {
-			return nil, fmt.Errorf("sheet: open XLSX package: %w", err)
-		}
-		parsed, err := sheetparts.LoadPackage(pkg)
-		if err != nil {
-			return nil, fmt.Errorf("sheet: load XLSX package: %w", err)
-		}
-		wb, err := sheetresolve.ResolvePackage(parsed)
-		if err != nil {
-			return nil, fmt.Errorf("sheet: resolve XLSX workbook: %w", err)
+			return nil, fmt.Errorf("sheet: parse XLSX workbook: %w", err)
 		}
 		return wb, nil
 	}

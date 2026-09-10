@@ -55,11 +55,11 @@ func TestParsePreWord97PapxGrpprlCapturesTabStops(t *testing.T) {
 
 func TestApplyPreWord97StyleInheritedParagraphFormattingAppliesStyleTabStops(t *testing.T) {
 	istd := 7
-	runs := []docRun{{
+	runs := []binaryWordRun{{
 		Text:       "x\a",
 		ParaFormat: wordir.ParagraphFormat{BinaryStyleIndex: &istd},
 	}}
-	stylesheet := &legacyStyleSheet{
+	stylesheet := &binaryWordStyleCatalog{
 		paragraphByIndex: map[int]wordir.Style{
 			istd: {
 				ID: "legacy-istd-7",

@@ -115,14 +115,14 @@ func TestParseDocFieldInstructionFillin(t *testing.T) {
 
 // TestApplyDocFieldsToRunsPreservesRefFieldKind validates that REF fields are tagged with FieldKind.
 func TestApplyDocFieldsToRunsPreservesRefFieldKind(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},             // FLDBEGIN
 		{Text: " REF MyBookmark "}, // Instruction
 		{Text: "\x14"},             // FLDSEP
 		{Text: "Referenced Text"},  // Cached result
 		{Text: "\x15"},             // FLDEND
 	}
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) == 0 {
 		t.Fatalf("Expected non-empty result; got %d runs", len(result))
 	}
@@ -141,14 +141,14 @@ func TestApplyDocFieldsToRunsPreservesRefFieldKind(t *testing.T) {
 
 // TestApplyDocFieldsToRunsPreservesStylerefFieldKind validates that STYLEREF fields are tagged.
 func TestApplyDocFieldsToRunsPreservesStylerefFieldKind(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},                     // FLDBEGIN
 		{Text: " STYLEREF \"Heading 1\" "}, // Instruction
 		{Text: "\x14"},                     // FLDSEP
 		{Text: "First Heading"},            // Cached result
 		{Text: "\x15"},                     // FLDEND
 	}
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) == 0 {
 		t.Fatalf("Expected non-empty result; got %d runs", len(result))
 	}
@@ -166,7 +166,7 @@ func TestApplyDocFieldsToRunsPreservesStylerefFieldKind(t *testing.T) {
 }
 
 func TestApplyDocFieldsToRunsPreservesRawFieldInstruction(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},
 		{Text: " HYPERLINK \"https://example.com/report\" "},
 		{Text: "\x14"},
@@ -174,7 +174,7 @@ func TestApplyDocFieldsToRunsPreservesRawFieldInstruction(t *testing.T) {
 		{Text: "\x15"},
 	}
 
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
@@ -187,7 +187,7 @@ func TestApplyDocFieldsToRunsPreservesRawFieldInstruction(t *testing.T) {
 }
 
 func TestBuildLegacyDocFromRunsPreservesFieldInstructionInIR(t *testing.T) {
-	doc := buildLegacyDocFromRuns("field.doc", applyDocFieldsToRuns([]docRun{
+	doc := buildLegacyDocFromRuns("field.doc", applyPreWord97FieldsToRuns([]binaryWordRun{
 		{Text: "\x13"},
 		{Text: " REF SectionBookmark \\\\h "},
 		{Text: "\x14"},
@@ -215,14 +215,14 @@ func TestBuildLegacyDocFromRunsPreservesFieldInstructionInIR(t *testing.T) {
 
 // TestApplyDocFieldsToRunsPreservesFillinFieldKind validates that FILLIN fields are tagged with default value.
 func TestApplyDocFieldsToRunsPreservesFillinFieldKind(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"}, // FLDBEGIN
 		{Text: " FILLIN \"Name?\" \"Jane Smith\" "}, // Instruction
 		{Text: "\x14"},       // FLDSEP
 		{Text: "Jane Smith"}, // Cached result
 		{Text: "\x15"},       // FLDEND
 	}
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) == 0 {
 		t.Fatalf("Expected non-empty result; got %d runs", len(result))
 	}
@@ -240,7 +240,7 @@ func TestApplyDocFieldsToRunsPreservesFillinFieldKind(t *testing.T) {
 }
 
 func TestApplyDocFieldsToRunsPromotesLegacyTextFormField(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},
 		{Text: " FORMTEXT "},
 		{Text: "\x14"},
@@ -248,7 +248,7 @@ func TestApplyDocFieldsToRunsPromotesLegacyTextFormField(t *testing.T) {
 		{Text: "\x15"},
 	}
 
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
@@ -270,7 +270,7 @@ func TestApplyDocFieldsToRunsPromotesLegacyTextFormField(t *testing.T) {
 }
 
 func TestBuildLegacyDocFromRunsRendersLegacyDropdownFormField(t *testing.T) {
-	doc := buildLegacyDocFromRuns("field.doc", applyDocFieldsToRuns([]docRun{
+	doc := buildLegacyDocFromRuns("field.doc", applyPreWord97FieldsToRuns([]binaryWordRun{
 		{Text: "\x13"},
 		{Text: " FORMDROPDOWN "},
 		{Text: "\x14"},
@@ -308,7 +308,7 @@ func TestBuildLegacyDocFromRunsRendersLegacyDropdownFormField(t *testing.T) {
 // field inside a parent field's instruction is substituted into the parent's
 // instruction text and does not get overwritten by the outer field.
 func TestApplyDocFieldsToRunsNestedFieldInInstruction(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},                 // FLDBEGIN outer
 		{Text: " IF "},                 // outer instruction part 1
 		{Text: "\x13"},                 // FLDBEGIN inner
@@ -321,7 +321,7 @@ func TestApplyDocFieldsToRunsNestedFieldInInstruction(t *testing.T) {
 		{Text: "yes"},                  // outer result
 		{Text: "\x15"},                 // FLDEND outer
 	}
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) == 0 {
 		t.Fatalf("Expected non-empty result; got %d runs", len(result))
 	}
@@ -348,7 +348,7 @@ func TestApplyDocFieldsToRunsNestedFieldInInstruction(t *testing.T) {
 // inside a parent field's result is captured with correct flat metadata on
 // each run and does not get overwritten by the outer field.
 func TestApplyDocFieldsToRunsNestedFieldInResult(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},    // FLDBEGIN outer
 		{Text: " REF B "}, // outer instruction
 		{Text: "\x14"},    // FLDSEP outer
@@ -361,7 +361,7 @@ func TestApplyDocFieldsToRunsNestedFieldInResult(t *testing.T) {
 		{Text: " suffix"}, // outer result part 2
 		{Text: "\x15"},    // FLDEND outer
 	}
-	result := applyDocFieldsToRuns(runs)
+	result := applyPreWord97FieldsToRuns(runs)
 	if len(result) != 3 {
 		t.Fatalf("Expected 3 result runs (prefix, PAGE, suffix); got %d", len(result))
 	}

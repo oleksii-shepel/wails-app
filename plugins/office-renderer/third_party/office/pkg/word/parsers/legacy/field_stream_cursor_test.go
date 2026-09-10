@@ -3,7 +3,7 @@ package legacy
 import "testing"
 
 func TestLegacyFieldRunCursorAnnotatesCachedHyperlinkResult(t *testing.T) {
-	inner := newLegacyRunSliceCursor([]docRun{
+	inner := newLegacyRunSliceCursor([]binaryWordRun{
 		{Text: "before "},
 		{Text: "\x13 HYPERLINK \"https://example.com\" \x14Example\x15 after"},
 	})
@@ -27,7 +27,7 @@ func TestLegacyFieldRunCursorAnnotatesCachedHyperlinkResult(t *testing.T) {
 }
 
 func TestLegacyFieldRunCursorSuppressesInstructionText(t *testing.T) {
-	cursor := newLegacyFieldRunCursor(newLegacyRunSliceCursor([]docRun{
+	cursor := newLegacyFieldRunCursor(newLegacyRunSliceCursor([]binaryWordRun{
 		{Text: "\x13 PAGE \x1412\x15"},
 	}))
 	run, ok, err := cursor.Next()

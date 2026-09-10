@@ -145,7 +145,7 @@ type agilePasswordEncryptedKeyXML struct {
 	EncryptedKeyValue          string `xml:"encryptedKeyValue,attr"`
 }
 
-func openContainerBytes(data []byte, zipErr error) (*Package, error) {
+func openContainerBytes(data []byte, zipErr error, options OpenOptions) (*Package, error) {
 	file, err := cfb.OpenBytes(data)
 	if err != nil {
 		return nil, zipErr
@@ -153,7 +153,7 @@ func openContainerBytes(data []byte, zipErr error) (*Package, error) {
 
 	plainPackage, ok, err := file.StreamBestEffort(olePackageStreamName)
 	if ok {
-		return OpenBytes(plainPackage)
+		return OpenBytesWithOptions(plainPackage, options)
 	}
 	if err != nil {
 		return nil, err
@@ -174,41 +174,36 @@ func openContainerBytes(data []byte, zipErr error) (*Package, error) {
 		return nil, err
 	}
 
-	decrypted, err := DecryptEncryptedPackage(encryptionInfoData, encryptedPackageData)
+	decrypted, err := DecryptEncryptedPackageWithPassword(encryptionInfoData, encryptedPackageData, options.Password)
 	if err != nil {
 		return nil, err
 	}
-	return OpenBytes(decrypted)
+	return OpenBytesWithOptions(decrypted, options)
 }
 
-// DecryptEncryptedPackage decrypts an EncryptedPackage stream using the provided
-// EncryptionInfo stream. It supports both Standard and Agile ECMA-376 encryption.
-// The password is taken from the package-level Password variable.
+// DecryptEncryptedPackage decrypts an EncryptedPackage stream using the
+// ECMA-376 default password policy.
 func DecryptEncryptedPackage(infoData, encryptedPackage []byte) ([]byte, error) {
+	return DecryptEncryptedPackageWithPassword(infoData, encryptedPackage, "")
+}
+
+// DecryptEncryptedPackageWithPassword decrypts an EncryptedPackage stream using
+// a password scoped to this call. The ECMA-376 default password remains a
+// fallback candidate for compatibility with protected-but-not-user-passworded
+// Office packages.
+func DecryptEncryptedPackageWithPassword(infoData, encryptedPackage []byte, password string) ([]byte, error) {
 	info, err := parseEncryptionInfo(infoData)
 	if err != nil {
 		return nil, err
 	}
-
 	switch info.mode {
 	case standardEncryptionMode:
-		return decryptStandardPackage(info.standard, encryptedPackage)
+		return decryptStandardPackage(info.standard, encryptedPackage, password)
 	case agileEncryptionMode:
-		return decryptAgilePackage(info.agile, encryptedPackage)
+		return decryptAgilePackage(info.agile, encryptedPackage, password)
 	default:
 		return nil, fmt.Errorf("opc: unsupported OOXML encryption mode")
 	}
-}
-
-// DecryptEncryptedPackageWithPassword decrypts an EncryptedPackage stream using
-// the provided EncryptionInfo stream and password. It is identical to
-// DecryptEncryptedPackage but does not rely on the package-level Password
-// variable, making it safe for concurrent use and library callers.
-func DecryptEncryptedPackageWithPassword(infoData, encryptedPackage []byte, password string) ([]byte, error) {
-	prev := Password
-	Password = password
-	defer func() { Password = prev }()
-	return DecryptEncryptedPackage(infoData, encryptedPackage)
 }
 
 func parseEncryptionInfo(data []byte) (*encryptionInfo, error) {
@@ -427,8 +422,8 @@ func parseAgileEncryptionInfo(data []byte) (*agileEncryptionInfo, error) {
 	}, nil
 }
 
-func decryptStandardPackage(info *standardEncryptionInfo, encryptedPackage []byte) ([]byte, error) {
-	key, err := verifyStandardPassword(info)
+func decryptStandardPackage(info *standardEncryptionInfo, encryptedPackage []byte, password string) ([]byte, error) {
+	key, err := verifyStandardPassword(info, password)
 	if err != nil {
 		return nil, err
 	}
@@ -465,13 +460,13 @@ func decryptStandardPackage(info *standardEncryptionInfo, encryptedPackage []byt
 	return append([]byte(nil), plaintext[:plaintextLen]...), nil
 }
 
-func verifyStandardPassword(info *standardEncryptionInfo) ([]byte, error) {
+func verifyStandardPassword(info *standardEncryptionInfo, password string) ([]byte, error) {
 	keyBytes, err := aesKeyBytes(info.cipherID, info.keyBits)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, password := range candidatePasswords() {
+	for _, password := range candidatePasswords(password) {
 		pwHash := hashPassword(password, info.hashAlg, info.salt, standardEncryptionSpinCount)
 		blockKey := []byte{0, 0, 0, 0}
 		finalHash := generateKey(pwHash, info.hashAlg, blockKey, info.hashAlg.size)
@@ -498,11 +493,11 @@ func verifyStandardPassword(info *standardEncryptionInfo) ([]byte, error) {
 		}
 	}
 
-	return nil, ooxmlPasswordError()
+	return nil, ooxmlPasswordError(password)
 }
 
-func decryptAgilePackage(info *agileEncryptionInfo, encryptedPackage []byte) ([]byte, error) {
-	key, err := verifyAgilePassword(info)
+func decryptAgilePackage(info *agileEncryptionInfo, encryptedPackage []byte, password string) ([]byte, error) {
+	key, err := verifyAgilePassword(info, password)
 	if err != nil {
 		return nil, err
 	}
@@ -542,13 +537,13 @@ func decryptAgilePackage(info *agileEncryptionInfo, encryptedPackage []byte) ([]
 	return out, nil
 }
 
-func verifyAgilePassword(info *agileEncryptionInfo) ([]byte, error) {
+func verifyAgilePassword(info *agileEncryptionInfo, password string) ([]byte, error) {
 	passwordKey := info.passwordKey
 	if passwordKey.blockSize <= 0 {
 		return nil, fmt.Errorf("opc: invalid agile password block size %d", passwordKey.blockSize)
 	}
 
-	for _, password := range candidatePasswords() {
+	for _, password := range candidatePasswords(password) {
 		pwHash := hashPassword(password, passwordKey.hashAlgorithm, passwordKey.saltValue, passwordKey.spinCount)
 
 		verifierKey := generateKey(pwHash, passwordKey.hashAlgorithm, agileVerifierInputBlock, passwordKey.keyBits/8)
@@ -584,7 +579,7 @@ func verifyAgilePassword(info *agileEncryptionInfo) ([]byte, error) {
 		return append([]byte(nil), packageKey[:keyBytes]...), nil
 	}
 
-	return nil, ooxmlPasswordError()
+	return nil, ooxmlPasswordError(password)
 }
 
 func readEncryptedPackageStream(stream []byte) (uint64, []byte, error) {
@@ -595,18 +590,18 @@ func readEncryptedPackageStream(stream []byte) (uint64, []byte, error) {
 	return plaintextLen, stream[8:], nil
 }
 
-func candidatePasswords() []string {
-	if Password == "" {
+func candidatePasswords(password string) []string {
+	if password == "" {
 		return []string{defaultOOXMLPassword}
 	}
-	if Password == defaultOOXMLPassword {
-		return []string{Password}
+	if password == defaultOOXMLPassword {
+		return []string{password}
 	}
-	return []string{Password, defaultOOXMLPassword}
+	return []string{password, defaultOOXMLPassword}
 }
 
-func ooxmlPasswordError() error {
-	if Password == "" {
+func ooxmlPasswordError(password string) error {
+	if password == "" {
 		return fmt.Errorf("opc: encrypted OOXML package requires a password")
 	}
 	return fmt.Errorf("opc: invalid password for encrypted OOXML package")

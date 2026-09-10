@@ -2,73 +2,87 @@ package render_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"office/pkg/ooxml/opc"
-	"office/pkg/word/parsers/ooxml/parts"
-	"office/pkg/word/parsers/ooxml/resolve"
-	"office/pkg/word/render"
+	word "office/pkg/word"
 )
 
 func TestDocxHTMLSnapshots(t *testing.T) {
-	cases := []string{
-		"flux-file-manager-requirements",
-		"protected_agile",
-		"sample-files.com-basic-text",
-		"sample-files.com-formatted-report",
-		"sample-files.com-image-document",
-		"sample-files.com-large-document",
-		"sample-files.com-lists",
-		"sample-files.com-multi-column",
-		"sample-files.com-table-document",
-		"sample-files.com-template",
-		"sample-files.com-tracked-changes",
-		"sample1",
-		"sample2",
-		"sample3",
-		"sample4",
-		"shepel-frontend-developer",
+	fixturesDir := repoPath(t, "testdata", "docx")
+	snapshotsDir := repoPath(t, "testdata", "docx-html")
+
+	entries, err := os.ReadDir(fixturesDir)
+	if err != nil {
+		t.Fatalf("read DOCX fixtures: %v", err)
 	}
 
-	for _, name := range cases {
+	var checked int
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".docx") {
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		snapPath := filepath.Join(snapshotsDir, name+".html")
+		if _, err := os.Stat(snapPath); err != nil {
+			if os.IsNotExist(err) {
+				t.Fatalf("DOCX corpus fixture %s has no canonical HTML snapshot %s", entry.Name(), snapPath)
+			}
+			t.Fatalf("stat snapshot %s: %v", snapPath, err)
+		}
+
+		checked++
+		docxName := entry.Name()
 		t.Run(name, func(t *testing.T) {
-			got := strings.TrimSpace(renderFixtureHTML(t, name+".docx"))
-			snapPath := repoPath(t, "testdata", "docx-html", name+".html")
+			got := strings.TrimSpace(renderFixtureHTML(t, docxName))
+
+			if os.Getenv("UPDATE_WORD_SNAPSHOTS") == "1" {
+				if err := os.WriteFile(snapPath, []byte(got+"\n"), 0o644); err != nil {
+					t.Fatalf("write snapshot %s: %v", snapPath, err)
+				}
+				return
+			}
+
 			wantBytes, err := os.ReadFile(snapPath)
 			if err != nil {
 				t.Fatalf("read snapshot %s: %v", snapPath, err)
 			}
-			want := strings.TrimSpace(strings.ReplaceAll(string(wantBytes), "\r\n", "\n"))
+			want := normalizeWordHTML(string(wantBytes))
 			if got != want {
 				t.Fatalf("snapshot mismatch for %s", name)
 			}
 		})
 	}
+
+	if checked == 0 {
+		t.Fatal("no DOCX fixtures with HTML snapshots found")
+	}
 }
 
+// renderFixtureHTML deliberately uses the public production path. Snapshot
+// tests must exercise the same SAX/sequential parser and semantic IR used by the
+// CLI rather than a second materialized OOXML resolver.
 func renderFixtureHTML(t *testing.T, docxName string) string {
 	t.Helper()
-
 	docxPath := repoPath(t, "testdata", "docx", docxName)
 	if _, err := os.Stat(docxPath); os.IsNotExist(err) {
 		t.Skipf("fixture not found: %s", docxPath)
 	}
-	pkg, err := opc.Open(docxPath)
+	password := docxFixturePassword(t, docxName)
+	doc, err := word.OpenWithOptions(docxPath, word.OpenOptions{Password: password})
 	if err != nil {
-		t.Fatalf("open package: %v", err)
+		t.Fatalf("open word document: %v", err)
 	}
-	wordPkg, err := parts.LoadPackage(pkg)
-	if err != nil {
-		t.Fatalf("load word package: %v", err)
-	}
-	doc, err := resolve.ResolvePackage(wordPkg)
-	if err != nil {
-		t.Fatalf("resolve package: %v", err)
-	}
-	html, err := render.HTML(doc)
+	html, err := word.HTML(doc)
 	if err != nil {
 		t.Fatalf("render html: %v", err)
 	}
 	return html
+}
+
+
+func normalizeWordHTML(html string) string {
+	return strings.TrimSpace(strings.ReplaceAll(html, "\r\n", "\n"))
 }

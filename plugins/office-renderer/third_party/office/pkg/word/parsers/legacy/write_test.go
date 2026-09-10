@@ -911,7 +911,7 @@ func TestLegacyWriterBuildsFloatingImageFSPAAndOfficeArt(t *testing.T) {
 	}
 
 	office := buildLegacyFloatingImageOfficeArt(plan.FloatingImages)
-	images := extractLegacyDrawingImages(office)
+	images := extractPreWord97DrawingImages(office)
 	props := extractLegacyDrawingShapeProps(office)
 	if len(images) != 1 || !bytes.Equal(images[0].Data, png) {
 		t.Fatalf("OfficeArt images=%d", len(images))
@@ -1201,7 +1201,7 @@ func TestLegacyWriterSplitsMultipleTextBoxStories(t *testing.T) {
 	if plan.TextBoxText != "one\r\ftwo\r" {
 		t.Fatalf("text box story=%q", plan.TextBoxText)
 	}
-	runs := []docRun{{Text: plan.TextBoxText, StartCP: 100}}
+	runs := []binaryWordRun{{Text: plan.TextBoxText, StartCP: 100}}
 	groups := splitLegacyTextBoxStoryRuns(runs)
 	if len(groups) != 2 || len(groups[0]) != 1 || len(groups[1]) != 1 || groups[0][0].Text != "one\r" || groups[1][0].Text != "two\r" {
 		t.Fatalf("split groups=%+v", groups)
@@ -1716,7 +1716,7 @@ func TestLegacyPreservationMetaRoundTripsOLEPayloadAndRichStories(t *testing.T) 
 		Headers:  map[string]wordir.Story{"plain-header": {Text: "native plain header"}},
 		Sections: []wordir.Section{{}},
 	}
-	applyLegacyPreservationMeta(cf, target)
+	applyPreWord97PreservationMeta(cf, target)
 
 	run := target.Blocks[0].Paragraph.Runs[0]
 	if run.OLEProgID != "Excel.Sheet.12" || !bytes.Equal(run.OLEData, source.Blocks[0].Paragraph.Runs[0].OLEData) {
@@ -1783,7 +1783,7 @@ func TestMalformedLegacyPreservationMetaIsNonFatal(t *testing.T) {
 		t.Fatalf("cfb open: %v", err)
 	}
 	doc := &wordir.Document{Title: "still readable"}
-	applyLegacyPreservationMeta(cf, doc)
+	applyPreWord97PreservationMeta(cf, doc)
 	if doc.Title != "still readable" {
 		t.Fatal("malformed private metadata changed native document state")
 	}
@@ -1807,7 +1807,7 @@ func TestLegacyOLECompoundRecoveryUsesConservativeNativeStreamNames(t *testing.T
 	}
 	p := wordir.Paragraph{Runs: []wordir.Run{{Kind: "olePlaceholder", Text: "Embedded Object"}}}
 	doc := &wordir.Document{Blocks: []wordir.Block{{Kind: "paragraph", Paragraph: &p}}}
-	applyLegacyOLECompoundRecovery(cf, doc)
+	applyPreWord97OLECompoundRecovery(cf, doc)
 	got := doc.Blocks[0].Paragraph.Runs[0]
 	if string(got.OLEData) != "native-payload" || got.OLEType != "Embed" {
 		t.Fatalf("OLE recovery=%#v", got)

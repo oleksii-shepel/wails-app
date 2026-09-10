@@ -15,6 +15,17 @@ import (
 
 // LoadPackage parses the typed SpreadsheetML parts from a generic OPC package.
 func LoadPackage(pkg *opc.Package) (*Package, error) {
+	return loadPackage(pkg, false)
+}
+
+// LoadMetadataPackage loads package-level SpreadsheetML metadata plus a sparse
+// worksheet identity skeleton. Worksheet content and relationship-heavy object
+// graphs are owned by the streaming and relationship-object paths respectively.
+func LoadMetadataPackage(pkg *opc.Package) (*Package, error) {
+	return loadPackage(pkg, true)
+}
+
+func loadPackage(pkg *opc.Package, metadataOnly bool) (*Package, error) {
 	if pkg == nil {
 		return nil, fmt.Errorf("sheet parts: package cannot be nil")
 	}
@@ -69,11 +80,19 @@ func LoadPackage(pkg *opc.Package) (*Package, error) {
 	if err := loadExternalLinks(pkg, mainPartName, relsByType, out); err != nil {
 		return nil, err
 	}
-	if err := loadWorksheets(pkg, mainPartName, relsByID, out); err != nil {
+	if metadataOnly {
+		if err := loadWorksheetSkeletons(pkg, mainPartName, relsByID, out); err != nil {
+			return nil, err
+		}
+	} else if err := loadWorksheets(pkg, mainPartName, relsByID, out); err != nil {
 		return nil, err
 	}
-	loadMediaParts(pkg, mainPartName, relsByType, out)
-	loadChartParts(pkg, mainPartName, relsByType, out)
+	if !metadataOnly {
+		// Full-loader oracle retains its historical package-level media/chart
+		// projection. Production object resolution is worksheet-relationship-owned.
+		loadMediaParts(pkg, mainPartName, relsByType, out)
+		loadChartParts(pkg, mainPartName, relsByType, out)
+	}
 
 	out.Diagnostics = collectPackageDiagnostics(out)
 	return out, nil
@@ -368,6 +387,87 @@ func resolveExternalLinkTarget(pkg *opc.Package, partName string, link *External
 		return rels.ResolveTarget(partName, r.Target), true
 	}
 	return "", false
+}
+
+// relationshipWorksheetMetadata contains only worksheet elements that point to
+// relationship-heavy object graphs (drawing/VML/OLE/table/pivot) plus the
+// header/footer text that owns legacy header/footer image placeholders.
+// It is not part of the worksheet metadata skeleton: production loads this
+// object graph explicitly through LoadRelationshipObjects.
+type relationshipWorksheetMetadata struct {
+	DrawingRef      *DrawingRef     `xml:"drawing"`
+	LegacyDrawing   *DrawingRef     `xml:"legacyDrawing"`
+	LegacyDrawingHF *DrawingRef     `xml:"legacyDrawingHF"`
+	OLEObjects      *OLEObjects     `xml:"oleObjects"`
+	HeaderFooter    *HeaderFooter   `xml:"headerFooter"`
+	TableParts      *TableParts     `xml:"tableParts"`
+	PivotTables     *PivotTableRefs `xml:"pivotTables"`
+}
+
+func loadWorksheetSkeletons(pkg *opc.Package, mainPartName string, byID map[string]rels.Relationship, out *Package) error {
+	for _, ref := range out.Workbook.Sheets {
+		entry := &WorksheetEntry{
+			SheetID: ref.SheetID,
+			RelID:   normalizeRelID(ref.RelID),
+			Name:    ref.Name,
+			Sheet:   &Worksheet{},
+		}
+		r, ok := byID[entry.RelID]
+		if ok && r.Type == relTypeWorksheet && !r.IsExternal() {
+			entry.PartName = rels.ResolveTarget(mainPartName, r.Target)
+		}
+		out.Worksheets = append(out.Worksheets, entry)
+	}
+	return nil
+}
+
+// LoadRelationshipObjects loads the complete worksheet object relationship
+// layer after the package metadata skeleton has been
+// established. This deliberately keeps drawings, charts, tables, pivots, VML,
+// form controls, OLE payloads and header/footer images out of the metadata
+// worksheet parser and gives them one explicit production ownership boundary.
+func LoadRelationshipObjects(pkg *opc.Package, out *Package) error {
+	if pkg == nil || out == nil {
+		return nil
+	}
+	for _, entry := range out.Worksheets {
+		if entry == nil || entry.PartName == "" {
+			continue
+		}
+		p, ok := pkg.Part(entry.PartName)
+		if !ok {
+			continue
+		}
+		var meta relationshipWorksheetMetadata
+		if err := xml.Unmarshal(p.Data, &meta); err != nil {
+			return fmt.Errorf("sheet parts: parse relationship metadata %s: %w", entry.PartName, err)
+		}
+		if entry.Sheet == nil {
+			entry.Sheet = &Worksheet{}
+		}
+		entry.Sheet.DrawingRef = meta.DrawingRef
+		entry.Sheet.LegacyDrawing = meta.LegacyDrawing
+		entry.Sheet.LegacyDrawingHF = meta.LegacyDrawingHF
+		entry.Sheet.OLEObjects = meta.OLEObjects
+		entry.Sheet.HeaderFooter = meta.HeaderFooter
+		entry.Sheet.TableParts = meta.TableParts
+		entry.Sheet.PivotTables = meta.PivotTables
+
+		if meta.DrawingRef != nil && meta.DrawingRef.RelID != "" {
+			loadWorksheetDrawing(pkg, entry.PartName, normalizeRelID(meta.DrawingRef.RelID), entry)
+		}
+		loadWorksheetLegacyDrawingRaw(pkg, entry.PartName, entry)
+		loadWorksheetLegacyNotes(pkg, entry.PartName, entry)
+		loadWorksheetFormControls(pkg, entry.PartName, entry)
+		loadWorksheetLegacyHFImages(pkg, entry.PartName, entry)
+		loadWorksheetPivotTables(pkg, entry.PartName, entry)
+		loadWorksheetTables(pkg, entry.PartName, entry)
+		loadWorksheetOLEObjects(pkg, entry.PartName, entry)
+	}
+	// Object-related diagnostics are meaningful only after this ownership layer
+	// has populated VML, controls, drawings, tables, pivots and OLE graphs.
+	out.Diagnostics = collectPackageDiagnostics(out)
+	return nil
 }
 
 func loadWorksheets(pkg *opc.Package, mainPartName string, byID map[string]rels.Relationship, out *Package) error {

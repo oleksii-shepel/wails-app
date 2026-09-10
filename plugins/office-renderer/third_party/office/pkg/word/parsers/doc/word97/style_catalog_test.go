@@ -25,3 +25,29 @@ func TestStyleCatalogApplyToDocumentResolvesBinaryStyleIDs(t *testing.T){
 func TestApplyParagraphStylePreservesDirectFormatting(t *testing.T){
 	r:=Run{ParagraphFormat:wordir.ParagraphFormat{SpacingAfter:intp(240)}};ApplyParagraphStyle(&r,wordir.ParagraphFormat{Alignment:"center",SpacingAfter:intp(120),KeepNext:true});if r.ParagraphFormat.Alignment!="center"||r.ParagraphFormat.SpacingAfter==nil||*r.ParagraphFormat.SpacingAfter!=240||!r.ParagraphFormat.KeepNext{t.Fatalf("merged=%+v",r.ParagraphFormat)}
 }
+
+
+func TestStyleCatalogAppliesParagraphIdentityToHeaderFooterStories(t *testing.T) {
+	index := 17
+	style := wordir.Style{ID: "legacy-istd-17", Name: "Header"}
+	c := &StyleCatalog{
+		ParagraphByIndex: map[int]wordir.Style{17: style},
+		ParagraphStyles:  map[string]wordir.Style{style.ID: style},
+	}
+	headerParagraph := wordir.Paragraph{
+		Source: &wordir.ParagraphSource{StyleIndex: &index},
+		Runs:   []wordir.Run{{Kind: "run", Text: "header"}},
+	}
+	footerParagraph := headerParagraph
+	doc := &wordir.Document{
+		Headers: map[string]wordir.Story{"h": {Paragraphs: []wordir.Paragraph{headerParagraph}, Blocks: []wordir.Block{{Kind: "paragraph", Paragraph: &headerParagraph}}}},
+		Footers: map[string]wordir.Story{"f": {Paragraphs: []wordir.Paragraph{footerParagraph}, Blocks: []wordir.Block{{Kind: "paragraph", Paragraph: &footerParagraph}}}},
+	}
+	c.ApplyToDocument(doc)
+	if got := doc.Headers["h"].Paragraphs[0].StyleID; got != style.ID {
+		t.Fatalf("header StyleID = %q, want %q", got, style.ID)
+	}
+	if got := doc.Footers["f"].Paragraphs[0].StyleID; got != style.ID {
+		t.Fatalf("footer StyleID = %q, want %q", got, style.ID)
+	}
+}

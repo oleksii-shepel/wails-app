@@ -8,7 +8,7 @@ import (
 	wordir "office/pkg/word/ir"
 )
 
-type legacyStyleSheet struct {
+type binaryWordStyleCatalog struct {
 	DefaultParagraphStyleID string
 	ParagraphStyles         map[string]wordir.Style
 	CharacterStyles         map[string]wordir.CharacterStyle
@@ -36,7 +36,7 @@ type legacyRawStyle struct {
 	RunSprms []byte
 }
 
-func loadLegacyStyleSheet(wordStream, tableStream []byte, fibBase, cbRgFcLcb int) *legacyStyleSheet {
+func loadLegacyStyleSheet(wordStream, tableStream []byte, fibBase, cbRgFcLcb int) *binaryWordStyleCatalog {
 	const stshFibIndex = 1
 	if stshFibIndex >= cbRgFcLcb || fibBase+(stshFibIndex+1)*8 > len(wordStream) {
 		return nil
@@ -397,7 +397,7 @@ func parseLegacySTDPre97(std []byte, istd, cbSTDBaseInFile int, fontNames []stri
 // a separate 0Table/1Table stream; the STSH lives in the WordDocument stream
 // at SecondaryStart. The STSH uses cbSTDBaseInFile=8 (no grfstd word) and
 // Pascal-style (single-byte, length-prefixed) name strings.
-func loadPreWord97StyleSheet(wordStream []byte, span PreWord97BodySpan) *legacyStyleSheet {
+func loadPreWord97StyleSheet(wordStream []byte, span PreWord97BodySpan) *binaryWordStyleCatalog {
 	start := span.SecondaryStart
 	size := span.SecondarySize
 	if start <= 0 || size < 6 || start+size > len(wordStream) {
@@ -453,7 +453,7 @@ func loadPreWord97StyleSheet(wordStream []byte, span PreWord97BodySpan) *legacyS
 	return buildLegacyStyleSheet(rawStyles)
 }
 
-func buildLegacyStyleSheet(rawStyles []legacyRawStyle) *legacyStyleSheet {
+func buildLegacyStyleSheet(rawStyles []legacyRawStyle) *binaryWordStyleCatalog {
 	paragraphByIndex := make(map[int]wordir.Style)
 	charByIndex := make(map[int]wordir.CharacterStyle)
 
@@ -545,7 +545,7 @@ func buildLegacyStyleSheet(rawStyles []legacyRawStyle) *legacyStyleSheet {
 		}
 	}
 
-	return &legacyStyleSheet{
+	return &binaryWordStyleCatalog{
 		DefaultParagraphStyleID: defaultParagraphStyleID,
 		ParagraphStyles:         stylesByID,
 		CharacterStyles:         charStylesByID,

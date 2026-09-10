@@ -314,14 +314,14 @@ func TestApplyDocFieldsToRunsWithDataStreamTextFormField(t *testing.T) {
 	copy(dataStream[picOffset:], buildNilPICF(payload))
 	dataStream = append(dataStream, buildNilPICF(payload)...)
 
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: " FORMTEXT ", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "\x14", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "CachedResult", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "\x15", Format: wordir.RunFormat{PicLocation: picOffset}},
 	}
-	result := applyDocFieldsToRunsWithDataStream(runs, dataStream)
+	result := applyPreWord97FieldsToRunsWithDataStream(runs, dataStream)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
@@ -350,14 +350,14 @@ func TestApplyDocFieldsToRunsWithDataStreamDropdownFormField(t *testing.T) {
 	dataStream := make([]byte, picOffset)
 	dataStream = append(dataStream, buildNilPICF(payload)...)
 
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: " FORMDROPDOWN ", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "\x14", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "Cached", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "\x15", Format: wordir.RunFormat{PicLocation: picOffset}},
 	}
-	result := applyDocFieldsToRunsWithDataStream(runs, dataStream)
+	result := applyPreWord97FieldsToRunsWithDataStream(runs, dataStream)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
@@ -382,14 +382,14 @@ func TestApplyDocFieldsToRunsWithDataStreamCheckboxFormField(t *testing.T) {
 	dataStream := make([]byte, picOffset)
 	dataStream = append(dataStream, buildNilPICF(payload)...)
 
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: " FORMCHECKBOX ", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "\x14", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "0", Format: wordir.RunFormat{PicLocation: picOffset}},
 		{Text: "\x15", Format: wordir.RunFormat{PicLocation: picOffset}},
 	}
-	result := applyDocFieldsToRunsWithDataStream(runs, dataStream)
+	result := applyPreWord97FieldsToRunsWithDataStream(runs, dataStream)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
@@ -406,14 +406,14 @@ func TestApplyDocFieldsToRunsWithDataStreamCheckboxFormField(t *testing.T) {
 }
 
 func TestApplyDocFieldsToRunsWithDataStreamFallbackWhenNoDataStream(t *testing.T) {
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13"},
 		{Text: " FORMTEXT "},
 		{Text: "\x14"},
 		{Text: "FallbackText"},
 		{Text: "\x15"},
 	}
-	result := applyDocFieldsToRunsWithDataStream(runs, nil)
+	result := applyPreWord97FieldsToRunsWithDataStream(runs, nil)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}
@@ -436,14 +436,14 @@ func TestApplyDocFieldsToRunsWithDataStreamFallbackWhenPicLocationZero(t *testin
 	payload := buildFFDataText("MyField", "BinaryDefault", 25)
 	dataStream := buildNilPICF(payload)
 
-	runs := []docRun{
+	runs := []binaryWordRun{
 		{Text: "\x13", Format: wordir.RunFormat{PicLocation: 0}}, // PicLocation = 0, so binary won't be read
 		{Text: " FORMTEXT "},
 		{Text: "\x14"},
 		{Text: "FallbackText"},
 		{Text: "\x15"},
 	}
-	result := applyDocFieldsToRunsWithDataStream(runs, dataStream)
+	result := applyPreWord97FieldsToRunsWithDataStream(runs, dataStream)
 	if len(result) != 1 {
 		t.Fatalf("len(result) = %d, want 1", len(result))
 	}

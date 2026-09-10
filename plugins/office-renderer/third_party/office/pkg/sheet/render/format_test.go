@@ -286,3 +286,31 @@ func TestExcelSerialToTime(t *testing.T) {
 		t.Errorf("excelSerialToTime(0) should be zero time")
 	}
 }
+
+func TestFormatValueOptionalDecimalPlaces(t *testing.T) {
+	tests := []struct {
+		v    float64
+		code string
+		want string
+	}{
+		{1.2, "0.##", "1.2"},
+		{1.0, "0.##", "1"},
+		{1.234, "0.##", "1.23"},
+		{1234.5, "#,##0.##", "1,234.5"},
+		{0.125, "0.##%", "12.5%"},
+	}
+	for _, tt := range tests {
+		if got := FormatValue(tt.v, tt.code); got != tt.want {
+			t.Errorf("FormatValue(%v, %q) = %q, want %q", tt.v, tt.code, got, tt.want)
+		}
+	}
+}
+
+func TestFormatValueTimeOnlySerialBelowOne(t *testing.T) {
+	if got := FormatValue(0.5, "hh:mm"); got != "12:00" {
+		t.Fatalf("FormatValue(0.5, hh:mm) = %q, want 12:00", got)
+	}
+	if got := FormatValue(0, "hh:mm"); got != "00:00" {
+		t.Fatalf("FormatValue(0, hh:mm) = %q, want 00:00", got)
+	}
+}

@@ -9,11 +9,15 @@ import (
 	"testing"
 
 	"office/pkg/ooxml/opc"
+	word "office/pkg/word"
 	"office/pkg/word/parsers/ooxml/parts"
 	"office/pkg/word/parsers/ooxml/resolve"
 	"office/pkg/word/render"
 )
 
+// TestDocxCorpusLoadResolveRender exercises the same streaming open/render path
+// used by the public API and CLI. Materialized OOXML remains covered separately
+// by the save/reopen preservation test below.
 func TestDocxCorpusLoadResolveRender(t *testing.T) {
 	fixturesDir := repoPath(t, "testdata", "docx")
 	entries, err := os.ReadDir(fixturesDir)
@@ -30,34 +34,20 @@ func TestDocxCorpusLoadResolveRender(t *testing.T) {
 		fixtureCount++
 		path := filepath.Join(fixturesDir, entry.Name())
 		t.Run(entry.Name(), func(t *testing.T) {
-			pkg, err := opc.Open(path)
+			password := docxFixturePassword(t, entry.Name())
+			doc, err := word.OpenWithOptions(path, word.OpenOptions{Password: password})
 			if err != nil {
-				if opc.IsEncryptedPackageError(err) {
-					t.Skip("encrypted package requires password")
+				if opc.IsEncryptedPackageError(err) && password == "" {
+					t.Fatalf("encrypted DOCX fixture %s has no password in testdata/passwords.json", entry.Name())
 				}
-				t.Fatalf("open package: %v", err)
-			}
-
-			wordPkg, err := parts.LoadPackage(pkg)
-			if err != nil {
-				t.Fatalf("load word package: %v", err)
-			}
-
-			doc, err := resolve.ResolvePackage(wordPkg)
-			if err != nil {
-				t.Fatalf("resolve package: %v", err)
+				t.Fatalf("open word document: %v", err)
 			}
 			if doc == nil {
 				t.Fatal("resolved document is nil")
 			}
-			if len(wordPkg.Diagnostics) > 0 && len(doc.Diagnostics) == 0 {
-				t.Fatalf("expected resolved diagnostics to carry package diagnostics: %+v", wordPkg.Diagnostics)
-			}
+			totalDiagnostics += len(doc.Diagnostics)
 
-			// Accumulate diagnostics seen in the package for corpus-level assertion.
-			totalDiagnostics += len(wordPkg.Diagnostics)
-
-			html, err := render.HTML(doc)
+			html, err := word.HTML(doc)
 			if err != nil {
 				t.Fatalf("render HTML: %v", err)
 			}
@@ -65,29 +55,16 @@ func TestDocxCorpusLoadResolveRender(t *testing.T) {
 				t.Fatalf("unexpected HTML envelope")
 			}
 
-			// If a snapshot exists for this fixture under testdata/docx-html/<basename>.html, compare.
-			base := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
-			snapPath := repoPath(t, "testdata", "docx-html", base+".html")
-			if _, err := os.Stat(snapPath); err == nil {
-				want, err := os.ReadFile(snapPath)
-				if err != nil {
-					t.Fatalf("read snapshot: %v", err)
-				}
-				got := strings.TrimSpace(strings.ReplaceAll(html, "\r\n", "\n"))
-				wantStr := strings.TrimSpace(strings.ReplaceAll(string(want), "\r\n", "\n"))
-				if got != wantStr {
-					t.Fatalf("HTML snapshot mismatch for %s: output differs from %s", entry.Name(), snapPath)
-				}
-			}
+			// Snapshot equality is intentionally owned by TestDocxHTMLSnapshots.
+			// Keep this corpus gate focused on production-path open/resolve/render
+			// health and diagnostics so one fidelity change does not report the
+			// same baseline mismatch twice.
 		})
 	}
 
 	if fixtureCount == 0 {
 		t.Fatal("no docx fixtures found")
 	}
-
-	// Corpus-level assertion: keep the DOCX fixture set diagnostics at 0.
-	// Any new unsupported markup must either be handled or explicitly allowed here.
 	if totalDiagnostics != 0 {
 		t.Fatalf("total corpus diagnostics = %d, want 0", totalDiagnostics)
 	}
@@ -95,18 +72,15 @@ func TestDocxCorpusLoadResolveRender(t *testing.T) {
 
 func repoPath(t *testing.T, elems ...string) string {
 	t.Helper()
-
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-
 	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "..", ".."))
-	parts := append([]string{root}, elems...)
-	return filepath.Join(parts...)
+	pathParts := append([]string{root}, elems...)
+	return filepath.Join(pathParts...)
 }
 
-// categorizeDocxDiag categorizes diagnostic codes by feature area for corpus analysis
 func categorizeDocxDiag(code string) string {
 	switch {
 	case containsStr(code, "chart", "diagram"):
@@ -134,6 +108,10 @@ func containsStr(s string, substrs ...string) bool {
 	}
 	return false
 }
+
+// TestDocxCorpusSaveReopenResolve intentionally exercises the materialized
+// OOXML package path because package preservation/editing is a different
+// boundary from production rendering.
 func TestDocxCorpusSaveReopenResolve(t *testing.T) {
 	fixturesDir := repoPath(t, "testdata", "docx")
 	entries, err := os.ReadDir(fixturesDir)
@@ -148,10 +126,11 @@ func TestDocxCorpusSaveReopenResolve(t *testing.T) {
 		checked++
 		entry := entry
 		t.Run(entry.Name(), func(t *testing.T) {
-			source, err := opc.Open(filepath.Join(fixturesDir, entry.Name()))
+			password := docxFixturePassword(t, entry.Name())
+			source, err := opc.OpenWithOptions(filepath.Join(fixturesDir, entry.Name()), opc.OpenOptions{Password: password})
 			if err != nil {
-				if opc.IsEncryptedPackageError(err) {
-					t.Skip("encrypted package requires password")
+				if opc.IsEncryptedPackageError(err) && password == "" {
+					t.Fatalf("encrypted DOCX fixture %s has no password in testdata/passwords.json", entry.Name())
 				}
 				t.Fatal(err)
 			}

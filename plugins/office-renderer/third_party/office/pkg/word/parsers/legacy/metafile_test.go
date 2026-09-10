@@ -77,7 +77,7 @@ func TestAttachLegacyOLEMetafilePreviewPrefersCenteredObjectParagraph(t *testing
 		{Kind: "paragraph", Paragraph: &wordir.Paragraph{Format: wordir.ParagraphFormat{Alignment: "center"}, Runs: []wordir.Run{{Kind: "olePlaceholder", Text: "Embedded Object"}}}},
 	}}
 
-	attachLegacyOLEMetafilePreviews(doc, []*wordir.Image{preview})
+	attachPreWord97OLEMetafilePreviews(doc, []*wordir.Image{preview})
 
 	if got := doc.Blocks[0].Paragraph.Runs[0].OLEPreview; got != nil {
 		t.Fatalf("first structural OLE anchor received preview: %+v", got)

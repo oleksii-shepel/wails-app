@@ -79,6 +79,8 @@ func newCanonicalPreWord97StreamCursor(wordStream []byte, f *cfb.File) (pre97.Cu
 	tmp := &legacyDocStreamCore{Sections: context.Sections, OLEByCP: context.OLEByCP}
 	applyCanonicalPreWord97Headers(wordStream, oldCore, tmp)
 
+	// Drawing inputs belong directly to the canonical pre-97 drawing cursor.
+	// The legacy stream core no longer carries a Word97 drawing representation.
 	inlineImages := word97.LoadInlineImages(f)
 	oleObjects := word97.LoadOLEObjects(f)
 	if f != nil && len(oleObjects) > 0 {
@@ -88,8 +90,6 @@ func newCanonicalPreWord97StreamCursor(wordStream []byte, f *cfb.File) (pre97.Cu
 			docofficeart.AttachOLEPreviews(oleObjects, data)
 		}
 	}
-	tmp.InlineImages = inlineImages
-	tmp.OLEObjects = oleObjects
 	mergeLegacyStreamPreservationMeta(f, tmp)
 
 	context.Sections = tmp.Sections
@@ -112,12 +112,8 @@ func newCanonicalPreWord97StreamCursor(wordStream []byte, f *cfb.File) (pre97.Cu
 		context.Comments = tmp.Comments
 	}
 
-	drawings := make(map[int]pre97.Drawing, len(tmp.Drawings))
-	for cp, drawing := range tmp.Drawings {
-		drawings[cp] = pre97.Drawing{Image: drawing.Image, Shape: drawing.Shape}
-	}
 	canonicalCursor = pre97.NewDrawingCursor(canonicalCursor, pre97.DrawingProjection{
-		Drawings: drawings, InlineImages: inlineImages, OLEObjects: oleObjects, OLEByCP: context.OLEByCP,
+		InlineImages: inlineImages, OLEObjects: oleObjects, OLEByCP: context.OLEByCP,
 	})
 	return canonicalCursor, context, nil
 }

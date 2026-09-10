@@ -21,12 +21,6 @@ type Workbook struct {
 	NamedCellStyleXFs []CellStyle
 	// NamedCellStyles holds OOXML named cell-style metadata from styles.xml.
 	NamedCellStyles []*NamedCellStyle
-	// StyleNames maps XF index to the named style applied by a STYLE record
-	// (e.g. "Normal", "Heading 1"). Populated only for legacy XLS workbooks.
-	// Keys match the XF index encoded in cells; the special built-in names are:
-	//   0=Normal, 1=RowLevel_n, 2=ColLevel_n, 3=Comma, 4=Currency,
-	//   5=Percent, 6=Comma [0], 7=Currency [0].
-	StyleNames map[int]string
 	// Codepage is the default character set for compressed strings in legacy
 	// XLS workbooks (e.g. 1252 for Windows Latin-1, 1251 for Windows Cyrillic).
 	// Populated only for legacy XLS; OOXML uses UTF-8 natively.
@@ -56,8 +50,16 @@ type WorkbookCalcSettings struct {
 	PrecisionAsDisplayed *bool
 	// RefreshAll records the REFRESHALL workbook flag.
 	RefreshAll *bool
-	// SaveRecalc records the SAVERECALC workbook flag.
+	// SaveRecalc records whether recalculation results should be saved.
 	SaveRecalc *bool
+	// ReferenceMode is the authored formula reference mode: "A1" or "R1C1".
+	ReferenceMode string
+	// RecalcID identifies the calculation engine version that last recalculated the workbook.
+	RecalcID *int
+	// FullCalcOnLoad requests a full workbook recalculation when the file is opened.
+	FullCalcOnLoad *bool
+	// ForceFullCalc requests full calculation rather than dependency-chain calculation.
+	ForceFullCalc *bool
 }
 
 // DefinedName is a workbook-level or sheet-local named formula or range.
@@ -172,12 +174,17 @@ type Sheet struct {
 	FrozenRows int
 	// FrozenCols is the number of columns frozen in the default sheet view (0 = none).
 	FrozenCols int
-	// SplitRows is the number of rows in a split pane (0 = none).
-	// For split panes, this is the ySplit value (rows visible in top pane).
+	// SplitRows/SplitCols are the legacy integer compatibility view of a split pane.
 	SplitRows int
-	// SplitCols is the number of columns in a split pane (0 = none).
-	// For split panes, this is the xSplit value (columns visible in left pane).
 	SplitCols int
+	// PaneState preserves the authored OOXML pane state (frozen, frozenSplit, split).
+	PaneState string
+	// SplitX/SplitY preserve exact OOXML xSplit/ySplit values. For frozen panes
+	// these are integral row/column counts; for split panes they may be fractional.
+	SplitX float64
+	SplitY float64
+	// PaneSelections preserves per-pane active-cell/selection metadata.
+	PaneSelections []PaneSelection
 	// TopLeftCell is the cell reference shown in the top-left of the viewport
 	// when panes are frozen or split (e.g., "B5").
 	TopLeftCell string
@@ -225,7 +232,14 @@ type Sheet struct {
 	// CFRules holds all parsed conditional formatting rules for this sheet.
 	CFRules []*CFRule
 	// Comments maps cell refs (e.g. "B2") to their comment text.
+	// Kept as the plain-text compatibility view of Notes.
 	Comments map[string]string
+	// Notes preserves authored worksheet-note metadata and rich text.
+	Notes map[string]*CommentNote
+	// Hyperlinks preserves worksheet hyperlink records, including range refs,
+	// display text, tooltips, and internal/external target semantics. Cells also
+	// retain HyperlinkURL as the convenient per-cell resolved view.
+	Hyperlinks []*Hyperlink
 	// PageSetup holds the resolved print/page configuration. Nil when not specified.
 	PageSetup *PageSetup
 	// Protection holds worksheet protection metadata. Nil when the sheet is unprotected.
@@ -269,6 +283,10 @@ type Sheet struct {
 	FormControls []*FormControl
 	// VMLObjects holds generic editable VML-backed worksheet objects.
 	VMLObjects []*VMLObject
+	// LegacyDrawingVML preserves the original worksheet VML part so unsupported VML
+	// children and formatting survive canonical round-trips. Structured FormControls
+	// and VMLObjects remain authoritative when they are edited.
+	LegacyDrawingVML []byte
 }
 
 // FilterColumn holds the active filter criteria for one column within an autoFilter range.
@@ -524,8 +542,14 @@ const (
 
 // DrawingPosition defines where a drawing is placed on a worksheet.
 type DrawingPosition struct {
-	// Anchor defines how the drawing is anchored to cells.
+	// Anchor defines the geometric anchor representation.
 	Anchor DrawingAnchor
+	// Behavior preserves how a two-cell DrawingML anchor responds when rows or
+	// columns move/resize. Empty means the producer default.
+	Behavior DrawingAnchorBehavior
+	// LocksWithSheet and PrintsWithSheet preserve xdr:clientData object behavior.
+	LocksWithSheet  *bool
+	PrintsWithSheet *bool
 	// FromCell and ToCell define the cell range the drawing spans.
 	FromCell DrawingCellAnchor
 	ToCell   DrawingCellAnchor
@@ -543,6 +567,15 @@ const (
 	AnchorOneCell DrawingAnchor = "oneCell"
 	// AnchorTwoCell means the drawing is anchored between two cells.
 	AnchorTwoCell DrawingAnchor = "twoCell"
+)
+
+// DrawingAnchorBehavior describes DrawingML two-cell anchor edit behavior.
+type DrawingAnchorBehavior string
+
+const (
+	AnchorBehaviorMoveAndSize DrawingAnchorBehavior = "twoCell"
+	AnchorBehaviorMoveOnly    DrawingAnchorBehavior = "oneCell"
+	AnchorBehaviorFixed       DrawingAnchorBehavior = "absolute"
 )
 
 // DrawingCellAnchor describes a cell anchor point.
@@ -563,6 +596,9 @@ type DrawingImage struct {
 	ContentType string
 	// Alternative text.
 	AltText string
+	// Crop values are thousandths of a percent (0..100000) removed from
+	// the corresponding source-image edge.
+	CropLeft, CropTop, CropRight, CropBottom int
 }
 
 // DrawingShape contains shape-specific data.
@@ -601,8 +637,17 @@ type DrawingShape struct {
 
 // DrawingChart contains chart-specific data.
 type DrawingChart struct {
-	// Chart is the parsed chart data.
+	// RelID is the drawing relationship that owns the chart part.
+	RelID string
+	// AltTitle and AltText preserve non-visual chart accessibility metadata.
+	AltTitle string
+	AltText  string
+	// Chart is the parsed chart data. Parsed semantics are preferred for rendering
+	// and editing, while RawXML remains the lossless fallback for unsupported charts.
 	Chart interface{}
+	// RawXML preserves the original chart part even when the chart parser cannot
+	// model it yet. Writers use it when no parsed chart payload is available.
+	RawXML []byte
 	// SVG is the rendered SVG string.
 	SVG string
 }
@@ -753,14 +798,16 @@ type Cell struct {
 
 // RichTextRun is a single styled run within a rich-text cell value.
 type RichTextRun struct {
-	Text       string
-	Bold       bool
-	Italic     bool
-	Underline  bool
-	Strike     bool
-	FontSizePt float64
-	FontColor  string
-	FontFamily string
+	Text          string
+	Bold          bool
+	Italic        bool
+	Underline     bool
+	UnderlineType string
+	Strike        bool
+	VertAlign     string
+	FontSizePt    float64
+	FontColor     string
+	FontFamily    string
 }
 
 // CellStyle holds the resolved display properties of a cell.
@@ -768,26 +815,47 @@ type CellStyle struct {
 	Bold      bool
 	Italic    bool
 	Underline bool
-	Strike    bool
+	// UnderlineType preserves OOXML underline variants such as double and accounting.
+	UnderlineType string
+	Strike        bool
+	// FontVertAlign is "superscript", "subscript", or empty.
+	FontVertAlign string
 	// FontFamily is the resolved cell font family, if the style specifies one.
 	FontFamily string
 	// HAlign is the horizontal alignment: "left", "center", "right", "general", or "".
 	HAlign string
 	// VAlign is the vertical alignment: "top", "middle", "bottom", or "".
-	VAlign   string
-	WrapText bool
+	VAlign      string
+	WrapText    bool
+	ShrinkToFit bool
+	Indent      int
 	// TextRotation is the Excel text rotation in degrees-like OOXML units.
 	TextRotation int
 	// FontSizePt is the font size in points (0 = default).
 	FontSizePt float64
 	// FontColor is a hex sRGB color string (e.g. "FF0000"), or "" for default.
 	FontColor string
-	// BgColor is a hex sRGB fill color, or "" for none.
-	BgColor      string
-	BorderTop    BorderStyle
-	BorderRight  BorderStyle
-	BorderBottom BorderStyle
-	BorderLeft   BorderStyle
+	// BgColor is the resolved foreground/solid fill color, or "" for none.
+	BgColor string
+	// FillPattern preserves the OOXML patternFill patternType. Empty and "none" mean no fill.
+	FillPattern string
+	// FillPatternBgColor is the resolved pattern background color. It is used
+	// together with BgColor for non-solid patterned fills.
+	FillPatternBgColor string
+	BorderTop          BorderStyle
+	BorderRight        BorderStyle
+	BorderBottom       BorderStyle
+	BorderLeft         BorderStyle
+	// BorderDiagonal preserves Excel diagonal border styling. The direction
+	// flags distinguish rising (bottom-left to top-right) and falling diagonals.
+	BorderDiagonal     BorderStyle
+	BorderDiagonalUp   bool
+	BorderDiagonalDown bool
+	// BorderVertical/BorderHorizontal preserve OOXML inside-border semantics.
+	// They are canonical metadata even when a single HTML cell has no direct
+	// equivalent for the inside edge.
+	BorderVertical   BorderStyle
+	BorderHorizontal BorderStyle
 	// NumFmtCode is the number format string for numeric cells, or "".
 	NumFmtCode string
 	// Locked is true when the cell is locked for editing (XF grbit bit 2; only
@@ -844,6 +912,30 @@ const (
 	CellDate             // numeric cell whose format string encodes a date; StrValue holds ISO 8601 date (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
 )
 
+// PaneSelection preserves one worksheet sheetView selection record.
+type PaneSelection struct {
+	Pane         string
+	ActiveCell   string
+	ActiveCellID int
+	SqRef        string
+}
+
+// Hyperlink preserves one authored worksheet hyperlink record.
+type Hyperlink struct {
+	Ref     string
+	URL     string
+	Display string
+	Tooltip string
+}
+
+// CommentNote preserves one legacy Excel cell note, including author and rich text.
+type CommentNote struct {
+	Ref      string
+	Author   string
+	Text     string
+	RichText []*RichTextRun
+}
+
 // DataValidation is a resolved data-validation rule from a worksheet.
 type DataValidation struct {
 	// SqRef is the cell range(s) the rule applies to, e.g. "B2:B10".
@@ -852,6 +944,10 @@ type DataValidation struct {
 	Type string
 	// Operator is the comparison operator (for non-list types).
 	Operator string
+	// ErrorStyle preserves the authored validation alert style (stop, warning, information).
+	ErrorStyle string
+	// IMEMode preserves the authored input-method mode.
+	IMEMode string
 	// AllowBlank reports whether blank cells are allowed.
 	AllowBlank bool
 	// ShowDropDown reports whether a drop-down list is hidden (true = hidden).
@@ -995,6 +1091,10 @@ type HeaderFooter struct {
 	DifferentOddEven bool
 	// DifferentFirst reports whether the first page uses a different header/footer.
 	DifferentFirst bool
+	// ScaleWithDoc scales header/footer text and graphics with the document.
+	ScaleWithDoc bool
+	// AlignWithMargins aligns header/footer sections to the page margins.
+	AlignWithMargins bool
 	// Images holds the header/footer VML picture images in the order they correspond to
 	// &G placeholders in the header/footer text strings.
 	Images []HFImage
@@ -1063,6 +1163,21 @@ type PageSetup struct {
 	FitToWidth int
 	// FitToHeight is the number of pages tall (0 = auto).
 	FitToHeight int
+	// FirstPageNumber is the authored starting page number.
+	FirstPageNumber int
+	// UseFirstPageNumber reports whether FirstPageNumber is active.
+	UseFirstPageNumber bool
+	// PageOrder is "downThenOver" or "overThenDown".
+	PageOrder string
+	// BlackAndWhite requests monochrome printing.
+	BlackAndWhite bool
+	// Draft requests draft-quality printing.
+	Draft bool
+	// HorizontalDPI and VerticalDPI are printer-resolution hints.
+	HorizontalDPI int
+	VerticalDPI   int
+	// Copies is the requested print copy count.
+	Copies int
 	// MarginLeft/Right/Top/Bottom are the page margins in inches.
 	MarginLeft   float64
 	MarginRight  float64

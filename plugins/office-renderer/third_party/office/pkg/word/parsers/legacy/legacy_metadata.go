@@ -100,7 +100,7 @@ func buildLegacyPreservationMeta(doc *wordir.Document) []byte {
 	return data
 }
 
-func applyLegacyPreservationMeta(f *cfb.File, doc *wordir.Document) {
+func applyPreWord97PreservationMeta(f *cfb.File, doc *wordir.Document) {
 	if f == nil || doc == nil {
 		return
 	}
@@ -205,7 +205,7 @@ func mergeLegacyMetaIntStories(dst *map[int]wordir.Story, src map[int]wordir.Sto
 	}
 }
 
-func applyLegacyOLECompoundRecovery(f *cfb.File, doc *wordir.Document) {
+func applyPreWord97OLECompoundRecovery(f *cfb.File, doc *wordir.Document) {
 	if f == nil || doc == nil {
 		return
 	}
@@ -240,7 +240,7 @@ func applyLegacyOLECompoundRecovery(f *cfb.File, doc *wordir.Document) {
 	})
 }
 
-func applyLegacyOLEMetafilePreviews(f *cfb.File, doc *wordir.Document) {
+func applyPreWord97OLEMetafilePreviews(f *cfb.File, doc *wordir.Document) {
 	if f == nil || doc == nil {
 		return
 	}
@@ -251,27 +251,27 @@ func applyLegacyOLEMetafilePreviews(f *cfb.File, doc *wordir.Document) {
 	if !ok || len(dataStream) == 0 {
 		return
 	}
-	attachLegacyOLEMetafilePreviews(doc, extractLegacyDrawingMetafileImages(dataStream))
+	attachPreWord97OLEMetafilePreviews(doc, extractLegacyDrawingMetafileImages(dataStream))
 }
 
-type legacyOLEPreviewCandidate struct {
+type preWord97OLEPreviewCandidate struct {
 	run   *wordir.Run
 	score int
 	order int
 }
 
-// attachLegacyOLEMetafilePreviews associates Data-stream metafile previews with
+// attachPreWord97OLEMetafilePreviews associates Data-stream metafile previews with
 // their visible OLE anchors. Binary Word files may contain several 0x01 object
 // anchors for one visible object; assigning previews to anchors merely in stream
 // order can therefore put an Excel preview into an unrelated paragraph. Word's
 // visible embedded-object anchor is typically an otherwise-empty object
 // paragraph, and centered objects retain that paragraph alignment. Prefer those
 // semantic anchors while retaining document order as the tie-breaker.
-func attachLegacyOLEMetafilePreviews(doc *wordir.Document, previews []*wordir.Image) {
+func attachPreWord97OLEMetafilePreviews(doc *wordir.Document, previews []*wordir.Image) {
 	if doc == nil || len(previews) == 0 {
 		return
 	}
-	candidates := collectLegacyOLEPreviewCandidates(doc)
+	candidates := collectPreWord97OLEPreviewCandidates(doc)
 	for _, source := range previews {
 		if source == nil || len(source.Data) == 0 || len(candidates) == 0 {
 			continue
@@ -290,8 +290,8 @@ func attachLegacyOLEMetafilePreviews(doc *wordir.Document, previews []*wordir.Im
 	}
 }
 
-func collectLegacyOLEPreviewCandidates(doc *wordir.Document) []legacyOLEPreviewCandidate {
-	var out []legacyOLEPreviewCandidate
+func collectPreWord97OLEPreviewCandidates(doc *wordir.Document) []preWord97OLEPreviewCandidate {
+	var out []preWord97OLEPreviewCandidate
 	order := 0
 	visitParagraph := func(paragraph *wordir.Paragraph) {
 		if paragraph == nil {
@@ -324,13 +324,13 @@ func collectLegacyOLEPreviewCandidates(doc *wordir.Document) []legacyOLEPreviewC
 			if run.OLEProgID != "" || run.OLEObjectID != "" || run.OLEType != "" || run.OLELinkURL != "" {
 				score += 100
 			}
-			out = append(out, legacyOLEPreviewCandidate{run: run, score: score, order: order})
+			out = append(out, preWord97OLEPreviewCandidate{run: run, score: score, order: order})
 			order++
 		}
 	}
 	if len(doc.Blocks) > 0 {
 		for i := range doc.Blocks {
-			collectLegacyOLECandidateBlock(&doc.Blocks[i], visitParagraph)
+			collectPreWord97OLECandidateBlock(&doc.Blocks[i], visitParagraph)
 		}
 		return out
 	}
@@ -338,12 +338,12 @@ func collectLegacyOLEPreviewCandidates(doc *wordir.Document) []legacyOLEPreviewC
 		visitParagraph(&doc.Paragraphs[i])
 	}
 	for i := range doc.Tables {
-		collectLegacyOLECandidateTable(&doc.Tables[i], visitParagraph)
+		collectPreWord97OLECandidateTable(&doc.Tables[i], visitParagraph)
 	}
 	return out
 }
 
-func collectLegacyOLECandidateBlock(block *wordir.Block, visit func(*wordir.Paragraph)) {
+func collectPreWord97OLECandidateBlock(block *wordir.Block, visit func(*wordir.Paragraph)) {
 	if block == nil {
 		return
 	}
@@ -351,11 +351,11 @@ func collectLegacyOLECandidateBlock(block *wordir.Block, visit func(*wordir.Para
 		visit(block.Paragraph)
 	}
 	if block.Table != nil {
-		collectLegacyOLECandidateTable(block.Table, visit)
+		collectPreWord97OLECandidateTable(block.Table, visit)
 	}
 }
 
-func collectLegacyOLECandidateTable(table *wordir.Table, visit func(*wordir.Paragraph)) {
+func collectPreWord97OLECandidateTable(table *wordir.Table, visit func(*wordir.Paragraph)) {
 	if table == nil {
 		return
 	}
@@ -366,10 +366,10 @@ func collectLegacyOLECandidateTable(table *wordir.Table, visit func(*wordir.Para
 				visit(&cell.Paragraphs[pi])
 			}
 			for bi := range cell.Blocks {
-				collectLegacyOLECandidateBlock(&cell.Blocks[bi], visit)
+				collectPreWord97OLECandidateBlock(&cell.Blocks[bi], visit)
 			}
 			for ti := range cell.Tables {
-				collectLegacyOLECandidateTable(&cell.Tables[ti], visit)
+				collectPreWord97OLECandidateTable(&cell.Tables[ti], visit)
 			}
 		}
 	}

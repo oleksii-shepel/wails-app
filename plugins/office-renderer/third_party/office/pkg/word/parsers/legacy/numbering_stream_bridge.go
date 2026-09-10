@@ -5,15 +5,16 @@ import (
 	word97 "office/pkg/word/parsers/doc/word97"
 )
 
-// legacyListTablesFromCanonical adapts the canonical Word97 numbering catalog
-// into the temporary legacy projection shape. It intentionally performs no
-// FIB/table parsing: PlfLst/PlfLfo ownership stays in doc/word97.
-func legacyListTablesFromCanonical(catalog *word97.NumberingCatalog) *legacyListTables {
+// binaryWordListCatalogFromWord97 normalizes the canonical Word97 numbering
+// catalog into the semantic numbering catalog consumed by the shared binary
+// Word assembler. It performs no FIB/table parsing: PlfLst/PlfLfo ownership
+// stays entirely in doc/word97.
+func binaryWordListCatalogFromWord97(catalog *word97.NumberingCatalog) *binaryWordListCatalog {
 	if catalog == nil || len(catalog.Instances) == 0 || len(catalog.Abstract) == 0 {
 		return nil
 	}
 
-	tables := &legacyListTables{
+	tables := &binaryWordListCatalog{
 		formatByIlfoLevel:                 map[string]string{},
 		startByIlfoLevel:                  map[string]int{},
 		restartByIlfoLevel:                map[string]bool{},
@@ -67,9 +68,6 @@ func legacyListTablesFromCanonical(catalog *word97.NumberingCatalog) *legacyList
 			if level.RestartOnLevel >= 0 {
 				tables.restartOnLevelByIlfoLevel[key] = level.RestartOnLevel
 			} else if level.Level > 0 && !level.NoRestart {
-				// Word's default multilevel behavior restarts a subordinate level
-				// after movement through a higher level when no explicit limit is
-				// encoded.
 				tables.restartByIlfoLevel[key] = true
 			}
 			if level.IndentLeft != 0 {

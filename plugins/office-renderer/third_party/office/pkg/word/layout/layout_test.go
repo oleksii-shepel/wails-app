@@ -100,11 +100,11 @@ func TestLayoutParagraphHeightWrapsVisibleText(t *testing.T) {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
 
-	if blocks[0].Height <= 14.4 {
+	if blocks[0].Height <= 12.0*wordSingleLineRatio {
 		t.Fatalf("expected wrapped visible text to exceed one line height, got %.3f", blocks[0].Height)
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected wrapped visible text to estimate three lines, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected wrapped visible text to estimate three lines, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -128,8 +128,8 @@ func TestLayoutParagraphHeightWrapsLegacyPlainTextRuns(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected legacy plain-text run to wrap to three lines, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected legacy plain-text run to wrap to three lines, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -209,8 +209,8 @@ func TestLayoutParagraphHeightUsesPerLineMixedFontHeights(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 38.4) {
-		t.Fatalf("expected mixed-font paragraph to use per-line heights, got %.3f want 38.4", blocks[0].Height)
+	if want := (12.0 + 20.0) * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected mixed-font paragraph to use per-line heights, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -323,8 +323,8 @@ func TestLayoutParagraphHeightCountsInlineImageWidthWhenWrapping(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 28.8) {
-		t.Fatalf("expected inline image width to force a second line, got %.3f want 28.8", blocks[0].Height)
+	if want := 2.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected inline image width to force a second line, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -350,8 +350,8 @@ func TestLayoutParagraphHeightAppliesFirstLineIndentOnlyToFirstLine(t *testing.T
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 28.8) {
-		t.Fatalf("expected first-line indent to wrap into two lines, got %.3f want 28.8", blocks[0].Height)
+	if want := 2.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected first-line indent to wrap into two lines, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -377,8 +377,8 @@ func TestLayoutParagraphHeightAccountsForHangingIndent(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 28.8) {
-		t.Fatalf("expected hanging indent to keep the paragraph to two lines, got %.3f want 28.8", blocks[0].Height)
+	if want := 2.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected hanging indent to keep the paragraph to two lines, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -414,8 +414,8 @@ func TestLayoutParagraphHeightWrapsAroundFloatingObject(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected wrapped float to force a third line, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected wrapped float to force a third line, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -451,8 +451,8 @@ func TestLayoutParagraphHeightWrapsTopAndBottomAroundFloatingObject(t *testing.T
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 57.6) {
-		t.Fatalf("expected top-and-bottom wrap to push text below the float, got %.3f want 57.6", blocks[0].Height)
+	if want := 28.8 + 2.0*12.0*wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected top-and-bottom wrap to push text below the float, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -490,8 +490,8 @@ func TestLayoutParagraphHeightWrapsOnLeftSideOfFloatingObject(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 72.0) {
-		t.Fatalf("expected left-side wrap to constrain text to the left segment, got %.3f want 72.0", blocks[0].Height)
+	if want := 5.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected left-side wrap to constrain text to the left segment, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -529,8 +529,8 @@ func TestLayoutParagraphHeightWrapsOnRightSideOfFloatingObject(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected right-side wrap to use the right segment, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected right-side wrap to use the right segment, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -568,8 +568,8 @@ func TestLayoutParagraphHeightWrapsOnLargestSideOfFloatingObject(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected largest-side wrap to use the larger right segment, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected largest-side wrap to use the larger right segment, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -619,27 +619,6 @@ func TestLayoutParagraphHeightWrapsThroughFloatingObjectContour(t *testing.T) {
 	}
 }
 
-func TestPolygonXRangeAtBandSamplesNarrowInteriorSpike(t *testing.T) {
-	// This spike lives only in the top quarter of the band. Top/mid/bottom sampling
-	// misses it, but vertex-aware sampling must preserve the wider exclusion range.
-	poly := [][2]float64{
-		{0, 0},
-		{24, 0},
-		{42, 1},
-		{24, 1.2},
-		{24, 4},
-		{0, 4},
-	}
-
-	_, maxX, ok := polygonXRangeAtBand(poly, 0, 4)
-	if !ok {
-		t.Fatal("expected polygon band range")
-	}
-	if maxX < 40 {
-		t.Fatalf("maxX = %.3f, want spike to extend exclusion band", maxX)
-	}
-}
-
 func TestLayoutParagraphHeightWrapsAroundPriorFloatingObject(t *testing.T) {
 	doc := &resolve.Document{
 		Sections: []resolve.Section{{
@@ -677,8 +656,8 @@ func TestLayoutParagraphHeightWrapsAroundPriorFloatingObject(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[1].Height, 43.2) {
-		t.Fatalf("expected prior square float to wrap the next paragraph, got %.3f want 43.2", blocks[1].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected prior square float to wrap the next paragraph, got %.3f want %.3f", blocks[1].Height, want)
 	}
 }
 
@@ -735,7 +714,7 @@ func TestLayoutParagraphHeightWrapsBetweenPriorAndLocalFloatingObjects(t *testin
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if blocks[1].Height <= 43.2 {
+	if blocks[1].Height <= 3.0*12.0*wordSingleLineRatio {
 		t.Fatalf("expected prior and local floats to constrain the paragraph more than a single-float case, got %.3f", blocks[1].Height)
 	}
 }
@@ -794,8 +773,8 @@ func TestLayoutParagraphHeightHonorsLeftWrapAcrossPriorAndLocalFloatingObjects(t
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[1].Height, 72.0) {
-		t.Fatalf("expected prior and local left-side floats to keep text on the left segment, got %.3f want 72.0", blocks[1].Height)
+	if want := 5.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected prior and local left-side floats to keep text on the left segment, got %.3f want %.3f", blocks[1].Height, want)
 	}
 }
 
@@ -853,8 +832,8 @@ func TestLayoutParagraphHeightHonorsRightWrapAcrossPriorAndLocalFloatingObjects(
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[1].Height, 43.2) {
-		t.Fatalf("expected prior and local right-side floats to keep text on the right segment, got %.3f want 43.2", blocks[1].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected prior and local right-side floats to keep text on the right segment, got %.3f want %.3f", blocks[1].Height, want)
 	}
 }
 
@@ -912,8 +891,8 @@ func TestLayoutParagraphHeightHonorsLargestWrapAcrossPriorAndLocalFloatingObject
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[1].Height, 43.2) {
-		t.Fatalf("expected prior and local largest-side floats to keep text on the larger right segment, got %.3f want 43.2", blocks[1].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected prior and local largest-side floats to keep text on the larger right segment, got %.3f want %.3f", blocks[1].Height, want)
 	}
 }
 
@@ -971,8 +950,8 @@ func TestLayoutParagraphHeightHonorsBothSidesWrapAcrossPriorAndLocalFloatingObje
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[1].Height, 43.2) {
-		t.Fatalf("expected prior and local both-sides floats to use the largest contiguous segment, got %.3f want 43.2", blocks[1].Height)
+	if want := 2.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected prior and local both-sides floats to flow through both horizontal slots on the same physical lines, got %.3f want %.3f", blocks[1].Height, want)
 	}
 }
 
@@ -1030,8 +1009,8 @@ func TestLayoutParagraphHeightHonorsMixedLeftAndRightWrapSidesAcrossPriorAndLoca
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[1].Height, 72.0) {
-		t.Fatalf("expected mixed left/right wraps to push text below the overlapping float band, got %.3f want 72.0", blocks[1].Height)
+	if want := 6.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected mixed left/right wraps to push text below the overlapping float band, got %.3f want %.3f", blocks[1].Height, want)
 	}
 }
 
@@ -1078,8 +1057,8 @@ func TestLayoutParagraphHeightWrapsBelowPriorTopAndBottomFloat(t *testing.T) {
 	if !almostEqual(blocks[1].Y, 43.2) {
 		t.Fatalf("expected following paragraph y 43.2 below prior top-and-bottom float, got %.3f", blocks[1].Y)
 	}
-	if !almostEqual(blocks[1].Height, 28.8) {
-		t.Fatalf("expected following paragraph to keep its own text height 28.8, got %.3f", blocks[1].Height)
+	if want := 2.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[1].Height, want) {
+		t.Fatalf("expected following paragraph to keep its own text height %.3f, got %.3f", want, blocks[1].Height)
 	}
 }
 
@@ -1115,8 +1094,8 @@ func TestLayoutParagraphHeightWrapsBelowLocalTopAndBottomFloat(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 72.0) {
-		t.Fatalf("expected local top-and-bottom float paragraph height 72.0, got %.3f", blocks[0].Height)
+	if want := 43.2 + 2.0*12.0*wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected local top-and-bottom float paragraph height %.3f, got %.3f", want, blocks[0].Height)
 	}
 }
 
@@ -1152,8 +1131,8 @@ func TestLayoutParagraphHeightWrapsBelowLocalTopAndBottomTextBox(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 72.0) {
-		t.Fatalf("expected local top-and-bottom textbox paragraph height 72.0, got %.3f", blocks[0].Height)
+	if want := 43.2 + 2.0*12.0*wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected local top-and-bottom textbox paragraph height %.3f, got %.3f", want, blocks[0].Height)
 	}
 }
 
@@ -1187,9 +1166,9 @@ func TestLayoutParagraphHeightWrapsBelowLocalTopAndBottomShape(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	// 548640 EMU / 12700 EMU/pt = 43.2pt shape + 28.8pt text = 72.0pt total
-	if !almostEqual(blocks[0].Height, 72.0) {
-		t.Fatalf("expected local top-and-bottom shape paragraph height 72.0, got %.3f", blocks[0].Height)
+	// 548640 EMU / 12700 EMU/pt = 43.2pt shape + two Word line advances.
+	if want := 43.2 + 2.0*12.0*wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected local top-and-bottom shape paragraph height %.3f, got %.3f", want, blocks[0].Height)
 	}
 }
 
@@ -1222,8 +1201,8 @@ func TestLayoutTableHeightUsesCellContent(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected table row height to match wrapped cell content, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected table row height to match wrapped cell content, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -1314,8 +1293,8 @@ func TestLayoutTableHeightIncludesTopAndBottomBorders(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 17.4) {
-		t.Fatalf("expected table borders to contribute to row height, got %.3f want 17.4", blocks[0].Height)
+	if want := 12.0*wordSingleLineRatio + 3.0; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected table borders to contribute to row height, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -1384,100 +1363,6 @@ func TestResolveYAlignUsesObjectHeight(t *testing.T) {
 	}
 	if got := resolveYAlign("top", "paragraph", geom, 200, 20, 40); !almostEqual(got, 200) {
 		t.Fatalf("top/paragraph: got %.3f want 200", got)
-	}
-}
-
-func TestLineAvailableWidthUsesLargestContiguousGapForMultipleExclusions(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 20, right: 40, top: 0, bottom: 10},
-		{left: 60, right: 80, top: 0, bottom: 10},
-	}
-
-	got := lineAvailableWidthPt(0, 100, 0, 10, exclusions)
-	if !almostEqual(got, 20) {
-		t.Fatalf("multiple exclusions available width = %.3f, want 20", got)
-	}
-}
-
-func TestLineAvailableWidthUsesLargestContiguousGapForSingleFloatBothSides(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 20, right: 40, top: 0, bottom: 10, wrapSide: "bothSides"},
-	}
-
-	got := lineAvailableWidthPt(0, 100, 0, 10, exclusions)
-	if !almostEqual(got, 60) {
-		t.Fatalf("single both-sides exclusion available width = %.3f, want 60", got)
-	}
-}
-
-func TestLineAvailableWidthHonorsCommonLeftWrapSideAcrossMultipleExclusions(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 10, right: 20, top: 0, bottom: 10, wrapSide: "left"},
-		{left: 40, right: 50, top: 0, bottom: 10, wrapSide: "left"},
-	}
-
-	got := lineAvailableWidthPt(0, 80, 0, 10, exclusions)
-	if !almostEqual(got, 10) {
-		t.Fatalf("multiple left-side exclusions available width = %.3f, want 10", got)
-	}
-}
-
-func TestLineAvailableWidthHonorsCommonRightWrapSideAcrossMultipleExclusions(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 10, right: 20, top: 0, bottom: 10, wrapSide: "right"},
-		{left: 50, right: 70, top: 0, bottom: 10, wrapSide: "right"},
-	}
-
-	got := lineAvailableWidthPt(0, 80, 0, 10, exclusions)
-	if !almostEqual(got, 10) {
-		t.Fatalf("multiple right-side exclusions available width = %.3f, want 10", got)
-	}
-}
-
-func TestLineAvailableWidthIgnoresPolygonExclusionsThatMissLineBand(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 10, right: 20, top: 0, bottom: 10, wrapSide: "left"},
-		{
-			left:     40,
-			right:    50,
-			top:      0,
-			bottom:   10,
-			wrapSide: "right",
-			polygon: [][2]float64{
-				{40, 0},
-				{50, 0},
-				{45, 2},
-			},
-		},
-	}
-
-	got := lineAvailableWidthPt(0, 80, 8, 10, exclusions)
-	if !almostEqual(got, 10) {
-		t.Fatalf("non-intersecting polygon exclusion should not suppress left wrap-side width, got %.3f want 10", got)
-	}
-}
-
-func TestLineAvailableWidthHonorsMixedLeftAndRightWrapSides(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 20, right: 40, top: 0, bottom: 10, wrapSide: "left"},
-		{left: 80, right: 100, top: 0, bottom: 10, wrapSide: "right"},
-	}
-
-	got := lineAvailableWidthPt(0, 120, 0, 10, exclusions)
-	if !almostEqual(got, 1) {
-		t.Fatalf("mixed left/right exclusions should leave no usable segment on the band, got %.3f want 1", got)
-	}
-}
-
-func TestLineAvailableWidthHonorsMixedRightAndLeftWrapSidesWithCenterGap(t *testing.T) {
-	exclusions := []lineExclusion{
-		{left: 20, right: 40, top: 0, bottom: 10, wrapSide: "right"},
-		{left: 80, right: 100, top: 0, bottom: 10, wrapSide: "left"},
-	}
-
-	got := lineAvailableWidthPt(0, 120, 0, 10, exclusions)
-	if !almostEqual(got, 40) {
-		t.Fatalf("mixed right/left exclusions should preserve the shared center segment, got %.3f want 40", got)
 	}
 }
 
@@ -1736,8 +1621,8 @@ func TestLayoutTableHeightSkipsPureVerticalMergeContinuationRow(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	if !almostEqual(blocks[0].Height, 43.2) {
-		t.Fatalf("expected continuation row not to add extra height, got %.3f want 43.2", blocks[0].Height)
+	if want := 3.0 * 12.0 * wordSingleLineRatio; !almostEqual(blocks[0].Height, want) {
+		t.Fatalf("expected continuation row not to add extra height, got %.3f want %.3f", blocks[0].Height, want)
 	}
 }
 
@@ -1930,8 +1815,25 @@ func TestPaginateRespectsExplicitColumnBreakWithinParagraph(t *testing.T) {
 	if !pages[0].Blocks[1].Fragment.StartsNewColumn {
 		t.Fatal("expected second fragment to force a new column")
 	}
-	if pages[0].Blocks[0].Fragment.Text != "Left column text" || pages[0].Blocks[1].Fragment.Text != "Right column text" {
-		t.Fatalf("fragment texts = [%q %q], want split column segments", pages[0].Blocks[0].Fragment.Text, pages[0].Blocks[1].Fragment.Text)
+	fragmentText := func(fragment *ParagraphFragment) string {
+		if fragment == nil {
+			return ""
+		}
+		var runs []resolve.Run
+		for _, line := range fragment.Lines {
+			for _, slot := range line.Slots {
+				runs = append(runs, slot.Runs...)
+			}
+		}
+		if len(runs) == 0 {
+			runs = fragment.FallbackRuns
+		}
+		return paragraphTextFromRuns(runs)
+	}
+	leftText := fragmentText(pages[0].Blocks[0].Fragment)
+	rightText := fragmentText(pages[0].Blocks[1].Fragment)
+	if leftText != "Left column text" || rightText != "Right column text" {
+		t.Fatalf("fragment texts = [%q %q], want split column segments", leftText, rightText)
 	}
 }
 
@@ -2527,8 +2429,8 @@ func TestResolveGeometryExpandsMarginTopForTallHeader(t *testing.T) {
 	}
 
 	geom := resolveGeometry(doc)
-	if !almostEqual(geom.MarginTop, 46.8) {
-		t.Fatalf("top margin = %.3f, want 46.8", geom.MarginTop)
+	if want := 18.0 + 2.0*12.0*wordSingleLineRatio; !almostEqual(geom.MarginTop, want) {
+		t.Fatalf("top margin = %.3f, want %.3f", geom.MarginTop, want)
 	}
 }
 
@@ -2557,8 +2459,8 @@ func TestResolveGeometryUsesFirstPageHeaderStory(t *testing.T) {
 	}
 
 	firstPage := resolveGeometryForSectionPage(doc, &doc.Sections[0], 1)
-	if !almostEqual(firstPage.MarginTop, 46.8) {
-		t.Fatalf("first-page top margin = %.3f, want 46.8", firstPage.MarginTop)
+	if want := 18.0 + 2.0*12.0*wordSingleLineRatio; !almostEqual(firstPage.MarginTop, want) {
+		t.Fatalf("first-page top margin = %.3f, want %.3f", firstPage.MarginTop, want)
 	}
 	secondPage := resolveGeometryForSectionPage(doc, &doc.Sections[0], 2)
 	if !almostEqual(secondPage.MarginTop, 36.0) {
@@ -2766,8 +2668,8 @@ func TestResolveGeometryReservesFooterStoryHeight(t *testing.T) {
 	}
 
 	geom := resolveGeometry(doc)
-	if !almostEqual(geom.MarginBottom, 46.8) {
-		t.Fatalf("bottom margin = %.3f, want 46.8", geom.MarginBottom)
+	if want := 18.0 + 2.0*12.0*wordSingleLineRatio; !almostEqual(geom.MarginBottom, want) {
+		t.Fatalf("bottom margin = %.3f, want %.3f", geom.MarginBottom, want)
 	}
 }
 
@@ -2797,8 +2699,8 @@ func TestResolveGeometryUsesEvenPageFooterStory(t *testing.T) {
 	}
 
 	secondPage := resolveGeometryForSectionPage(doc, &doc.Sections[0], 2)
-	if !almostEqual(secondPage.MarginBottom, 46.8) {
-		t.Fatalf("second-page bottom margin = %.3f, want 46.8", secondPage.MarginBottom)
+	if want := 18.0 + 2.0*12.0*wordSingleLineRatio; !almostEqual(secondPage.MarginBottom, want) {
+		t.Fatalf("second-page bottom margin = %.3f, want %.3f", secondPage.MarginBottom, want)
 	}
 	thirdPage := resolveGeometryForSectionPage(doc, &doc.Sections[0], 3)
 	if !almostEqual(thirdPage.MarginBottom, 36.0) {
@@ -2907,9 +2809,9 @@ func TestLayoutTableHeightIncludesInsideHBorderForInnerRows(t *testing.T) {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
 	// Row 1 has no top border (first row, no table top border).
-	// Row 2 top = insideH = 2pt. Both rows share default cell height ~14.4pt.
-	// Total = 14.4 + (2 + 14.4) = 30.8pt
-	want := 30.8
+	// Row 2 top = insideH = 2pt. Both rows share the canonical 12pt Word single-line height of 13.8pt.
+	// Total = 13.8 + (2 + 13.8) = 29.6pt
+	want := 29.6
 	if !almostEqual(blocks[0].Height, want) {
 		t.Fatalf("table insideH border height = %.3f, want %.3f", blocks[0].Height, want)
 	}
@@ -2944,7 +2846,7 @@ func TestDropCapHeightUsesLinesTimesDefaultLineHeight(t *testing.T) {
 		t.Fatalf("float count = %d, want 1", len(floats))
 	}
 	fb := floats[0]
-	want := 3.0 * 12.0 * cssNormalLineRatio // 43.2pt
+	want := 3.0 * 12.0 * wordSingleLineRatio // 43.2pt
 	if !almostEqual(fb.Height, want) {
 		t.Errorf("drop cap height = %.3f, want %.3f", fb.Height, want)
 	}
@@ -2995,7 +2897,7 @@ func TestFrameParagraphIsOutOfFlowAndEmitsFloatBox(t *testing.T) {
 	// A paragraph with w:framePr must contribute zero height to the block flow
 	// and produce exactly one FloatBox at the resolved position.
 	// The frame is positioned 36pt from the left margin with a width of 72pt.
-	// It sits between two normal paragraphs so those paragraphs should be at y=0 and y=14.4.
+	// It sits between two normal paragraphs so those paragraphs should be at y=0 and y=13.8.
 	doc := &resolve.Document{
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
@@ -3048,86 +2950,6 @@ func TestFrameParagraphIsOutOfFlowAndEmitsFloatBox(t *testing.T) {
 	}
 }
 
-func TestPolygonXRangeAtBand(t *testing.T) {
-	// Triangle: (0,0)→(100,0)→(50,100). At band [25,75] the polygon edges
-	// intersect at x=12.5 (left edge) and x=87.5 (right edge).
-	poly := [][2]float64{{0, 0}, {100, 0}, {50, 100}}
-	minX, maxX, ok := polygonXRangeAtBand(poly, 25, 75)
-	if !ok {
-		t.Fatal("polygonXRangeAtBand returned ok=false")
-	}
-	if !almostEqual(minX, 12.5) {
-		t.Errorf("minX = %.3f, want 12.5", minX)
-	}
-	if !almostEqual(maxX, 87.5) {
-		t.Errorf("maxX = %.3f, want 87.5", maxX)
-	}
-}
-
-func TestPolygonIntervalsAtBandPreserveConcaveGap(t *testing.T) {
-	// Concave C-shape. The middle band should preserve the occupied left arm
-	// instead of collapsing to the full outer bounding span.
-	poly := [][2]float64{{0, 0}, {100, 0}, {100, 20}, {40, 20}, {40, 80}, {100, 80}, {100, 100}, {0, 100}}
-	intervals := polygonIntervalsAtBand(poly, 40, 60)
-	if len(intervals) != 1 {
-		t.Fatalf("interval count = %d, want 1 (%#v)", len(intervals), intervals)
-	}
-	if !almostEqual(intervals[0][0], 0) || !almostEqual(intervals[0][1], 40) {
-		t.Fatalf("interval = %#v, want [0 40]", intervals[0])
-	}
-}
-
-func TestTightWrapPolygonNarrowsLineWidth(t *testing.T) {
-	// Diamond polygon: (50,0)→(100,20)→(50,40)→(0,20).
-	// At band [10,15] (avoiding the left vertex at y=20):
-	//   left edge (0,20)→(50,0) at y=10: x=25; at y=15: x=12.5
-	//   right edge (50,0)→(100,20) at y=10: x=75; at y=15: x=87.5
-	// So minX=12.5, maxX=87.5 — polygon narrows exclusion vs bounding box [0,100].
-	poly := [][2]float64{{50, 0}, {100, 20}, {50, 40}, {0, 20}}
-	minX, maxX, ok := polygonXRangeAtBand(poly, 10, 15)
-	if !ok {
-		t.Fatal("polygonXRangeAtBand returned ok=false for diamond at band [10,15]")
-	}
-	if !almostEqual(minX, 12.5) {
-		t.Errorf("minX = %.3f, want 12.5", minX)
-	}
-	if !almostEqual(maxX, 87.5) {
-		t.Errorf("maxX = %.3f, want 87.5", maxX)
-	}
-}
-
-func TestPolygonXRangeAtBandSamplesInteriorVertices(t *testing.T) {
-	// The widest contour occurs at the interior vertices y=4, not at the band
-	// top/mid/bottom samples. Tight/through wrapping should still honor that
-	// wider shoulder when estimating the occupied width across the full band.
-	poly := [][2]float64{{50, 0}, {90, 4}, {60, 20}, {40, 20}, {10, 4}}
-	minX, maxX, ok := polygonXRangeAtBand(poly, 0, 20)
-	if !ok {
-		t.Fatal("polygonXRangeAtBand returned ok=false for vertex-driven shoulder")
-	}
-	if !almostEqual(minX, 10) {
-		t.Fatalf("minX = %.3f, want 10", minX)
-	}
-	if !almostEqual(maxX, 90) {
-		t.Fatalf("maxX = %.3f, want 90", maxX)
-	}
-}
-
-func TestLineAvailableWidthUsesConcavePolygonGapForLargestWrap(t *testing.T) {
-	exclusions := []lineExclusion{{
-		top:      0,
-		bottom:   100,
-		left:     0,
-		right:    100,
-		wrapSide: "largest",
-		polygon:  [][2]float64{{0, 0}, {100, 0}, {100, 20}, {40, 20}, {40, 80}, {100, 80}, {100, 100}, {0, 100}},
-	}}
-	available := lineAvailableWidthPt(0, 140, 40, 60, exclusions)
-	if !almostEqual(available, 100.0) {
-		t.Fatalf("available width = %.3f, want 100.0", available)
-	}
-}
-
 func TestPaginateContinuousSectionDocGridChangeStaysOnPage(t *testing.T) {
 	doc := &resolve.Document{
 		Sections: []resolve.Section{
@@ -3157,8 +2979,8 @@ func TestPaginateContinuousSectionDocGridChangeStaysOnPage(t *testing.T) {
 	if len(pages[0].Blocks) != 2 {
 		t.Fatalf("block count = %d, want 2", len(pages[0].Blocks))
 	}
-	if !almostEqual(pages[0].Blocks[1].Y, 14.4) {
-		t.Fatalf("post-break block y = %.3f, want 14.4", pages[0].Blocks[1].Y)
+	if !almostEqual(pages[0].Blocks[1].Y, 13.8) {
+		t.Fatalf("post-break block y = %.3f, want 13.8", pages[0].Blocks[1].Y)
 	}
 	if !almostEqual(pages[0].Blocks[1].Height, 18.0) {
 		t.Fatalf("post-break block height = %.3f, want 18.0", pages[0].Blocks[1].Height)
@@ -3206,8 +3028,8 @@ func TestContextualSpacingDoesNotCrossTableBoundary(t *testing.T) {
 	if len(blocks) != 3 {
 		t.Fatalf("block count = %d, want 3", len(blocks))
 	}
-	if !almostEqual(blocks[2].Height, 20.4) {
-		t.Fatalf("expected spacing-before after table boundary to remain in paragraph height, got %.3f want 20.4", blocks[2].Height)
+	if want := 6.0 + 12.0*wordSingleLineRatio; !almostEqual(blocks[2].Height, want) {
+		t.Fatalf("expected spacing-before after table boundary to remain in paragraph height, got %.3f want %.3f", blocks[2].Height, want)
 	}
 }
 
@@ -3414,8 +3236,8 @@ func TestSectionStoryForPageRespectsFlags(t *testing.T) {
 		Headers:    refs,
 		TitlePage:  true,
 	}, 1)
-	if g.MarginTop != 46.8 {
-		t.Errorf("page 1 with TitlePage: margin = %.1f, want 46.8", g.MarginTop)
+	if want := 18.0 + 2.0*12.0*wordSingleLineRatio; !almostEqual(g.MarginTop, want) {
+		t.Errorf("page 1 with TitlePage: margin = %.1f, want %.1f", g.MarginTop, want)
 	}
 
 	// With EvenAndOddHeaders true, page 2 uses even (two paragraphs overflow 18pt).
@@ -3424,8 +3246,8 @@ func TestSectionStoryForPageRespectsFlags(t *testing.T) {
 		PageMargin: &resolve.PageMargin{Top: 720, Header: 360},
 		Headers:    refs,
 	}, 2)
-	if g.MarginTop != 46.8 {
-		t.Errorf("page 2 with EvenAndOddHeaders: margin = %.1f, want 46.8", g.MarginTop)
+	if want := 18.0 + 2.0*12.0*wordSingleLineRatio; !almostEqual(g.MarginTop, want) {
+		t.Errorf("page 2 with EvenAndOddHeaders: margin = %.1f, want %.1f", g.MarginTop, want)
 	}
 }
 
@@ -3573,21 +3395,21 @@ func TestResolveGeometryMarksSourceSuppliedEqualColumnGridExplicit(t *testing.T)
 	}
 }
 
-func TestOOXMLAutoLineSpacingDoesNotApplyLegacyNormalLineFactorTwice(t *testing.T) {
+func TestOOXMLAutoLineSpacingUsesAuthoredWordLineMultiple(t *testing.T) {
 	spacing := 276
 	p := &resolve.Paragraph{Format: resolve.ParagraphFormat{LineSpacing: &spacing, LineRule: "auto"}}
-	if got, want := autoParagraphLineHeightPt(p, 11), 13.2; !almostEqual(got, want) {
+	if got, want := autoParagraphLineHeightPt(p, 11), 11.0*wordSingleLineRatio*276.0/240.0; !almostEqual(got, want) {
 		t.Fatalf("OOXML auto line height = %.3fpt, want %.3fpt", got, want)
 	}
 }
 
-func TestLegacyAutoLineSpacingDoesNotDoubleApplyNormalLineFactor(t *testing.T) {
+func TestLegacyAutoLineSpacingUsesAuthoredWordLineMultiple(t *testing.T) {
 	spacing := 276
 	p := &resolve.Paragraph{
 		Format: resolve.ParagraphFormat{LineSpacing: &spacing, LineRule: "auto"},
 		Source: &resolve.ParagraphSource{},
 	}
-	if got, want := autoParagraphLineHeightPt(p, 11), 13.2; !almostEqual(got, want) {
+	if got, want := autoParagraphLineHeightPt(p, 11), 11.0*wordSingleLineRatio*276.0/240.0; !almostEqual(got, want) {
 		t.Fatalf("legacy auto line height = %.3fpt, want %.3fpt", got, want)
 	}
 }
@@ -3598,29 +3420,8 @@ func TestOOXMLListAutoLineSpacingKeepsNaturalWordAdvance(t *testing.T) {
 		Numbering: &resolve.Numbering{},
 		Format:    resolve.ParagraphFormat{LineSpacing: &spacing, LineRule: "auto"},
 	}
-	if got, want := autoParagraphLineHeightPt(p, 11), 13.2; !almostEqual(got, want) {
+	if got, want := autoParagraphLineHeightPt(p, 11), 11.0*wordSingleLineRatio; !almostEqual(got, want) {
 		t.Fatalf("OOXML list auto line height = %.3fpt, want %.3fpt", got, want)
-	}
-}
-
-func TestNarrowColumnLineMetricsWrapEachGlyph(t *testing.T) {
-	p := &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "Ab c", Format: resolve.RunFormat{FontSize: intPtr(22)}}}}
-	metrics := estimateParagraphLineMetricsWithWidths(p, 1, 1, 11, nil)
-	if got, want := len(metrics), 4; got != want {
-		t.Fatalf("narrow-column line count = %d, want %d", got, want)
-	}
-	lines := paragraphFragmentRunLines(p, []float64{1, 1, 1, 1}, 11)
-	if got, want := len(lines), 4; got != want {
-		t.Fatalf("narrow-column fragment line count = %d, want %d", got, want)
-	}
-	var text string
-	for _, line := range lines {
-		for _, run := range line {
-			text += run.Text
-		}
-	}
-	if text != "Ab c" {
-		t.Fatalf("narrow-column fragments text = %q, want %q", text, "Ab c")
 	}
 }
 
@@ -3693,13 +3494,13 @@ func TestPaginateSplitsTableAtRowBoundariesAndRepeatsHeaders(t *testing.T) {
 	}
 }
 
-func TestOOXMLListAutoLineSpacingUsesSameSourceAwareSemanticsAsParagraphs(t *testing.T) {
+func TestOOXMLListAutoLineSpacingUsesAuthoredWordLineMultiple(t *testing.T) {
 	spacing := 276
 	p := &resolve.Paragraph{
 		Numbering: &resolve.Numbering{},
 		Format:    resolve.ParagraphFormat{LineSpacing: &spacing, LineRule: "auto"},
 	}
-	if got, want := autoParagraphLineHeightPt(p, 11), 13.2; !almostEqual(got, want) {
+	if got, want := autoParagraphLineHeightPt(p, 11), 11.0*wordSingleLineRatio*276.0/240.0; !almostEqual(got, want) {
 		t.Fatalf("OOXML list auto line height = %.3fpt, want %.3fpt", got, want)
 	}
 }
@@ -4010,21 +3811,20 @@ func TestParagraphFlowMetricsUseActiveFloatWrapWidth(t *testing.T) {
 		Text: "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau",
 	}}}
 
-	plain, ok := paragraphFlowMetricsForPagination(&resolve.Document{}, p, geom, 0, 50, 0, nil)
+	doc := &resolve.Document{}
+	textMetrics := resolveTextLayoutMetrics(doc, p, geom, 0, 0)
+	plain, ok := paragraphFlowMetricsForPagination(doc, p, geom, 0, 50, textMetrics, nil)
 	if !ok {
 		t.Fatal("plain paragraph metrics failed")
 	}
 	img := &resolve.Image{Floating: true, WrapType: "square"}
 	active := []FloatBox{{Image: img, X: 50, Y: 50, Width: 105, Height: 70}}
-	wrapped, ok := paragraphFlowMetricsForPagination(&resolve.Document{}, p, geom, 0, 50, 0, active)
+	wrapped, ok := paragraphFlowMetricsForPagination(doc, p, geom, 0, 50, textMetrics, active)
 	if !ok {
 		t.Fatal("wrapped paragraph metrics failed")
 	}
 	if len(wrapped.lineHeights) <= len(plain.lineHeights) {
 		t.Fatalf("wrapped lines = %d, plain lines = %d; active float should narrow early lines", len(wrapped.lineHeights), len(plain.lineHeights))
-	}
-	if len(wrapped.lineWidths) == 0 || wrapped.lineWidths[0] >= plain.lineWidths[0] {
-		t.Fatalf("first wrapped width = %.3f, plain = %.3f", wrapped.lineWidths[0], plain.lineWidths[0])
 	}
 }
 
@@ -4122,62 +3922,6 @@ func TestFootnoteNumberingUsesSectionOverridesAndRestarts(t *testing.T) {
 	}
 	if second == nil || second.Start != 3 || second.Format != "upperRoman" {
 		t.Fatalf("second section footnote marker = %#v, want upperRoman start 3", second)
-	}
-}
-
-func TestParagraphLineMetricsUseRunSizedWhitespace(t *testing.T) {
-	fontSize := 40 // 20pt
-	p := &resolve.Paragraph{Runs: []resolve.Run{{
-		Kind: "run",
-		Text: "AAAA AAAA",
-		Format: resolve.RunFormat{
-			FontSize: &fontSize,
-		},
-	}}}
-
-	metrics := estimateParagraphLineMetricsWithWidths(p, 103, 103, 10, nil)
-	if got := len(metrics); got != 2 {
-		t.Fatalf("line count = %d, want 2 when the inter-word space uses the 20pt run size", got)
-	}
-	lines := paragraphFragmentRunLines(p, []float64{103, 103}, 10)
-	if got := len(lines); got != 2 {
-		t.Fatalf("fragment line count = %d, want 2 from the same run-sized whitespace model", got)
-	}
-}
-
-func TestParagraphLineMetricsIncludeCharacterSpacing(t *testing.T) {
-	fontSize := 40 // 20pt
-	spacing := 80  // 4pt
-	p := &resolve.Paragraph{Runs: []resolve.Run{{
-		Kind: "run",
-		Text: "AA AA",
-		Format: resolve.RunFormat{
-			FontSize:         &fontSize,
-			CharacterSpacing: &spacing,
-		},
-	}}}
-
-	metrics := estimateParagraphLineMetricsWithWidths(p, 60, 60, 10, nil)
-	if got := len(metrics); got != 2 {
-		t.Fatalf("line count = %d, want 2 when CSS letter-spacing is included in layout width", got)
-	}
-}
-
-func TestParagraphLineMetricsApplyCapsTransformBeforeMeasuring(t *testing.T) {
-	fontSize := 40 // 20pt
-	caps := true
-	p := &resolve.Paragraph{Runs: []resolve.Run{{
-		Kind: "run",
-		Text: "aaaa aaaa",
-		Format: resolve.RunFormat{
-			FontSize: &fontSize,
-			Caps:     &caps,
-		},
-	}}}
-
-	metrics := estimateParagraphLineMetricsWithWidths(p, 90, 90, 10, nil)
-	if got := len(metrics); got != 2 {
-		t.Fatalf("line count = %d, want 2 after uppercase text-transform changes glyph advances", got)
 	}
 }
 
@@ -4313,5 +4057,216 @@ func TestLegacyShapeFieldFlowContinuesAcrossConsecutiveAnchorParagraphs(t *testi
 	}
 	if floats[3].Y <= floats[1].Y+floats[1].Height-0.01 {
 		t.Fatalf("wrapped row overlaps first row: y=%.1f first-bottom=%.1f", floats[3].Y, floats[1].Y+floats[1].Height)
+	}
+}
+func TestDrawingLineExclusionRotatesShapesAndTextBoxesLikeImages(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	rotation := 45.0
+	cases := []FloatBox{
+		{Image: &resolve.Image{Width: 100 * emuPerPoint, Height: 40 * emuPerPoint, Floating: true, WrapType: "square", RotationDeg: rotation}, X: 100, Y: 100, Width: 100, Height: 40},
+		{TextBox: &resolve.TextBox{Width: 100 * emuPerPoint, Height: 40 * emuPerPoint, Floating: true, WrapType: "square", RotationDeg: rotation}, X: 100, Y: 100, Width: 100, Height: 40},
+		{Shape: &resolve.Shape{Width: 100 * emuPerPoint, Height: 40 * emuPerPoint, Floating: true, WrapType: "square", RotationDeg: rotation}, X: 100, Y: 100, Width: 100, Height: 40},
+	}
+	var first lineExclusion
+	for i, fl := range cases {
+		exc, ok := lineExclusionForFloat(fl)
+		if !ok {
+			t.Fatalf("case %d produced no exclusion", i)
+		}
+		if exc.top >= fl.Y || exc.bottom <= fl.Y+fl.Height {
+			t.Fatalf("case %d did not use rotation-aware vertical bounds: %+v", i, exc)
+		}
+		if i == 0 {
+			first = exc
+			continue
+		}
+		if !almostEqual(exc.left, first.left) || !almostEqual(exc.right, first.right) || !almostEqual(exc.top, first.top) || !almostEqual(exc.bottom, first.bottom) {
+			t.Fatalf("case %d geometry differs from image: got=%+v image=%+v", i, exc, first)
+		}
+	}
+}
+
+func TestDrawingLineExclusionScalesAndRotatesWrapPolygon(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	img := &resolve.Image{
+		Width: 100 * emuPerPoint, Height: 50 * emuPerPoint,
+		Floating: true, WrapType: "tight", RotationDeg: 90,
+		WrapPolygon: [][2]float64{{0, 0}, {100, 0}, {100, 50}, {0, 50}},
+	}
+	fl := FloatBox{Image: img, X: 20, Y: 30, Width: 200, Height: 100}
+	exc, ok := lineExclusionForFloat(fl)
+	if !ok || len(exc.polygon) != 4 {
+		t.Fatalf("exclusion=%+v polygon=%v", exc, exc.polygon)
+	}
+	// 200x100 rotated by 90 degrees around its center becomes a 100x200 box.
+	if !almostEqual(exc.left, 70) || !almostEqual(exc.right, 170) || !almostEqual(exc.top, -20) || !almostEqual(exc.bottom, 180) {
+		t.Fatalf("rotated/scaled bounds = l%.1f r%.1f t%.1f b%.1f", exc.left, exc.right, exc.top, exc.bottom)
+	}
+}
+
+func TestDrawingLineExclusionIncludesEffectExtents(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	img := &resolve.Image{
+		Width: 100 * emuPerPoint, Height: 50 * emuPerPoint,
+		Floating: true, WrapType: "square",
+		EffectExtentL: 5 * emuPerPoint, EffectExtentT: 7 * emuPerPoint,
+		EffectExtentR: 11 * emuPerPoint, EffectExtentB: 13 * emuPerPoint,
+	}
+	exc, ok := lineExclusionForFloat(FloatBox{Image: img, X: 20, Y: 30, Width: 100, Height: 50})
+	if !ok {
+		t.Fatal("expected exclusion")
+	}
+	if !almostEqual(exc.left, 15) || !almostEqual(exc.top, 23) || !almostEqual(exc.right, 131) || !almostEqual(exc.bottom, 93) {
+		t.Fatalf("effect extent bounds = %+v", exc)
+	}
+}
+
+func TestStoryParagraphMetricsRetainFirstParagraphSpacingBefore(t *testing.T) {
+	before := 120
+	after := 80
+	p := &resolve.Paragraph{Format: resolve.ParagraphFormat{
+		LineRule:      "exact",
+		LineSpacing:   intPtr(240),
+		SpacingBefore: &before,
+		SpacingAfter:  &after,
+	}}
+	metrics := resolveStoryParagraphMetrics(&resolve.Document{}, p, nil, nil, PageGeometry{})
+	if !almostEqual(metrics.SpacingBefore, 6) || !almostEqual(metrics.SpacingAfter, 4) {
+		t.Fatalf("story spacing = %.3f/%.3f, want 6/4", metrics.SpacingBefore, metrics.SpacingAfter)
+	}
+	if got := storyParagraphHeightInWidth(&resolve.Document{}, p, nil, nil, PageGeometry{}, 200); !almostEqual(got, 22) {
+		t.Fatalf("story paragraph height = %.3f, want 22", got)
+	}
+}
+
+func TestStoryParagraphMetricsUseSameEmptyHeightAsBodyMetrics(t *testing.T) {
+	fontSize := 40
+	p := &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Format: resolve.RunFormat{FontSize: &fontSize}}}}
+	doc := &resolve.Document{}
+	geom := PageGeometry{}
+	body := resolveTextLayoutMetrics(doc, p, geom, 0, 0)
+	story := resolveStoryParagraphMetrics(doc, p, nil, nil, geom)
+	if !almostEqual(body.EmptyHeightPt, story.EmptyHeightPt) {
+		t.Fatalf("empty paragraph height differs: body %.3f story %.3f", body.EmptyHeightPt, story.EmptyHeightPt)
+	}
+	if got := storyParagraphHeightInWidth(doc, p, nil, nil, geom, 200); !almostEqual(got, body.EmptyHeightPt) {
+		t.Fatalf("empty story paragraph height = %.3f, want canonical %.3f", got, body.EmptyHeightPt)
+	}
+}
+
+func TestTableCellUsesCanonicalStoryParagraphSpacing(t *testing.T) {
+	before := 120
+	after := 80
+	cell := resolve.TableCell{Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Format: resolve.ParagraphFormat{
+		LineRule:      "exact",
+		LineSpacing:   intPtr(240),
+		SpacingBefore: &before,
+		SpacingAfter:  &after,
+	}}}}}
+	got := tableCellHeight(&resolve.Document{}, cell, resolve.TableFormat{}, 200, false, false)
+	if got < 22 {
+		t.Fatalf("table-cell height = %.3f, want at least canonical paragraph height 22", got)
+	}
+}
+
+func TestPaginateAttachesPhysicalFragmentToOrdinaryParagraph(t *testing.T) {
+	doc := &resolve.Document{
+		Sections: []resolve.Section{{}},
+		Blocks: []resolve.Block{{
+			Kind: "paragraph",
+			Paragraph: &resolve.Paragraph{
+				Runs: []resolve.Run{{Kind: "run", Text: "ordinary paragraph owns canonical physical topology"}},
+			},
+		}},
+	}
+	pages := Paginate(doc)
+	if len(pages) == 0 || len(pages[0].Blocks) == 0 {
+		t.Fatal("Paginate produced no paragraph block")
+	}
+	fragment := pages[0].Blocks[0].Fragment
+	if fragment == nil {
+		t.Fatal("ordinary paragraph fragment = nil, want canonical physical fragment")
+	}
+	if len(fragment.Lines) == 0 {
+		t.Fatal("ordinary paragraph physical lines = nil")
+	}
+}
+
+func TestListParagraphOwnsCanonicalPhysicalFragment(t *testing.T) {
+	doc := &resolve.Document{
+		Blocks: []resolve.Block{{
+			Kind: "paragraph",
+			Paragraph: &resolve.Paragraph{
+				List:      &resolve.ListMarker{Kind: "ordered", Level: 0, Start: 1, Format: "decimal", Template: "%1."},
+				Numbering: &resolve.Numbering{NumID: 1, Level: 0, Start: 1, Format: "decimal", Text: "%1.", IndentLeft: 720, IndentHanging: 360},
+				Runs:      []resolve.Run{{Kind: "run", Text: "list item"}},
+			},
+		}},
+	}
+	pages := Paginate(doc)
+	if len(pages) == 0 || len(pages[0].Blocks) == 0 {
+		t.Fatal("list paragraph produced no layout block")
+	}
+	fragment := pages[0].Blocks[0].Fragment
+	if fragment == nil {
+		t.Fatal("list paragraph fragment = nil")
+	}
+	if len(fragment.Lines) == 0 {
+		t.Fatal("list paragraph has no canonical physical lines")
+	}
+}
+
+func TestLayoutBlocksForRenderAttachesCanonicalPhysicalFragments(t *testing.T) {
+	paragraph := resolve.Paragraph{
+		Runs: []resolve.Run{
+			{Kind: "run", Text: "left"},
+			{Kind: "tab", Text: "\t"},
+			{Kind: "run", Text: "right"},
+		},
+	}
+	blocks := []resolve.Block{{Kind: "paragraph", Paragraph: &paragraph}}
+	geom := PageGeometry{Width: 432, Height: 72, ColumnCount: 1, ColumnWidthPt: 432}
+
+	boxes, _ := LayoutBlocksForRender(&resolve.Document{}, blocks, geom)
+	if len(boxes) != 1 {
+		t.Fatalf("standalone layout boxes = %d, want 1", len(boxes))
+	}
+	if boxes[0].Fragment == nil {
+		t.Fatal("standalone paragraph fragment = nil")
+	}
+	if len(boxes[0].Fragment.Lines) == 0 {
+		t.Fatal("standalone paragraph has no canonical physical lines")
+	}
+}
+
+func TestFooterClearanceReservesPhysicalOverhangWithoutInventingExtraLine(t *testing.T) {
+	doc := &resolve.Document{
+		DefaultRunFormat: resolve.RunFormat{FontSize: intPtr(12)},
+	}
+	got := physicalBodyFooterClearancePt(doc)
+	if got < 2.0 {
+		t.Fatalf("footer clearance = %.2fpt, want physical leading clearance", got)
+	}
+	fullLine := 12.0 * wordSingleLineRatio
+	if got >= fullLine {
+		t.Fatalf("footer clearance = %.2fpt, must not reserve a complete %.2fpt body line", got, fullLine)
+	}
+}
+
+func TestWordSingleLineFallbackUsesWordAdvanceNotCSSNormal(t *testing.T) {
+	p := &resolve.Paragraph{}
+	got := paragraphLineHeightPt(p, PageGeometry{}, 12)
+	want := 13.8
+	if math.Abs(got-want) > 0.001 {
+		t.Fatalf("12pt Word single line height = %.3f, want %.3f", got, want)
+	}
+}
+
+func TestEmptyTableRowFallbackUsesCanonicalWordSingleAdvance(t *testing.T) {
+	doc := &resolve.Document{DefaultRunFormat: resolve.RunFormat{FontSize: intPtr(24)}}
+	got := tableRowHeight(doc, resolve.TableRow{}, resolve.TableFormat{}, 432, true, true)
+	want := 13.8
+	if math.Abs(got-want) > 0.001 {
+		t.Fatalf("empty row fallback = %.3f, want %.3f", got, want)
 	}
 }

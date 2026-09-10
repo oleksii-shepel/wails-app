@@ -265,6 +265,8 @@ type Options struct {
 	IncludeEndnotes bool
 	// IncludeComments walks the related comments part after the main body.
 	IncludeComments bool
+	// Password decrypts an encrypted OOXML package for this walk only.
+	Password string
 }
 
 // WalkPath walks the main document story from a DOCX file on disk.
@@ -329,7 +331,7 @@ func WalkReaderAt(r io.ReaderAt, size int64, handler Handler, opts Options) erro
 	}
 
 	// Encrypted OOXML in OLE containers still needs the existing OPC fallback.
-	pkg, openErr := opc.OpenReaderAt(r, size)
+	pkg, openErr := opc.OpenReaderAtWithOptions(r, size, opc.OpenOptions{Password: opts.Password})
 	if openErr != nil {
 		return openErr
 	}
@@ -1490,6 +1492,10 @@ func (w *walker) walkRun(dec *xml.Decoder, start xml.StartElement) error {
 		switch t := token.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "AlternateContent":
+				if err := w.walkRunAlternateContent(dec, t); err != nil {
+					return err
+				}
 			case "t", "delText":
 				var text string
 				if err := dec.DecodeElement(&text, &t); err != nil {
@@ -1660,6 +1666,21 @@ func (w *walker) walkRun(dec *xml.Decoder, start xml.StartElement) error {
 				}); err != nil {
 					return err
 				}
+			case "pict":
+				// Preserve legacy VML fallback content for the streaming bridge.
+				rawXML, err := decodeRawElement(dec, t)
+				if err != nil {
+					return err
+				}
+				if err := w.emit(Event{
+					Type:               EventDrawing,
+					RawXML:             rawXML,
+					DrawingKind:        "anchor",
+					DrawingGraphicKind: "shape",
+					DrawingHasTextBox:  strings.Contains(rawXML, "txbxContent"),
+				}); err != nil {
+					return err
+				}
 			case "drawing":
 				rawXML, drawing, err := decodeDrawingToken(dec, t, w.relationshipRefs)
 				if err != nil {
@@ -1747,6 +1768,108 @@ func (w *walker) walkRun(dec *xml.Decoder, start xml.StartElement) error {
 		case xml.EndElement:
 			if t.Name == start.Name {
 				return nil
+			}
+		}
+	}
+}
+
+
+// walkRunAlternateContent selects one renderable branch from mc:AlternateContent.
+// Word commonly stores text boxes as a wps:wsp DrawingML Choice plus a VML
+// Fallback. walkRun used to Skip the whole container, silently deleting all
+// textbox text from the streaming document.
+func (w *walker) walkRunAlternateContent(dec *xml.Decoder, start xml.StartElement) error {
+	raw, err := decodeRawElement(dec, start)
+	if err != nil {
+		return err
+	}
+
+	// Prefer the modern Choice. We intentionally emit only one branch so Word's
+	// DrawingML + VML compatibility pair cannot duplicate visible content.
+	if emitted, err := w.emitAlternateContentDrawing(raw, "Choice"); err != nil {
+		return err
+	} else if emitted {
+		return nil
+	}
+	_, err = w.emitAlternateContentDrawing(raw, "Fallback")
+	return err
+}
+
+func (w *walker) emitAlternateContentDrawing(rawXML, branch string) (bool, error) {
+	dec := xml.NewDecoder(strings.NewReader(rawXML))
+	branchDepth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if err == io.EOF {
+				return false, nil
+			}
+			return false, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == branch {
+				branchDepth = 1
+				continue
+			}
+			if branchDepth == 0 {
+				continue
+			}
+			branchDepth++
+			switch t.Name.Local {
+			case "drawing":
+				drawingXML, drawing, err := decodeDrawingToken(dec, t, w.relationshipRefs)
+				if err != nil {
+					return false, err
+				}
+				event := Event{
+					Type:                   EventDrawing,
+					RawXML:                 drawingXML,
+					DrawingKind:            drawing.kind,
+					DrawingDocID:           drawing.docID,
+					DrawingName:            drawing.name,
+					DrawingDescription:     drawing.description,
+					DrawingTitle:           drawing.title,
+					DrawingHidden:          drawing.hidden,
+					WidthEMU:               drawing.widthEMU,
+					HeightEMU:              drawing.heightEMU,
+					GraphicDataURI:         drawing.graphicDataURI,
+					DrawingGraphicKind:     drawing.graphicKind,
+					DrawingHasTextBox:      drawing.hasTextBox || strings.Contains(drawingXML, "txbxContent"),
+					DrawingModel:           drawing.model,
+					RelatedRelationshipIDs: drawing.relationshipIDs,
+					RelatedTargets:         drawing.targets,
+				}
+				// wps is a versioned DrawingML shape vocabulary. Preserve the
+				// canonical stream kind even when the typed model did not bind.
+				if event.DrawingHasTextBox {
+					event.DrawingGraphicKind = "shape"
+				}
+				setPrimaryRelationship(&event, drawing.relationshipIDs, drawing.targets, w.relationshipRefs)
+				event.RelatedParts = w.describeRelationships(drawing.relationshipIDs)
+				if err := w.emit(event); err != nil {
+					return false, err
+				}
+				return true, nil
+			case "pict":
+				pictXML, err := decodeRawElement(dec, t)
+				if err != nil {
+					return false, err
+				}
+				if err := w.emit(Event{
+					Type:               EventDrawing,
+					RawXML:             pictXML,
+					DrawingKind:        "anchor",
+					DrawingGraphicKind: "shape",
+					DrawingHasTextBox:  strings.Contains(pictXML, "txbxContent"),
+				}); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+		case xml.EndElement:
+			if branchDepth > 0 {
+				branchDepth--
 			}
 		}
 	}
@@ -2784,6 +2907,8 @@ func normalizeGraphicDataURI(uri string) string {
 		return "diagram"
 	case strings.Contains(uri, "/picture"):
 		return "picture"
+	case strings.Contains(uri, "wordprocessingshape"):
+		return "shape"
 	default:
 		return uri
 	}

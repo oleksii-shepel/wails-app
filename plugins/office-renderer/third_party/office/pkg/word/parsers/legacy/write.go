@@ -131,7 +131,7 @@ func WriteDocument(doc *wordir.Document, w io.Writer) error {
 	setLegacyFibEntry(&fib, 5, atnTxtOffset, len(atnTxtData))
 	setLegacyFibEntry(&fib, 46, ednRefOffset, len(ednRefData))
 	setLegacyFibEntry(&fib, 47, ednTxtOffset, len(ednTxtData))
-	setLegacyFibEntry(&fib, legacyFibPlcftxbxTxt, plcfTxbxOffset, len(plcfTxbxData))
+	setLegacyFibEntry(&fib, fib97FcLcbPlcftxbxTxtIndex, plcfTxbxOffset, len(plcfTxbxData))
 	fib.fibRgFcLcb.entries[15*2] = uint32(fontOffset)
 	fib.fibRgFcLcb.entries[15*2+1] = uint32(len(fontData))
 
@@ -169,6 +169,14 @@ func WriteDocument(doc *wordir.Document, w io.Writer) error {
 	return err
 }
 
+// Word 97 FibRgFcLcb97/FTXBXS layout used by the writer. These are format
+// definitions, not parser compatibility aliases.
+const (
+	fib97FcLcbPlcftxbxTxtIndex = 56
+	ftxbxs97Size                = 22
+	ftxbxs97LidOffset           = 14
+)
+
 func buildLegacyPlcftxbxTxt(text string, ownerShapeIDs []uint32) []byte {
 	if text == "" || len(ownerShapeIDs) == 0 {
 		return nil
@@ -178,14 +186,14 @@ func buildLegacyPlcftxbxTxt(text string, ownerShapeIDs []uint32) []byte {
 		return nil
 	}
 	n := len(stories)
-	out := make([]byte, 4*(n+1)+legacyFTXBXSSize*n)
+	out := make([]byte, 4*(n+1)+ftxbxs97Size*n)
 	cpBytes := 4 * (n + 1)
 	cp := 0
 	for i, story := range stories {
 		binary.LittleEndian.PutUint32(out[i*4:(i+1)*4], uint32(cp))
-		recOff := cpBytes + i*legacyFTXBXSSize
+		recOff := cpBytes + i*ftxbxs97Size
 		binary.LittleEndian.PutUint32(
-			out[recOff+legacyFTXBXSLidOffset:recOff+legacyFTXBXSLidOffset+4],
+			out[recOff+ftxbxs97LidOffset:recOff+ftxbxs97LidOffset+4],
 			ownerShapeIDs[i],
 		)
 		cp += len([]rune(story))

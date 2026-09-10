@@ -27,12 +27,15 @@ func ParseInstruction(instr string) Instruction {
 	}
 	kind := strings.ToUpper(tokens[0])
 	out := Instruction{Kind: kind, Instr: trimmed}
+
 	switch kind {
 	case "HYPERLINK":
+		out.Target, out.Anchor = parseHyperlink(tokens)
+	case "REF":
 		if len(tokens) > 1 {
-			out.Target = tokens[1]
+			out.Anchor = tokens[1]
 		}
-	case "REF", "PAGEREF":
+	case "PAGEREF":
 		if len(tokens) > 1 {
 			out.Anchor = tokens[1]
 		}
@@ -41,11 +44,63 @@ func ParseInstruction(instr string) Instruction {
 			out.Arg = tokens[1]
 		}
 	case "FILLIN":
+		// Word commonly stores a prompt followed by the default value.
 		if len(tokens) > 2 {
 			out.Arg = tokens[2]
+		} else if len(tokens) > 1 {
+			out.Arg = tokens[1]
+		}
+	case "ASK", "MERGEFIELD", "AUTOTEXT", "SET":
+		if len(tokens) > 1 {
+			out.Arg = tokens[1]
+		}
+	case "SEQ":
+		// Keep the shared parser deliberately conservative. The mature document
+		// materializer derives sequence identity/control from the raw instruction;
+		// publishing the leading token as generic Arg would change the established
+		// shared grammar contract.
+	case "QUOTE", "EMBED", "LINK", "IF", "COMPARE":
+		// These instructions have meaningful internal grammar of their own.
+		// Preserve the normalized raw instruction as the semantic argument until
+		// the dedicated resolver interprets it.
+		out.Arg = trimmed
+	}
+
+	return out
+}
+
+func parseHyperlink(tokens []string) (target, anchor string) {
+	for i := 1; i < len(tokens); i++ {
+		token := tokens[i]
+		switch strings.ToLower(token) {
+		case `\l`:
+			if i+1 < len(tokens) {
+				anchor = tokens[i+1]
+				i++
+			}
+		case `\m`, `\n`, `\o`, `\t`:
+			// Switches with an argument. They do not change the navigation
+			// target represented by this format-neutral instruction.
+			if i+1 < len(tokens) {
+				i++
+			}
+		default:
+			if strings.HasPrefix(token, `\`) {
+				continue
+			}
+			if target == "" {
+				target = token
+			}
 		}
 	}
-	return out
+	if anchor != "" {
+		if target != "" {
+			target += "#" + anchor
+		} else {
+			target = "#" + anchor
+		}
+	}
+	return target, anchor
 }
 
 func splitTokens(input string) []string {

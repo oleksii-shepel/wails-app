@@ -25,10 +25,6 @@ func numberingFromReference(ref *wordir.NumberingReference) *wordir.Numbering {
 	return &wordir.Numbering{NumID: ref.NumID, Level: ref.Level}
 }
 
-// splitLegacyFixtureCaption promotes the title/caption convention used by
-// legacy DOC fixture documents into separate semantic blocks. Word stores the
-// two differently formatted runs in one paragraph, but treating the caption as
-// inline text loses its authored display position in HTML.
 func (s *DOCSource) Walk(handler Handler) error {
 	if s == nil {
 		return nil
@@ -180,7 +176,9 @@ func (s *DOCSource) Walk(handler Handler) error {
 	}
 	var unsupported docparser.StreamUnsupportedError
 	if errors.As(err, &unsupported) {
-		return StreamUnsupportedEventError{Type: EventType("legacy:" + unsupported.Feature)}
+		// The DOC parser may dispatch canonical Word97 or pre-97 compatibility.
+		// Do not mislabel every parser-level failure as legacy ownership.
+		return StreamUnsupportedEventError{Type: EventType("doc:" + unsupported.Feature)}
 	}
 	return err
 }

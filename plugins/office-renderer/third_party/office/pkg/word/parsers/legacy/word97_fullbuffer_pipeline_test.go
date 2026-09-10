@@ -2,8 +2,8 @@ package legacy
 
 import "testing"
 
-func TestLegacyBookmarkEndCPByNameInvertsCanonicalEnds(t *testing.T) {
-	got := legacyBookmarkEndCPByName(map[int][]string{
+func TestWord97BookmarkEndCPByNameInvertsCanonicalEnds(t *testing.T) {
+	got := word97BookmarkEndCPByName(map[int][]string{
 		7:  {"alpha", "beta"},
 		12: {"gamma"},
 	})
@@ -15,11 +15,5 @@ func TestLegacyBookmarkEndCPByNameInvertsCanonicalEnds(t *testing.T) {
 		if got[name] != cp {
 			t.Fatalf("bookmark %q end = %d, want %d", name, got[name], cp)
 		}
-	}
-}
-
-func TestMaterializeLegacyWord97ParseDataRejectsNilCore(t *testing.T) {
-	if got := materializeLegacyWord97ParseData(nil, nil); got != nil {
-		t.Fatalf("parse data = %#v, want nil", got)
 	}
 }

@@ -725,3 +725,55 @@ func TestRenderDrawingShapeTextUsesRichRunsAndParagraphBreaks(t *testing.T) {
 		}
 	}
 }
+
+func TestConditionalFormattingExpressionTranslatesRelativeReferencesPerCell(t *testing.T) {
+	eng := formula.NewEngine()
+	eng.SetCell("A4", formula.Bool(true))
+	eng.SetCell("A5", formula.Bool(false))
+	eng.SetCell("A6", formula.Bool(false))
+	eng.SetCell("B4", formula.Text("first"))
+	eng.SetCell("B5", formula.Text("second"))
+	eng.SetCell("B6", formula.Text("third"))
+
+	rule := &resolve.CFRule{
+		SqRef:   "A4:C6",
+		Type:    "expression",
+		Formula: []string{"$A4=TRUE"},
+	}
+	values := map[string]cellValueData{
+		"A4": {kind: resolve.CellBool, numValue: 1},
+		"A5": {kind: resolve.CellBool, numValue: 0},
+		"A6": {kind: resolve.CellBool, numValue: 0},
+		"B4": {kind: resolve.CellString, strValue: "first"},
+		"B5": {kind: resolve.CellString, strValue: "second"},
+		"B6": {kind: resolve.CellString, strValue: "third"},
+	}
+
+	for _, ref := range []string{"A4", "B4", "C4"} {
+		if !evaluateExpressionRule(rule, ref, values, eng) {
+			t.Fatalf("%s should match =$A4=TRUE", ref)
+		}
+	}
+	for _, ref := range []string{"A5", "B5", "C5", "A6", "B6", "C6"} {
+		if evaluateExpressionRule(rule, ref, values, eng) {
+			t.Fatalf("%s must not match after relative row translation", ref)
+		}
+	}
+}
+
+func TestConditionalFormattingExpressionPreservesAbsoluteReferences(t *testing.T) {
+	eng := formula.NewEngine()
+	eng.SetCell("A4", formula.Bool(true))
+	eng.SetCell("A5", formula.Bool(false))
+
+	rule := &resolve.CFRule{
+		SqRef:   "A4:C6",
+		Type:    "expression",
+		Formula: []string{"$A$4=TRUE"},
+	}
+	values := map[string]cellValueData{"A4": {kind: resolve.CellBool, numValue: 1}}
+
+	if !evaluateExpressionRule(rule, "C6", values, eng) {
+		t.Fatal("absolute $A$4 reference must remain anchored while evaluating C6")
+	}
+}

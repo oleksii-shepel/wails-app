@@ -5161,16 +5161,33 @@ func evaluateCellIsRule(rule *resolve.CFRule, cell cellValueData) bool {
 	return false
 }
 
+func conditionalFormattingAnchorRef(sqref string) string {
+	for _, part := range strings.Fields(sqref) {
+		if anchor := validationAnchorRef(part); anchor != "" {
+			return anchor
+		}
+	}
+	return ""
+}
+
 // evaluateExpressionRule evaluates an "expression" conditional formatting rule
 func evaluateExpressionRule(rule *resolve.CFRule, ref string, cellValues map[string]cellValueData, eng *formula.Engine) bool {
 	if len(rule.Formula) == 0 {
 		return false
 	}
 
-	// Evaluate the formula
+	// Conditional-format expression formulas are authored relative to the
+	// top-left cell of the applies-to range. Excel translates relative row/column
+	// references for every target cell while preserving $-absolute components.
+	// Evaluating the authored expression verbatim makes a rule such as
+	// =$A4=TRUE over A4:C51 read A4 for every row, causing one TRUE row to style
+	// the whole range.
 	formulaStr := rule.Formula[0]
 	if formulaStr == "" {
 		return false
+	}
+	if anchorRef := conditionalFormattingAnchorRef(rule.SqRef); anchorRef != "" {
+		formulaStr = translateValidationFormula(formulaStr, anchorRef, ref)
 	}
 
 	result, err := formula.EvaluateInContext(formulaStr, eng.GetCell, eng.GetRange)

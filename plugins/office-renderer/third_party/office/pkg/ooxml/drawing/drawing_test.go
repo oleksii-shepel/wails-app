@@ -698,14 +698,14 @@ func TestBuildConnectorPrimitivesTailTriangle(t *testing.T) {
 		t.Fatalf("primitive count = %d, want 2", len(primitives))
 	}
 	body := primitives[0]
-	if len(body.Points) != 2 || body.Points[1] != (Point{X: 276, Y: 54}) {
-		t.Fatalf("trimmed body points = %#v, want end at 276,54", body.Points)
+	if len(body.Points) != 2 || body.Points[1] != (Point{X: 252, Y: 54}) {
+		t.Fatalf("trimmed body points = %#v, want stroke-scaled end at 252,54", body.Points)
 	}
 	arrow := primitives[1]
 	if !arrow.Closed || arrow.Style.FillColor != "595959" {
 		t.Fatalf("arrow primitive = %#v, want closed filled polygon", arrow)
 	}
-	want := []Point{{X: 288, Y: 54}, {X: 276, Y: 58}, {X: 276, Y: 50}}
+	want := []Point{{X: 288, Y: 54}, {X: 252, Y: 66}, {X: 252, Y: 42}}
 	if len(arrow.Points) != len(want) {
 		t.Fatalf("arrow point count = %d, want %d", len(arrow.Points), len(want))
 	}
@@ -1041,110 +1041,110 @@ func TestBuildConnectorPrimitivesWithLineStyle(t *testing.T) {
 }
 
 func TestCompoundLinePrimitives(t *testing.T) {
-spec := ConnectorSpec{
-Type:        "line",
-BoundsX:     10, BoundsY: 10, BoundsW: 100, BoundsH: 0,
-LineColor:   "000000",
-LineWidthPt: 4.0,
-LineStyle: &LineStyle{
-Compound:     true,
-CompoundType: "dbl",
-Color:        "000000",
-Width:        4.0,
-},
-}
-prims := BuildConnectorPrimitives(spec)
-// Should have at least 2 primitives: body stroke + gap stroke
-if len(prims) < 2 {
-t.Fatalf("dbl compound connector: got %d primitives, want >= 2", len(prims))
-}
+	spec := ConnectorSpec{
+		Type:    "line",
+		BoundsX: 10, BoundsY: 10, BoundsW: 100, BoundsH: 0,
+		LineColor:   "000000",
+		LineWidthPt: 4.0,
+		LineStyle: &LineStyle{
+			Compound:     true,
+			CompoundType: "dbl",
+			Color:        "000000",
+			Width:        4.0,
+		},
+	}
+	prims := BuildConnectorPrimitives(spec)
+	// Should have at least 2 primitives: body stroke + gap stroke
+	if len(prims) < 2 {
+		t.Fatalf("dbl compound connector: got %d primitives, want >= 2", len(prims))
+	}
 }
 
 func TestCompoundLineTriPrimitives(t *testing.T) {
-spec := ConnectorSpec{
-Type:        "line",
-BoundsX:     10, BoundsY: 10, BoundsW: 100, BoundsH: 0,
-LineColor:   "000000",
-LineWidthPt: 6.0,
-LineStyle: &LineStyle{
-Compound:     true,
-CompoundType: "tri",
-Color:        "000000",
-Width:        6.0,
-},
-}
-prims := BuildConnectorPrimitives(spec)
-// tri compound has two gap strokes
-if len(prims) < 3 {
-t.Fatalf("tri compound connector: got %d primitives, want >= 3", len(prims))
-}
+	spec := ConnectorSpec{
+		Type:    "line",
+		BoundsX: 10, BoundsY: 10, BoundsW: 100, BoundsH: 0,
+		LineColor:   "000000",
+		LineWidthPt: 6.0,
+		LineStyle: &LineStyle{
+			Compound:     true,
+			CompoundType: "tri",
+			Color:        "000000",
+			Width:        6.0,
+		},
+	}
+	prims := BuildConnectorPrimitives(spec)
+	// tri compound has two gap strokes
+	if len(prims) < 3 {
+		t.Fatalf("tri compound connector: got %d primitives, want >= 3", len(prims))
+	}
 }
 
 func TestCloudDistinctFromCloudCallout(t *testing.T) {
-cloud := PresetGeometry{Name: "cloud"}
-callout := PresetGeometry{Name: "cloudCallout"}
+	cloud := PresetGeometry{Name: "cloud"}
+	callout := PresetGeometry{Name: "cloudCallout"}
 
-cloudPath, err := cloud.GetPath(120, 80)
-if err != nil {
-t.Fatalf("cloud GetPath error: %v", err)
-}
-calloutPath, err := callout.GetPath(120, 80)
-if err != nil {
-t.Fatalf("cloudCallout GetPath error: %v", err)
-}
+	cloudPath, err := cloud.GetPath(120, 80)
+	if err != nil {
+		t.Fatalf("cloud GetPath error: %v", err)
+	}
+	calloutPath, err := callout.GetPath(120, 80)
+	if err != nil {
+		t.Fatalf("cloudCallout GetPath error: %v", err)
+	}
 
-// cloudCallout should have more commands due to the tail
-if len(calloutPath.Commands) <= len(cloudPath.Commands) {
-t.Errorf("cloudCallout should have more commands than cloud: cloud=%d, callout=%d",
-len(cloudPath.Commands), len(calloutPath.Commands))
-}
+	// cloudCallout should have more commands due to the tail
+	if len(calloutPath.Commands) <= len(cloudPath.Commands) {
+		t.Errorf("cloudCallout should have more commands than cloud: cloud=%d, callout=%d",
+			len(cloudPath.Commands), len(calloutPath.Commands))
+	}
 }
 
 func TestCanDistinctFromCylinder(t *testing.T) {
-can := PresetGeometry{Name: "can"}
-cylinder := PresetGeometry{Name: "cylinder"}
+	can := PresetGeometry{Name: "can"}
+	cylinder := PresetGeometry{Name: "cylinder"}
 
-canPath, err := can.GetPath(100, 140)
-if err != nil {
-t.Fatalf("can GetPath error: %v", err)
-}
-cylinderPath, err := cylinder.GetPath(100, 140)
-if err != nil {
-t.Fatalf("cylinder GetPath error: %v", err)
-}
+	canPath, err := can.GetPath(100, 140)
+	if err != nil {
+		t.Fatalf("can GetPath error: %v", err)
+	}
+	cylinderPath, err := cylinder.GetPath(100, 140)
+	if err != nil {
+		t.Fatalf("cylinder GetPath error: %v", err)
+	}
 
-// Both should produce valid paths
-if len(canPath.Commands) == 0 {
-t.Error("can path is empty")
-}
-if len(cylinderPath.Commands) == 0 {
-t.Error("cylinder path is empty")
-}
+	// Both should produce valid paths
+	if len(canPath.Commands) == 0 {
+		t.Error("can path is empty")
+	}
+	if len(cylinderPath.Commands) == 0 {
+		t.Error("cylinder path is empty")
+	}
 }
 
 func TestNewPresetGeometries(t *testing.T) {
-shapes := []string{
-"snip1Rect", "snip2SameRect", "snip2DiagRect", "snipRoundRect",
-"round1Rect", "round2SameRect", "round2DiagRect",
-"notchedRightArrow", "homePlate", "foldedCorner", "bevel",
-"noSmoking", "blockArc", "bracketPair", "bracePair",
-"flowChartTerminator", "flowChartPreparation", "flowChartManualInput", "flowChartOffPageConnector",
-"bentArrow", "ribbon",
-"irregularSeal1", "irregularSeal2", "cross",
-"mathMinus", "mathMultiply", "mathEqual", "mathNotEqual",
-"gear6", "gear9",
-}
-for _, name := range shapes {
-pg := PresetGeometry{Name: name}
-path, err := pg.GetPath(100, 60)
-if err != nil {
-t.Errorf("%s: GetPath error: %v", name, err)
-continue
-}
-if len(path.Commands) == 0 {
-t.Errorf("%s: empty path", name)
-}
-}
+	shapes := []string{
+		"snip1Rect", "snip2SameRect", "snip2DiagRect", "snipRoundRect",
+		"round1Rect", "round2SameRect", "round2DiagRect",
+		"notchedRightArrow", "homePlate", "foldedCorner", "bevel",
+		"noSmoking", "blockArc", "bracketPair", "bracePair",
+		"flowChartTerminator", "flowChartPreparation", "flowChartManualInput", "flowChartOffPageConnector",
+		"bentArrow", "ribbon",
+		"irregularSeal1", "irregularSeal2", "cross",
+		"mathMinus", "mathMultiply", "mathEqual", "mathNotEqual",
+		"gear6", "gear9",
+	}
+	for _, name := range shapes {
+		pg := PresetGeometry{Name: name}
+		path, err := pg.GetPath(100, 60)
+		if err != nil {
+			t.Errorf("%s: GetPath error: %v", name, err)
+			continue
+		}
+		if len(path.Commands) == 0 {
+			t.Errorf("%s: empty path", name)
+		}
+	}
 }
 
 func TestStarAdjustmentOverridesInnerRadius(t *testing.T) {
@@ -1312,5 +1312,87 @@ func TestFormulaFunctionsProd(t *testing.T) {
 	}
 	if val != 24 {
 		t.Errorf("prod(2,3,4) = %v, want 24", val)
+	}
+}
+
+func TestArrowCalloutAdjustmentsOwnBodyShaftAndHeadGeometry(t *testing.T) {
+	base := PresetGeometry{Name: "rightArrowCallout"}
+	adjusted := PresetGeometry{Name: "rightArrowCallout", Adjustments: []float64{0.30, 0.10, 0.35}}
+	bp, err := base.GetPath(200, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ap, err := adjusted.GetPath(200, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(bp.Commands) == fmt.Sprint(ap.Commands) {
+		t.Fatal("authored arrow-callout adjustments did not change geometry")
+	}
+	// The adjusted body is 30% of the width; its rectangle's second command
+	// therefore terminates at x=60 rather than the default x=96.
+	if got := ap.Commands[1].Points[0].X; math.Abs(got-60) > 0.001 {
+		t.Fatalf("adjusted body edge x=%v, want 60", got)
+	}
+}
+
+func TestArrowCalloutExtremeAdjustmentsRemainFinite(t *testing.T) {
+	for _, name := range []string{"rightArrowCallout", "leftArrowCallout", "upArrowCallout", "downArrowCallout"} {
+		pg := PresetGeometry{Name: name, Adjustments: []float64{0, 1, 1}}
+		path, err := pg.GetPath(200, 100)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, cmd := range path.Commands {
+			for _, pt := range cmd.Points {
+				if math.IsNaN(pt.X) || math.IsNaN(pt.Y) || math.IsInf(pt.X, 0) || math.IsInf(pt.Y, 0) {
+					t.Fatalf("%s produced invalid point %+v", name, pt)
+				}
+			}
+		}
+	}
+}
+
+func TestMultiDirectionArrowCalloutAdjustmentsOwnGeometry(t *testing.T) {
+	lr := PresetGeometry{Name: "leftRightArrowCallout", Adjustments: []float64{0.30, 0.10, 0.15}}
+	p, err := lr.GetPath(200, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Central callout width is adj1 * width.
+	if got := p.Commands[1].Points[0].X; math.Abs(got-130) > 0.001 {
+		t.Fatalf("leftRight callout central right edge=%v, want 130", got)
+	}
+
+	base := PresetGeometry{Name: "quadArrowCallout"}
+	adj := PresetGeometry{Name: "quadArrowCallout", Adjustments: []float64{0.30, 0.36, 0.18}}
+	bp, _ := base.GetPath(200, 100)
+	ap, err := adj.GetPath(200, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(bp.Commands) == fmt.Sprint(ap.Commands) {
+		t.Fatal("quadArrowCallout adjustments did not change geometry")
+	}
+	// The prepended callout rectangle is 18% of the host dimensions.
+	if got := ap.Commands[1].Points[0].X; math.Abs(got-118) > 0.001 {
+		t.Fatalf("quad callout central right edge=%v, want 118", got)
+	}
+}
+
+func TestMultiDirectionArrowCalloutExtremeAdjustmentsRemainFinite(t *testing.T) {
+	for _, name := range []string{"leftRightArrowCallout", "quadArrowCallout", "quadArrow"} {
+		pg := PresetGeometry{Name: name, Adjustments: []float64{1, 0, 1}}
+		path, err := pg.GetPath(200, 100)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, cmd := range path.Commands {
+			for _, pt := range cmd.Points {
+				if math.IsNaN(pt.X) || math.IsNaN(pt.Y) || math.IsInf(pt.X, 0) || math.IsInf(pt.Y, 0) {
+					t.Fatalf("%s produced invalid point %+v", name, pt)
+				}
+			}
+		}
 	}
 }

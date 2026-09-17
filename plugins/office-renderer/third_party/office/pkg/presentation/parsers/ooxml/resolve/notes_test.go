@@ -1,14 +1,13 @@
-package resolve_test
+package resolve
 
 import (
 	"testing"
 
 	"office/pkg/ooxml/drawingxml"
 	"office/pkg/presentation/parsers/ooxml/parts"
-	resolve "office/pkg/presentation/parsers/ooxml/resolve"
 )
 
-func TestResolvePackageAppliesNotesMasterDefaults(t *testing.T) {
+func TestResolveFixturePackageAppliesNotesMasterDefaults(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		NotesMaster: &parts.NotesMaster{
@@ -38,9 +37,9 @@ func TestResolvePackageAppliesNotesMasterDefaults(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
-		t.Fatalf("ResolvePackage: %v", err)
+		t.Fatalf("resolveFixturePackage: %v", err)
 	}
 	if len(pres.Slides) != 1 || pres.Slides[0].Notes == nil {
 		t.Fatalf("resolved notes missing: %#v", pres.Slides)

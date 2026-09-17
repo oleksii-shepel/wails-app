@@ -2355,15 +2355,18 @@ func TestHTMLFormulaEngineRendersComputedHyperlinkCells(t *testing.T) {
 	}
 }
 
-func TestHTMLFormulaEnginePrefersComputedOverCachedValues(t *testing.T) {
-	// The formula engine result is preferred over stale cached StrValue.
+func TestHTMLFormulaEnginePreservesCachedFormulaValues(t *testing.T) {
+	// Fidelity rendering must preserve a cached workbook result. The local
+	// evaluator is a fallback for uncached formulas, not an authority that may
+	// replace an authored Excel cache when evaluator support is incomplete.
 	wb := &resolve.Workbook{
 		Sheets: []*resolve.Sheet{{
 			Name: "Sheet1",
 			Rows: []*resolve.Row{{
 				Index: 1,
 				Cells: []*resolve.Cell{
-					{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellFormula, Formula: "1+1", StrValue: "cached"},
+					{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellFormula, Formula: "1+1", StrValue: "cached", HasCachedValue: true},
+					{Row: 1, Col: 2, Ref: "B1", Kind: resolve.CellNumber, Formula: "1+1", NumValue: 7, HasCachedValue: true},
 				},
 			}},
 		}},
@@ -2372,11 +2375,81 @@ func TestHTMLFormulaEnginePrefersComputedOverCachedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, ">2<") {
-		t.Fatalf("expected engine-computed value '2' in output:\n%s", out)
+	if !strings.Contains(out, ">cached<") {
+		t.Fatalf("expected cached string formula result in output:\n%s", out)
 	}
-	if strings.Contains(out, ">cached<") {
-		t.Fatalf("stale cached value must be overridden by engine result:\n%s", out)
+	if !strings.Contains(out, ">7<") {
+		t.Fatalf("expected cached numeric formula result in output:\n%s", out)
+	}
+}
+
+func TestHTMLFormulaEngineRecoversCachedFormulaErrorWhenEvaluationSucceeds(t *testing.T) {
+	wb := &resolve.Workbook{
+		Sheets: []*resolve.Sheet{{
+			Name: "Sheet1",
+			Rows: []*resolve.Row{{
+				Index: 1,
+				Cells: []*resolve.Cell{{
+					Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellError,
+					Formula: `IFERROR(AVERAGE(1,2,3))`, StrValue: "#VALUE!", HasCachedValue: true,
+				}},
+			}},
+		}},
+	}
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Contains(out, ">#VALUE!<") {
+		t.Fatalf("expected recoverable cached formula error to be replaced by evaluated value:\n%s", out)
+	}
+	if !strings.Contains(out, ">2<") {
+		t.Fatalf("expected evaluated IFERROR/AVERAGE result in output:\n%s", out)
+	}
+}
+
+func TestHTMLFormulaEngineCanReplaceCachedErrorWithEmptyFallback(t *testing.T) {
+	wb := &resolve.Workbook{
+		Sheets: []*resolve.Sheet{{
+			Name: "Sheet1",
+			Rows: []*resolve.Row{{
+				Index: 1,
+				Cells: []*resolve.Cell{{
+					Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellError,
+					Formula:  `IFERROR(__xludf.dummyfunction("unique(Income!A:A)"),"")`,
+					StrValue: "#NAME?", HasCachedValue: true,
+				}},
+			}},
+		}},
+	}
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Contains(out, ">#NAME?<") {
+		t.Fatalf("expected empty IFERROR fallback to replace cached #NAME?:\n%s", out)
+	}
+	if !strings.Contains(out, `data-formula="IFERROR(__xludf.dummyfunction`) {
+		t.Fatalf("formula cell disappeared from output:\n%s", out)
+	}
+}
+
+func TestHTMLDoesNotEmitRendererMetadataPanelsForTablesOrPivots(t *testing.T) {
+	wb := &resolve.Workbook{Sheets: []*resolve.Sheet{{
+		Name:        "Sheet1",
+		Rows:        []*resolve.Row{{Index: 1, Cells: []*resolve.Cell{{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellString, StrValue: "Visible"}}}},
+		Tables:      []*resolve.Table{{Name: "SalesTable", DisplayName: "SalesTable", Ref: "A1:B2"}},
+		PivotTables: []*resolve.PivotTable{{Name: "SalesPivot", LocationRef: "D4:F8"}},
+	}}}
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Contains(out, `class="structured-table"`) || strings.Contains(out, `class="pivot-table"`) {
+		t.Fatalf("worksheet fidelity HTML must not append renderer metadata panels:\n%s", out)
+	}
+	if !strings.Contains(out, ">Visible<") {
+		t.Fatalf("worksheet grid content disappeared:\n%s", out)
 	}
 }
 
@@ -4231,5 +4304,54 @@ func TestHTMLAppliesDrawingShapeRotationAndFlips(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Fatalf("missing %q in %s", want, html)
 		}
+	}
+}
+
+func TestHTMLRendersDummyFunctionSparklineAsCellVisual(t *testing.T) {
+	wb := &resolve.Workbook{Sheets: []*resolve.Sheet{
+		{
+			Name: "Dashboard",
+			Rows: []*resolve.Row{
+				{Index: 1, Cells: []*resolve.Cell{
+					{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellNumber, NumValue: 25},
+					{Row: 1, Col: 2, Ref: "B1", Kind: resolve.CellNumber, NumValue: 100},
+					{Row: 1, Col: 3, Ref: "C1", Kind: resolve.CellFormula, Formula: `IFERROR(__xludf.DUMMYFUNCTION("SPARKLINE(A1,{""charttype"",""bar"";""max"",MAX(A1:B1);""color1"",""#334960""})"),"")`},
+				}},
+			},
+		},
+	}}
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `class="formula-sparkline"`) {
+		t.Fatalf("expected SPARKLINE compatibility formula to render an SVG visual:\n%s", out)
+	}
+	if !strings.Contains(out, `fill="#334960"`) {
+		t.Fatalf("expected authored sparkline color in SVG:\n%s", out)
+	}
+	if strings.Contains(out, `>#VALUE!<`) {
+		t.Fatalf("sparkline visual must replace unsupported-UDF #VALUE! display:\n%s", out)
+	}
+}
+
+func TestHTMLRendersColumnSparklineWithAuthoredFirstColor(t *testing.T) {
+	wb := &resolve.Workbook{Sheets: []*resolve.Sheet{
+		{
+			Name: "Dashboard",
+			Rows: []*resolve.Row{
+				{Index: 1, Cells: []*resolve.Cell{
+					{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellNumber, NumValue: 40},
+					{Row: 1, Col: 2, Ref: "B1", Kind: resolve.CellFormula, Formula: `IFERROR(__xludf.DUMMYFUNCTION("SPARKLINE(A1,{""charttype"",""column"";""ymin"",0;""ymax"",100;""firstcolor"",""#f46524""})"),"")`},
+				}},
+			},
+		},
+	}}
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `class="formula-sparkline"`) || !strings.Contains(out, `fill="#f46524"`) {
+		t.Fatalf("expected authored column sparkline visual:\n%s", out)
 	}
 }

@@ -1,7 +1,6 @@
 package parts
 
 import (
-	"encoding/xml"
 	"fmt"
 	"strings"
 
@@ -13,71 +12,14 @@ import (
 )
 
 // LoadPackage parses the typed PresentationML parts from a generic OPC package.
+// OPC discovery and top-level traversal are owned by packageAssembler so part
+// decoders do not each reconstruct package semantics.
 func LoadPackage(pkg *opc.Package) (*Package, error) {
-	if pkg == nil {
-		return nil, fmt.Errorf("presentation parts: package cannot be nil")
-	}
-	if pkg.PackageType() != opc.PackageTypePresentation {
-		return nil, fmt.Errorf("presentation parts: expected %q package, got %q", opc.PackageTypePresentation, pkg.PackageType())
-	}
-
-	mainPartName, err := findMainPart(pkg)
+	assembler, err := newPackageAssembler(pkg)
 	if err != nil {
 		return nil, err
 	}
-
-	mainPart, ok := pkg.Part(mainPartName)
-	if !ok {
-		return nil, fmt.Errorf("presentation parts: main part %q not found", mainPartName)
-	}
-
-	var pres Presentation
-	if err := xml.Unmarshal(mainPart.Data, &pres); err != nil {
-		return nil, fmt.Errorf("presentation parts: parse %s: %w", mainPartName, err)
-	}
-
-	out := &Package{
-		MainPartName: mainPartName,
-		Presentation: &pres,
-		Themes:       make(map[string]*Theme),
-		MediaParts:   make(map[string]media.Part),
-	}
-	for _, part := range pkg.Parts() {
-		if strings.EqualFold(part.Name, "[content_types].xml") {
-			continue
-		}
-		out.PreservedParts = append(out.PreservedParts, PreservedPart{
-			Name: part.Name, ContentType: part.ContentType, Data: append([]byte(nil), part.Data...),
-		})
-	}
-
-	presRels, ok, err := pkg.Relationships(mainPartName)
-	if err != nil {
-		return nil, fmt.Errorf("presentation parts: relationships for %s: %w", mainPartName, err)
-	}
-	if !ok {
-		return out, nil
-	}
-
-	byID := indexRelsByID(presRels)
-	byType := indexRelsByType(presRels)
-
-	loadEmbeddedFonts(pkg, mainPartName, pres.EmbeddedFontDecls, byID, out)
-
-	if err := loadSlides(pkg, mainPartName, pres.SlideIDs, byID, out); err != nil {
-		return nil, err
-	}
-	if err := loadSlideMasters(pkg, mainPartName, pres.SlideMasterIDs, byID, out); err != nil {
-		return nil, err
-	}
-	loadNotesMaster(pkg, mainPartName, byType, out)
-	loadThemes(pkg, mainPartName, byType, out)
-	loadTableStyles(pkg, mainPartName, byType, out)
-	loadMediaParts(pkg, mainPartName, byType, out)
-	loadCommentAuthors(pkg, mainPartName, byType, out)
-
-	out.Diagnostics = append(out.Diagnostics, collectPackageDiagnostics(out)...)
-	return out, nil
+	return assembler.assemble()
 }
 
 func addPackageLoadDiagnostic(pkg *Package, severity diag.Severity, code, message, partName string, cause error) {
@@ -181,8 +123,8 @@ func appendGroupShapeDiagnostics(dst *diag.List, group *GroupShape) {
 	}
 }
 
-func findMainPart(pkg *opc.Package) (string, error) {
-	rootRels, ok, err := pkg.Relationships("")
+func findMainPart(nav packageNavigator) (string, error) {
+	rootRels, ok, err := nav.relationships("")
 	if err != nil {
 		return "", fmt.Errorf("presentation parts: root relationships: %w", err)
 	}
@@ -191,7 +133,10 @@ func findMainPart(pkg *opc.Package) (string, error) {
 	}
 	for _, r := range rootRels.Relationships {
 		if relationshipTypeIs(r.Type, relTypeOfficeDocument) && !r.IsExternal() {
-			return rels.ResolveTarget("", r.Target), nil
+			target, ok := nav.target("", r)
+			if ok {
+				return target, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("presentation parts: officeDocument relationship not found")
@@ -211,14 +156,13 @@ func loadSlides(pkg *opc.Package, mainPartName string, slideIDs []IDRef, byID ma
 		partName := rels.ResolveTarget(mainPartName, r.Target)
 		entry.PartName = partName
 
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var slide Slide
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &slide)
+		if !found {
 			out.Slides = append(out.Slides, entry)
 			continue
 		}
-
-		var slide Slide
-		if err := xml.Unmarshal(p.Data, &slide); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityWarning, "pptx/malformed-slide", fmt.Sprintf("slide part could not be parsed; skipping slide content: %v", err), partName, err)
 			out.Slides = append(out.Slides, entry)
 			continue
@@ -273,7 +217,7 @@ func loadSlides(pkg *opc.Package, mainPartName string, slideIDs []IDRef, byID ma
 }
 
 func loadNotesSlide(pkg *opc.Package, slidePartName string, entry *SlideEntry, out *Package) {
-	slideRels, ok, err := pkg.Relationships(slidePartName)
+	slideRels, ok, err := newPackageNavigator(pkg).relationships(slidePartName)
 	if err != nil || !ok {
 		return
 	}
@@ -282,12 +226,13 @@ func loadNotesSlide(pkg *opc.Package, slidePartName string, entry *SlideEntry, o
 			continue
 		}
 		partName := rels.ResolveTarget(slidePartName, r.Target)
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var notes NotesSlide
+		found, decodeErr := newPackageNavigator(pkg).decodeXML(partName, &notes)
+		if !found {
 			continue
 		}
-		var notes NotesSlide
-		if err := xml.Unmarshal(p.Data, &notes); err != nil {
+		if decodeErr != nil {
+			err := decodeErr
 			addPackageLoadDiagnostic(out, diag.SeverityInfo, "pptx/malformed-notes-slide", fmt.Sprintf("notes slide could not be parsed and was skipped: %v", err), partName, err)
 			continue
 		}
@@ -299,7 +244,7 @@ func loadNotesSlide(pkg *opc.Package, slidePartName string, entry *SlideEntry, o
 
 // loadSlideHyperlinkURLs collects external hyperlink relationships from a slide part.
 func loadSlideHyperlinkURLs(pkg *opc.Package, slidePartName string, entry *SlideEntry) {
-	slideRels, ok, err := pkg.Relationships(slidePartName)
+	slideRels, ok, err := newPackageNavigator(pkg).relationships(slidePartName)
 	if err != nil || !ok {
 		return
 	}
@@ -319,7 +264,7 @@ func loadSlideOleObjectParts(pkg *opc.Package, slidePartName string, entry *Slid
 	if len(relIDs) == 0 {
 		return
 	}
-	slideRels, ok, err := pkg.Relationships(slidePartName)
+	slideRels, ok, err := newPackageNavigator(pkg).relationships(slidePartName)
 	if err != nil || !ok {
 		return
 	}
@@ -343,16 +288,11 @@ func loadSlideOleObjectParts(pkg *opc.Package, slidePartName string, entry *Slid
 			entry.OleObjectLinks[id] = r.Target
 			continue
 		}
-		partName := rels.ResolveTarget(slidePartName, r.Target)
-		p, ok := pkg.Part(partName)
+		p, ok := newPackageNavigator(pkg).binaryPart(slidePartName, r)
 		if !ok {
 			continue
 		}
-		entry.OleObjectParts[id] = media.Part{
-			Name:        partName,
-			ContentType: p.ContentType,
-			Data:        p.Data,
-		}
+		entry.OleObjectParts[id] = p
 	}
 }
 
@@ -387,7 +327,7 @@ func collectOleObjectRelIDs(entry *SlideEntry) []string {
 }
 
 func loadSlideComments(pkg *opc.Package, slidePartName string, entry *SlideEntry, out *Package) {
-	slideRels, ok, err := pkg.Relationships(slidePartName)
+	slideRels, ok, err := newPackageNavigator(pkg).relationships(slidePartName)
 	if err != nil || !ok {
 		return
 	}
@@ -396,12 +336,12 @@ func loadSlideComments(pkg *opc.Package, slidePartName string, entry *SlideEntry
 			continue
 		}
 		partName := rels.ResolveTarget(slidePartName, r.Target)
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var cl CommentList
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &cl)
+		if !found {
 			continue
 		}
-		var cl CommentList
-		if err := xml.Unmarshal(p.Data, &cl); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityInfo, "pptx/malformed-comments", fmt.Sprintf("comments part could not be parsed and was skipped: %v", err), partName, err)
 			continue
 		}
@@ -429,12 +369,12 @@ func loadCommentAuthors(pkg *opc.Package, mainPartName string, byType map[string
 			continue
 		}
 		partName := rels.ResolveTarget(mainPartName, r.Target)
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var cal CommentAuthorList
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &cal)
+		if !found {
 			continue
 		}
-		var cal CommentAuthorList
-		if err := xml.Unmarshal(p.Data, &cal); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityInfo, "pptx/malformed-comment-authors", fmt.Sprintf("comment authors part could not be parsed and was skipped: %v", err), partName, err)
 			continue
 		}
@@ -454,7 +394,7 @@ func loadCommentAuthors(pkg *opc.Package, mainPartName string, byType map[string
 
 func loadSlideMedia(pkg *opc.Package, slidePartName string, entry *SlideEntry) {
 	entry.MediaParts = make(map[string]media.Part)
-	slideRels, ok, err := pkg.Relationships(slidePartName)
+	slideRels, ok, err := newPackageNavigator(pkg).relationships(slidePartName)
 	if err != nil || !ok {
 		return
 	}
@@ -465,7 +405,7 @@ func loadSlideMedia(pkg *opc.Package, slidePartName string, entry *SlideEntry) {
 
 func loadLayoutMedia(pkg *opc.Package, layoutPartName string, entry *SlideEntry) {
 	entry.LayoutMediaParts = make(map[string]media.Part)
-	layoutRels, ok, err := pkg.Relationships(layoutPartName)
+	layoutRels, ok, err := newPackageNavigator(pkg).relationships(layoutPartName)
 	if err != nil || !ok {
 		return
 	}
@@ -476,7 +416,7 @@ func loadLayoutMedia(pkg *opc.Package, layoutPartName string, entry *SlideEntry)
 
 func loadMasterMedia(pkg *opc.Package, masterPartName string, entry *SlideMasterEntry) {
 	entry.MediaParts = make(map[string]media.Part)
-	masterRels, ok, err := pkg.Relationships(masterPartName)
+	masterRels, ok, err := newPackageNavigator(pkg).relationships(masterPartName)
 	if err != nil || !ok {
 		return
 	}
@@ -486,7 +426,7 @@ func loadMasterMedia(pkg *opc.Package, masterPartName string, entry *SlideMaster
 }
 
 func loadSlideLayout(pkg *opc.Package, slidePartName string, entry *SlideEntry, out *Package) error {
-	slideRels, ok, err := pkg.Relationships(slidePartName)
+	slideRels, ok, err := newPackageNavigator(pkg).relationships(slidePartName)
 	if err != nil {
 		addPackageLoadDiagnostic(out, diag.SeverityWarning, "pptx/malformed-slide-relationships", fmt.Sprintf("slide relationships could not be parsed; dependent parts may be unavailable: %v", err), slidePartName, err)
 		return nil
@@ -500,12 +440,12 @@ func loadSlideLayout(pkg *opc.Package, slidePartName string, entry *SlideEntry, 
 		}
 		layoutPartName := rels.ResolveTarget(slidePartName, r.Target)
 		entry.LayoutPartName = layoutPartName
-		p, ok := pkg.Part(layoutPartName)
-		if !ok {
+		var layout SlideLayout
+		found, err := newPackageNavigator(pkg).decodeXML(layoutPartName, &layout)
+		if !found {
 			break
 		}
-		var layout SlideLayout
-		if err := xml.Unmarshal(p.Data, &layout); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityWarning, "pptx/malformed-slide-layout", fmt.Sprintf("slide layout could not be parsed; continuing without it: %v", err), layoutPartName, err)
 			break
 		}
@@ -515,7 +455,7 @@ func loadSlideLayout(pkg *opc.Package, slidePartName string, entry *SlideEntry, 
 		loadLayoutMedia(pkg, layoutPartName, entry)
 
 		// Follow the layout's relationship to its slide master (POI XSLF parity).
-		layoutRels, ok, err := pkg.Relationships(layoutPartName)
+		layoutRels, ok, err := newPackageNavigator(pkg).relationships(layoutPartName)
 		if ok && err == nil {
 			for _, lr := range layoutRels.Relationships {
 				if relationshipTypeIs(lr.Type, relTypeSlideMaster) && !lr.IsExternal() {
@@ -543,14 +483,13 @@ func loadSlideMasters(pkg *opc.Package, mainPartName string, masterIDs []IDRef, 
 		partName := rels.ResolveTarget(mainPartName, r.Target)
 		entry.PartName = partName
 
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var master SlideMaster
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &master)
+		if !found {
 			out.SlideMasters = append(out.SlideMasters, entry)
 			continue
 		}
-
-		var master SlideMaster
-		if err := xml.Unmarshal(p.Data, &master); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityWarning, "pptx/malformed-slide-master", fmt.Sprintf("slide master could not be parsed; continuing without it: %v", err), partName, err)
 			out.SlideMasters = append(out.SlideMasters, entry)
 			continue
@@ -568,7 +507,7 @@ func loadSlideMasters(pkg *opc.Package, mainPartName string, masterIDs []IDRef, 
 }
 
 func loadMasterLayouts(pkg *opc.Package, masterPartName string, master *SlideMaster, entry *SlideMasterEntry, out *Package) error {
-	masterRels, ok, err := pkg.Relationships(masterPartName)
+	masterRels, ok, err := newPackageNavigator(pkg).relationships(masterPartName)
 	if err != nil {
 		addPackageLoadDiagnostic(out, diag.SeverityWarning, "pptx/malformed-master-relationships", fmt.Sprintf("slide master relationships could not be parsed; layouts may be unavailable: %v", err), masterPartName, err)
 		return nil
@@ -585,12 +524,12 @@ func loadMasterLayouts(pkg *opc.Package, masterPartName string, master *SlideMas
 			continue
 		}
 		layoutPartName := rels.ResolveTarget(masterPartName, r.Target)
-		p, ok := pkg.Part(layoutPartName)
-		if !ok {
+		var layout SlideLayout
+		found, err := newPackageNavigator(pkg).decodeXML(layoutPartName, &layout)
+		if !found {
 			continue
 		}
-		var layout SlideLayout
-		if err := xml.Unmarshal(p.Data, &layout); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityWarning, "pptx/malformed-master-layout", fmt.Sprintf("master layout could not be parsed and was skipped: %v", err), layoutPartName, err)
 			continue
 		}
@@ -606,19 +545,16 @@ func loadThemeOverrideForPart(pkg *opc.Package, sourcePartName string) *ThemeOve
 	if !ok {
 		return nil
 	}
-	p, ok := pkg.Part(partName)
-	if !ok {
-		return nil
-	}
 	var override ThemeOverride
-	if err := xml.Unmarshal(p.Data, &override); err != nil {
+	found, err := newPackageNavigator(pkg).decodeXML(partName, &override)
+	if !found || err != nil {
 		return nil
 	}
 	return &override
 }
 
 func themeOverridePartName(pkg *opc.Package, sourcePartName string) (string, bool) {
-	partRels, ok, err := pkg.Relationships(sourcePartName)
+	partRels, ok, err := newPackageNavigator(pkg).relationships(sourcePartName)
 	if err != nil || !ok {
 		return "", false
 	}
@@ -637,12 +573,12 @@ func loadThemes(pkg *opc.Package, mainPartName string, byType map[string][]rels.
 			continue
 		}
 		partName := rels.ResolveTarget(mainPartName, r.Target)
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var theme Theme
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &theme)
+		if !found {
 			continue
 		}
-		var theme Theme
-		if err := xml.Unmarshal(p.Data, &theme); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityInfo, "pptx/malformed-theme", fmt.Sprintf("theme part could not be parsed and was skipped: %v", err), partName, err)
 			continue
 		}
@@ -656,12 +592,12 @@ func loadTableStyles(pkg *opc.Package, mainPartName string, byType map[string][]
 			continue
 		}
 		partName := rels.ResolveTarget(mainPartName, r.Target)
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var styles TableStyleList
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &styles)
+		if !found {
 			continue
 		}
-		var styles TableStyleList
-		if err := xml.Unmarshal(p.Data, &styles); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityInfo, "pptx/malformed-table-styles", fmt.Sprintf("table styles part could not be parsed and was skipped: %v", err), partName, err)
 			continue
 		}
@@ -676,12 +612,12 @@ func loadNotesMaster(pkg *opc.Package, mainPartName string, byType map[string][]
 			continue
 		}
 		partName := rels.ResolveTarget(mainPartName, r.Target)
-		p, ok := pkg.Part(partName)
-		if !ok {
+		var notesMaster NotesMaster
+		found, err := newPackageNavigator(pkg).decodeXML(partName, &notesMaster)
+		if !found {
 			continue
 		}
-		var notesMaster NotesMaster
-		if err := xml.Unmarshal(p.Data, &notesMaster); err != nil {
+		if err != nil {
 			addPackageLoadDiagnostic(out, diag.SeverityInfo, "pptx/malformed-notes-master", fmt.Sprintf("notes master could not be parsed and was skipped: %v", err), partName, err)
 			continue
 		}
@@ -723,16 +659,11 @@ func loadRelationshipMediaPart(pkg *opc.Package, sourcePartName string, rel rels
 	if dst == nil || rel.IsExternal() {
 		return
 	}
-	partName := rels.ResolveTarget(sourcePartName, rel.Target)
-	p, ok := pkg.Part(partName)
-	if !ok || !isPresentationMediaPart(p.ContentType, partName) {
+	p, ok := newPackageNavigator(pkg).binaryPart(sourcePartName, rel)
+	if !ok || !isPresentationMediaPart(p.ContentType, p.Name) {
 		return
 	}
-	dst[normalizeRelID(rel.ID)] = media.Part{
-		Name:        partName,
-		ContentType: p.ContentType,
-		Data:        p.Data,
-	}
+	dst[normalizeRelID(rel.ID)] = p
 }
 
 func isPresentationMediaPart(contentType, partName string) bool {

@@ -31,6 +31,9 @@ func (cp ChartPart) ToChart() (*Chart, error) {
 		if chart.Title == "" {
 			chart.Title = cs.Title.CachedText()
 		}
+		if cs.Title.TxPr != nil {
+			chart.TitleStyle = extractTextProperties(cs.Title.TxPr.DefRPr)
+		}
 		if cs.Title.Layout != nil && cs.Title.Layout.ManualLayout != nil {
 			chart.TitleLayout = extractManualLayout(cs.Title.Layout.ManualLayout)
 		}
@@ -45,6 +48,9 @@ func (cp ChartPart) ToChart() (*Chart, error) {
 		chart.Legend = Legend{
 			Position: pos,
 			Show:     pos != "none",
+		}
+		if cs.Legend.TxPr != nil {
+			chart.Legend.TextStyle = extractTextProperties(cs.Legend.TxPr.DefRPr)
 		}
 		if cs.Legend.Layout != nil && cs.Legend.Layout.ManualLayout != nil {
 			chart.LegendLayout = extractManualLayout(cs.Legend.Layout.ManualLayout)
@@ -864,6 +870,12 @@ func extractAxis(elem AxisElement) Axis {
 		if axis.Title == "" {
 			axis.Title = elem.Title.CachedText()
 		}
+		if elem.Title.TxPr != nil {
+			axis.TitleStyle = extractTextProperties(elem.Title.TxPr.DefRPr)
+		}
+	}
+	if elem.TxPr != nil {
+		axis.LabelStyle = extractTextProperties(elem.TxPr.DefRPr)
 	}
 
 	if elem.Min != nil {

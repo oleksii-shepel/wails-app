@@ -177,11 +177,25 @@ func (l *Lexer) skipWhitespace() {
 func (l *Lexer) readString() Token {
 	var sb strings.Builder
 	l.readChar() // skip opening quote
-	for l.ch != '"' && l.ch != 0 {
+	for l.ch != 0 {
+		if l.ch == '"' {
+			// Excel escapes a literal quote inside a string by doubling it.
+			// Keep the pair inside the same token instead of terminating the
+			// string at the first quote. Compatibility formulas emitted by
+			// Google Sheets/Excel UDF wrappers rely on this (e.g.
+			// __xludf.dummyfunction("""COMPUTED_VALUE""")).
+			if l.peekChar() == '"' {
+				sb.WriteByte('"')
+				l.readChar()
+				l.readChar()
+				continue
+			}
+			l.readChar() // closing quote
+			break
+		}
 		sb.WriteByte(l.ch)
 		l.readChar()
 	}
-	l.readChar() // skip closing quote
 	return Token{Type: TokenString, Value: sb.String()}
 }
 

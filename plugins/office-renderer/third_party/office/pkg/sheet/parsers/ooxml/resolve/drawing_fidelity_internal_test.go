@@ -99,3 +99,34 @@ func TestResolveChartDrawingPreservesRawPartAndAltTextWhenParserCannotModelChart
 		t.Fatalf("raw chart XML was not preserved: %q", d.Chart.RawXML)
 	}
 }
+
+func TestResolvePictureDrawingPreservesTransform(t *testing.T) {
+	pic := &parts.XDRPic{SpPr: parts.XDRSpPr{Xfrm: &parts.XDRTransform2D{Rot: 90 * 60000, FlipH: true, FlipV: true}}}
+	d := resolvePictureDrawing(pic, nil)
+	if d == nil || d.Image == nil {
+		t.Fatal("resolved picture/image = nil")
+	}
+	if d.Image.RotationDeg != 90 || !d.Image.FlipH || !d.Image.FlipV {
+		t.Fatalf("picture transform = rotation %.2f flipH=%v flipV=%v", d.Image.RotationDeg, d.Image.FlipH, d.Image.FlipV)
+	}
+}
+
+func TestResolveDrawingsRestoresInterleavedDocumentZOrder(t *testing.T) {
+	picture := func(name string) *parts.XDRPic {
+		return &parts.XDRPic{NvPicPr: parts.XDRNvPicPr{CNvPr: parts.XDRCNvPr{Name: name}}}
+	}
+	sd := &parts.SpreadsheetDrawing{
+		OneCellAnchors:  []parts.XDROneCellAnchor{{DocumentOrder: 2, Pic: picture("top"), Ext: parts.XDRExtent{CX: 9525, CY: 9525}}},
+		TwoCellAnchors:  []parts.XDRTwoCellAnchor{{DocumentOrder: 0, Pic: picture("bottom"), From: parts.XDRMarker{}, To: parts.XDRMarker{Col: 1, Row: 1}}},
+		AbsoluteAnchors: []parts.XDRAbsoluteAnchor{{DocumentOrder: 1, Pic: picture("middle"), Ext: parts.XDRExtent{CX: 9525, CY: 9525}}},
+	}
+	got := resolveDrawings(sd, nil, nil, nil, nil, nil, nil)
+	if len(got) != 3 {
+		t.Fatalf("drawings = %d, want 3", len(got))
+	}
+	for i, want := range []string{"bottom", "middle", "top"} {
+		if got[i].Name != want || got[i].ZOrder != i {
+			t.Fatalf("drawing %d = (%q,%d), want (%q,%d)", i, got[i].Name, got[i].ZOrder, want, i)
+		}
+	}
+}

@@ -294,7 +294,13 @@ func skipElement(dec *xml.Decoder, se xml.StartElement) error {
 
 // drawingColorInfo captures a color value and optional alpha multiplier.
 type drawingColorInfo struct {
-	Val   string `xml:"val,attr"`
+	Val  string `xml:"val,attr"`
+	Tint *struct {
+		Val int64 `xml:"val,attr"`
+	} `xml:"tint"`
+	Shade *struct {
+		Val int64 `xml:"val,attr"`
+	} `xml:"shade"`
 	Alpha *struct {
 		Val int64 `xml:"val,attr"`
 	} `xml:"alpha"`
@@ -677,7 +683,8 @@ type drawingPara struct {
 		BuFont      *struct {
 			Typeface string `xml:"typeface,attr"`
 		} `xml:"buFont"`
-		BuSzPts *struct {
+		BuFontTx *struct{} `xml:"buFontTx"`
+		BuSzPts  *struct {
 			Val int `xml:"val,attr"`
 		} `xml:"buSzPts"`
 		BuSzPct *struct {
@@ -977,7 +984,16 @@ func drawingShapeFromSp(sp drawingSp, themeColors map[string]string) *DrawingSha
 		ref := sp.SpPr.SolidFill.SchemeClr.Val
 		if color, ok := themeColors[ref]; ok {
 			_, alpha := resolveDrawingColor(sp.SpPr.SolidFill.SchemeClr)
-			info.Fill = drawing.SolidFill{Color: color, Alpha: alpha}
+			fill := drawing.SolidFill{Color: color, Alpha: alpha, ThemeColor: ref}
+			if c := sp.SpPr.SolidFill.SchemeClr; c.Tint != nil {
+				fill.Tint = float64(c.Tint.Val) / 100000.0
+				fill.HasTint = true
+			}
+			if c := sp.SpPr.SolidFill.SchemeClr; c.Shade != nil {
+				fill.Shade = float64(c.Shade.Val) / 100000.0
+				fill.HasShade = true
+			}
+			info.Fill = fill
 		}
 	}
 	if sp.SpPr.NoFill != nil {
@@ -1166,6 +1182,10 @@ func drawingShapeFromSp(sp drawingSp, themeColors map[string]string) *DrawingSha
 			}
 			if p.PPr.BuFont != nil {
 				para.BulletFontFamily = p.PPr.BuFont.Typeface
+			}
+			if p.PPr.BuFontTx != nil {
+				para.BulletFontTx = true
+				para.BulletFontFamily = ""
 			}
 			if p.PPr.BuSzPts != nil {
 				para.BulletSize = p.PPr.BuSzPts.Val

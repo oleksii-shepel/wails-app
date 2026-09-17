@@ -52,10 +52,14 @@ func OpenReaderAt(r io.ReaderAt, size int64) (*File, error) {
 	}
 
 	f := &File{reader: r, readerSize: size}
+	f.majorVersion = u16(header, 26)
 	f.sectorSize = 1 << u16(header, 30)
 	f.miniSectorSize = 1 << u16(header, 32)
 	if f.sectorSize < 512 {
 		return nil, fmt.Errorf("cfb: sector size %d is too small", f.sectorSize)
+	}
+	if (f.majorVersion == 3 && f.sectorSize != 512) || (f.majorVersion == 4 && f.sectorSize != 4096) {
+		return nil, fmt.Errorf("cfb: major version %d is incompatible with sector size %d", f.majorVersion, f.sectorSize)
 	}
 
 	fatCount := int(u32(header, 44))
@@ -116,7 +120,7 @@ func OpenReaderAt(r io.ReaderAt, size int64) (*File, error) {
 	count := len(dirData) / dirEntrySize
 	f.entries = make([]*entry, count)
 	for i := 0; i < count; i++ {
-		f.entries[i] = parseDirEntry(dirData[i*dirEntrySize : (i+1)*dirEntrySize])
+		f.entries[i] = parseDirEntry(dirData[i*dirEntrySize:(i+1)*dirEntrySize], f.majorVersion)
 	}
 	if count == 0 || f.entries[0] == nil {
 		return nil, fmt.Errorf("cfb: no directory entries found")

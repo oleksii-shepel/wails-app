@@ -806,7 +806,8 @@ func enrichPointParagraphs(xmlData []byte, points []rawPoint, themeColors map[st
 						BuFont      *struct {
 							Typeface string `xml:"typeface,attr"`
 						} `xml:"buFont"`
-						BuSzPts *struct {
+						BuFontTx *struct{} `xml:"buFontTx"`
+						BuSzPts  *struct {
 							Val int `xml:"val,attr"`
 						} `xml:"buSzPts"`
 						BuSzPct *struct {
@@ -891,6 +892,10 @@ func enrichPointParagraphs(xmlData []byte, points []rawPoint, themeColors map[st
 				}
 				if p.PPr.BuFont != nil {
 					para.BulletFontFamily = p.PPr.BuFont.Typeface
+				}
+				if p.PPr.BuFontTx != nil {
+					para.BulletFontTx = true
+					para.BulletFontFamily = ""
 				}
 				if p.PPr.BuSzPts != nil {
 					para.BulletSize = p.PPr.BuSzPts.Val

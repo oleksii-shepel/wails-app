@@ -16,6 +16,117 @@ import (
 	presentationir "office/pkg/presentation/ir"
 )
 
+func TestDiagnostic53446PptStructure(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "testdata", "ppt", "53446.ppt")
+	f, err := cfb.Open(path)
+	if err != nil {
+		t.Fatalf("open cfb: %v", err)
+	}
+
+	for _, name := range []string{"Current User", "PowerPoint Document", "Pictures", "PP40", "Text_Content"} {
+		stream, ok := f.Stream(name)
+		if !ok {
+			t.Logf("stream %q: missing", name)
+			continue
+		}
+		head := stream
+		if len(head) > 32 {
+			head = head[:32]
+		}
+		t.Logf("stream %q: len=%d head=% x", name, len(stream), head)
+	}
+
+	currentUser, cuOK := f.Stream("Current User")
+	powerPointDocument, docOK := f.Stream("PowerPoint Document")
+	if !docOK {
+		t.Fatal("PowerPoint Document stream missing")
+	}
+
+	if record, payload, next, ok := readPptRecord(powerPointDocument, 0); ok {
+		t.Logf("raw record@0: version=%d instance=%d type=0x%04X len=%d next=%d payload=%d",
+			record.Version, record.Instance, record.Type, record.Length, next, len(payload))
+		logLegacyPptDocumentChildren(t, payload, 0)
+	} else {
+		t.Logf("raw record@0: INVALID")
+	}
+
+	if cuOK {
+		if record, payload, next, ok := readPptRecord(currentUser, 0); ok {
+			t.Logf("Current User record@0: version=%d instance=%d type=0x%04X len=%d next=%d payload=%d",
+				record.Version, record.Instance, record.Type, record.Length, next, len(payload))
+		} else {
+			t.Logf("Current User record@0: INVALID")
+		}
+		if off, ok := parseCurrentUserOffset(currentUser); ok {
+			t.Logf("Current User edit offset=%d", off)
+			if record, payload, next, ok := readPptRecord(powerPointDocument, off); ok {
+				t.Logf("UserEdit@%d: version=%d instance=%d type=0x%04X len=%d next=%d payload=%d",
+					off, record.Version, record.Instance, record.Type, record.Length, next, len(payload))
+			} else {
+				t.Logf("UserEdit@%d: INVALID", off)
+			}
+		} else {
+			t.Logf("Current User edit offset: unavailable")
+		}
+	}
+
+	if ctx, ok := extractPptPersistContext(f, powerPointDocument); ok {
+		t.Logf("persist context: documentOffset=%d persistEntries=%d slidePersistIDs=%v notesInstance=%d",
+			ctx.documentOffset, len(ctx.persistDirectory), ctx.slidePersistIDs, ctx.notesListInstance)
+		if record, payload, next, ok := readPptRecord(powerPointDocument, ctx.documentOffset); ok {
+			t.Logf("persist Document@%d: version=%d instance=%d type=0x%04X len=%d next=%d payload=%d",
+				ctx.documentOffset, record.Version, record.Instance, record.Type, record.Length, next, len(payload))
+			logLegacyPptDocumentChildren(t, payload, ctx.documentOffset)
+		} else {
+			t.Logf("persist Document@%d: INVALID", ctx.documentOffset)
+		}
+	} else {
+		t.Logf("persist context: FAILED")
+	}
+
+	fontTable := parseLegacyPptFontTable(powerPointDocument)
+	colorScheme := parseLegacyPptColorScheme(powerPointDocument)
+	rootSlides := extractLegacyPptSlidesFromRootDocument(powerPointDocument, fontTable, colorScheme, nil)
+	t.Logf("root structural slides=%d", len(rootSlides))
+	for i, slide := range rootSlides {
+		t.Logf("root slide[%d]: persistID=%d fragments=%d text=%q", i, slide.PersistID, len(slide.Fragments), diagnosticLegacySlideText(slide))
+	}
+}
+
+func logLegacyPptDocumentChildren(t *testing.T, payload []byte, base int) {
+	t.Helper()
+	counts := map[uint16]int{}
+	for pos := 0; pos+8 <= len(payload); {
+		record, childPayload, next, ok := readPptRecord(payload, pos)
+		if !ok {
+			t.Logf("Document child parse stopped: relative=%d absolute=%d", pos, base+8+pos)
+			break
+		}
+		counts[record.Type]++
+		if record.Type == pptRTSlideListWithText {
+			slides := parseSlideListWithText(childPayload, nil, nil, nil)
+			t.Logf("SlideListWithText: relative=%d absolute=%d instance=%d len=%d parsedSlides=%d",
+				pos, base+8+pos, record.Instance, record.Length, len(slides))
+		}
+		pos = next
+	}
+	t.Logf("Document child record counts=%v", counts)
+}
+
+func diagnosticLegacySlideText(slide legacySlideText) string {
+	var parts []string
+	for _, fragment := range slide.Fragments {
+		if s := strings.TrimSpace(fragment.Text); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	text := strings.Join(parts, " | ")
+	if len(text) > 160 {
+		text = text[:160]
+	}
+	return text
+}
+
 func TestParsePptExtractsPictureShapesFromSlideContainers(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "..", "testdata", "ppt", "apache-pictures.ppt")
 	pres, err := ParsePpt(path)
@@ -25,21 +136,31 @@ func TestParsePptExtractsPictureShapesFromSlideContainers(t *testing.T) {
 	if len(pres.Slides) == 0 {
 		t.Fatal("expected slides")
 	}
+	allowedMIME := map[string]bool{
+		"image/jpeg":    true,
+		"image/png":     true,
+		"image/svg+xml": true,
+		"image/x-emf":   true,
+		"image/x-wmf":   true,
+		"image/x-pict":  true,
+	}
 	wantMIME := map[string]bool{
-		"image/jpeg":   false,
-		"image/png":    false,
-		"image/x-wmf":  false,
-		"image/x-emf":  false,
-		"image/x-pict": false,
+		"image/jpeg":    false,
+		"image/png":     false,
+		"image/svg+xml": false,
+		"image/x-pict":  false,
 	}
 	for _, slide := range pres.Slides {
-		if len(slide.Shapes) != 1 {
-			t.Fatalf("slide shapes = %d, want 1 image shape", len(slide.Shapes))
-		}
+		var imageShapes []*presentationir.Shape
 		for _, shape := range slide.Shapes {
-			if shape == nil || shape.Kind != presentationir.ShapeImage {
-				t.Fatalf("unexpected non-image shape: %#v", shape)
+			if shape != nil && shape.Kind == presentationir.ShapeImage {
+				imageShapes = append(imageShapes, shape)
 			}
+		}
+		if len(imageShapes) != 1 {
+			t.Fatalf("slide image shapes = %d (effective scene shapes=%d), want 1 authored image", len(imageShapes), len(slide.Shapes))
+		}
+		for _, shape := range imageShapes {
 			if len(shape.ImageData) == 0 {
 				t.Fatal("image shape missing payload")
 			}
@@ -49,10 +170,12 @@ func TestParsePptExtractsPictureShapesFromSlideContainers(t *testing.T) {
 			if shape.Bounds.W <= 0 || shape.Bounds.H <= 0 {
 				t.Fatalf("image shape bounds = %+v, want non-empty", shape.Bounds)
 			}
-			if _, ok := wantMIME[shape.ImageMIME]; !ok {
+			if !allowedMIME[shape.ImageMIME] {
 				t.Fatalf("unexpected image mime %q", shape.ImageMIME)
 			}
-			wantMIME[shape.ImageMIME] = true
+			if _, ok := wantMIME[shape.ImageMIME]; ok {
+				wantMIME[shape.ImageMIME] = true
+			}
 		}
 	}
 	for mime, seen := range wantMIME {
@@ -72,21 +195,18 @@ func TestParsePptUsesAnchoredTextShapesFromSlideContainers(t *testing.T) {
 		t.Fatalf("slides = %d, want 1", len(pres.Slides))
 	}
 	slide := pres.Slides[0]
-	if len(slide.Shapes) != 5 {
-		t.Fatalf("slide shapes = %d, want 5 text shapes", len(slide.Shapes))
-	}
 	texts := make([]string, 0, len(slide.Shapes))
 	for _, shape := range slide.Shapes {
-		if shape == nil {
+		if shape == nil || shape.Kind != presentationir.ShapeText {
 			continue
 		}
-		if shape.Kind != presentationir.ShapeText {
-			t.Fatalf("unexpected non-text shape: %#v", shape)
-		}
 		if len(shape.Paragraphs) == 0 {
-			t.Fatalf("shape missing paragraphs: %#v", shape)
+			t.Fatalf("text shape missing paragraphs: %#v", shape)
 		}
 		texts = append(texts, paragraphText(shape.Paragraphs[0]))
+	}
+	if len(texts) != 5 {
+		t.Fatalf("slide text shapes = %d (effective scene shapes=%d), want 5 authored text shapes: %q", len(texts), len(slide.Shapes), texts)
 	}
 	wantTexts := []string{"Title Placeholder", "Text in a TextBox", "Rectangle", "Ellipse", "Octagon"}
 	for index, want := range wantTexts {
@@ -165,13 +285,16 @@ func TestParsePptSynthesizesLegacyEmbeddedAudioFixture(t *testing.T) {
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides = %d, want 1", len(pres.Slides))
 	}
-	if len(pres.Slides[0].Shapes) != 1 {
-		t.Fatalf("slide shapes = %d, want 1", len(pres.Slides[0].Shapes))
+	var mediaShapes []*presentationir.Shape
+	for _, candidate := range pres.Slides[0].Shapes {
+		if candidate != nil && candidate.Kind == presentationir.ShapeMedia {
+			mediaShapes = append(mediaShapes, candidate)
+		}
 	}
-	shape := pres.Slides[0].Shapes[0]
-	if shape.Kind != presentationir.ShapeMedia {
-		t.Fatalf("shape kind = %v, want media", shape.Kind)
+	if len(mediaShapes) != 1 {
+		t.Fatalf("slide media shapes = %d (effective scene shapes=%d), want 1 authored media shape", len(mediaShapes), len(pres.Slides[0].Shapes))
 	}
+	shape := mediaShapes[0]
 	if shape.MediaKind != "audio" {
 		t.Fatalf("MediaKind = %q, want audio", shape.MediaKind)
 	}
@@ -271,7 +394,7 @@ func TestParseLegacyPptTableShapesFromSlideBuildsGroupedTable(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, group)
 
-	tables := parseLegacyPptTableShapesFromSlide(payload, nil, nil, nil)
+	tables := collectLegacyPptVisualScene(payload).tables(nil, nil, nil)
 	if len(tables) != 1 {
 		t.Fatalf("len(tables) = %d, want 1", len(tables))
 	}
@@ -292,7 +415,7 @@ func TestParseLegacyPptTableShapesFromSlideBuildsGroupedTable(t *testing.T) {
 		t.Fatalf("cell (1,1) = %q, want B2", got)
 	}
 
-	textShapes := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{}, nil, nil, nil)
+	textShapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
 	if len(textShapes) != 0 {
 		t.Fatalf("standalone text shapes = %d, want 0 for table group", len(textShapes))
 	}
@@ -391,6 +514,30 @@ func TestParseLegacyPptColorSchemePrefersMostFrequentPalette(t *testing.T) {
 	}
 }
 
+func TestParsePptPowerPoint40UsesStructuredDocumentRecovery(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "testdata", "ppt", "53446.ppt")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("53446.ppt corpus fixture is not installed")
+		}
+		t.Fatal(err)
+	}
+
+	pres, err := ParsePpt(path)
+	if err != nil {
+		t.Fatalf("ParsePpt: %v", err)
+	}
+	if pres == nil || len(pres.Slides) == 0 {
+		t.Fatal("expected structurally recovered slides")
+	}
+	if !legacyPresentationContainsText(pres, "Risk Assessment & Control Group") {
+		t.Fatal("presentation text missing Risk Assessment & Control Group")
+	}
+	if !legacyPresentationContainsText(pres, "Enron Corp.") {
+		t.Fatal("presentation text missing Enron Corp.")
+	}
+}
+
 func TestParsePpt95UsesTextContentFallback(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "..", "testdata", "ppt", "PPT95.ppt")
 	pres, err := ParsePpt(path)
@@ -410,6 +557,13 @@ func TestParsePpt95UsesTextContentFallback(t *testing.T) {
 
 func TestParsePptPP40UsesInlineTextRecords(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "..", "testdata", "ppt", "pp40only.ppt")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("pp40only.ppt corpus fixture is not installed")
+		}
+		t.Fatal(err)
+	}
+
 	pres, err := ParsePpt(path)
 	if err != nil {
 		t.Fatalf("ParsePpt: %v", err)
@@ -526,7 +680,7 @@ func TestParseLegacyPptTableShapesFromSlideUsesInlineFallbackForOutlineRefCells(
 	group := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupRoot, groupChildren...))
 	ppDrawing := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, group)
 
-	shapes := parseLegacyPptTableShapesFromSlide(ppDrawing, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(ppDrawing).tables(nil, nil, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -600,7 +754,7 @@ func TestParseLegacyPptTextShapesUseOutlineRefToPickSpecificFragment(t *testing.
 			),
 		),
 	)
-	shapes := parseLegacyPptTextShapesFromSlide(payload, slideText, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(payload).textShapes(slideText, nil, nil, nil)
 	if len(shapes) != 2 {
 		t.Fatalf("len(shapes) = %d, want 2", len(shapes))
 	}
@@ -643,7 +797,7 @@ func TestParseLegacyPptTextShapesPreferShapeIDMatchOverFallback(t *testing.T) {
 			),
 		),
 	)
-	shapes := parseLegacyPptTextShapesFromSlide(payload, slideText, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(payload).textShapes(slideText, nil, nil, nil)
 	if len(shapes) != 2 {
 		t.Fatalf("len(shapes) = %d, want 2", len(shapes))
 	}
@@ -673,7 +827,7 @@ func TestParseLegacyPptTextShapesPreferOutlineRefWhenShapeIDMapsToPrompt(t *test
 			),
 		),
 	)
-	shapes := parseLegacyPptTextShapesFromSlide(payload, slideText, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(payload).textShapes(slideText, nil, nil, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1245,7 +1399,7 @@ func TestBuildPresentationAppliesLegacyMasterTextDefaultsToUnstyledBody(t *testi
 			0: {paragraph: stpaPFEntry{Align: "ctr", BulletChar: '•'}, run: stpaCFRun{FontSize: 3200, FontFamily: "Arial", Color: "112233", Bold: boolPtr(true)}},
 		},
 	}
-	pres := buildPresentationWithExtraShapes([]legacySlideText{{Fragments: []legacySlideFragment{{Text: "Agenda item", TextType: pptTextTypeBody}}}}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "")
+	pres := buildPresentationWithMasterComposition([]legacySlideText{{Fragments: []legacySlideFragment{{Text: "Agenda item", TextType: pptTextTypeBody}}}}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil)
 	if len(pres.Slides) != 1 || len(pres.Slides[0].Shapes) != 1 {
 		t.Fatalf("presentation shapes = %#v", pres.Slides)
 	}
@@ -1286,7 +1440,7 @@ func TestBuildPresentationAppliesLegacyMasterTextDefaultsOnlyToUnsetFields(t *te
 			Runs:       []*presentationir.Run{{Text: "Agenda item", FontSize: 3600}},
 		}},
 	}}}
-	pres := buildPresentationWithExtraShapes([]legacySlideText{slide}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "")
+	pres := buildPresentationWithMasterComposition([]legacySlideText{slide}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil)
 	para := pres.Slides[0].Shapes[0].Paragraphs[0]
 	if para.Align != "r" {
 		t.Fatalf("Align = %q, want existing right alignment", para.Align)
@@ -1482,7 +1636,22 @@ func TestParseLegacyPptMasterBgFillOverridesThemeLt1(t *testing.T) {
 	document := buildPptContainerRecord(0, pptRTDocument, 0x0F, masterContainer)
 
 	colorScheme := map[uint8]string{0: "FFFFFF"} // lt1 = white (would be the theme fallback)
-	fill := parseLegacyPptMasterBgFill(document, 0, colorScheme)
+	_, documentPayload, _, ok := readPptRecord(document, 0)
+	if !ok {
+		t.Fatal("synthetic Document record did not decode")
+	}
+	fill := ""
+	for pos := 0; pos+8 <= len(documentPayload); {
+		child, childPayload, next, ok := readPptRecord(documentPayload, pos)
+		if !ok {
+			break
+		}
+		if child.Type == pptRTMainMaster {
+			fill = parseLegacyPptBgFillFromContainer(childPayload, colorScheme)
+			break
+		}
+		pos = next
+	}
 	if fill != "FF0000" {
 		t.Fatalf("parseLegacyPptMasterBgFill = %q, want %q", fill, "FF0000")
 	}
@@ -1491,7 +1660,7 @@ func TestParseLegacyPptMasterBgFillOverridesThemeLt1(t *testing.T) {
 func TestBuildPresentationUsesExplicitMasterBgFillOverThemeLt1(t *testing.T) {
 	theme := &presentationir.Theme{ColorScheme: map[string]string{"lt1": "FFFFFF"}}
 	slides := []legacySlideText{{Fragments: []legacySlideFragment{{Text: "Slide text", TextType: pptTextTypeBody}}}}
-	pres := buildPresentationWithExtraShapes(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "FF0000")
+	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "FF0000", nil)
 	if len(pres.Slides) == 0 {
 		t.Fatal("no slides")
 	}
@@ -1503,13 +1672,22 @@ func TestBuildPresentationUsesExplicitMasterBgFillOverThemeLt1(t *testing.T) {
 func TestBuildPresentationFallsBackToThemeLt1WhenNoExplicitBgFill(t *testing.T) {
 	theme := &presentationir.Theme{ColorScheme: map[string]string{"lt1": "EEEEEE"}}
 	slides := []legacySlideText{{Fragments: []legacySlideFragment{{Text: "Slide text", TextType: pptTextTypeBody}}}}
-	pres := buildPresentationWithExtraShapes(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "")
+	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "", nil)
 	if len(pres.Slides) == 0 {
 		t.Fatal("no slides")
 	}
 	if got := pres.Slides[0].BgColor; got != "EEEEEE" {
 		t.Fatalf("BgColor = %q, want EEEEEE (theme lt1 fallback)", got)
 	}
+}
+
+func mustLegacyPptContainerPayload(t *testing.T, data []byte, recordType uint16) []byte {
+	t.Helper()
+	record, payload, _, ok := readPptRecord(data, 0)
+	if !ok || record.Type != recordType {
+		t.Fatalf("synthetic PPT container type=%#x did not decode", recordType)
+	}
+	return payload
 }
 
 func TestParseLegacyPptExHyperlinkURLsExtractsURLByID(t *testing.T) {
@@ -1520,7 +1698,7 @@ func TestParseLegacyPptExHyperlinkURLsExtractsURLByID(t *testing.T) {
 	exObjList := buildPptContainerRecord(0, pptRTExObjList, 0x0F, exHyperlink)
 	document := buildPptContainerRecord(0, pptRTDocument, 0x0F, exObjList)
 
-	urls := parseLegacyPptExHyperlinkURLs(document, 0)
+	urls := parseLegacyPptExHyperlinkURLsFromPayload(mustLegacyPptContainerPayload(t, document, pptRTDocument))
 	if len(urls) != 1 {
 		t.Fatalf("len(urls) = %d, want 1", len(urls))
 	}
@@ -1537,7 +1715,7 @@ func TestParseLegacyPptExHyperlinkURLsSkipsSchemaURLs(t *testing.T) {
 	exObjList := buildPptContainerRecord(0, pptRTExObjList, 0x0F, exHyperlink)
 	document := buildPptContainerRecord(0, pptRTDocument, 0x0F, exObjList)
 
-	urls := parseLegacyPptExHyperlinkURLs(document, 0)
+	urls := parseLegacyPptExHyperlinkURLsFromPayload(mustLegacyPptContainerPayload(t, document, pptRTDocument))
 	if len(urls) != 0 {
 		t.Fatalf("urls = %#v, want empty", urls)
 	}
@@ -1553,7 +1731,7 @@ func TestParseLegacyPptExHyperlinkURLsRequiresAtomAndURL(t *testing.T) {
 	exObjList := buildPptContainerRecord(0, pptRTExObjList, 0x0F, append(missingAtom, missingURL...))
 	document := buildPptContainerRecord(0, pptRTDocument, 0x0F, exObjList)
 
-	urls := parseLegacyPptExHyperlinkURLs(document, 0)
+	urls := parseLegacyPptExHyperlinkURLsFromPayload(mustLegacyPptContainerPayload(t, document, pptRTDocument))
 	if len(urls) != 0 {
 		t.Fatalf("urls = %#v, want empty", urls)
 	}
@@ -1704,7 +1882,7 @@ func TestParseLegacyPptTextShapeContainerExtractsAnimationInfo(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x0F, container)
 
-	shapes := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{}, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1769,7 +1947,7 @@ func TestParseLegacyPptTextShapesFromSlideMapsGroupedChildAnchorBounds(t *testin
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, textContainer...)),
 	)
 
-	shapes := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{}, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1821,7 +1999,7 @@ func TestParseLegacyPptImageShapesFromSlideMapsGroupedChildAnchorBounds(t *testi
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, imageContainer...)),
 	)
 
-	shapes := parseLegacyPptImageShapesFromSlide(payload, map[uint32]*legacyPptPicture{1: {Data: []byte{1, 2, 3}, MIME: "image/png"}}, nil)
+	shapes := collectLegacyPptVisualScene(payload).pictures(map[uint32]*legacyPptPicture{1: {Data: []byte{1, 2, 3}, MIME: "image/png"}}, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1896,7 +2074,7 @@ func TestParseLegacyPptConnectorShapesFromSlideMapsGroupedChildAnchorAndArrowSty
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, connectorContainer...)),
 	)
 
-	shapes := parseLegacyPptConnectorShapesFromSlide(payload, nil)
+	shapes := collectLegacyPptVisualScene(payload).connectors(nil, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -2001,12 +2179,12 @@ func TestParseLegacyPptGroupShapesFromSlideBuildsNestedHierarchy(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, outerGroup)
 
-	flat := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{}, nil, nil, nil)
+	flat := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
 	if len(flat) != 2 {
 		t.Fatalf("len(flat) = %d, want 2 flat child text shapes", len(flat))
 	}
 
-	groups := parseLegacyPptGroupShapesFromSlide(payload, legacyPptShapeIndexByOriginalID(flat), nil, nil, nil)
+	groups := collectLegacyPptVisualScene(payload).groups(legacyPptDiscoveredShapeSource(legacyPptShapeIndexByOriginalID(flat)), nil, nil, nil)
 	if len(groups) != 1 {
 		t.Fatalf("len(groups) = %d, want 1", len(groups))
 	}
@@ -2092,9 +2270,9 @@ func TestParseLegacyPptTableShapeFromGroupContainerSetsOriginalShapeID(t *testin
 		buildCell(0x905, 500, 400, 1000, 800, "B2")...,
 	))
 
-	tableShape, ok := parseLegacyPptTableShapeFromGroupContainer(group[8:], legacyPptGroupFrame{}, nil, nil, nil, 1)
+	tableShape, ok := recoverLegacyPptTableShapeFromGroupContainer(group[8:], legacyPptGroupFrame{}, nil, nil, nil, 1)
 	if !ok {
-		t.Fatal("parseLegacyPptTableShapeFromGroupContainer returned false")
+		t.Fatal("recoverLegacyPptTableShapeFromGroupContainer returned false")
 	}
 	if tableShape.OriginalShapeID != 0x901 {
 		t.Fatalf("OriginalShapeID = %#x, want %#x", tableShape.OriginalShapeID, 0x901)
@@ -2473,7 +2651,7 @@ func mustDecodeLegacyColor(color string) []byte {
 	r := mustDecodeLegacyHexByte(color[0], color[1])
 	g := mustDecodeLegacyHexByte(color[2], color[3])
 	b := mustDecodeLegacyHexByte(color[4], color[5])
-	return []byte{r, g, b, 0x00}
+	return []byte{r, g, b, 0xFE}
 }
 
 func mustDecodeLegacyHexByte(high, low byte) byte {
@@ -2735,7 +2913,7 @@ func TestBuildPresentationPromotesMultipleLegacyFooterPlaceholders(t *testing.T)
 }
 
 func TestBuildPresentationPromotesLegacyHeaderPlaceholder(t *testing.T) {
-	pres := buildPresentationWithExtraShapes([]legacySlideText{
+	pres := buildPresentationWithMasterComposition([]legacySlideText{
 		{
 			PersistID: 1,
 			Fragments: []legacySlideFragment{{Text: "Quarterly Results", TextType: pptTextTypeTitle}},
@@ -2745,7 +2923,7 @@ func TestBuildPresentationPromotesLegacyHeaderPlaceholder(t *testing.T) {
 			flags:      legacyPptHFFlagHeader,
 			headerText: "Agenda",
 		},
-	}, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, nil, "")
+	}, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, nil, "", nil)
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -2766,7 +2944,7 @@ func TestBuildPresentationPromotesLegacyHeaderPlaceholder(t *testing.T) {
 }
 
 func TestBuildPresentationSlideHeaderFooterOverrideCanDisableDocumentDefaults(t *testing.T) {
-	pres := buildPresentationWithExtraShapes([]legacySlideText{
+	pres := buildPresentationWithMasterComposition([]legacySlideText{
 		{
 			PersistID: 1,
 			Fragments: []legacySlideFragment{{Text: "Quarterly Results", TextType: pptTextTypeTitle}},
@@ -2780,7 +2958,7 @@ func TestBuildPresentationSlideHeaderFooterOverrideCanDisableDocumentDefaults(t 
 		hasAtom:    true,
 		flags:      legacyPptHFFlagFooter,
 		footerText: "Default footer",
-	}, "sample.ppt", nil, nil, nil, "")
+	}, "sample.ppt", nil, nil, nil, "", nil)
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -2844,7 +3022,7 @@ func TestMergedWithClearsDateTextWhenFHasDateOff(t *testing.T) {
 
 func TestSynthesizeLegacyHeaderFooterCreatesTodayDateFieldShape(t *testing.T) {
 	// fHasDate + fHasTodayDate set with no dateText → DateTime shape with FieldKind "date"
-	pres := buildPresentationWithExtraShapes([]legacySlideText{
+	pres := buildPresentationWithMasterComposition([]legacySlideText{
 		{
 			PersistID: 1,
 			Fragments: []legacySlideFragment{{Text: "Slide", TextType: pptTextTypeTitle}},
@@ -2852,7 +3030,7 @@ func TestSynthesizeLegacyHeaderFooterCreatesTodayDateFieldShape(t *testing.T) {
 	}, nil, nil, legacyPptHeaderFooterInfo{
 		hasAtom: true,
 		flags:   legacyPptHFFlagDateVisible | legacyPptHFFlagTodayDate,
-	}, "sample.ppt", nil, nil, nil, "")
+	}, "sample.ppt", nil, nil, nil, "", nil)
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -4308,7 +4486,7 @@ func TestBuildPresentationUsesPerSlideMasterStyles(t *testing.T) {
 		{PersistID: 1, MasterID: masterIDA, Fragments: []legacySlideFragment{{Text: "slide A", TextType: pptTextTypeBody}}},
 		{PersistID: 2, MasterID: masterIDB, Fragments: []legacySlideFragment{{Text: "slide B", TextType: pptTextTypeBody}}},
 	}
-	pres := buildPresentationWithExtraShapes(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, masterStylesByID, nil, "")
+	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, masterStylesByID, nil, "", nil)
 	if len(pres.Slides) != 2 {
 		t.Fatalf("slides = %d, want 2", len(pres.Slides))
 	}
@@ -4339,12 +4517,12 @@ func TestBuildPresentationUsesPerSlideMasterStyles(t *testing.T) {
 }
 
 func TestBuildPresentationPreservesLegacySlideIdentity(t *testing.T) {
-	pres := buildPresentationWithExtraShapes([]legacySlideText{{
+	pres := buildPresentationWithMasterComposition([]legacySlideText{{
 		PersistID:  7,
 		MasterID:   -2147483648,
 		LayoutType: "titleBody",
 		Fragments:  []legacySlideFragment{{Text: "Agenda", TextType: pptTextTypeBody}},
-	}}, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "")
+	}}, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "", nil)
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides = %d, want 1", len(pres.Slides))
 	}
@@ -4378,7 +4556,7 @@ func TestParseLegacyPptTextShapesFromSlidePreservesOriginalShapeID(t *testing.T)
 	)
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x0F, container)
 
-	shapes := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{}, nil, nil, nil)
+	shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -4495,7 +4673,7 @@ func TestParseLegacyPptConnectorRulesResolveConnectionSites(t *testing.T) {
 		0xB01: {OriginalShapeID: 0xB01, Bounds: presentationir.Rect{X: 100, Y: 200, W: 400, H: 200}},
 		0xB02: {OriginalShapeID: 0xB02, Bounds: presentationir.Rect{X: 1000, Y: 300, W: 300, H: 400}},
 	}
-	shapes := parseLegacyPptConnectorShapesFromSlideWithTargets(payload, nil, shapeIndex)
+	shapes := collectLegacyPptVisualScene(payload).connectors(nil, shapeIndex)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -4509,6 +4687,15 @@ func TestParseLegacyPptConnectorRulesResolveConnectionSites(t *testing.T) {
 	if shape.ConnectorEnd == nil || *shape.ConnectorEnd != (presentationir.Point{X: 1000, Y: 500}) {
 		t.Fatalf("ConnectorEnd = %#v, want left-middle of end shape", shape.ConnectorEnd)
 	}
+}
+
+func applyLegacyPptGroupTransformForTest(shape *presentationir.Shape, groupBounds presentationir.Rect, transform legacyPptShapeTransform) {
+	if shape == nil {
+		return
+	}
+	presentationir.ApplyVisualTransform(shape, legacyPptCanonicalGroupTransform(legacyPptGroupFrame{
+		domain: groupBounds, localTarget: groupBounds, target: groupBounds, valid: true,
+	}, transform))
 }
 
 func TestApplyLegacyPptGroupTransformComposesRotationFlipAndConnectorPoints(t *testing.T) {
@@ -4525,7 +4712,7 @@ func TestApplyLegacyPptGroupTransformComposesRotationFlipAndConnectorPoints(t *t
 		ConnectorPath:  []presentationir.Point{start, {X: 200, Y: 250}, end},
 	}
 	transform := legacyPptShapeTransform{HasRotation: true, Rotation: 90, FlipH: true, FlipV: true}
-	applyLegacyPptGroupTransformToShape(shape, presentationir.Rect{X: 0, Y: 0, W: 1000, H: 1000}, transform)
+	applyLegacyPptGroupTransformForTest(shape, presentationir.Rect{X: 0, Y: 0, W: 1000, H: 1000}, transform)
 
 	if shape.Bounds != (presentationir.Rect{X: 200, Y: 700, W: 200, H: 200}) {
 		t.Fatalf("Bounds = %+v, want x=200 y=700 w=200 h=200", shape.Bounds)
@@ -4550,15 +4737,35 @@ func TestApplyLegacyPptGroupTransformComposesRotationFlipAndConnectorPoints(t *t
 	}
 }
 
+func TestApplyLegacyPptGroupTransformReversesChildRotationUnderSingleAxisReflection(t *testing.T) {
+	shape := &presentationir.Shape{
+		Kind:        presentationir.ShapeImage,
+		Bounds:      presentationir.Rect{X: 100, Y: 200, W: 200, H: 100},
+		RotationDeg: 20,
+	}
+	applyLegacyPptGroupTransformForTest(shape, presentationir.Rect{X: 0, Y: 0, W: 1000, H: 1000}, legacyPptShapeTransform{
+		HasRotation: true,
+		Rotation:    90,
+		FlipH:       true,
+	})
+
+	if shape.RotationDeg != 70 {
+		t.Fatalf("RotationDeg = %v, want 70 (90 parent - 20 reflected child)", shape.RotationDeg)
+	}
+	if !shape.FlipH || shape.FlipV {
+		t.Fatalf("shape flips = (%t,%t), want (true,false)", shape.FlipH, shape.FlipV)
+	}
+}
+
 func TestLegacyPptNestedGroupTransformsAccumulateAcrossDescendants(t *testing.T) {
 	child := &presentationir.Shape{Kind: presentationir.ShapeText, Bounds: presentationir.Rect{X: 100, Y: 100, W: 100, H: 100}, RotationDeg: 5}
 	inner := &presentationir.Shape{Kind: presentationir.ShapeGroup, Bounds: presentationir.Rect{X: 50, Y: 50, W: 400, H: 400}, Children: []*presentationir.Shape{child}}
-	applyLegacyPptGroupTransformToShape(child, inner.Bounds, legacyPptShapeTransform{HasRotation: true, Rotation: 30, FlipV: true})
+	applyLegacyPptGroupTransformForTest(child, inner.Bounds, legacyPptShapeTransform{HasRotation: true, Rotation: 30, FlipV: true})
 	outerTransform := legacyPptShapeTransform{HasRotation: true, Rotation: 60, FlipH: true}
-	applyLegacyPptGroupTransformToShape(inner, presentationir.Rect{X: 0, Y: 0, W: 1000, H: 1000}, outerTransform)
+	applyLegacyPptGroupTransformForTest(inner, presentationir.Rect{X: 0, Y: 0, W: 1000, H: 1000}, outerTransform)
 
-	if child.RotationDeg != 95 {
-		t.Fatalf("child RotationDeg = %v, want 95", child.RotationDeg)
+	if child.RotationDeg != 35 {
+		t.Fatalf("child RotationDeg = %v, want 35 after reflected nested composition", child.RotationDeg)
 	}
 	if !child.FlipH || !child.FlipV {
 		t.Fatalf("child flips = (%t,%t), want both true", child.FlipH, child.FlipV)
@@ -4568,7 +4775,7 @@ func TestLegacyPptNestedGroupTransformsAccumulateAcrossDescendants(t *testing.T)
 	}
 }
 
-func TestParseLegacyPptGroupShapeAppliesRootTransformToResolvedChildren(t *testing.T) {
+func TestParseLegacyPptGroupShapePreservesRootTransformForLayout(t *testing.T) {
 	buildRect32 := func(left, top, right, bottom int32) []byte {
 		buf := make([]byte, 16)
 		binary.LittleEndian.PutUint32(buf[0:4], uint32(left))
@@ -4600,10 +4807,15 @@ func TestParseLegacyPptGroupShapeAppliesRootTransformToResolvedChildren(t *testi
 	)
 	root := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, rootBody)
 	childAnchor := buildRect32(100, 200, 300, 400)
-	child := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(
-		buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0xC01, legacyOfficeArtSpFlagChild)),
-		buildOfficeArtRecord(0, legacyOfficeArtChildAnchor, 0x0000, childAnchor)...,
-	))
+	childRotationProp := make([]byte, 6)
+	binary.LittleEndian.PutUint16(childRotationProp[0:2], legacyOfficeArtPropRotation)
+	binary.LittleEndian.PutUint32(childRotationProp[2:6], uint32(int32(15*65536)))
+	childBody := append(
+		buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0xC01, legacyOfficeArtSpFlagChild|legacyOfficeArtSpFlagFlipV)),
+		buildOfficeArtRecord(1, legacyOfficeArtFOPT, 0x0003, childRotationProp)...,
+	)
+	childBody = append(childBody, buildOfficeArtRecord(0, legacyOfficeArtChildAnchor, 0x0000, childAnchor)...)
+	child := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, childBody)
 	groupData := append(root, child...)
 
 	frame, ok := parseLegacyPptGroupFrameFromSpContainer(rootBody, legacyPptGroupFrame{})
@@ -4615,19 +4827,64 @@ func TestParseLegacyPptGroupShapeAppliesRootTransformToResolvedChildren(t *testi
 		t.Fatal("child anchor not mapped")
 	}
 	resolved := &presentationir.Shape{Kind: presentationir.ShapeText, OriginalShapeID: 0xC01, Bounds: untransformed}
-	group, ok := parseLegacyPptGroupShapeFromContainer(groupData, legacyPptGroupFrame{}, map[uint32]*presentationir.Shape{0xC01: resolved}, nil, nil, nil, 1)
-	if !ok {
-		t.Fatal("parseLegacyPptGroupShapeFromContainer returned false")
+	drawingPayload := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, groupData)
+	groups := collectLegacyPptVisualScene(buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, drawingPayload)).groups(legacyPptDiscoveredShapeSource{0xC01: resolved}, nil, nil, nil)
+	if len(groups) != 1 {
+		t.Fatalf("semantic scene groups = %d, want 1", len(groups))
 	}
+	group := groups[0]
 	if len(group.Children) != 1 {
 		t.Fatalf("children = %d, want 1", len(group.Children))
 	}
-	got := group.Children[0]
-	if got.RotationDeg != 90 || !got.FlipH {
-		t.Fatalf("child transform rotation=%v flipH=%v, want 90/true", got.RotationDeg, got.FlipH)
+	if group.GroupTransform == nil {
+		t.Fatal("group transform = nil, want canonical transform preserved for layout")
 	}
-	if got.Bounds == untransformed {
-		t.Fatalf("child bounds were not repositioned by group rotation/flip: %+v", got.Bounds)
+	if group.GroupTransform.Rotation != 90 || !group.GroupTransform.FlipH {
+		t.Fatalf("group transform rotation=%v flipH=%v, want 90/true", group.GroupTransform.Rotation, group.GroupTransform.FlipH)
+	}
+	got := group.Children[0]
+	if got.RotationDeg != 15 || got.FlipH || !got.FlipV {
+		t.Fatalf("child-local Escher transform rotation=%v flipH=%v flipV=%v; want 15/false/true", got.RotationDeg, got.FlipH, got.FlipV)
+	}
+	wantLocal := presentationir.Rect{X: 100, Y: 200, W: 200, H: 200}
+	if got.Bounds != wantLocal {
+		t.Fatalf("parser child bounds = %+v, want authored local bounds %+v", got.Bounds, wantLocal)
+	}
+	if group.GroupTransform.ChildOffset != (presentationir.Point{X: 0, Y: 0}) ||
+		group.GroupTransform.ChildExtent != (presentationir.VisualSize{W: 1000, H: 1000}) {
+		t.Fatalf("group child coordinate system = off %+v ext %+v, want authored 0,0 / 1000x1000",
+			group.GroupTransform.ChildOffset, group.GroupTransform.ChildExtent)
+	}
+}
+
+func TestLegacyPptNestedGroupFramePreservesImmediateParentAnchor(t *testing.T) {
+	parent := legacyPptGroupFrame{
+		domain:      presentationir.Rect{X: 0, Y: 0, W: 1000, H: 1000},
+		localTarget: presentationir.Rect{X: 0, Y: 0, W: 2000, H: 1000},
+		target:      presentationir.Rect{X: 0, Y: 0, W: 2000, H: 1000},
+		valid:       true,
+	}
+	local := presentationir.Rect{X: 100, Y: 200, W: 300, H: 400}
+	mapped, ok := mapLegacyPptRectThroughGroupFrame(local, parent)
+	if !ok {
+		t.Fatal("expected parent frame mapping")
+	}
+	frame := legacyPptGroupFrame{
+		domain:      presentationir.Rect{X: 10, Y: 20, W: 30, H: 40},
+		localTarget: local,
+		target:      mapped,
+		valid:       true,
+	}
+	transform := legacyPptCanonicalGroupTransform(frame, legacyPptShapeTransform{})
+	if transform.Offset != (presentationir.Point{X: local.X, Y: local.Y}) {
+		t.Fatalf("offset = %+v, want immediate-parent local anchor %+v", transform.Offset, local)
+	}
+	if transform.ChildOffset != (presentationir.Point{X: 10, Y: 20}) ||
+		transform.ChildExtent != (presentationir.VisualSize{W: 30, H: 40}) {
+		t.Fatalf("child coordinate system = off %+v ext %+v", transform.ChildOffset, transform.ChildExtent)
+	}
+	if frame.target == frame.localTarget {
+		t.Fatal("test requires slide-space discovery target to differ from canonical local target")
 	}
 }
 
@@ -4821,7 +5078,7 @@ func TestParseLegacyPptExternalObjectsAcceptsOleContractUnderUnknownContainer(t 
 	exObjList := buildPptContainerRecord(0, pptRTExObjList, 0x0F, unknownContainer)
 	document := buildPptContainerRecord(0, pptRTDocument, 0x0F, exObjList)
 
-	objects := parseLegacyPptExternalObjects(document, 0, nil)
+	objects := parseLegacyPptExternalObjectsFromPayload(mustLegacyPptContainerPayload(t, document, pptRTDocument), document, nil)
 	obj, ok := objects[88]
 	if !ok || obj.Kind != presentationir.ShapeOleObject || obj.ProgID != "Package" {
 		t.Fatalf("objects[88]=%+v ok=%v", obj, ok)
@@ -4864,7 +5121,7 @@ func TestLegacyPptNoLineDoesNotDiscardOfficeArtTextAndCropSemantics(t *testing.T
 	if shape.LineStyle != nil || shape.LineColor != "" || shape.LineWidthPt != 0 {
 		t.Fatalf("disabled line leaked into shape: %+v", shape)
 	}
-	if shape.TextAnchor != "ctr" ||
+	if shape.TextAnchor != "ctr" || !shape.HasTextInsets ||
 		shape.TextInsetLeftEMU != 100 || shape.TextInsetTopEMU != 200 ||
 		shape.TextInsetRightEMU != 300 || shape.TextInsetBottomEMU != 400 ||
 		!shape.TextAutoGrow {
@@ -4926,3 +5183,667 @@ func TestLegacyPptGeometryTextDoesNotOverwriteTextAtomParagraphs(t *testing.T) {
 		t.Fatalf("existing text overwritten by GeoText: %q", got)
 	}
 }
+
+func TestLegacyPptTableDiscoveryDoesNotConsumeOLEPreviewDrawing(t *testing.T) {
+	exObj := make([]byte, 4)
+	binary.LittleEndian.PutUint32(exObj, 17)
+	clientData := buildOfficeArtRecord(0, legacyOfficeArtClientData, 0x0000,
+		buildPptAtomRecord(0, pptRTExObjRefAtom, exObj))
+	shape := buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0x701, 0))
+	sp := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(shape, clientData...))
+	group := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, sp)
+
+	if !legacyPptOfficeArtContainsExternalObject(group) {
+		t.Fatal("OLE preview group was not recognized as externally-owned drawing content")
+	}
+	if table, ok := recoverLegacyPptTableShapeFromGroupContainer(group, legacyPptGroupFrame{}, nil, nil, nil, 1); ok || table != nil {
+		t.Fatalf("OLE preview group promoted to slide table: %+v", table)
+	}
+}
+
+func TestComposeLegacyPptMasterVisualsPaintsMasterBehindLocalShapes(t *testing.T) {
+	master := &presentationir.Shape{Kind: presentationir.ShapeImage, Name: "master artwork"}
+	local := &presentationir.Shape{Kind: presentationir.ShapeText, Name: "local title"}
+	slides := []legacySlideText{{PersistID: 7, MasterID: 42, MasterPersistID: 142}}
+	got := composeLegacyPptMasterVisuals(slides, map[int][]*presentationir.Shape{7: {local}}, map[int][]*presentationir.Shape{142: {master}})
+	if len(got[7]) != 2 {
+		t.Fatalf("composed shape count = %d, want 2", len(got[7]))
+	}
+	if got[7][0] == master {
+		t.Fatal("master artwork must be materialized as a per-slide instance")
+	}
+	if got[7][0].Kind != master.Kind || got[7][0].Name != master.Name {
+		t.Fatalf("first shape = %+v, want cloned master artwork", got[7][0])
+	}
+	if got[7][1] != local {
+		t.Fatal("master artwork must paint before slide-local content")
+	}
+}
+
+func TestComposeLegacyPptMasterVisualsDoesNotBorrowUnreferencedMaster(t *testing.T) {
+	master := &presentationir.Shape{Kind: presentationir.ShapeImage, Name: "other master artwork"}
+	local := &presentationir.Shape{Kind: presentationir.ShapeText, Name: "local title"}
+	slides := []legacySlideText{{PersistID: 7, MasterID: 99}}
+	got := composeLegacyPptMasterVisuals(slides, map[int][]*presentationir.Shape{7: {local}}, map[int][]*presentationir.Shape{142: {master}})
+	if len(got[7]) != 1 || got[7][0] != local {
+		t.Fatal("slide must inherit artwork only from its referenced master")
+	}
+}
+
+func TestLegacyMasterTextRejectsSemanticallyImpossibleInheritance(t *testing.T) {
+	truth := true
+	bad := legacyPptMasterTextLevel{
+		paragraph: stpaPFEntry{HasBullet: true, BulletChar: 0x18},
+		run: stpaCFRun{
+			Bold: &truth, Italic: &truth, Underline: &truth, Strike: &truth,
+			FontSize: 72000,
+		},
+	}
+	if legacyPptMasterTextLevelSemanticallyValid(bad) {
+		t.Fatal("misdecoded master text level must not enter the inheritance cascade")
+	}
+	good := legacyPptMasterTextLevel{run: stpaCFRun{FontSize: 1800}}
+	if !legacyPptMasterTextLevelSemanticallyValid(good) {
+		t.Fatal("ordinary 18pt master text level was rejected")
+	}
+}
+
+func TestLegacyHeuristicTableGeometryMustRemainInsideOwningGroup(t *testing.T) {
+	frame := presentationir.Rect{X: 100, Y: 100, W: 1000, H: 800}
+	inside := presentationir.Rect{X: 110, Y: 120, W: 950, H: 740}
+	if !legacyPptRectContainedByFrame(inside, frame) {
+		t.Fatal("valid table geometry inside group frame was rejected")
+	}
+	escaped := presentationir.Rect{X: 600, Y: 500, W: 900, H: 700}
+	if legacyPptRectContainedByFrame(escaped, frame) {
+		t.Fatal("escaped embedded drawing geometry must not become a heuristic slide table")
+	}
+}
+
+func PutInt16(dst []byte, value int) {
+	binary.LittleEndian.PutUint16(dst, uint16(int16(value)))
+}
+
+func TestParseLegacyPptClientAnchorUsesPowerPointTopLeftRightBottomOrder(t *testing.T) {
+	body := make([]byte, 8)
+	PutInt16(body[0:2], 100) // top
+	PutInt16(body[2:4], 200) // left
+	PutInt16(body[4:6], 600) // right
+	PutInt16(body[6:8], 500) // bottom
+
+	got, ok := parseLegacyPptClientAnchor(body)
+	if !ok {
+		t.Fatal("parseLegacyPptClientAnchor failed")
+	}
+	want := presentationir.Rect{
+		X: 200 * defaultSlideWidthEMU / legacyPptMasterWidth,
+		Y: 100 * defaultSlideHeightEMU / legacyPptMasterHeight,
+		W: 400 * defaultSlideWidthEMU / legacyPptMasterWidth,
+		H: 400 * defaultSlideHeightEMU / legacyPptMasterHeight,
+	}
+	if got != want {
+		t.Fatalf("bounds = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseLegacyPptClientAnchorPreservesSignedCoordinates(t *testing.T) {
+	body := make([]byte, 8)
+	top := -100
+	PutInt16(body[0:2], top) // top
+	PutInt16(body[2:4], 200)
+	PutInt16(body[4:6], 600)
+	PutInt16(body[6:8], 500)
+	got, ok := parseLegacyPptClientAnchor(body)
+	if !ok {
+		t.Fatal("parseLegacyPptClientAnchor failed")
+	}
+	if got.Y >= 0 {
+		t.Fatalf("Y = %d, want negative signed coordinate", got.Y)
+	}
+}
+
+func TestLegacyPptBuiltInTitleFallbackDoesNotInventCharacterFormatting(t *testing.T) {
+	got, ok := legacyPptBuiltInMasterTextLevel(pptTextTypeTitle)
+	if !ok {
+		t.Fatal("title fallback missing")
+	}
+	if got.paragraph.Align != "ctr" {
+		t.Fatalf("align = %q, want ctr", got.paragraph.Align)
+	}
+	if got.run.FontSize != 0 || got.run.FontFamily != "" || got.run.Bold != nil || got.run.Color != "" {
+		t.Fatalf("built-in title fallback invented character formatting: %+v", got.run)
+	}
+}
+
+func TestLegacyPptGroupClassificationRequiresAuthoredTableProperty(t *testing.T) {
+	groupRoot := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F,
+		append(
+			buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0x900, 0x01)),
+			buildOfficeArtRecord(0, legacyOfficeArtSpgr, 0x0000, make([]byte, 16))...,
+		),
+	)
+	group := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, groupRoot)
+	payload := group[8:]
+
+	if legacyPptGroupContainerIsTable(payload) {
+		t.Fatal("unmarked OfficeArt group classified as an authored table")
+	}
+	if recoverLegacyPptGroupIsTableLike(payload, legacyPptGroupFrame{}, nil, nil, nil) {
+		t.Fatal("geometric/group structure must not promote an unmarked OfficeArt group to table semantics")
+	}
+	if table, ok := recoverLegacyPptTableShapeFromGroupContainer(payload, legacyPptGroupFrame{}, nil, nil, nil, 1); ok || table != nil {
+		t.Fatalf("unmarked OfficeArt group materialized as table: %+v", table)
+	}
+}
+
+func TestLegacyPptGroupChildSourceCannotOwnCanonicalGeometry(t *testing.T) {
+	resolved := &presentationir.Shape{
+		Kind:            presentationir.ShapeText,
+		OriginalShapeID: 0xC01,
+		Bounds:          presentationir.Rect{X: 9000, Y: 9000, W: 9000, H: 9000},
+		Paragraphs:      []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "semantic payload"}}}},
+	}
+	source := legacyPptDiscoveredShapeSource{0xC01: resolved}
+	child := source.CloneSemanticPayload(0xC01)
+	if child == nil {
+		t.Fatal("CloneSemanticPayload returned nil")
+	}
+	if child.Bounds != (presentationir.Rect{}) || child.RotationDeg != 0 || child.FlipH || child.FlipV {
+		t.Fatalf("semantic payload leaked discovery geometry/transform: bounds=%+v rotation=%v flipH=%v flipV=%v", child.Bounds, child.RotationDeg, child.FlipH, child.FlipV)
+	}
+	child.Bounds = presentationir.Rect{X: 10, Y: 20, W: 30, H: 40}
+	if resolved.Bounds == child.Bounds {
+		t.Fatal("semantic child source leaked canonical geometry mutation back into discovery shape")
+	}
+	if len(child.Paragraphs) == 0 {
+		t.Fatal("semantic payload was not preserved")
+	}
+}
+
+func TestLegacyPptUnmarkedDiagramWithTextAndLinesIsNotPromotedToTable(t *testing.T) {
+	buildRect32 := func(left, top, right, bottom int32) []byte {
+		buf := make([]byte, 16)
+		binary.LittleEndian.PutUint32(buf[0:4], uint32(left))
+		binary.LittleEndian.PutUint32(buf[4:8], uint32(top))
+		binary.LittleEndian.PutUint32(buf[8:12], uint32(right))
+		binary.LittleEndian.PutUint32(buf[12:16], uint32(bottom))
+		return buf
+	}
+	buildClientAnchor := func(x1, y1, x2, y2 uint16) []byte {
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint16(buf[0:2], x1)
+		binary.LittleEndian.PutUint16(buf[2:4], y1)
+		binary.LittleEndian.PutUint16(buf[4:6], x2)
+		binary.LittleEndian.PutUint16(buf[6:8], y2)
+		return buf
+	}
+	buildText := func(shapeID uint32, left, top, right, bottom int32, text string) []byte {
+		textbox := append(
+			buildPptAtomRecord(0, pptRTTextHeaderAtom, marshalUint32LE(pptTextTypeOther)),
+			buildPptAtomRecord(0, pptRTTextBytesAtom, []byte(text))...,
+		)
+		return buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(
+			append(
+				buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(shapeID, legacyOfficeArtSpFlagChild)),
+				buildOfficeArtRecord(0, legacyOfficeArtChildAnchor, 0x0000, buildRect32(left, top, right, bottom))...,
+			),
+			buildOfficeArtRecord(0, legacyOfficeArtClientTextbox, 0x0000, textbox)...,
+		))
+	}
+	buildLine := func(shapeID uint32, left, top, right, bottom int32) []byte {
+		return buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(
+			buildOfficeArtRecord(20, legacyOfficeArtSp, 0x0002, officeArtSpPayload(shapeID, legacyOfficeArtSpFlagChild)),
+			buildOfficeArtRecord(0, legacyOfficeArtChildAnchor, 0x0000, buildRect32(left, top, right, bottom))...,
+		))
+	}
+
+	groupRoot := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(
+		append(
+			buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0xA01, 0x01)),
+			buildOfficeArtRecord(0, legacyOfficeArtSpgr, 0x0000, buildRect32(0, 0, 1000, 800))...,
+		),
+		buildOfficeArtRecord(0, legacyOfficeArtClientAnchor, 0x0000, buildClientAnchor(0, 0, 2000, 1600))...,
+	))
+	payload := append([]byte{}, groupRoot...)
+	payload = append(payload, buildText(0xA02, 0, 0, 500, 300, "Space Segment")...)
+	payload = append(payload, buildText(0xA03, 500, 300, 1000, 600, "Control Segment")...)
+	payload = append(payload, buildText(0xA04, 250, 600, 750, 800, "User Segment")...)
+	payload = append(payload, buildLine(0xA05, 0, 300, 1000, 300)...)
+	payload = append(payload, buildLine(0xA06, 500, 0, 500, 800)...)
+
+	if legacyPptGroupContainerIsTable(payload) {
+		t.Fatal("unmarked diagram unexpectedly carries authored table semantics")
+	}
+	table, ok := recoverLegacyPptTableShapeFromGroupContainer(payload, legacyPptGroupFrame{}, nil, nil, nil, 1)
+	if !ok || table == nil {
+		t.Fatal("expected legacy compatibility inference to produce a table candidate")
+	}
+	flat := map[int][]*presentationir.Shape{1: {
+		{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Space Segment"}}}}},
+		{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Control Segment"}}}}},
+		{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "User Segment"}}}}},
+	}}
+	tables := map[int][]*presentationir.Shape{1: {table}}
+	if got := filterLegacyDuplicateProjectedTables(flat, tables); len(got[1]) != 0 {
+		t.Fatalf("duplicate diagram table candidate survived sibling-provenance filter: %+v", got[1])
+	}
+}
+
+func TestLegacyDuplicateProjectedTableMatchesParagraphAtomsAcrossGroupProjection(t *testing.T) {
+	table := &presentationir.Shape{Kind: presentationir.ShapeTable, Table: &presentationir.Table{Rows: []*presentationir.TableRow{{Cells: []*presentationir.TableCell{{Paragraphs: []*presentationir.Paragraph{
+		{Runs: []*presentationir.Run{{Text: "Broadcast of:"}}},
+		{Runs: []*presentationir.Run{{Text: "Navigation   Data"}}},
+		{Runs: []*presentationir.Run{{Text: "Spread-spectrum ranging signals"}}},
+	}}}}}}}
+	groups := map[int][]*presentationir.Shape{1: {{Kind: presentationir.ShapeGroup, Children: []*presentationir.Shape{
+		{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Broadcast of:"}}}}},
+		{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Navigation Data"}}}}},
+		{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Spread-spectrum ranging signals"}}}}},
+	}}}}
+	tables := map[int][]*presentationir.Shape{1: {table}}
+	if got := filterLegacyDuplicateProjectedTables(groups, tables); len(got[1]) != 0 {
+		t.Fatalf("group-owned paragraph projection did not suppress inferred duplicate table: %+v", got[1])
+	}
+}
+
+func TestLegacyPptTextFillRequiresExplicitFilledBoolean(t *testing.T) {
+	props := []officeartescher.Property{{ID: legacyOfficeArtPropFillColor, Value: 0x00000000}}
+	if color, ok := parseLegacyPptFOPTPropertiesTextFillColor(props, nil); ok || color != "" {
+		t.Fatalf("implicit textbox fill = %q, %v; want transparent", color, ok)
+	}
+	props = append(props, officeartescher.Property{ID: legacyOfficeArtPropFillBools, Value: (1 << 20) | (1 << 4)})
+	if color, ok := parseLegacyPptFOPTPropertiesTextFillColor(props, nil); !ok || color != "000000" {
+		t.Fatalf("explicit textbox fill = %q, %v; want 000000,true", color, ok)
+	}
+}
+
+func TestLegacyPptTextFillIgnoresUnrelatedFillBooleanBits(t *testing.T) {
+	props := []officeartescher.Property{
+		{ID: legacyOfficeArtPropFillColor, Value: 0x00000000},
+		// An unrelated value/use pair is authored, but fFilled (bit 4 / use 20) is not.
+		{ID: legacyOfficeArtPropFillBools, Value: (1 << 16) | 1},
+	}
+	if color, ok := parseLegacyPptFOPTPropertiesTextFillColor(props, nil); ok || color != "" {
+		t.Fatalf("implicit textbox fill = %q, %v; want transparent", color, ok)
+	}
+}
+
+func TestResolveLegacyPptOfficeArtColorRefUsesSchemeFlag(t *testing.T) {
+	scheme := map[uint8]string{4: "ABCDEF"}
+	if got := resolveLegacyPptOfficeArtColorRef(0x08000004, scheme); got != "ABCDEF" {
+		t.Fatalf("scheme OfficeArt color = %q", got)
+	}
+	if got := resolveLegacyPptOfficeArtColorRef(0x00332211, scheme); got != "112233" {
+		t.Fatalf("direct OfficeArt color = %q", got)
+	}
+}
+
+func TestLegacyPptConnectionSitesRespectTriangleSiteCount(t *testing.T) {
+	shape := &presentationir.Shape{Geometry: "triangle", Bounds: presentationir.Rect{X: 100, Y: 200, W: 300, H: 400}}
+	want := []presentationir.Point{{X: 250, Y: 200}, {X: 100, Y: 600}, {X: 400, Y: 600}, {X: 250, Y: 200}}
+	for site, expected := range want {
+		got := legacyPptConnectionSitePointForShape(shape, uint32(site))
+		if got == nil || *got != expected {
+			t.Fatalf("triangle site %d = %#v, want %#v", site, got, expected)
+		}
+	}
+}
+
+func TestLegacyPptConnectionSitesKeepFourSiteRectangleContract(t *testing.T) {
+	shape := &presentationir.Shape{Geometry: "rect", Bounds: presentationir.Rect{X: 100, Y: 200, W: 300, H: 400}}
+	want := []presentationir.Point{{X: 250, Y: 200}, {X: 100, Y: 400}, {X: 250, Y: 600}, {X: 400, Y: 400}}
+	for site, expected := range want {
+		got := legacyPptConnectionSitePointForShape(shape, uint32(site))
+		if got == nil || *got != expected {
+			t.Fatalf("rect site %d = %#v, want %#v", site, got, expected)
+		}
+	}
+}
+
+func TestLegacyPptConnectionSitesUsePresetSiteCounts(t *testing.T) {
+	cases := []struct {
+		preset string
+		count  uint32
+	}{
+		{"diamond", 4},
+		{"pentagon", 5},
+		{"hexagon", 6},
+		{"octagon", 8},
+	}
+	for _, tc := range cases {
+		shape := &presentationir.Shape{Geometry: tc.preset, Bounds: presentationir.Rect{X: 100, Y: 200, W: 300, H: 400}}
+		first := legacyPptConnectionSitePointForShape(shape, 0)
+		wrapped := legacyPptConnectionSitePointForShape(shape, tc.count)
+		if first == nil || wrapped == nil || *first != *wrapped {
+			t.Fatalf("%s site count did not wrap at %d: first=%#v wrapped=%#v", tc.preset, tc.count, first, wrapped)
+		}
+		if tc.count > 4 {
+			fourth := legacyPptConnectionSitePointForShape(shape, 4)
+			if fourth == nil || *fourth == *first {
+				t.Fatalf("%s site 4 collapsed to four-site fallback: first=%#v site4=%#v", tc.preset, first, fourth)
+			}
+		}
+	}
+}
+
+func TestLegacyPptConnectionSitesFollowShapeRotationAndFlip(t *testing.T) {
+	shape := &presentationir.Shape{
+		Geometry:    "rect",
+		Bounds:      presentationir.Rect{X: 100, Y: 200, W: 300, H: 400},
+		RotationDeg: 90,
+	}
+	// The authored top site rotates clockwise to the right side.
+	got := legacyPptConnectionSitePointForShape(shape, 0)
+	want := presentationir.Point{X: 450, Y: 400}
+	if got == nil || *got != want {
+		t.Fatalf("rotated rect top site = %#v, want %#v", got, want)
+	}
+
+	shape.RotationDeg = 0
+	shape.FlipV = true
+	got = legacyPptConnectionSitePointForShape(shape, 0)
+	want = presentationir.Point{X: 250, Y: 600}
+	if got == nil || *got != want {
+		t.Fatalf("vertically flipped rect top site = %#v, want %#v", got, want)
+	}
+}
+
+func TestLegacyPptFOPTProjectsWrapFlowAndAnchorCenterIntoCanonicalTextBody(t *testing.T) {
+	props := []officeartescher.Property{
+		{ID: officeartescher.PropWrapText, Value: 2},
+		{ID: officeartescher.PropAnchorText, Value: 4},
+		{ID: officeartescher.PropTextFlow, Value: 2},
+	}
+	var tr legacyPptShapeTransform
+	parseLegacyPptFOPTPropertiesTransform(props, nil, &tr)
+	if !tr.HasTextWrap || tr.TextWrap != "none" {
+		t.Fatalf("wrap = (%v,%q), want explicit none", tr.HasTextWrap, tr.TextWrap)
+	}
+	if !tr.HasTextVertical || tr.TextVertical != "vert270" {
+		t.Fatalf("vertical = (%v,%q), want explicit vert270", tr.HasTextVertical, tr.TextVertical)
+	}
+	if !tr.HasAnchorCenter || !tr.AnchorCenter {
+		t.Fatalf("anchor center = (%v,%v), want explicit true", tr.HasAnchorCenter, tr.AnchorCenter)
+	}
+	shape := &presentationir.Shape{}
+	applyLegacyPptShapeTransform(shape, tr)
+	if shape.TextBodyProps.Wrap != "none" || shape.TextBodyProps.Vert != "vert270" || !shape.TextBodyProps.AnchorCtr {
+		t.Fatalf("canonical bodyPr = %+v", shape.TextBodyProps)
+	}
+}
+
+func TestLegacyPptPlaceholderTextFlowPresenceOverridesMaster(t *testing.T) {
+	inherited := legacyPptShapeTransform{
+		HasTextWrap: true, TextWrap: "none",
+		HasTextVertical: true, TextVertical: "vert",
+		HasAnchorCenter: true, AnchorCenter: true,
+	}
+	local := legacyPptShapeTransform{
+		HasTextWrap: true, TextWrap: "square",
+		HasTextVertical: true, TextVertical: "",
+		HasAnchorCenter: true, AnchorCenter: false,
+	}
+	got := mergeLegacyPptPlaceholderTransform(local, inherited)
+	if got.TextWrap != "square" || got.TextVertical != "" || got.AnchorCenter {
+		t.Fatalf("explicit local horizontal/wrap/anchorCtr lost: %+v", got)
+	}
+
+	got = mergeLegacyPptPlaceholderTransform(legacyPptShapeTransform{}, inherited)
+	if got.TextWrap != "none" || got.TextVertical != "vert" || !got.AnchorCenter {
+		t.Fatalf("master text flow not inherited: %+v", got)
+	}
+}
+
+func TestLegacyPptPartialTextInsetsPreserveUnauthoredDefaults(t *testing.T) {
+	props := []officeartescher.Property{{ID: officeartescher.PropTextLeft, Value: 0}}
+	var tr legacyPptShapeTransform
+	parseLegacyPptFOPTPropertiesTransform(props, nil, &tr)
+	if !tr.HasTextInsets || !tr.HasTextInsetLeft || tr.HasTextInsetTop || tr.HasTextInsetRight || tr.HasTextInsetBottom {
+		t.Fatalf("inset presence = %+v", tr)
+	}
+	shape := &presentationir.Shape{}
+	applyLegacyPptShapeTransform(shape, tr)
+	if !shape.HasTextInsets || shape.TextInsetLeftEMU != 0 || shape.TextInsetRightEMU != 91440 || shape.TextInsetTopEMU != 45720 || shape.TextInsetBottomEMU != 45720 {
+		t.Fatalf("materialized insets = L%d T%d R%d B%d", shape.TextInsetLeftEMU, shape.TextInsetTopEMU, shape.TextInsetRightEMU, shape.TextInsetBottomEMU)
+	}
+}
+
+func TestLegacyPptPlaceholderTextInsetsMergePerEdge(t *testing.T) {
+	master := legacyPptShapeTransform{HasTextInsets: true, HasTextInsetLeft: true, HasTextInsetTop: true, HasTextInsetRight: true, HasTextInsetBottom: true, TextInsetLeft: 10, TextInsetTop: 20, TextInsetRight: 30, TextInsetBottom: 40}
+	local := legacyPptShapeTransform{HasTextInsets: true, HasTextInsetLeft: true, TextInsetLeft: 0}
+	got := mergeLegacyPptPlaceholderTransform(local, master)
+	if got.TextInsetLeft != 0 || got.TextInsetTop != 20 || got.TextInsetRight != 30 || got.TextInsetBottom != 40 {
+		t.Fatalf("merged insets = L%d T%d R%d B%d", got.TextInsetLeft, got.TextInsetTop, got.TextInsetRight, got.TextInsetBottom)
+	}
+	if !got.HasTextInsetLeft || !got.HasTextInsetTop || !got.HasTextInsetRight || !got.HasTextInsetBottom {
+		t.Fatalf("merged inset presence = %+v", got)
+	}
+}
+
+func TestLegacyPptFOPTKeepsWrapAndAutofitAsIndependentTextContracts(t *testing.T) {
+	parse := func(props []officeartescher.Property) legacyPptShapeTransform {
+		var tr legacyPptShapeTransform
+		parseLegacyPptFOPTPropertiesTransform(props, nil, &tr)
+		return tr
+	}
+	wrapOnly := parse([]officeartescher.Property{{ID: officeartescher.PropWrapText, Value: 2}})
+	if !wrapOnly.HasTextWrap || wrapOnly.TextWrap != "none" || wrapOnly.HasAllowOverflow || wrapOnly.HasAutoGrow {
+		t.Fatalf("wrap-only contract invented autofit/overflow ownership: %+v", wrapOnly)
+	}
+	noAutofit := parse([]officeartescher.Property{{ID: officeartescher.PropTextBooleans, Value: 1 << 16}})
+	if !noAutofit.HasAutoGrow || noAutofit.AutoGrow || !noAutofit.HasAllowOverflow || !noAutofit.AllowOverflow || noAutofit.HasTextWrap {
+		t.Fatalf("explicit fitShapeToText=off contract = %+v", noAutofit)
+	}
+	spAutoFit := parse([]officeartescher.Property{{ID: officeartescher.PropTextBooleans, Value: (1 << 16) | 1}})
+	if !spAutoFit.HasAutoGrow || !spAutoFit.AutoGrow || !spAutoFit.HasAllowOverflow || spAutoFit.AllowOverflow {
+		t.Fatalf("explicit fitShapeToText=on contract = %+v", spAutoFit)
+	}
+}
+
+func TestLegacyPptPlaceholderExplicitNoAutofitOverridesInheritedAutoGrow(t *testing.T) {
+	local := legacyPptShapeTransform{HasAutoGrow: true, AutoGrow: false, HasAllowOverflow: true, AllowOverflow: true}
+	master := legacyPptShapeTransform{HasAutoGrow: true, AutoGrow: true, HasAllowOverflow: true, AllowOverflow: false}
+	got := mergeLegacyPptPlaceholderTransform(local, master)
+	if got.AutoGrow || !got.AllowOverflow {
+		t.Fatalf("local noAutofit lost to inherited spAutoFit: %+v", got)
+	}
+}
+
+func TestBuildTextParagraphsPreservesSoftBreakInsideParagraph(t *testing.T) {
+	paragraphs := buildTextParagraphs("Alpha\vBeta\rGamma")
+	if len(paragraphs) != 2 {
+		t.Fatalf("paragraphs = %d, want 2", len(paragraphs))
+	}
+	if got := paragraphText(paragraphs[0]); got != "Alpha\nBeta" {
+		t.Fatalf("first paragraph = %q, want authored soft break", got)
+	}
+	if got := paragraphText(paragraphs[1]); got != "Gamma" {
+		t.Fatalf("second paragraph = %q", got)
+	}
+}
+
+func TestApplyLegacyPptThemeFontFallbackFillsOnlyMissingRunFamily(t *testing.T) {
+	pres := &presentationir.Presentation{Theme: &presentationir.Theme{MajorFont: "Times New Roman", MinorFont: "Times New Roman"}, Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{Kind: presentationir.ShapeText, Placeholder: presentationir.PlaceholderBody, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "inherited"}, {Text: "explicit", FontFamily: "Arial"}}}}}}}}}
+	applyLegacyPptThemeFontFallback(pres)
+	runs := pres.Slides[0].Shapes[0].Paragraphs[0].Runs
+	if runs[0].FontFamily != "Times New Roman" {
+		t.Fatalf("inherited family=%q", runs[0].FontFamily)
+	}
+	if runs[1].FontFamily != "Arial" {
+		t.Fatalf("explicit family overwritten: %q", runs[1].FontFamily)
+	}
+}
+
+func TestLegacyPptOtherTextUsesFreeStandingTextPlaceholderAnd24PtFallback(t *testing.T) {
+	if got := legacyPptPlaceholderFromTextType(pptTextTypeOther, false); got != presentationir.PlaceholderOther {
+		t.Fatalf("other text placeholder = %v, want PlaceholderOther", got)
+	}
+	fallback, ok := legacyPptRoleRunFallback(pptTextTypeOther)
+	if !ok || fallback.FontSize != 2400 {
+		t.Fatalf("other text fallback = %+v, ok=%v; want 2400 hundredths-point", fallback, ok)
+	}
+	if fallback.FontFamily != "" {
+		t.Fatalf("other text fallback family = %q, want document font inheritance", fallback.FontFamily)
+	}
+	shape := &presentationir.Shape{Placeholder: presentationir.PlaceholderOther}
+	if got := legacyPptMasterTextTypeForShape(shape); got != pptTextTypeOther {
+		t.Fatalf("PlaceholderOther master text type = %d, want %d", got, pptTextTypeOther)
+	}
+}
+
+func TestBindLegacyPptMasterOwnershipResolvesPersistRefWithoutChangingSlideIdentifier(t *testing.T) {
+	slides := []legacySlideText{
+		{PersistID: 10, MasterID: -2147483648},
+		{PersistID: 11, MasterID: -2147483636},
+		{PersistID: 12, MasterID: 12345},
+	}
+	entries := []legacyPptMasterEntry{
+		{RefID: 3, SlideIdentifier: -2147483648},
+		{RefID: 4, SlideIdentifier: -2147483636},
+	}
+	got := bindLegacyPptMasterOwnership(slides, entries)
+	if got[0].MasterID != -2147483648 || got[0].MasterPersistID != 3 {
+		t.Fatalf("slide 0 ownership = identifier %d persist %d, want identifier -2147483648 persist 3", got[0].MasterID, got[0].MasterPersistID)
+	}
+	if got[1].MasterID != -2147483636 || got[1].MasterPersistID != 4 {
+		t.Fatalf("slide 1 ownership = identifier %d persist %d, want identifier -2147483636 persist 4", got[1].MasterID, got[1].MasterPersistID)
+	}
+	if got[2].MasterPersistID != 0 {
+		t.Fatalf("unresolved slide master persist = %d, want 0", got[2].MasterPersistID)
+	}
+}
+
+func TestBindLegacyPptMasterOwnershipDoesNotRetargetDuplicateMasterIdentifier(t *testing.T) {
+	slides := []legacySlideText{{PersistID: 10, MasterID: -2147483648}}
+	entries := []legacyPptMasterEntry{
+		{RefID: 3, SlideIdentifier: -2147483648},
+		{RefID: 99, SlideIdentifier: -2147483648},
+	}
+	got := bindLegacyPptMasterOwnership(slides, entries)
+	if got[0].MasterPersistID != 3 {
+		t.Fatalf("master persist = %d, want first authored binding 3", got[0].MasterPersistID)
+	}
+}
+
+func TestLegacyPptSceneGroupOwnsSparseTableFromOutlineRefs(t *testing.T) {
+	cells := []legacyPptTableCellShape{
+		{outlineRef: 10},
+		{outlineRef: 11},
+	}
+	if !legacyPptSceneGroupOwnsTable(false, cells, nil) {
+		t.Fatal("sparse cells with independent OutlineTextRef identities must retain table ownership")
+	}
+}
+
+func TestNormalizeLegacyPptHeaderFooterOnlySlidesIgnoresPromptOnlyPersist(t *testing.T) {
+	slides := []legacySlideText{
+		{PersistID: 10, Fragments: []legacySlideFragment{{Text: "Authored title"}}},
+		{PersistID: 20, Fragments: []legacySlideFragment{{Text: "Click to edit Master title style"}}},
+	}
+	infos := map[int]legacyPptHeaderFooterInfo{
+		20: {hasAtom: true, flags: legacyPptHFFlagFooter, footerText: "per-slide footer"},
+	}
+	gotSlides, gotInfos := normalizeLegacyPptHeaderFooterOnlySlides(slides, nil, infos)
+	if len(gotSlides) != 1 || gotSlides[0].PersistID != 10 {
+		t.Fatalf("slides = %#v, want only authored persist 10", gotSlides)
+	}
+	if got := gotInfos[10].footerText; got != "per-slide footer" {
+		t.Fatalf("promoted footer = %q, want per-slide footer", got)
+	}
+}
+
+func TestLegacyPptNestedTableMarkerDoesNotPromoteAncestorGroup(t *testing.T) {
+	prop := make([]byte, 6)
+	binary.LittleEndian.PutUint16(prop[0:2], legacyOfficeArtPropTableProperties)
+	binary.LittleEndian.PutUint32(prop[2:6], 1)
+
+	outerRoot := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(
+		buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0xD01, 0x01)),
+		buildOfficeArtRecord(0, legacyOfficeArtSpgr, 0x0000, make([]byte, 16))...,
+	))
+	innerRoot := buildOfficeArtRecord(0, legacyOfficeArtSpContainer, 0x000F, append(
+		append(
+			buildOfficeArtRecord(1, legacyOfficeArtSp, 0x0002, officeArtSpPayload(0xD02, 0x01)),
+			buildOfficeArtRecord(0, legacyOfficeArtSpgr, 0x0000, make([]byte, 16))...,
+		),
+		buildOfficeArtRecord(1, officeartescher.RecordTertiaryFOPT, 0x0003, prop)...,
+	))
+	innerGroup := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, innerRoot)
+	outerPayload := append(append([]byte{}, outerRoot...), innerGroup...)
+
+	if legacyPptGroupContainerIsTable(outerPayload) {
+		t.Fatal("nested table marker leaked ownership to ancestor group")
+	}
+	if !legacyPptGroupContainerIsTable(innerRoot) {
+		t.Fatal("nested group's own tertiary table marker was not recognized")
+	}
+}
+
+
+func TestParseTextRulerAtomOwnsDefaultTabsAndCustomStops(t *testing.T) {
+	// TextRuler mask: defaultTabSize + tabStops.
+	payload := make([]byte, 4)
+	binary.LittleEndian.PutUint16(payload[0:2], 0x0001|0x0004)
+	payload = binary.LittleEndian.AppendUint16(payload, 360) // default 360 master units
+	payload = binary.LittleEndian.AppendUint16(payload, 2)
+	payload = binary.LittleEndian.AppendUint16(payload, 720)
+	payload = binary.LittleEndian.AppendUint16(payload, 1) // center
+	payload = binary.LittleEndian.AppendUint16(payload, 1080)
+	payload = binary.LittleEndian.AppendUint16(payload, 3) // decimal
+
+	ruler, ok := parseTextRulerAtom(payload)
+	if !ok || !ruler.hasDefaultTab || ruler.defaultTabSize != 360 {
+		t.Fatalf("ruler default tab = %#v, ok=%v", ruler, ok)
+	}
+	if !ruler.hasTabs || len(ruler.tabs) != 2 {
+		t.Fatalf("ruler tabs = %#v", ruler.tabs)
+	}
+	if ruler.tabs[0].Pos != 720*127 || ruler.tabs[0].Algn != "ctr" ||
+		ruler.tabs[1].Pos != 1080*127 || ruler.tabs[1].Algn != "dec" {
+		t.Fatalf("ruler tabs = %#v", ruler.tabs)
+	}
+}
+
+func TestApplyRulerLevelsToParasSuppliesMissingTabSemantics(t *testing.T) {
+	p := &presentationir.Paragraph{Level: 0}
+	ruler := legacyPptTextRuler{
+		defaultTabSize: 360, hasDefaultTab: true, hasTabs: true,
+		tabs: []presentationir.TabStop{{Pos: 720 * 127, Algn: "r"}},
+	}
+	applyRulerLevelsToParas([]*presentationir.Paragraph{p}, ruler)
+	if p.DefaultTabSizeEMU != 360*127 || len(p.TabStops) != 1 ||
+		p.TabStops[0].Pos != 720*127 || p.TabStops[0].Algn != "r" {
+		t.Fatalf("paragraph ruler projection = %#v", p)
+	}
+}
+
+func TestApplyRulerLevelsToParasDoesNotOverrideParagraphTabSemantics(t *testing.T) {
+	p := &presentationir.Paragraph{
+		Level: 0, DefaultTabSizeEMU: 240 * 127,
+		TabStops: []presentationir.TabStop{{Pos: 480 * 127, Algn: "l"}},
+	}
+	ruler := legacyPptTextRuler{
+		defaultTabSize: 360, hasDefaultTab: true, hasTabs: true,
+		tabs: []presentationir.TabStop{{Pos: 720 * 127, Algn: "r"}},
+	}
+	applyRulerLevelsToParas([]*presentationir.Paragraph{p}, ruler)
+	if p.DefaultTabSizeEMU != 240*127 || len(p.TabStops) != 1 ||
+		p.TabStops[0].Pos != 480*127 || p.TabStops[0].Algn != "l" {
+		t.Fatalf("paragraph-owned tabs were overridden: %#v", p)
+	}
+}
+
+func TestParseTextRulerAtomPreservesExplicitZeroMarginAndIndent(t *testing.T) {
+	payload := make([]byte, 4)
+	// level 0 left margin (bit 3) and indent (bit 8).
+	binary.LittleEndian.PutUint16(payload[0:2], (1<<3)|(1<<8))
+	payload = binary.LittleEndian.AppendUint16(payload, 0)
+	payload = binary.LittleEndian.AppendUint16(payload, 0)
+	ruler, ok := parseTextRulerAtom(payload)
+	if !ok || !ruler.hasLeft[0] || !ruler.hasIndent[0] ||
+		ruler.leftMargins[0] != 0 || ruler.indents[0] != 0 {
+		t.Fatalf("explicit zero ruler provenance lost: %#v ok=%v", ruler, ok)
+	}
+}
+
+

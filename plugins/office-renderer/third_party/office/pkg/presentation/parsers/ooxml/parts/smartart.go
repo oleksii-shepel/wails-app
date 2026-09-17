@@ -99,10 +99,16 @@ type PresentationTableCell struct {
 
 // PresentationTableCellProps stores cell geometry and appearance.
 type PresentationTableCellProps struct {
-	MarL       int64                 `xml:"marL,attr,omitempty"`
-	MarR       int64                 `xml:"marR,attr,omitempty"`
-	MarT       int64                 `xml:"marT,attr,omitempty"`
-	MarB       int64                 `xml:"marB,attr,omitempty"`
+	MarL int64 `xml:"marL,attr,omitempty"`
+	MarR int64 `xml:"marR,attr,omitempty"`
+	MarT int64 `xml:"marT,attr,omitempty"`
+	MarB int64 `xml:"marB,attr,omitempty"`
+	// Margin presence is semantic in DrawingML: an omitted margin uses the
+	// table-cell default, while an authored zero deliberately removes it.
+	MarLSet    bool                  `xml:"-"`
+	MarRSet    bool                  `xml:"-"`
+	MarTSet    bool                  `xml:"-"`
+	MarBSet    bool                  `xml:"-"`
 	Anchor     string                `xml:"anchor,attr,omitempty"`
 	SolidFill  *ColorRef             `xml:"solidFill>srgbClr"`
 	SchemeFill *drawingxml.SchemeClr `xml:"solidFill>schemeClr"`
@@ -114,6 +120,30 @@ type PresentationTableCellProps struct {
 	LnR        *ConnectorLine        `xml:"lnR"`
 	LnT        *ConnectorLine        `xml:"lnT"`
 	LnB        *ConnectorLine        `xml:"lnB"`
+}
+
+// UnmarshalXML preserves whether table-cell margins were authored. encoding/xml's
+// scalar zero value cannot otherwise distinguish marL="0" from an omitted marL.
+func (p *PresentationTableCellProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type plain PresentationTableCellProps
+	var decoded plain
+	if err := d.DecodeElement(&decoded, &start); err != nil {
+		return err
+	}
+	*p = PresentationTableCellProps(decoded)
+	for _, a := range start.Attr {
+		switch a.Name.Local {
+		case "marL":
+			p.MarLSet = true
+		case "marR":
+			p.MarRSet = true
+		case "marT":
+			p.MarTSet = true
+		case "marB":
+			p.MarBSet = true
+		}
+	}
+	return nil
 }
 
 // TableStyleList is the root of the DrawingML table styles part.

@@ -191,6 +191,7 @@ type TextParagraph struct {
 	AutoNumStart      int
 	BulletColor       string
 	BulletFontFamily  string
+	BulletFontTx      bool
 	BulletSize        int
 	BulletSizePct     int
 	// SpaceBefore and SpaceAfter are paragraph spacing values in hundredths of

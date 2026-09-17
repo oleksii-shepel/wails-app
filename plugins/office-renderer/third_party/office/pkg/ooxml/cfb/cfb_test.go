@@ -1,6 +1,7 @@
 package cfb_test
 
 import (
+	"bytes"
 	"testing"
 
 	"office/pkg/ooxml/cfb"
@@ -260,5 +261,82 @@ func TestNilFile(t *testing.T) {
 	}
 	if got := f.StreamNames(); got != nil {
 		t.Fatalf("nil File.StreamNames should return nil, got %v", got)
+	}
+}
+
+func TestOpenBytes_V3IgnoresReservedHighStreamSizeDWORD(t *testing.T) {
+	const sectorSize = 512
+	raw := buildMinimalCFB("PowerPoint Document", []byte("ppt-data"))
+	dirOff := sectorSize + 1*sectorSize
+	entryOff := dirOff + 1*128
+	le32(raw, entryOff+124, 0xD2FCF2CB)
+
+	f, err := cfb.OpenBytes(raw)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	got, ok := f.Stream("PowerPoint Document")
+	if !ok {
+		t.Fatal("PowerPoint Document stream not found")
+	}
+	if len(got) != 4096 {
+		t.Fatalf("stream len = %d, want 4096", len(got))
+	}
+	if string(got[:8]) != "ppt-data" {
+		t.Fatalf("stream prefix = %q, want ppt-data", got[:8])
+	}
+}
+
+func TestOpenReaderAt_V3IgnoresReservedHighStreamSizeDWORD(t *testing.T) {
+	const sectorSize = 512
+	raw := buildMinimalCFB("PowerPoint Document", []byte("ppt-data"))
+	dirOff := sectorSize + 1*sectorSize
+	entryOff := dirOff + 1*128
+	le32(raw, entryOff+124, 0xD2FCF2CB)
+
+	f, err := cfb.OpenReaderAt(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatalf("OpenReaderAt: %v", err)
+	}
+	got, ok := f.Stream("PowerPoint Document")
+	if !ok {
+		t.Fatal("PowerPoint Document stream not found")
+	}
+	if len(got) != 4096 {
+		t.Fatalf("stream len = %d, want 4096", len(got))
+	}
+	if string(got[:8]) != "ppt-data" {
+		t.Fatalf("stream prefix = %q, want ppt-data", got[:8])
+	}
+}
+
+func TestStreamFallsBackToReadablePrefixForTruncatedRegularStream(t *testing.T) {
+	raw := buildMinimalCFB("EncryptedPackage", []byte("package-data"))
+
+	// Make the directory claim more data than the FAT chain can provide.
+	const sectorSize = 512
+	dirOff := sectorSize + sectorSize
+	entryOff := dirOff + 128
+	le32(raw, entryOff+120, 8872)
+	le32(raw, entryOff+124, 0)
+
+	f, err := cfb.OpenBytes(raw)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+
+	if _, ok, err := f.StreamWithError("EncryptedPackage"); !ok || err == nil {
+		t.Fatalf("StreamWithError = ok=%v err=%v, want present stream with truncation error", ok, err)
+	}
+
+	got, ok := f.Stream("EncryptedPackage")
+	if !ok {
+		t.Fatal("Stream reported EncryptedPackage as missing")
+	}
+	if len(got) == 0 {
+		t.Fatal("Stream returned no readable prefix for truncated EncryptedPackage")
+	}
+	if string(got[:12]) != "package-data" {
+		t.Fatalf("Stream prefix = %q, want package-data", got[:12])
 	}
 }

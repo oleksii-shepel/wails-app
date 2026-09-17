@@ -3,6 +3,8 @@ package legacy
 import (
 	"encoding/binary"
 	"testing"
+
+	presentationir "office/pkg/presentation/ir"
 )
 
 // buildCFRecord builds a minimal STPA-style entry: cchRun (2 bytes) +
@@ -100,9 +102,9 @@ func TestParseCFExceptionNegativeFontSizeIgnored(t *testing.T) {
 }
 
 func TestParseCFExceptionColorRGB(t *testing.T) {
-	// masks bit 11 (color): R=0x11, G=0x22, B=0x33, extra=0x00 (plain RGB).
+	// masks bit 11 (color): R=0x11, G=0x22, B=0x33, index=0xFE (explicit RGB).
 	masks := uint32(1 << 11)
-	stpa := append(marshalUint32LE(masks), 0x11, 0x22, 0x33, 0x00)
+	stpa := append(marshalUint32LE(masks), 0x11, 0x22, 0x33, 0xFE)
 	run, _, ok := parseCFException(stpa, 0)
 	if !ok {
 		t.Fatal("parseCFException returned ok=false")
@@ -113,9 +115,9 @@ func TestParseCFExceptionColorRGB(t *testing.T) {
 }
 
 func TestParseCFExceptionColorSchemeWithoutPaletteStaysEmpty(t *testing.T) {
-	// extra=0xFE means scheme color; without a parsed palette, Color remains empty.
+	// index 0x05 means scheme color; without a parsed palette, Color remains empty.
 	masks := uint32(1 << 11)
-	stpa := append(marshalUint32LE(masks), 0x11, 0x22, 0x33, 0xFE)
+	stpa := append(marshalUint32LE(masks), 0x00, 0x00, 0x00, 0x05)
 	run, _, ok := parseCFException(stpa, 0)
 	if !ok {
 		t.Fatal("parseCFException returned ok=false")
@@ -127,7 +129,7 @@ func TestParseCFExceptionColorSchemeWithoutPaletteStaysEmpty(t *testing.T) {
 
 func TestParseCFExceptionColorSchemeResolvesFromPalette(t *testing.T) {
 	masks := uint32(1 << 11)
-	stpa := append(marshalUint32LE(masks), 0x05, 0x00, 0x00, 0xFE)
+	stpa := append(marshalUint32LE(masks), 0x00, 0x00, 0x00, 0x05)
 	run, _, ok := parseCFExceptionWithTheme(stpa, 0, nil, map[uint8]string{5: "C0504D"})
 	if !ok {
 		t.Fatal("parseCFException returned ok=false")
@@ -462,7 +464,7 @@ func TestParseStyleTextPropAtomFontSizeAndColor(t *testing.T) {
 	pf := buildPFRecord(2, 0, nil)
 	cfMasks := uint32((1 << 10) | (1 << 11)) // fontSize + color
 	cfExtra := marshalUint16LE(3600)
-	cfExtra = append(cfExtra, 0xFF, 0x00, 0x00, 0x00) // R=0xFF, G=0x00, B=0x00, extra=0x00
+	cfExtra = append(cfExtra, 0xFF, 0x00, 0x00, 0xFE) // explicit sRGB
 	cf := buildCFRecord(2, cfMasks, cfExtra)
 
 	stpa := append(pf, cf...)
@@ -545,87 +547,70 @@ func marshalInt32LE(v int32) []byte {
 // --- TextPFException paragraph-spacing tests ---
 
 func TestParsePFExceptionSpaceBeforeAfterAbsolute(t *testing.T) {
-	// bits 18 (spBefore) and 19 (spAfter) set; positive values = hundredths of a point.
+	// MS-PPT ParaSpacing: negative values are absolute master units.
 	masks := uint32(1<<18 | 1<<19)
-	extra := append(marshalInt16LE(200), marshalInt16LE(100)...) // spBefore=200, spAfter=100
+	extra := append(marshalInt16LE(-200), marshalInt16LE(-100)...)
 	stpa := append(marshalUint32LE(masks), extra...)
 	entry, _, ok := parsePFException(stpa, 0)
 	if !ok {
 		t.Fatal("parsePFException returned ok=false")
 	}
-	if !entry.HasSpaceBefore {
-		t.Fatal("HasSpaceBefore should be true")
+	if !entry.HasSpaceBefore || entry.SpaceBefore != 200 || entry.SpaceBeforePct != 0 {
+		t.Fatalf("space before = abs:%d has:%v pct:%d, want 200/true/0", entry.SpaceBefore, entry.HasSpaceBefore, entry.SpaceBeforePct)
 	}
-	if entry.SpaceBefore != 200 {
-		t.Fatalf("SpaceBefore = %d, want 200", entry.SpaceBefore)
-	}
-	if !entry.HasSpaceAfter {
-		t.Fatal("HasSpaceAfter should be true")
-	}
-	if entry.SpaceAfter != 100 {
-		t.Fatalf("SpaceAfter = %d, want 100", entry.SpaceAfter)
+	if !entry.HasSpaceAfter || entry.SpaceAfter != 100 || entry.SpaceAfterPct != 0 {
+		t.Fatalf("space after = abs:%d has:%v pct:%d, want 100/true/0", entry.SpaceAfter, entry.HasSpaceAfter, entry.SpaceAfterPct)
 	}
 }
 
 func TestParsePFExceptionSpaceBeforeAfterPct(t *testing.T) {
-	// Negative spBefore/spAfter → percentage (thousandths of %).
-	// -125 means 125% → SpaceBeforePct = 125000.
+	// MS-PPT ParaSpacing: non-negative values are percentages of text line height.
 	masks := uint32(1<<18 | 1<<19)
-	extra := append(marshalInt16LE(-125), marshalInt16LE(-50)...)
+	extra := append(marshalInt16LE(125), marshalInt16LE(50)...)
 	stpa := append(marshalUint32LE(masks), extra...)
 	entry, _, ok := parsePFException(stpa, 0)
 	if !ok {
 		t.Fatal("parsePFException returned ok=false")
 	}
-	if entry.HasSpaceBefore {
-		t.Fatal("HasSpaceBefore should be false for percentage case")
+	if entry.HasSpaceBefore || entry.SpaceBeforePct != 125000 {
+		t.Fatalf("space before = has:%v pct:%d, want false/125000", entry.HasSpaceBefore, entry.SpaceBeforePct)
 	}
-	if entry.SpaceBeforePct != 125000 {
-		t.Fatalf("SpaceBeforePct = %d, want 125000", entry.SpaceBeforePct)
-	}
-	if entry.SpaceAfterPct != 50000 {
-		t.Fatalf("SpaceAfterPct = %d, want 50000", entry.SpaceAfterPct)
+	if entry.HasSpaceAfter || entry.SpaceAfterPct != 50000 {
+		t.Fatalf("space after = has:%v pct:%d, want false/50000", entry.HasSpaceAfter, entry.SpaceAfterPct)
 	}
 }
 
 func TestParsePFExceptionLineSpacingPct(t *testing.T) {
-	// bit 17 (lineSpacing) negative → percentage.  -150 means 150%.
 	masks := uint32(1 << 17)
-	extra := marshalInt16LE(-150)
-	stpa := append(marshalUint32LE(masks), extra...)
+	stpa := append(marshalUint32LE(masks), marshalInt16LE(150)...)
 	entry, _, ok := parsePFException(stpa, 0)
 	if !ok {
 		t.Fatal("parsePFException returned ok=false")
 	}
-	if !entry.HasLineSpacing {
-		t.Fatal("HasLineSpacing should be true")
-	}
-	if entry.LineSpacingPct != 150000 {
-		t.Fatalf("LineSpacingPct = %d, want 150000", entry.LineSpacingPct)
+	if !entry.HasLineSpacing || entry.LineSpacingPct != 150000 || entry.LineSpacingPt != 0 {
+		t.Fatalf("line spacing = has:%v pct:%d pt:%d, want true/150000/0", entry.HasLineSpacing, entry.LineSpacingPct, entry.LineSpacingPt)
 	}
 }
 
-func TestParsePFExceptionLineSpacingPositiveIgnored(t *testing.T) {
-	// Positive lnSpc (absolute master-units) — no IR field, HasLineSpacing stays false.
+func TestParsePFExceptionLineSpacingAbsolute(t *testing.T) {
 	masks := uint32(1 << 17)
-	extra := marshalInt16LE(240) // positive = absolute (skipped)
-	stpa := append(marshalUint32LE(masks), extra...)
+	stpa := append(marshalUint32LE(masks), marshalInt16LE(-240)...)
 	entry, _, ok := parsePFException(stpa, 0)
 	if !ok {
 		t.Fatal("parsePFException returned ok=false")
 	}
-	if entry.HasLineSpacing {
-		t.Fatal("HasLineSpacing should be false for positive absolute lnSpc")
+	if !entry.HasLineSpacing || entry.LineSpacingPt != 240 || entry.LineSpacingPct != 0 {
+		t.Fatalf("line spacing = has:%v pt:%d pct:%d, want true/240/0", entry.HasLineSpacing, entry.LineSpacingPt, entry.LineSpacingPct)
 	}
 }
 
 func TestParsePFExceptionBulletColorAndSize(t *testing.T) {
 	// bit 5 (bulletColor) + bit 6 (bulletSize).
 	masks := uint32(1<<5 | 1<<6)
-	// bulletColor: R=255, G=128, B=0, extra=0x00 (explicit RGB)
-	extra := []byte{0xFF, 0x80, 0x00, 0x00}
-	// bulletSize: 1800 hundredths of a point = 18 pt
-	extra = append(extra, marshalInt16LE(1800)...)
+	// bulletColor: R=255, G=128, B=0, index=0xFE (explicit RGB)
+	extra := []byte{0xFF, 0x80, 0x00, 0xFE}
+	// bulletSize: -18 means an absolute 18 pt marker per MS-PPT BulletSize.
+	extra = append(extra, marshalInt16LE(-18)...)
 	stpa := append(marshalUint32LE(masks), extra...)
 	entry, _, ok := parsePFException(stpa, 0)
 	if !ok {
@@ -640,9 +625,9 @@ func TestParsePFExceptionBulletColorAndSize(t *testing.T) {
 }
 
 func TestParsePFExceptionBulletColorSchemeWithoutPaletteStaysEmpty(t *testing.T) {
-	// extra == 0xFE means scheme color; without a parsed palette, BulletColor remains empty.
+	// index 0x06 means scheme color; without a parsed palette, BulletColor remains empty.
 	masks := uint32(1 << 5)
-	extra := []byte{0xFF, 0x00, 0x00, 0xFE}
+	extra := []byte{0x00, 0x00, 0x00, 0x06}
 	stpa := append(marshalUint32LE(masks), extra...)
 	entry, _, ok := parsePFException(stpa, 0)
 	if !ok {
@@ -655,7 +640,7 @@ func TestParsePFExceptionBulletColorSchemeWithoutPaletteStaysEmpty(t *testing.T)
 
 func TestParsePFExceptionBulletColorSchemeResolvesFromPalette(t *testing.T) {
 	masks := uint32(1 << 5)
-	extra := []byte{0x06, 0x00, 0x00, 0xFE}
+	extra := []byte{0x00, 0x00, 0x00, 0x06}
 	stpa := append(marshalUint32LE(masks), extra...)
 	entry, _, ok := parsePFExceptionWithTheme(stpa, 0, map[uint8]string{6: "0000FF"})
 	if !ok {
@@ -688,6 +673,7 @@ func TestParsePFExceptionMarginAndIndent(t *testing.T) {
 		t.Fatalf("TextIndentEMU = %d, want -63500", entry.TextIndentEMU)
 	}
 }
+
 // --- StyleTextProp9Atom unit tests ---
 
 func TestParseStyleTextProp9AtomEmptyPayload(t *testing.T) {
@@ -699,11 +685,11 @@ func TestParseStyleTextProp9AtomEmptyPayload(t *testing.T) {
 
 func TestParseStyleTextProp9AtomSingleLevelArabicPeriod(t *testing.T) {
 	// Level 0: mask3=0x00, mask4=0x03 (fBulletHasAutoNumber + scheme/start present)
-	// hasAutoNum=1, schemeID=1 (arabicPeriod), startNum=1
+	// hasAutoNum=1, schemeID=3 (arabicPeriod), startNum=1
 	payload := []byte{
 		0x00, 0x00, 0x00, 0x03, // mask3=0, mask4=0x03
-		0x01, 0x00,             // hasAutoNum=1
-		0x01, 0x00, 0x01, 0x00, // schemeID=1 (arabicPeriod), startNum=1
+		0x01, 0x00, // hasAutoNum=1
+		0x03, 0x00, 0x01, 0x00, // schemeID=3 (arabicPeriod), startNum=1
 	}
 	result := parseStyleTextProp9Atom(payload)
 	if result == nil {
@@ -728,7 +714,7 @@ func TestParseStyleTextProp9AtomAutoNumWithCustomStart(t *testing.T) {
 	// mask4=0x03: hasAutoNum=1, schemeID=2 (arabicParenRight), startNum=5
 	payload := []byte{
 		0x00, 0x00, 0x00, 0x03,
-		0x01, 0x00,             // hasAutoNum=1
+		0x01, 0x00, // hasAutoNum=1
 		0x02, 0x00, 0x05, 0x00, // schemeID=2, startNum=5
 	}
 	result := parseStyleTextProp9Atom(payload)
@@ -745,20 +731,23 @@ func TestParseStyleTextProp9AtomAutoNumFalseSkipsScheme(t *testing.T) {
 	// hasAutoNum=0 but scheme fields present: scheme should stay empty
 	payload := []byte{
 		0x00, 0x00, 0x00, 0x03,
-		0x00, 0x00,             // hasAutoNum=0
-		0x01, 0x00, 0x01, 0x00, // schemeID=1, startNum=1 (should be ignored)
+		0x00, 0x00, // hasAutoNum=0
+		0x03, 0x00, 0x01, 0x00, // schemeID=3, startNum=1 (payload preserved; enable flag is false)
 	}
 	result := parseStyleTextProp9Atom(payload)
 	e := result[0]
 	if e.hasBulletAutoNumber {
 		t.Fatal("hasBulletAutoNumber should be false")
 	}
-	if e.autoNumberScheme != "" {
-		t.Fatalf("autoNumberScheme = %q, want empty", e.autoNumberScheme)
+	if e.autoNumberScheme != "arabicPeriod" {
+		t.Fatalf("autoNumberScheme = %q, want preserved arabicPeriod payload", e.autoNumberScheme)
+	}
+	if !e.hasBulletAutoNumberSpecified || e.hasBulletAutoNumber {
+		t.Fatalf("auto-number enable provenance = %#v, want explicit false", e)
 	}
 }
 
-func TestParseStyleTextProp9AtomDefaultsToArabicPeriod(t *testing.T) {
+func TestParseStyleTextProp9AtomDoesNotInventSchemeWhenOmitted(t *testing.T) {
 	// hasAutoNum=1 but no scheme/start fields (mask4=0x02 only)
 	payload := []byte{
 		0x00, 0x00, 0x00, 0x02,
@@ -766,17 +755,17 @@ func TestParseStyleTextProp9AtomDefaultsToArabicPeriod(t *testing.T) {
 	}
 	result := parseStyleTextProp9Atom(payload)
 	e := result[0]
-	if e.autoNumberScheme != "arabicPeriod" {
-		t.Fatalf("autoNumberScheme = %q, want arabicPeriod (default)", e.autoNumberScheme)
+	if !e.hasBulletAutoNumberSpecified || !e.hasBulletAutoNumber {
+		t.Fatalf("auto-number presence = %#v", e)
 	}
-	if e.autoNumberStart != 1 {
-		t.Fatalf("autoNumberStart = %d, want 1 (default)", e.autoNumberStart)
+	if e.autoNumberScheme != "" || e.autoNumberStart != 0 {
+		t.Fatalf("omitted scheme was manufactured: %#v", e)
 	}
 }
 
 func TestParseStyleTextProp9AtomMultipleLevels(t *testing.T) {
 	// Two levels: level 0 with autoNum, level 1 without
-	level0 := []byte{0x00, 0x00, 0x00, 0x03, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00}
+	level0 := []byte{0x00, 0x00, 0x00, 0x03, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00}
 	level1 := []byte{0x00, 0x00, 0x00, 0x00} // no fields
 	payload := append(level0, level1...)
 	result := parseStyleTextProp9Atom(payload)
@@ -878,7 +867,7 @@ func TestParseStyleTextPropAtomSpecPathFallsBackToLegacy(t *testing.T) {
 	// Spec path should fail because the CF section is too short for 4-byte
 	// cch + masks + extra, then legacy recovers correctly.
 	rawText := "Hi"
-	pf := buildPFRecord(3, 0, nil)              // legacy PF cch=3 (covers Hi + implicit CR)
+	pf := buildPFRecord(3, 0, nil)                   // legacy PF cch=3 (covers Hi + implicit CR)
 	cf := buildCFRecord(3, 0x01, []byte{0x01, 0x00}) // legacy CF bold
 	stpa := append(pf, cf...)
 	paras := parseStyleTextPropAtom(rawText, stpa)
@@ -940,5 +929,243 @@ func TestParseStyleTextPropAtomLegacyMissingCFRuns(t *testing.T) {
 	}
 	if runs[0].Text != "Hi" || runs[0].Bold {
 		t.Fatalf("run = %+v, want plain Hi", runs[0])
+	}
+}
+func TestChooseStyleTextPropCandidateRejectsMisdecodedOversizeCFRun(t *testing.T) {
+	spec := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Need", FontSize: 72000, Color: "400202"}}}}
+	legacy := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Need", FontSize: 1800}}}}
+
+	got := chooseStyleTextPropCandidate(spec, legacy)
+	if len(got) != 1 || len(got[0].Runs) != 1 || got[0].Runs[0].FontSize != 1800 {
+		t.Fatalf("candidate selection kept misdecoded 720pt run: %#v", got)
+	}
+}
+
+func TestChooseStyleTextPropCandidateKeepsValidSpecCandidate(t *testing.T) {
+	spec := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Title", FontSize: 4400}}}}
+	legacy := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Title", FontSize: 1800}}}}
+
+	got := chooseStyleTextPropCandidate(spec, legacy)
+	if len(got) != 1 || len(got[0].Runs) != 1 || got[0].Runs[0].FontSize != 4400 {
+		t.Fatalf("candidate selection replaced valid spec run: %#v", got)
+	}
+}
+
+func TestStyleTextPropCandidatePenaltyCatchesControlBulletAndDecorationCollision(t *testing.T) {
+	p := &presentationir.Paragraph{
+		BulletChar: string(rune(0x18)),
+		Runs: []*presentationir.Run{{
+			Text: "nested", Bold: true, BoldSet: true, Italic: true, ItalicSet: true,
+			Underline: true, UnderlineSet: true, Strike: true, StrikeSet: true,
+		}},
+	}
+	if got := styleTextPropCandidatePenalty([]*presentationir.Paragraph{p}); got < 12 {
+		t.Fatalf("penalty = %d, want control-bullet + decoration collision", got)
+	}
+}
+
+func TestStyleTextPropCandidateRejectsBOMBulletCompatibilityMisread(t *testing.T) {
+	bad := []*presentationir.Paragraph{{
+		BulletChar: "\uFEFF",
+		Runs:       []*presentationir.Run{{Text: "Global Positioning System", FontFamily: "Symbol", Bold: true, BoldSet: true, Italic: true, ItalicSet: true, Underline: true, UnderlineSet: true, Strike: true, StrikeSet: true}},
+	}}
+	good := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Global Positioning System"}}}}
+	got := chooseStyleTextPropCandidateForText("Global Positioning System", bad, good)
+	if len(got) != 1 || got[0] != good[0] {
+		t.Fatal("compatibility candidate with BOM bullet/decorated Symbol misread must not win")
+	}
+}
+
+func TestStyleTextPropCandidateAllowsAuthoredSymbolGlyphRun(t *testing.T) {
+	symbol := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "αβγ", FontFamily: "Symbol"}}}}
+	plain := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "αβγ"}}}}
+	got := chooseStyleTextPropCandidateForText("αβγ", symbol, plain)
+	if len(got) != 1 || got[0] != symbol[0] {
+		t.Fatal("legitimate non-Latin Symbol run should not be rejected")
+	}
+}
+
+func TestNormalizePptSoftLineBreaksDoesNotCreateParagraphMark(t *testing.T) {
+	if got := normalizePptSoftLineBreaks("Alpha\vBeta\fGamma"); got != "Alpha\nBeta\nGamma" {
+		t.Fatalf("soft breaks = %q", got)
+	}
+}
+
+func TestPFExceptionNormalizesBulletSizePercentageToCanonicalUnits(t *testing.T) {
+	// PFMasks bulletHasSize (bit 3) makes BulletFlags.fBulletHasSize valid;
+	// bulletSize (bit 6) then carries the 125% payload.
+	data := make([]byte, 0, 8)
+	data = binary.LittleEndian.AppendUint32(data, (1<<3)|(1<<6))
+	data = binary.LittleEndian.AppendUint16(data, 1<<3) // fBulletHasSize=true
+	data = binary.LittleEndian.AppendUint16(data, uint16(125))
+	got, _, ok := parsePFExceptionSpecWithTheme(data, 0, nil, nil)
+	if !ok {
+		t.Fatal("parse failed")
+	}
+	if got.BulletSizePct != 125000 || got.BulletSize != 0 {
+		t.Fatalf("bullet size = pct %d / abs %d, want 125000 / 0", got.BulletSizePct, got.BulletSize)
+	}
+}
+
+func TestPFExceptionNormalizesAbsoluteBulletSizeToHundredthsOfPoint(t *testing.T) {
+	data := make([]byte, 0, 8)
+	data = binary.LittleEndian.AppendUint32(data, (1<<3)|(1<<6))
+	data = binary.LittleEndian.AppendUint16(data, 1<<3) // fBulletHasSize=true
+	data = binary.LittleEndian.AppendUint16(data, uint16(0xffee))
+	got, _, ok := parsePFExceptionSpecWithTheme(data, 0, nil, nil)
+	if !ok {
+		t.Fatal("parse failed")
+	}
+	if got.BulletSize != 1800 || got.BulletSizePct != 0 {
+		t.Fatalf("bullet size = abs %d / pct %d, want 1800 / 0", got.BulletSize, got.BulletSizePct)
+	}
+}
+
+func TestLegacyPFExceptionUsesSameBulletSizeContract(t *testing.T) {
+	positive := make([]byte, 0, 6)
+	positive = binary.LittleEndian.AppendUint32(positive, 1<<6)
+	positive = binary.LittleEndian.AppendUint16(positive, uint16(80))
+	got, _, ok := parsePFExceptionLegacyWithTheme(positive, 0, nil, nil)
+	if !ok || got.BulletSizePct != 80000 || got.BulletSize != 0 {
+		t.Fatalf("positive legacy bullet size = %#v, want 80%% canonical percentage", got)
+	}
+
+	negative := make([]byte, 0, 6)
+	negative = binary.LittleEndian.AppendUint32(negative, 1<<6)
+	negative = binary.LittleEndian.AppendUint16(negative, uint16(0xffe8))
+	got, _, ok = parsePFExceptionLegacyWithTheme(negative, 0, nil, nil)
+	if !ok || got.BulletSize != 2400 || got.BulletSizePct != 0 {
+		t.Fatalf("negative legacy bullet size = %#v, want 24pt absolute", got)
+	}
+}
+
+func TestPFExceptionConsumesCombinedBulletFieldsInMSPPTStructureOrder(t *testing.T) {
+	// MS-PPT 2.9.20: bulletFlags, bulletChar, bulletFontRef, bulletSize,
+	// bulletColor. PFMasks bit order is not the serialized field order.
+	masks := uint32(0x0f | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7))
+	data := binary.LittleEndian.AppendUint32(nil, masks)
+	data = binary.LittleEndian.AppendUint16(data, 0x000f) // all BulletFlags valid
+	data = binary.LittleEndian.AppendUint16(data, 0x2022) // bulletChar
+	data = binary.LittleEndian.AppendUint16(data, 7)      // bulletFontRef
+	data = binary.LittleEndian.AppendUint16(data, 125)    // bulletSize = 125%
+	data = append(data, 0x11, 0x22, 0x33, 0xFE)           // bulletColor: explicit sRGB
+
+	got, pos, ok := parsePFExceptionSpecWithTheme(data, 0, nil, map[uint16]string{7: "Wingdings"})
+	if !ok || pos != len(data) {
+		t.Fatalf("parse = ok %v pos %d/%d", ok, pos, len(data))
+	}
+	if !got.HasBullet || got.BulletChar != '•' || got.BulletFont != "Wingdings" {
+		t.Fatalf("bullet identity = %#v", got)
+	}
+	if got.BulletSizePct != 125000 || got.BulletSize != 0 {
+		t.Fatalf("bullet size = pct %d abs %d", got.BulletSizePct, got.BulletSize)
+	}
+	if got.BulletColor != "112233" {
+		t.Fatalf("bullet color = %q, want 112233", got.BulletColor)
+	}
+}
+
+
+func TestPFExceptionBulletPayloadIsConsumedButIgnoredWhenBulletFlagsDoNotValidateIt(t *testing.T) {
+	// All payload fields physically exist, but PFMasks only validates fHasBullet.
+	// MS-PPT requires bullet font/color/size to be semantically ignored unless
+	// their corresponding BulletFlags validity bits are themselves valid and true.
+	masks := uint32((1 << 0) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7))
+	data := binary.LittleEndian.AppendUint32(nil, masks)
+	data = binary.LittleEndian.AppendUint16(data, 0x0001) // only fHasBullet=true is valid
+	data = binary.LittleEndian.AppendUint16(data, 0x2022)
+	data = binary.LittleEndian.AppendUint16(data, 7)
+	data = binary.LittleEndian.AppendUint16(data, 125)
+	data = append(data, 0x11, 0x22, 0x33, 0xFE)
+
+	got, pos, ok := parsePFExceptionSpecWithTheme(data, 0, nil, map[uint16]string{7: "Wingdings"})
+	if !ok || pos != len(data) {
+		t.Fatalf("parse = ok %v pos %d/%d", ok, pos, len(data))
+	}
+	if !got.HasBulletSpecified || !got.HasBullet || got.BulletChar != '•' {
+		t.Fatalf("bullet presence/char = %#v", got)
+	}
+	if got.BulletFont != "" || got.BulletColor != "" || got.BulletSize != 0 || got.BulletSizePct != 0 {
+		t.Fatalf("invalid bullet payload leaked into semantics: %#v", got)
+	}
+}
+
+func TestPFExceptionPreservesExplicitNoBulletProvenance(t *testing.T) {
+	masks := uint32(1 << 0) // hasBullet validity only
+	data := binary.LittleEndian.AppendUint32(nil, masks)
+	data = binary.LittleEndian.AppendUint16(data, 0x0000) // authoritative fHasBullet=false
+
+	got, pos, ok := parsePFExceptionSpecWithTheme(data, 0, nil, nil)
+	if !ok || pos != len(data) {
+		t.Fatalf("parse = ok %v pos %d/%d", ok, pos, len(data))
+	}
+	if !got.HasBulletSpecified || got.HasBullet {
+		t.Fatalf("explicit no-bullet provenance = %#v", got)
+	}
+}
+
+
+func TestAutoNumberSchemeStringUsesMSPPTEnumValues(t *testing.T) {
+	cases := map[uint16]string{
+		0x0000: "alphaLcPeriod",
+		0x0001: "alphaUcPeriod",
+		0x0002: "arabicParenR",
+		0x0003: "arabicPeriod",
+		0x0007: "romanUcPeriod",
+		0x000D: "arabicPlain",
+		0x000F: "romanUcParenR",
+	}
+	for id, want := range cases {
+		if got := autoNumberSchemeString(id); got != want {
+			t.Fatalf("scheme %#04x = %q, want %q", id, got, want)
+		}
+	}
+}
+
+func TestApplyTextPFException9ExplicitFalseClearsAutoNumber(t *testing.T) {
+	entry := &stpaPFEntry{AutoNum: true, AutoNumType: "arabicPeriod", AutoNumStart: 4}
+	pp9Data := map[int]textPFException9{
+		0: {hasBulletAutoNumberSpecified: true, hasBulletAutoNumber: false},
+	}
+	applyTextPFException9ToEntry(entry, 0, pp9Data)
+	if entry.AutoNum || entry.AutoNumType != "" || entry.AutoNumStart != 0 {
+		t.Fatalf("explicit no-auto-number did not clear inherited state: %#v", entry)
+	}
+}
+
+
+func TestPFExceptionPreservesExplicitZeroDefaultTabSizeProvenance(t *testing.T) {
+	data := binary.LittleEndian.AppendUint32(nil, 1<<15)
+	data = binary.LittleEndian.AppendUint16(data, 0)
+	got, pos, ok := parsePFExceptionSpecWithTheme(data, 0, nil, nil)
+	if !ok || pos != len(data) {
+		t.Fatalf("parse = ok %v pos %d/%d", ok, pos, len(data))
+	}
+	if !got.HasDefaultTabSize || got.DefaultTabSizeEMU != 0 {
+		t.Fatalf("explicit zero default tab lost: %#v", got)
+	}
+}
+
+func TestPFExceptionParsesAuthoredTabStopAlignmentAndPosition(t *testing.T) {
+	data := binary.LittleEndian.AppendUint32(nil, 1<<20)
+	data = binary.LittleEndian.AppendUint16(data, 4)
+	for _, tc := range []struct{ pos int16; typ uint16 }{
+		{100, 0}, {200, 1}, {300, 2}, {400, 3},
+	} {
+		data = binary.LittleEndian.AppendUint16(data, uint16(tc.pos))
+		data = binary.LittleEndian.AppendUint16(data, tc.typ)
+	}
+	got, pos, ok := parsePFExceptionSpecWithTheme(data, 0, nil, nil)
+	if !ok || pos != len(data) {
+		t.Fatalf("parse = ok %v pos %d/%d", ok, pos, len(data))
+	}
+	want := []string{"l", "ctr", "r", "dec"}
+	if len(got.TabStops) != 4 {
+		t.Fatalf("tab stops = %#v", got.TabStops)
+	}
+	for i, stop := range got.TabStops {
+		if stop.Algn != want[i] || stop.Pos != int64((i+1)*100*127) {
+			t.Fatalf("tab %d = %#v", i, stop)
+		}
 	}
 }

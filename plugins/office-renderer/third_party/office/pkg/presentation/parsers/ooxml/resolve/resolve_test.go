@@ -1,7 +1,8 @@
-package resolve_test
+package resolve
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/xml"
 	"image"
 	"image/color"
@@ -16,11 +17,12 @@ import (
 	"office/pkg/ooxml/drawingxml"
 	"office/pkg/ooxml/media"
 	"office/pkg/ooxml/opc"
+	playout "office/pkg/presentation/layout"
 	"office/pkg/presentation/parsers/ooxml/parts"
-	"office/pkg/presentation/parsers/ooxml/resolve"
+	"office/pkg/presentation/parsers/ooxml/project"
 )
 
-func TestResolvePackageInheritsLayoutPlaceholderRunStyle(t *testing.T) {
+func TestResolveFixturePackageInheritsLayoutPlaceholderRunStyle(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -97,7 +99,7 @@ func TestResolvePackageInheritsLayoutPlaceholderRunStyle(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -120,7 +122,7 @@ func TestResolvePackageInheritsLayoutPlaceholderRunStyle(t *testing.T) {
 	}
 }
 
-func TestResolvePackageAppliesMasterColorMapToSlideSchemeColor(t *testing.T) {
+func TestResolveFixturePackageAppliesMasterColorMapToSlideSchemeColor(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		SlideMasters: []*parts.SlideMasterEntry{{
@@ -163,7 +165,7 @@ func TestResolvePackageAppliesMasterColorMapToSlideSchemeColor(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -173,7 +175,7 @@ func TestResolvePackageAppliesMasterColorMapToSlideSchemeColor(t *testing.T) {
 	}
 }
 
-func TestResolvePackageAppliesLayoutColorMapOverrideToInheritedDefaults(t *testing.T) {
+func TestResolveFixturePackageAppliesLayoutColorMapOverrideToInheritedDefaults(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -231,7 +233,7 @@ func TestResolvePackageAppliesLayoutColorMapOverrideToInheritedDefaults(t *testi
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -241,7 +243,7 @@ func TestResolvePackageAppliesLayoutColorMapOverrideToInheritedDefaults(t *testi
 	}
 }
 
-func TestResolvePackageAppliesSlideColorMapOverrideToRunColor(t *testing.T) {
+func TestResolveFixturePackageAppliesSlideColorMapOverrideToRunColor(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -280,7 +282,7 @@ func TestResolvePackageAppliesSlideColorMapOverrideToRunColor(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -290,7 +292,7 @@ func TestResolvePackageAppliesSlideColorMapOverrideToRunColor(t *testing.T) {
 	}
 }
 
-func TestResolvePackageAppliesSlideThemeOverrideToSchemeColor(t *testing.T) {
+func TestResolveFixturePackageAppliesSlideThemeOverrideToSchemeColor(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -328,7 +330,7 @@ func TestResolvePackageAppliesSlideThemeOverrideToSchemeColor(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -338,7 +340,7 @@ func TestResolvePackageAppliesSlideThemeOverrideToSchemeColor(t *testing.T) {
 	}
 }
 
-func TestResolvePackageAppliesLayoutThemeOverrideToFontAndFillRefs(t *testing.T) {
+func TestResolveFixturePackageAppliesLayoutThemeOverrideToFontAndFillRefs(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -393,7 +395,7 @@ func TestResolvePackageAppliesLayoutThemeOverrideToFontAndFillRefs(t *testing.T)
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -407,7 +409,7 @@ func TestResolvePackageAppliesLayoutThemeOverrideToFontAndFillRefs(t *testing.T)
 	}
 }
 
-func TestResolvePackageAppliesNotesThemeOverrideToRunColor(t *testing.T) {
+func TestResolveFixturePackageAppliesNotesThemeOverrideToRunColor(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -455,7 +457,7 @@ func TestResolvePackageAppliesNotesThemeOverrideToRunColor(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -468,7 +470,7 @@ func TestResolvePackageAppliesNotesThemeOverrideToRunColor(t *testing.T) {
 	}
 }
 
-func TestResolvePackageParsesOLEObjectShapes(t *testing.T) {
+func TestResolveFixturePackageParsesOLEObjectShapes(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -507,7 +509,7 @@ func TestResolvePackageParsesOLEObjectShapes(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -515,7 +517,7 @@ func TestResolvePackageParsesOLEObjectShapes(t *testing.T) {
 		t.Fatalf("unexpected shape count: %#v", pres.Slides[0].Shapes)
 	}
 	shape := pres.Slides[0].Shapes[0]
-	if shape.Kind != resolve.ShapeOleObject {
+	if shape.Kind != ShapeOleObject {
 		t.Fatalf("shape.Kind = %v, want ShapeOleObject", shape.Kind)
 	}
 	if shape.Bounds.X != 1000000 || shape.Bounds.Y != 1000000 || shape.Bounds.W != 2000000 || shape.Bounds.H != 1500000 {
@@ -535,7 +537,7 @@ func TestResolvePackageParsesOLEObjectShapes(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePrefersMasterPlaceholderFontOverMasterTextStyleFallback(t *testing.T) {
+func TestResolveFixturePackagePrefersMasterPlaceholderFontOverMasterTextStyleFallback(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -561,6 +563,7 @@ func TestResolvePackagePrefersMasterPlaceholderFontOverMasterTextStyleFallback(t
 						},
 					},
 				},
+				MasterPartName: "ppt/slideMasters/slideMaster1.xml",
 				Layout: &parts.SlideLayout{
 					CSld: parts.CommonSlideData{
 						SpTree: parts.ShapeTree{
@@ -586,6 +589,7 @@ func TestResolvePackagePrefersMasterPlaceholderFontOverMasterTextStyleFallback(t
 		},
 		SlideMasters: []*parts.SlideMasterEntry{
 			{
+				PartName: "ppt/slideMasters/slideMaster1.xml",
 				Master: &parts.SlideMaster{
 					CSld: parts.CommonSlideData{
 						SpTree: parts.ShapeTree{
@@ -632,7 +636,7 @@ func TestResolvePackagePrefersMasterPlaceholderFontOverMasterTextStyleFallback(t
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -642,7 +646,7 @@ func TestResolvePackagePrefersMasterPlaceholderFontOverMasterTextStyleFallback(t
 	}
 }
 
-func TestResolvePackageAppliesPptxTableStyleInheritance(t *testing.T) {
+func TestResolveFixturePackageAppliesPptxTableStyleInheritance(t *testing.T) {
 	var theme parts.Theme
 	if err := xml.Unmarshal([]byte(`<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
 		<a:themeElements>
@@ -682,7 +686,8 @@ func TestResolvePackageAppliesPptxTableStyleInheritance(t *testing.T) {
 
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
-			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
+			SlideSize:        &parts.SlideSize{CX: 9144000, CY: 6858000},
+			DefaultTextStyle: &parts.DMLTextListStyle{Lvl1PPr: &parts.DMLTextStyleLevel{DefRPr: &parts.DMLRunPr{FontSize: 1800}}},
 		},
 		Slides: []*parts.SlideEntry{{
 			Slide: &parts.Slide{CSld: parts.CommonSlideData{SpTree: parts.ShapeTree{Tables: []parts.TableFrame{{
@@ -732,17 +737,20 @@ func TestResolvePackageAppliesPptxTableStyleInheritance(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	shape := pres.Slides[0].Shapes[0]
-	if shape.Kind != resolve.ShapeTable {
+	if shape.Kind != ShapeTable {
 		t.Fatalf("shape kind = %v, want table", shape.Kind)
 	}
 	headerRun := shape.Table.Rows[0].Cells[0].Paragraphs[0].Runs[0]
 	if !headerRun.Bold || headerRun.Color != "FF00FF" || headerRun.FontFamily != "Aptos" {
 		t.Fatalf("header run = %#v, want bold Aptos magenta text", headerRun)
+	}
+	if headerRun.FontSize != 1800 {
+		t.Fatalf("header font size = %d, want presentation default 1800", headerRun.FontSize)
 	}
 	if got := shape.Table.Rows[0].Cells[1].FillColor; got != "99B3CC" {
 		t.Fatalf("header fill = %q, want 99B3CC", got)
@@ -758,7 +766,7 @@ func TestResolvePackageAppliesPptxTableStyleInheritance(t *testing.T) {
 	}
 }
 
-func TestResolvePackageAppliesFullDrawingMLTransformsToPptxTableStyles(t *testing.T) {
+func TestResolveFixturePackageAppliesFullDrawingMLTransformsToPptxTableStyles(t *testing.T) {
 	var theme parts.Theme
 	if err := xml.Unmarshal([]byte(`<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
 		<a:themeElements>
@@ -813,7 +821,7 @@ func TestResolvePackageAppliesFullDrawingMLTransformsToPptxTableStyles(t *testin
 		Themes: map[string]*parts.Theme{"ppt/theme/theme1.xml": {Elements: theme.Elements}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -826,7 +834,7 @@ func TestResolvePackageAppliesFullDrawingMLTransformsToPptxTableStyles(t *testin
 	}
 }
 
-func TestResolvePackageAppliesPptxTableStyleMatrixGradientAndEffects(t *testing.T) {
+func TestResolveFixturePackageAppliesPptxTableStyleMatrixGradientAndEffects(t *testing.T) {
 	var theme parts.Theme
 	if err := xml.Unmarshal([]byte(`<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
 		<a:themeElements>
@@ -885,7 +893,7 @@ func TestResolvePackageAppliesPptxTableStyleMatrixGradientAndEffects(t *testing.
 		Themes: map[string]*parts.Theme{"ppt/theme/theme1.xml": {Elements: theme.Elements}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -912,7 +920,7 @@ func TestResolvePackageAppliesPptxTableStyleMatrixGradientAndEffects(t *testing.
 	}
 }
 
-func TestResolvePackageResolvesThemeTypefaceTokensAndStrike(t *testing.T) {
+func TestResolveFixturePackageResolvesThemeTypefaceTokensAndStrike(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -956,7 +964,7 @@ func TestResolvePackageResolvesThemeTypefaceTokensAndStrike(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -975,7 +983,7 @@ func TestResolvePackageResolvesThemeTypefaceTokensAndStrike(t *testing.T) {
 	}
 }
 
-func TestResolvePackageInheritsTextBodyAndParagraphSpacing(t *testing.T) {
+func TestResolveFixturePackageInheritsTextBodyAndParagraphSpacing(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1036,7 +1044,7 @@ func TestResolvePackageInheritsTextBodyAndParagraphSpacing(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1056,7 +1064,7 @@ func TestResolvePackageInheritsTextBodyAndParagraphSpacing(t *testing.T) {
 	}
 }
 
-func TestResolvePackageMapsSectionsToSlides(t *testing.T) {
+func TestResolveFixturePackageMapsSectionsToSlides(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1077,7 +1085,7 @@ func TestResolvePackageMapsSectionsToSlides(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1098,7 +1106,7 @@ func TestResolvePackageMapsSectionsToSlides(t *testing.T) {
 	}
 }
 
-func TestResolvePackageConvertsBreaksToNewlineRuns(t *testing.T) {
+func TestResolveFixturePackageConvertsBreaksToNewlineRuns(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1126,7 +1134,7 @@ func TestResolvePackageConvertsBreaksToNewlineRuns(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1155,7 +1163,7 @@ func TestResolvePackageConvertsBreaksToNewlineRuns(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePreservesNoAutofitOverflow(t *testing.T) {
+func TestResolveFixturePackagePreservesNoAutofitOverflow(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1186,7 +1194,7 @@ func TestResolvePackagePreservesNoAutofitOverflow(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1199,7 +1207,7 @@ func TestResolvePackagePreservesNoAutofitOverflow(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePreservesInheritedNormAutofit(t *testing.T) {
+func TestResolveFixturePackagePreservesInheritedNormAutofit(t *testing.T) {
 	fontScale := 92000
 	lineReduction := 18000
 	pptPkg := &parts.Package{
@@ -1242,7 +1250,7 @@ func TestResolvePackagePreservesInheritedNormAutofit(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1264,7 +1272,7 @@ func TestResolvePackagePreservesInheritedNormAutofit(t *testing.T) {
 	}
 }
 
-func TestResolvePackageSkipsSentinelPlaceholderInheritance(t *testing.T) {
+func TestResolveFixturePackageSkipsSentinelPlaceholderInheritance(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1303,7 +1311,7 @@ func TestResolvePackageSkipsSentinelPlaceholderInheritance(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1313,7 +1321,7 @@ func TestResolvePackageSkipsSentinelPlaceholderInheritance(t *testing.T) {
 	}
 }
 
-func TestResolvePackageInheritsAndOverridesDefaultRunStyles(t *testing.T) {
+func TestResolveFixturePackageInheritsAndOverridesDefaultRunStyles(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1334,7 +1342,7 @@ func TestResolvePackageInheritsAndOverridesDefaultRunStyles(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1356,7 +1364,7 @@ func TestResolvePackageInheritsAndOverridesDefaultRunStyles(t *testing.T) {
 	}
 }
 
-func TestResolvePackageParagraphIndentOverridesLayoutDefaults(t *testing.T) {
+func TestResolveFixturePackageParagraphIndentOverridesLayoutDefaults(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1408,7 +1416,7 @@ func TestResolvePackageParagraphIndentOverridesLayoutDefaults(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1426,7 +1434,7 @@ func intPtr(v int) *int { return &v }
 
 func boolPtr(v bool) *bool { return &v }
 
-func TestResolvePackagePrefersLayoutBuNoneOverMasterListDefaults(t *testing.T) {
+func TestResolveFixturePackagePrefersLayoutBuNoneOverMasterListDefaults(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1496,7 +1504,7 @@ func TestResolvePackagePrefersLayoutBuNoneOverMasterListDefaults(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1506,7 +1514,7 @@ func TestResolvePackagePrefersLayoutBuNoneOverMasterListDefaults(t *testing.T) {
 	}
 }
 
-func TestResolvePackageKeepsConnectorGeometry(t *testing.T) {
+func TestResolveFixturePackageKeepsConnectorGeometry(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1581,7 +1589,7 @@ func TestResolvePackageKeepsConnectorGeometry(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1606,7 +1614,7 @@ func TestResolvePackageKeepsConnectorGeometry(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePreservesSlideShapeOrder(t *testing.T) {
+func TestResolveFixturePackagePreservesSlideShapeOrder(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1647,19 +1655,19 @@ func TestResolvePackagePreservesSlideShapeOrder(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if len(pres.Slides[0].Shapes) != 2 {
 		t.Fatalf("shape count = %d, want 2", len(pres.Slides[0].Shapes))
 	}
-	if pres.Slides[0].Shapes[0].Kind != resolve.ShapeConnector || pres.Slides[0].Shapes[1].Kind != resolve.ShapeText {
+	if pres.Slides[0].Shapes[0].Kind != ShapeConnector || pres.Slides[0].Shapes[1].Kind != ShapeText {
 		t.Fatalf("unexpected shape order: %#v", pres.Slides[0].Shapes)
 	}
 }
 
-func TestResolvePackageKeepsShapeRotation(t *testing.T) {
+func TestResolveFixturePackageKeepsShapeRotation(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1697,7 +1705,7 @@ func TestResolvePackageKeepsShapeRotation(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1713,7 +1721,7 @@ func TestResolvePackageKeepsShapeRotation(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePreservesCustomGeometry(t *testing.T) {
+func TestResolveFixturePackagePreservesCustomGeometry(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -1737,7 +1745,7 @@ func TestResolvePackagePreservesCustomGeometry(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1753,7 +1761,7 @@ func TestResolvePackagePreservesCustomGeometry(t *testing.T) {
 	}
 }
 
-func TestResolvePackageMaterializesPictureFillOnAutoShape(t *testing.T) {
+func TestResolveFixturePackageMaterializesPictureFillOnAutoShape(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{
@@ -1776,7 +1784,7 @@ func TestResolvePackageMaterializesPictureFillOnAutoShape(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1792,7 +1800,7 @@ func TestResolvePackageMaterializesPictureFillOnAutoShape(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePreservesSharedLineStyle(t *testing.T) {
+func TestResolveFixturePackagePreservesSharedLineStyle(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1832,7 +1840,7 @@ func TestResolvePackagePreservesSharedLineStyle(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1845,7 +1853,7 @@ func TestResolvePackagePreservesSharedLineStyle(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePreservesSharedEffects(t *testing.T) {
+func TestResolveFixturePackagePreservesSharedEffects(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -1892,7 +1900,7 @@ func TestResolvePackagePreservesSharedEffects(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -1941,7 +1949,7 @@ func TestPptxCorpusResolve(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
-			pres, err := resolve.ResolvePackage(pptPkg)
+			pres, err := resolveFixturePackage(pptPkg)
 			if err != nil {
 				t.Fatalf("resolve: %v", err)
 			}
@@ -1973,7 +1981,7 @@ func isPptxFixtureName(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".pptx") && !strings.HasPrefix(name, "~$")
 }
 
-func TestResolvePackageAppliesGroupTransformToChildShapes(t *testing.T) {
+func TestResolveFixturePackageAppliesGroupTransformToChildShapes(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -2020,7 +2028,7 @@ func TestResolvePackageAppliesGroupTransformToChildShapes(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2029,15 +2037,15 @@ func TestResolvePackageAppliesGroupTransformToChildShapes(t *testing.T) {
 	}
 
 	groupShape := pres.Slides[0].Shapes[0]
-	if groupShape.Kind != resolve.ShapeGroup {
+	if groupShape.Kind != ShapeGroup {
 		t.Fatalf("expected group shape, got kind: %v", groupShape.Kind)
 	}
 	if len(groupShape.Children) != 1 {
 		t.Fatalf("expected 1 child shape, got: %d", len(groupShape.Children))
 	}
 
-	childShape := groupShape.Children[0]
-	// Child shape should have its bounds transformed by group offset
+	childShape := playout.MaterializeGroupChildren(groupShape)[0]
+	// Layout materializes the canonical group transform into slide-space bounds.
 	// Original child bounds: X=500, Y=500, W=1000, H=1000
 	// Group offset: X=1000, Y=2000
 	// Expected transformed bounds: X=1500, Y=2500, W=1000, H=1000
@@ -2091,9 +2099,9 @@ func TestResolveFieldSlideNumKind(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
-		t.Fatalf("ResolvePackage: %v", err)
+		t.Fatalf("resolveFixturePackage: %v", err)
 	}
 	if len(pres.Slides) == 0 {
 		t.Fatal("expected at least one slide")
@@ -2116,7 +2124,7 @@ func TestResolveFieldSlideNumKind(t *testing.T) {
 	}
 }
 
-func TestResolvePackageInheritsLayoutSlideNumberPlaceholder(t *testing.T) {
+func TestResolveFixturePackageInheritsLayoutSlideNumberPlaceholder(t *testing.T) {
 	layout := &parts.SlideLayout{
 		CSld: parts.CommonSlideData{
 			SpTree: parts.ShapeTree{
@@ -2154,9 +2162,9 @@ func TestResolvePackageInheritsLayoutSlideNumberPlaceholder(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
-		t.Fatalf("ResolvePackage: %v", err)
+		t.Fatalf("resolveFixturePackage: %v", err)
 	}
 	slide := pres.Slides[0]
 	if slide.SlideNumber == nil {
@@ -2173,7 +2181,7 @@ func TestResolvePackageInheritsLayoutSlideNumberPlaceholder(t *testing.T) {
 	}
 }
 
-func TestResolvePackageSkipsDisabledMasterSlideNumberPlaceholder(t *testing.T) {
+func TestResolveFixturePackageSkipsDisabledMasterSlideNumberPlaceholder(t *testing.T) {
 	master := &parts.SlideMaster{
 		HF: &parts.HeaderFooter{SlideNumber: boolPtr(false)},
 		CSld: parts.CommonSlideData{
@@ -2208,9 +2216,9 @@ func TestResolvePackageSkipsDisabledMasterSlideNumberPlaceholder(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
-		t.Fatalf("ResolvePackage: %v", err)
+		t.Fatalf("resolveFixturePackage: %v", err)
 	}
 	if slide := pres.Slides[0]; slide.SlideNumber != nil {
 		t.Fatalf("expected disabled master slide-number placeholder to be skipped, got %+v", slide.SlideNumber)
@@ -2251,9 +2259,9 @@ func TestResolveFieldUnknownTypePreservesText(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
-		t.Fatalf("ResolvePackage: %v", err)
+		t.Fatalf("resolveFixturePackage: %v", err)
 	}
 	run := pres.Slides[0].Shapes[0].Paragraphs[0].Runs[0]
 	if run.FieldKind != "datetime1" {
@@ -2264,7 +2272,7 @@ func TestResolveFieldUnknownTypePreservesText(t *testing.T) {
 	}
 }
 
-func TestResolvePackageUsesPerSlideMasterFromLayout(t *testing.T) {
+func TestResolveFixturePackageUsesPerSlideMasterFromLayout(t *testing.T) {
 	// POI XSLF parity: each slide should use the master linked by its layout,
 	// not a presentation-wide default master.
 	masterA := &parts.SlideMaster{
@@ -2306,7 +2314,7 @@ func TestResolvePackageUsesPerSlideMasterFromLayout(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2322,7 +2330,7 @@ func TestResolvePackageUsesPerSlideMasterFromLayout(t *testing.T) {
 	}
 }
 
-func TestResolvePackageFallsBackToLayoutMembershipForMaster(t *testing.T) {
+func TestResolveFixturePackageFallsBackToLayoutMembershipForMaster(t *testing.T) {
 	// When MasterPartName is absent, the resolver should fall back to finding
 	// the master that owns the slide's layout via PartName matching.
 	masterA := &parts.SlideMaster{
@@ -2350,7 +2358,7 @@ func TestResolvePackageFallsBackToLayoutMembershipForMaster(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2362,7 +2370,7 @@ func TestResolvePackageFallsBackToLayoutMembershipForMaster(t *testing.T) {
 	}
 }
 
-func TestResolvePackagePrependsMasterDecorativeShapes(t *testing.T) {
+func TestResolveFixturePackagePrependsMasterDecorativeShapes(t *testing.T) {
 	master := &parts.SlideMaster{
 		CSld: parts.CommonSlideData{
 			SpTree: parts.ShapeTree{
@@ -2424,7 +2432,7 @@ func TestResolvePackagePrependsMasterDecorativeShapes(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2481,7 +2489,7 @@ func TestResolveShapeInheritsTransformFromLayoutPlaceholder(t *testing.T) {
 			},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2523,17 +2531,18 @@ func TestResolveShapeInheritsFillFromMasterPlaceholder(t *testing.T) {
 
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
-		SlideMasters: []*parts.SlideMasterEntry{{Master: master}},
+		SlideMasters: []*parts.SlideMasterEntry{{PartName: "ppt/slideMasters/slideMaster1.xml", Master: master}},
 		Slides: []*parts.SlideEntry{{
 			Slide: &parts.Slide{
 				CSld: parts.CommonSlideData{
 					SpTree: parts.ShapeTree{Shapes: []parts.Shape{*slideSp}},
 				},
 			},
-			Layout: &parts.SlideLayout{},
+			MasterPartName: "ppt/slideMasters/slideMaster1.xml",
+			Layout:         &parts.SlideLayout{},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2583,7 +2592,7 @@ func TestResolveShapeInheritsLineFromLayoutPlaceholder(t *testing.T) {
 			},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2637,7 +2646,7 @@ func TestResolveShapeExplicitNoFillBlocksInheritance(t *testing.T) {
 			Layout: &parts.SlideLayout{},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2702,7 +2711,7 @@ func TestResolveShapeOwnPropertiesTakePrecedence(t *testing.T) {
 			},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2767,7 +2776,7 @@ func TestResolveShapeInheritsPictureFillFromLayoutMediaParts(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2783,7 +2792,7 @@ func TestResolveShapeInheritsPictureFillFromLayoutMediaParts(t *testing.T) {
 	}
 }
 
-func TestResolvePackageRendersEmbeddedVideoPicture(t *testing.T) {
+func TestResolveFixturePackageRendersEmbeddedVideoPicture(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Slides: []*parts.SlideEntry{{
@@ -2830,7 +2839,7 @@ func TestResolvePackageRendersEmbeddedVideoPicture(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2838,7 +2847,7 @@ func TestResolvePackageRendersEmbeddedVideoPicture(t *testing.T) {
 		t.Fatalf("resolved slides = %#v", pres.Slides)
 	}
 	shape := pres.Slides[0].Shapes[0]
-	if shape.Kind != resolve.ShapeMedia {
+	if shape.Kind != ShapeMedia {
 		t.Fatalf("shape kind = %v, want ShapeMedia", shape.Kind)
 	}
 	if shape.MediaKind != "video" {
@@ -2858,7 +2867,7 @@ func TestResolvePackageRendersEmbeddedVideoPicture(t *testing.T) {
 	}
 }
 
-func TestResolvePackageParagraphPropertiesExtended(t *testing.T) {
+func TestResolveFixturePackageParagraphPropertiesExtended(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -2921,7 +2930,7 @@ func TestResolvePackageParagraphPropertiesExtended(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -2952,7 +2961,7 @@ func TestResolvePackageParagraphPropertiesExtended(t *testing.T) {
 	}
 }
 
-func TestResolvePackageParagraphPropertiesInheritFromLayout(t *testing.T) {
+func TestResolveFixturePackageParagraphPropertiesInheritFromLayout(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3006,7 +3015,7 @@ func TestResolvePackageParagraphPropertiesInheritFromLayout(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3026,13 +3035,14 @@ func TestResolvePackageParagraphPropertiesInheritFromLayout(t *testing.T) {
 	}
 }
 
-func TestResolvePackageEndParaRPrOverridesMasterDefaults(t *testing.T) {
+func TestResolveFixturePackageEndParaRPrOverridesMasterDefaults(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
 		},
 		SlideMasters: []*parts.SlideMasterEntry{
 			{
+				PartName: "ppt/slideMasters/slideMaster1.xml",
 				Master: &parts.SlideMaster{
 					TxStyles: &parts.MasterTxStyles{
 						BodyStyle: &parts.DMLTextListStyle{
@@ -3074,7 +3084,7 @@ func TestResolvePackageEndParaRPrOverridesMasterDefaults(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3082,13 +3092,13 @@ func TestResolvePackageEndParaRPrOverridesMasterDefaults(t *testing.T) {
 		t.Fatalf("expected 1 slide, got %d", len(pres.Slides))
 	}
 	para := pres.Slides[0].Shapes[0].Paragraphs[0]
-	// endParaRPr should override master defRPr for the paragraph's default font size
-	if para.Runs[0].FontSize != 2400 {
-		t.Fatalf("run font size = %d, want 2400 (from endParaRPr)", para.Runs[0].FontSize)
+	// endParaRPr formats the paragraph mark only; ordinary runs inherit the master default.
+	if para.Runs[0].FontSize != 1800 {
+		t.Fatalf("run font size = %d, want 1800 (from master; endParaRPr is paragraph-mark-only)", para.Runs[0].FontSize)
 	}
 }
 
-func TestResolvePackageEndParaRPrInheritsWhenEmpty(t *testing.T) {
+func TestResolveFixturePackageEndParaRPrInheritsWhenEmpty(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3127,7 +3137,7 @@ func TestResolvePackageEndParaRPrInheritsWhenEmpty(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3144,7 +3154,7 @@ func TestResolvePackageEndParaRPrInheritsWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestResolvePackageBodyPrRotWrapAnchorCtr(t *testing.T) {
+func TestResolveFixturePackageBodyPrRotWrapAnchorCtr(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3173,7 +3183,7 @@ func TestResolvePackageBodyPrRotWrapAnchorCtr(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3189,7 +3199,7 @@ func TestResolvePackageBodyPrRotWrapAnchorCtr(t *testing.T) {
 	}
 }
 
-func TestResolvePackageRunHighlight(t *testing.T) {
+func TestResolveFixturePackageRunHighlight(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3219,7 +3229,7 @@ func TestResolvePackageRunHighlight(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3229,7 +3239,7 @@ func TestResolvePackageRunHighlight(t *testing.T) {
 	}
 }
 
-func TestResolvePackageShapeStyleFillRef(t *testing.T) {
+func TestResolveFixturePackageShapeStyleFillRef(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3280,7 +3290,7 @@ func TestResolvePackageShapeStyleFillRef(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3293,7 +3303,7 @@ func TestResolvePackageShapeStyleFillRef(t *testing.T) {
 	}
 }
 
-func TestResolvePackageShapeStyleFontRef(t *testing.T) {
+func TestResolveFixturePackageShapeStyleFontRef(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3332,7 +3342,7 @@ func TestResolvePackageShapeStyleFontRef(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3342,7 +3352,7 @@ func TestResolvePackageShapeStyleFontRef(t *testing.T) {
 	}
 }
 
-func TestResolvePackageAppliesEmphasisEffects(t *testing.T) {
+func TestResolveFixturePackageAppliesEmphasisEffects(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{
 			SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000},
@@ -3368,7 +3378,7 @@ func TestResolvePackageAppliesEmphasisEffects(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3389,7 +3399,7 @@ func TestResolveChartPreservesGraphicFrameBounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3397,9 +3407,9 @@ func TestResolveChartPreservesGraphicFrameBounds(t *testing.T) {
 		t.Fatal("no slides resolved")
 	}
 
-	var chart *resolve.Shape
+	var chart *Shape
 	for _, sh := range pres.Slides[0].Shapes {
-		if sh.Kind == resolve.ShapeChart {
+		if sh.Kind == ShapeChart {
 			chart = sh
 			break
 		}
@@ -3408,13 +3418,13 @@ func TestResolveChartPreservesGraphicFrameBounds(t *testing.T) {
 		t.Fatal("no chart shape resolved on slide 0")
 	}
 
-	want := resolve.Rect{X: 1524000, Y: 1397000, W: 6096000, H: 4064000}
+	want := Rect{X: 1524000, Y: 1397000, W: 6096000, H: 4064000}
 	if chart.Bounds != want {
 		t.Errorf("chart bounds = %+v, want %+v", chart.Bounds, want)
 	}
 }
 
-func TestResolvePackageBackgroundsPictureTileFill(t *testing.T) {
+func TestResolveFixturePackageBackgroundsPictureTileFill(t *testing.T) {
 	path := repoPath(t, "testdata", "pptx", "backgrounds.pptx")
 	pkg, err := opc.Open(path)
 	if err != nil {
@@ -3424,7 +3434,7 @@ func TestResolvePackageBackgroundsPictureTileFill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3459,7 +3469,7 @@ func TestResolvePreservesBackgroundPictureTileMetadata(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3492,7 +3502,7 @@ func TestResolveShapeInheritsPictureTileMetadataFromLayout(t *testing.T) {
 			LayoutMediaParts: map[string]media.Part{"rIdLayoutTile": {ContentType: "image/png", Data: []byte("tile")}},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3502,7 +3512,7 @@ func TestResolveShapeInheritsPictureTileMetadataFromLayout(t *testing.T) {
 	}
 }
 
-func TestResolvePackageShapeStyleEffectDagRef(t *testing.T) {
+func TestResolveFixturePackageShapeStyleEffectDagRef(t *testing.T) {
 	pptPkg := &parts.Package{
 		Presentation: &parts.Presentation{SlideSize: &parts.SlideSize{CX: 9144000, CY: 6858000}},
 		Themes: map[string]*parts.Theme{
@@ -3530,7 +3540,7 @@ func TestResolvePackageShapeStyleEffectDagRef(t *testing.T) {
 		}},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -3575,7 +3585,7 @@ func TestResolvePictureUsesBlipDPIForMissingExtents(t *testing.T) {
 			MediaParts: map[string]media.Part{"rId1": {Data: buf.Bytes(), ContentType: "image/png"}},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pkg)
+	pres, err := resolveFixturePackage(pkg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3586,6 +3596,68 @@ func TestResolvePictureUsesBlipDPIForMissingExtents(t *testing.T) {
 	if sh.Bounds.W != 914400 || sh.Bounds.H != 457200 {
 		t.Fatalf("intrinsic bounds = %+v", sh.Bounds)
 	}
+}
+
+func TestResolvePictureConvertsPresentationMetafileToSVG(t *testing.T) {
+	shape := resolvePicture(&parts.Picture{
+		NvPicPr: parts.NonVisualPicProps{CNvPr: parts.CnvPr{ID: 9, Name: "vector logo"}},
+		BlipFill: parts.BlipFill{
+			Blip: &parts.Blip{Embed: "rIdVector"},
+		},
+		SpPr: parts.ShapeProperties{Xfrm: &parts.Transform2D{Ext: parts.Extents{CX: 914400, CY: 457200}}},
+	}, project.SlideResources{Media: map[string]project.Resource{
+		"rIdVector": {Data: testEmbeddedEMFWMF(), MIME: "image/x-wmf"},
+	}}, nil)
+
+	if shape == nil {
+		t.Fatal("resolvePicture returned nil")
+	}
+	if shape.ImageMIME != "image/svg+xml" {
+		t.Fatalf("image MIME = %q, want image/svg+xml", shape.ImageMIME)
+	}
+	if !strings.Contains(string(shape.ImageData), "<svg") {
+		t.Fatalf("image data was not converted to SVG: %q", shape.ImageData)
+	}
+}
+
+func testEmbeddedEMFWMF() []byte {
+	emf := make([]byte, 128)
+	binary.LittleEndian.PutUint32(emf[0:4], 1)
+	binary.LittleEndian.PutUint32(emf[4:8], 108)
+	binary.LittleEndian.PutUint32(emf[8:12], 0)
+	binary.LittleEndian.PutUint32(emf[12:16], 0)
+	binary.LittleEndian.PutUint32(emf[16:20], 256)
+	binary.LittleEndian.PutUint32(emf[20:24], 128)
+	copy(emf[40:44], []byte(" EMF"))
+	binary.LittleEndian.PutUint32(emf[48:52], uint32(len(emf)))
+	binary.LittleEndian.PutUint32(emf[108:112], 14)
+	binary.LittleEndian.PutUint32(emf[112:116], 20)
+
+	chunk := make([]byte, 34+len(emf))
+	copy(chunk[:4], []byte("WMFC"))
+	copy(chunk[34:], emf)
+	payload := make([]byte, 4+len(chunk))
+	binary.LittleEndian.PutUint16(payload[0:2], 0x000f)
+	binary.LittleEndian.PutUint16(payload[2:4], uint16(len(chunk)))
+	copy(payload[4:], chunk)
+	recBytes := 6 + len(payload)
+	if recBytes%2 != 0 {
+		payload = append(payload, 0)
+		recBytes++
+	}
+	wmf := make([]byte, 22+18+recBytes+6)
+	binary.LittleEndian.PutUint32(wmf[:4], 0x9ac6cdd7)
+	off := 22
+	binary.LittleEndian.PutUint16(wmf[off:off+2], 1)
+	binary.LittleEndian.PutUint16(wmf[off+2:off+4], 9)
+	binary.LittleEndian.PutUint16(wmf[off+4:off+6], 0x0300)
+	off += 18
+	binary.LittleEndian.PutUint32(wmf[off:off+4], uint32(recBytes/2))
+	binary.LittleEndian.PutUint16(wmf[off+4:off+6], 0x0626)
+	copy(wmf[off+6:], payload)
+	off += recBytes
+	binary.LittleEndian.PutUint32(wmf[off:off+4], 3)
+	return wmf
 }
 
 func TestResolvePicturePreservesStretchFillRect(t *testing.T) {
@@ -3600,12 +3672,21 @@ func TestResolvePicturePreservesStretchFillRect(t *testing.T) {
 			MediaParts: map[string]media.Part{"rId1": {Data: []byte("img"), ContentType: "image/png"}},
 		}},
 	}
-	pres, err := resolve.ResolvePackage(pkg)
+	pres, err := resolveFixturePackage(pkg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sh := pres.Slides[0].Shapes[0]
 	if sh.ImageFillLeft != 0.1 || sh.ImageFillTop != 0.2 || sh.ImageFillRight != 0.3 || sh.ImageFillBottom != 0.1 {
 		t.Fatalf("fill rect = %.2f %.2f %.2f %.2f", sh.ImageFillLeft, sh.ImageFillTop, sh.ImageFillRight, sh.ImageFillBottom)
+	}
+}
+
+func TestSlideMasterForEntryDoesNotBorrowFirstMasterWithoutOwnership(t *testing.T) {
+	master := &parts.SlideMaster{}
+	pkg := &parts.Package{SlideMasters: []*parts.SlideMasterEntry{{PartName: "ppt/slideMasters/slideMaster1.xml", Master: master}}}
+	got, entry := slideMasterForEntry(pkg, &parts.SlideEntry{Slide: &parts.Slide{}})
+	if got != nil || entry != nil {
+		t.Fatalf("unowned slide borrowed master: master=%p entry=%p", got, entry)
 	}
 }

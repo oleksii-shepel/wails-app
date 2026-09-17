@@ -378,10 +378,10 @@ func TestSVGAreaLineComboChartStartsAreaVerticallyAtFirstCategory(t *testing.T) 
 		}},
 	}
 	svg := c.SVG(1253, 302)
-	if !strings.Contains(svg, `M288,202 L288,60`) {
+	if !strings.Contains(svg, `M256,250 L256,12`) {
 		t.Fatalf("expected combo area to rise vertically from the first category, got:\n%s", svg)
 	}
-	if strings.Contains(svg, `M110,202 L288,60`) {
+	if strings.Contains(svg, `M62,250 L256,12`) {
 		t.Fatalf("expected combo area not to start diagonally from the plot edge, got:\n%s", svg)
 	}
 }
@@ -432,7 +432,7 @@ func TestSVGManualLayoutInnerPlotArea(t *testing.T) {
 		Series: []Series{{Name: "S1", Values: []float64{10, 20}}},
 	}
 	svg := c.SVG(400, 300)
-	if !strings.Contains(svg, `x="138" y="78" width="108" height="50"`) {
+	if !strings.Contains(svg, `x="100" y="40" width="166" height="98"`) {
 		t.Fatalf("expected manual inner plot area rect in SVG, got:\n%s", svg)
 	}
 }
@@ -508,11 +508,9 @@ func TestSVGLegendLayoutInner(t *testing.T) {
 		},
 	}
 	svg := c.SVG(400, 300)
-	// Inner legend relative to default plot area (60,60,220,180) with right legend space.
-	// Base: chartX=60, chartY=60, chartW=200, chartH=180 (80px reserved for right legend)
-	// legendX = 60 + round(0.1*200) = 80, legendY = 60 + round(0.1*180) = 78
-	// With 5px padding, first item at (85, 83)
-	if !strings.Contains(svg, `x="85" y="83" width="12" height="12" fill="#4472C4"`) {
+	// Inner legend layout uses the resolved inner chart area after the right
+	// legend reservation. With 5px padding, the first item lands at (47,45).
+	if !strings.Contains(svg, `x="47" y="45" width="12" height="12" fill="#4472C4"`) {
 		t.Fatalf("expected inner legend layout in SVG, got:\n%s", svg)
 	}
 }
@@ -655,10 +653,8 @@ func TestSVGTitleLayoutInner(t *testing.T) {
 		Series: []Series{{Values: []float64{10}}},
 	}
 	svg := c.SVG(400, 300)
-	// Inner base: chartX=60, chartY=75 (clamped), chartW=280, chartH=150
-	// Title box: x=60+56=116, y=75+15=90, w=168, h=30
-	// Center: x=116+84=200, y=90+15+5=110
-	if !strings.Contains(svg, `x="200" y="110" text-anchor="middle"`) {
+	// Inner title layout is resolved against the chart's inner plot rectangle.
+	if !strings.Contains(svg, `x="200" y="96" text-anchor="middle"`) {
 		t.Fatalf("expected inner title position in SVG, got:\n%s", svg)
 	}
 	if !strings.Contains(svg, ">Sales<") {
@@ -1774,5 +1770,128 @@ func TestRenderDataLabelElbowLineDegenerate(t *testing.T) {
 	s := b.String()
 	if !strings.Contains(s, "<line") {
 		t.Fatal("expected straight line for degenerate elbow")
+	}
+}
+
+func TestSVGPreservesAuthoredChartTextStylesAndAxisNumberFormat(t *testing.T) {
+	c := &Chart{
+		Title:      "Revenue",
+		TitleStyle: &TextProperties{FontSize: 1800, Bold: true, Italic: true, Color: "123456"},
+		ChartType:  ChartColumn,
+		Categories: []string{"A", "B"},
+		Series:     []Series{{Index: 0, Name: "Sales", Values: []float64{1000, 2000}}},
+		YAxis: Axis{
+			Max:        2000,
+			MajorUnit:  1000,
+			NumFmt:     "#,##0",
+			LabelStyle: &TextProperties{FontSize: 850, Color: "654321"},
+		},
+		Legend: Legend{Show: true, Position: "r", TextStyle: &TextProperties{FontSize: 900, Italic: true, Color: "ABCDEF"}},
+	}
+
+	svg := c.SVG(500, 320)
+	for _, want := range []string{
+		`font-size="18.00" font-weight="bold" font-style="italic" fill="#123456"`,
+		`font-size="8.50" font-weight="normal" font-style="normal" fill="#654321"`,
+		`>1,000</text>`,
+		`font-size="9.00" font-weight="normal" font-style="italic" fill="#ABCDEF"`,
+	} {
+		if !strings.Contains(svg, want) {
+			t.Fatalf("expected %q in SVG:\n%s", want, svg)
+		}
+	}
+}
+
+func TestDefaultChartRectPreservesShortWideDashboardPlotArea(t *testing.T) {
+	c := &Chart{Title: "Stock", Legend: Legend{Show: true, Position: "bottom"}}
+	x, y, w, h := c.defaultChartRect(630, 229)
+	if x != 12 || w < 580 {
+		t.Fatalf("short/wide chart horizontal frame = x:%d w:%d, want nearly full authored width", x, w)
+	}
+	if y > 50 || h < 130 {
+		t.Fatalf("short/wide chart vertical frame = y:%d h:%d, want useful plot height", y, h)
+	}
+}
+
+func TestDefaultChartRectReservesSideLegendWithoutCrushingPlot(t *testing.T) {
+	c := &Chart{Legend: Legend{Show: true, Position: "right"}}
+	x, _, w, _ := c.defaultChartRect(400, 220)
+	if x != 12 {
+		t.Fatalf("right legend unexpectedly shifted chart x to %d", x)
+	}
+	if w < 280 {
+		t.Fatalf("right legend crushed plot width to %d", w)
+	}
+	c.Legend.Position = "left"
+	x, _, w, _ = c.defaultChartRect(400, 220)
+	if x <= 50 || w < 280 {
+		t.Fatalf("left legend frame = x:%d w:%d, want reserved legend lane and useful plot width", x, w)
+	}
+}
+
+func TestSVGLineChartIncludesNegativeValuesInAutomaticAxisRange(t *testing.T) {
+	c := &Chart{
+		ChartType:  ChartLine,
+		Categories: []string{"Jan", "Feb", "Mar"},
+		Series: []Series{
+			{Name: "Ending balance", Values: []float64{3937, 647, -6351}},
+			{Name: "Income", Values: []float64{5338, 5350, 7515}},
+		},
+		YAxis: Axis{ShowGridlines: true},
+	}
+	minVal, maxVal := c.axisRange()
+	if minVal >= 0 || maxVal < 7515 {
+		t.Fatalf("automatic mixed-sign axis range = %g..%g, want negative min and max covering 7515", minVal, maxVal)
+	}
+	svg := c.SVG(800, 400)
+	if !strings.Contains(svg, `clip-path="url(#chart-plot-`) {
+		t.Fatalf("mixed-sign line chart must clip series to plot area: %s", svg)
+	}
+	if !strings.Contains(svg, `>-`) {
+		t.Fatalf("mixed-sign line chart must emit negative Y-axis labels: %s", svg)
+	}
+}
+
+func TestSVGLineChartHonorsAuthoredMixedSignAxisBounds(t *testing.T) {
+	c := &Chart{
+		ChartType:  ChartLine,
+		Categories: []string{"A", "B"},
+		Series:     []Series{{Values: []float64{-9000, 9000}}},
+		YAxis:      Axis{Min: -5000, Max: 5000, MajorUnit: 2500},
+	}
+	minVal, maxVal := c.axisRange()
+	if minVal != -5000 || maxVal != 5000 {
+		t.Fatalf("authored axis range = %g..%g, want -5000..5000", minVal, maxVal)
+	}
+	svg := c.SVG(500, 300)
+	if !strings.Contains(svg, `clip-path="url(#chart-plot-`) {
+		t.Fatal("out-of-range line points must be clipped to the authored plot rectangle")
+	}
+}
+
+func TestAxisRangeHandlesSeriesWithoutResolvedValues(t *testing.T) {
+	c := &Chart{
+		ChartType: ChartLine,
+		Series:    []Series{{Name: "Unresolved", Values: nil}},
+	}
+	minVal, maxVal := c.axisRange()
+	if minVal != 0 || maxVal != 0 {
+		t.Fatalf("empty-series automatic axis range = %g..%g, want 0..0", minVal, maxVal)
+	}
+	// Most importantly, rendering an unresolved/empty series must not panic.
+	_ = c.SVG(600, 400)
+}
+
+func TestAxisRangeSkipsEmptySeriesBeforePopulatedSeries(t *testing.T) {
+	c := &Chart{
+		ChartType: ChartLine,
+		Series: []Series{
+			{Name: "Empty", Values: nil},
+			{Name: "Data", Values: []float64{-25, 75}},
+		},
+	}
+	minVal, maxVal := c.axisRange()
+	if minVal > -25 || maxVal < 75 {
+		t.Fatalf("axis range with leading empty series = %g..%g, want range covering -25..75", minVal, maxVal)
 	}
 }

@@ -121,3 +121,19 @@ func TestMergeVisualPropertiesAllowsExplicitArrowRemoval(t *testing.T) {
 		t.Fatalf("merged start arrow = presence:%v kind:%q, want explicit none", got.HasStartArrow, got.StartArrow)
 	}
 }
+
+func TestDecodeVisualPropertiesPreservesExplicitZeroLineOpacity(t *testing.T) {
+	props := []escher.Property{{ID: escher.PropLineColor, Value: 0x000000FF}, {ID: escher.PropLineOpacity, Value: 0}}
+	got := DecodeVisualProperties(props, nil)
+	if !got.HasLineOpacity || got.LineOpacity != 0 {
+		t.Fatalf("line opacity = present:%v value:%v", got.HasLineOpacity, got.LineOpacity)
+	}
+}
+
+func TestMergeVisualPropertiesPreservesZeroLineOpacity(t *testing.T) {
+	base := VisualProperties{HasLineOpacity: true, LineOpacity: 1}
+	base = MergeVisualProperties(base, VisualProperties{HasLineOpacity: true, LineOpacity: 0})
+	if !base.HasLineOpacity || base.LineOpacity != 0 {
+		t.Fatalf("merged line opacity = present:%v value:%v", base.HasLineOpacity, base.LineOpacity)
+	}
+}

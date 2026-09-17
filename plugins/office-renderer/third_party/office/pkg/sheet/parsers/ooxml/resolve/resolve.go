@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -2283,6 +2284,7 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 		if d == nil {
 			continue
 		}
+		d.ZOrder = a.DocumentOrder
 		d.Position = DrawingPosition{
 			Anchor:          AnchorOneCell,
 			LocksWithSheet:  anchorBool(a.ClientData, true),
@@ -2301,6 +2303,7 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 		if d == nil {
 			continue
 		}
+		d.ZOrder = a.DocumentOrder
 		d.Position = DrawingPosition{
 			Anchor:          AnchorTwoCell,
 			Behavior:        resolveAnchorBehavior(a.EditAs),
@@ -2319,6 +2322,7 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 		if d == nil {
 			continue
 		}
+		d.ZOrder = a.DocumentOrder
 		d.Position = DrawingPosition{
 			Anchor:          AnchorAbsolute,
 			LocksWithSheet:  anchorBool(a.ClientData, true),
@@ -2332,6 +2336,7 @@ func resolveDrawings(sd *parts.SpreadsheetDrawing, media map[string]media.Part, 
 		syncSheetOfficeArtDrawing(d)
 		out = append(out, d)
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].ZOrder < out[j].ZOrder })
 	return out
 }
 
@@ -2468,6 +2473,11 @@ func resolvePictureDrawing(pic *parts.XDRPic, mediaMap map[string]media.Part) *D
 	}
 	relID := normalizeRelID(pic.BlipFill.Blip.Embed)
 	img := &DrawingImage{RelID: relID, AltText: pic.NvPicPr.CNvPr.Descr}
+	if pic.SpPr.Xfrm != nil {
+		img.RotationDeg = float64(pic.SpPr.Xfrm.Rot) / 60000.0
+		img.FlipH = pic.SpPr.Xfrm.FlipH
+		img.FlipV = pic.SpPr.Xfrm.FlipV
+	}
 	if crop := pic.BlipFill.SrcRect; crop != nil {
 		img.CropLeft = clampDrawingCrop(crop.Left)
 		img.CropTop = clampDrawingCrop(crop.Top)
@@ -3071,10 +3081,11 @@ func resolveCell(c parts.Cell, rowIdx int, sst []string, sstRich []*parts.RichTe
 		formulaText = arrayFormula.formula
 	}
 	cell := &Cell{
-		Row:     rowIdx,
-		Col:     col,
-		Ref:     c.Ref,
-		Formula: formulaText,
+		Row:            rowIdx,
+		Col:            col,
+		Ref:            c.Ref,
+		Formula:        formulaText,
+		HasCachedValue: formulaText != "" && c.Value != "",
 	}
 	if hasArrayFormula {
 		cell.ArrayFormulaAnchor = arrayFormula.anchorRef

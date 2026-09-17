@@ -63,6 +63,8 @@ type converter struct {
 	smartArtNum  int
 	currentEntry *presparts.SlideEntry
 	shapeIDMap   map[*presentationir.Shape]int
+	masterParts  map[*presentationir.SlideMaster]*presparts.SlideMasterEntry
+	layoutParts  map[*presentationir.SlideLayout]*presparts.SlideLayout
 }
 
 func (c *converter) nextRID() string {

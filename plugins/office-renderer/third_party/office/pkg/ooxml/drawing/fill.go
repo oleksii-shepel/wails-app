@@ -347,8 +347,15 @@ type GradientFill struct {
 	Angle           float64 // Degrees for linear gradients
 	Stops           []GradientStop
 	TileRect        *Rect  // For tile rectangle
+	FillToRect      *Rect  // Path-gradient focus rectangle, normalized 0..1
 	Flip            string // "x", "y", "xy", or ""
 	RotateWithShape bool
+	// ScaleAngleWithAspect is legacy OfficeArt msofillShadeScale metadata.
+	// It is materialized only after physical shape bounds are known.
+	ScaleAngleWithAspect bool
+	// LegacyShadeType carries the originating OfficeArt MSOFILLTYPE shade variant.
+	// OOXML gradients leave this empty.
+	LegacyShadeType string
 }
 
 func (f GradientFill) Type() FillType { return FillTypeGradient }

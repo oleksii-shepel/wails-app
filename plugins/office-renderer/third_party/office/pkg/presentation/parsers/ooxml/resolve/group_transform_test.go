@@ -1,11 +1,11 @@
-package resolve_test
+package resolve
 
 import (
 	"testing"
 
 	"office/pkg/ooxml/drawing"
+	playout "office/pkg/presentation/layout"
 	"office/pkg/presentation/parsers/ooxml/parts"
-	"office/pkg/presentation/parsers/ooxml/resolve"
 )
 
 func TestGroupTransformScaling(t *testing.T) {
@@ -57,7 +57,7 @@ func TestGroupTransformScaling(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestGroupTransformScaling(t *testing.T) {
 		t.Fatalf("expected 1 child shape, got: %d", len(groupShape.Children))
 	}
 
-	childShape := groupShape.Children[0]
+	childShape := playout.MaterializeGroupChildren(groupShape)[0]
 	// scaleX = 4000/2000 = 2, scaleY = 6000/3000 = 2
 	// slideX = 1000 + (500 - 0) * 2 = 2000
 	// slideY = 2000 + (500 - 0) * 2 = 3000
@@ -136,11 +136,11 @@ func TestGroupTransformRotationComposition(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	childShape := pres.Slides[0].Shapes[0].Children[0]
+	childShape := playout.MaterializeGroupChildren(pres.Slides[0].Shapes[0])[0]
 	// Child has 90 deg, group has 90 deg, total = 180 deg
 	if childShape.RotationDeg != 180.0 {
 		t.Errorf("child rotation = %f, want 180.0", childShape.RotationDeg)
@@ -193,11 +193,11 @@ func TestGroupTransformFlipComposition(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	childShape := pres.Slides[0].Shapes[0].Children[0]
+	childShape := playout.MaterializeGroupChildren(pres.Slides[0].Shapes[0])[0]
 	// Child has FlipH=true, group has FlipH=true, XOR => false
 	if childShape.FlipH {
 		t.Errorf("child FlipH = true, want false")
@@ -265,7 +265,7 @@ func TestGroupTransformNestedGroups(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestGroupTransformNestedGroups(t *testing.T) {
 	if len(outer.Children) != 1 {
 		t.Fatalf("expected 1 inner group, got %d", len(outer.Children))
 	}
-	inner := outer.Children[0]
+	inner := playout.MaterializeGroupChildren(outer)[0]
 	if len(inner.Children) != 1 {
 		t.Fatalf("expected 1 deep child, got %d", len(inner.Children))
 	}
@@ -343,11 +343,11 @@ func TestGroupTransformZeroChExt(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	childShape := pres.Slides[0].Shapes[0].Children[0]
+	childShape := playout.MaterializeGroupChildren(pres.Slides[0].Shapes[0])[0]
 	// scaleX = 1 (ChExt.CX == 0), scaleY = 1 (ChExt.CY == 0)
 	// slideX = 100 + (50 - 0) * 1 = 150
 	// slideY = 200 + (50 - 0) * 1 = 250
@@ -413,11 +413,11 @@ func TestGroupTransformChOffTranslation(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	childShape := pres.Slides[0].Shapes[0].Children[0]
+	childShape := playout.MaterializeGroupChildren(pres.Slides[0].Shapes[0])[0]
 	// scaleX = 2000/1000 = 2, scaleY = 2000/1000 = 2
 	// slideX = 1000 + (200 - 100) * 2 = 1200
 	// slideY = 1000 + (200 - 100) * 2 = 1200
@@ -464,7 +464,7 @@ func TestResolveSmartArtSharedTypes(t *testing.T) {
 		},
 	}
 
-	pres, err := resolve.ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestResolveSmartArtSharedTypes(t *testing.T) {
 		t.Fatalf("expected 1 SmartArt shape, got %d", len(pres.Slides[0].Shapes))
 	}
 	shape := pres.Slides[0].Shapes[0]
-	if shape.Kind != resolve.ShapeSmartArt {
+	if shape.Kind != ShapeSmartArt {
 		t.Fatalf("expected SmartArt kind, got %v", shape.Kind)
 	}
 	// Verify shared DrawingML types are populated.

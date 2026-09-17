@@ -75,7 +75,15 @@ func gradientSVGDefinition(fill drawing.GradientFill, id string) string {
 	var b strings.Builder
 	switch fill.GradientType {
 	case drawing.GradientTypeRadial, drawing.GradientTypePath:
-		fmt.Fprintf(&b, `<radialGradient id=%q cx="50%%" cy="50%%" r="50%%">`, id)
+		cx, cy := 0.5, 0.5
+		if fill.FillToRect != nil {
+			cx = clampUnit(fill.FillToRect.X + fill.FillToRect.Width/2.0)
+			cy = clampUnit(fill.FillToRect.Y + fill.FillToRect.Height/2.0)
+		}
+		// DrawingML path gradients use fillToRect to position the focus. A radius
+		// spanning half the bounding-box diagonal avoids clipping the authored
+		// gradient prematurely when that focus is intentionally off-centre.
+		fmt.Fprintf(&b, `<radialGradient id=%q cx="%.4f%%" cy="%.4f%%" r="70.7107%%">`, id, cx*100.0, cy*100.0)
 	default:
 		rad := fill.Angle * math.Pi / 180.0
 		dx := math.Cos(rad)

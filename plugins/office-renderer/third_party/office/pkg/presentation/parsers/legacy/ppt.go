@@ -18,6 +18,8 @@ import (
 	"office/pkg/ooxml/cfb"
 	"office/pkg/ooxml/drawing"
 	presentationir "office/pkg/presentation/ir"
+	presentationevent "office/pkg/presentation/parsers/event"
+	"office/pkg/render/metafile"
 )
 
 const (
@@ -167,13 +169,19 @@ type legacySlideFragment struct {
 }
 
 type legacySlideText struct {
-	PersistID         int
-	MasterID          int // Master slide ID from SlideAtom; -2147483648 (0x80000000) means use MainMaster
-	LayoutType        string
-	NotesPersistID    int
-	Fragments         []legacySlideFragment
-	NotesHeaderFooter legacyPptHeaderFooterInfo
-	Transition        *presentationir.SlideTransition
+	PersistID              int
+	MasterID               int // SlideIdentifier from SlideAtom; -2147483648 (0x80000000) means use MainMaster
+	MasterPersistID        int // resolved persist-directory RefID for MasterID
+	LayoutType             string
+	NotesPersistID         int
+	HasSlideFlags          bool
+	FollowMasterObjects    bool
+	FollowMasterScheme     bool
+	FollowMasterBackground bool
+	Fragments              []legacySlideFragment
+	NotesHeaderFooter      legacyPptHeaderFooterInfo
+	Transition             *presentationir.SlideTransition
+	BgFill                 drawing.Fill
 }
 
 type pptUserEdit struct {
@@ -224,6 +232,8 @@ type legacyPptExternalObject struct {
 }
 
 type legacyPptPictureShape struct {
+	shapeID   uint32
+	officeArt *officeartir.Shape
 	blipRef   uint32
 	bounds    presentationir.Rect
 	transform legacyPptShapeTransform
@@ -233,6 +243,7 @@ type legacyPptPictureShape struct {
 
 type legacyPptConnectorShape struct {
 	shapeID     uint32
+	officeArt   *officeartir.Shape
 	shapeType   uint16
 	bounds      presentationir.Rect
 	adjustments []int
@@ -252,6 +263,7 @@ type legacyPptTableCellShape struct {
 	bounds     presentationir.Rect
 	paragraphs []*presentationir.Paragraph
 	fillColor  string
+	outlineRef int
 }
 
 type legacyPptHeaderFooterInfo struct {
@@ -320,9 +332,14 @@ func (info legacyPptHeaderFooterInfo) slideNumberEnabled() bool {
 }
 
 type legacyPptGroupFrame struct {
+	// domain is the Escher group coordinate system used by child anchors.
 	domain presentationir.Rect
-	target presentationir.Rect
-	valid  bool
+	// localTarget is the group anchor in its immediate parent coordinate system.
+	// target is the same anchor materialized through ancestor frames and is retained
+	// only for legacy discovery paths that still need slide-space lookup geometry.
+	localTarget presentationir.Rect
+	target      presentationir.Rect
+	valid       bool
 }
 
 func legacyPptRectToOfficeArt(rect presentationir.Rect) officeartir.Rect {
@@ -386,17 +403,27 @@ type legacyPptShapeTransform struct {
 	ArrowTailLength string
 
 	// Text-body properties decoded from the same FOPT property tables.
-	HasTextAnchor    bool
-	TextAnchor       string // "t"|"ctr"|"b"
-	HasTextInsets    bool
-	TextInsetLeft    int64
-	TextInsetTop     int64
-	TextInsetRight   int64
-	TextInsetBottom  int64
-	HasAllowOverflow bool
-	AllowOverflow    bool
-	HasAutoGrow      bool
-	AutoGrow         bool
+	HasTextAnchor      bool
+	TextAnchor         string // "t"|"ctr"|"b"
+	HasAnchorCenter    bool
+	AnchorCenter       bool
+	HasTextWrap        bool
+	TextWrap           string // "square"|"none"
+	HasTextVertical    bool
+	TextVertical       string // ""|"vert"|"vert270"
+	HasTextInsets      bool
+	HasTextInsetLeft   bool
+	HasTextInsetTop    bool
+	HasTextInsetRight  bool
+	HasTextInsetBottom bool
+	TextInsetLeft      int64
+	TextInsetTop       int64
+	TextInsetRight     int64
+	TextInsetBottom    int64
+	HasAllowOverflow   bool
+	AllowOverflow      bool
+	HasAutoGrow        bool
+	AutoGrow           bool
 
 	// GeometryText carries shared OfficeArt GeoText / WordArt semantics.
 	HasGeometryText bool
@@ -426,10 +453,35 @@ type legacyPptMasterTextBundle struct {
 }
 
 type legacyPptTextRuler struct {
-	leftMargins [5]int
-	hasLeft     [5]bool
-	indents     [5]int
-	hasIndent   [5]bool
+	defaultTabSize int
+	hasDefaultTab  bool
+	tabs           []presentationir.TabStop
+	hasTabs        bool
+	leftMargins    [5]int
+	hasLeft        [5]bool
+	indents        [5]int
+	hasIndent      [5]bool
+}
+
+// WalkPpt emits format-neutral presentation events for a legacy binary PPT.
+// This is the compatibility bridge for the event-driven migration: callers no
+// longer need to depend on legacy parser internals while record-level emission
+// is moved progressively into the binary decoder.
+func WalkPpt(path string, consumer presentationevent.Consumer) error {
+	p, err := ParsePpt(path)
+	if err != nil {
+		return err
+	}
+	return presentationevent.EmitPresentation("ppt", p, consumer)
+}
+
+// WalkPptBytes is the in-memory equivalent of WalkPpt.
+func WalkPptBytes(data []byte, filename string, consumer presentationevent.Consumer) error {
+	p, err := ParsePptBytes(data, filename)
+	if err != nil {
+		return err
+	}
+	return presentationevent.EmitPresentation("ppt", p, consumer)
 }
 
 func ParsePpt(path string) (*presentationir.Presentation, error) {
@@ -458,39 +510,59 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 	if !ok {
 		return nil, fmt.Errorf("legacy ppt: missing PowerPoint Document stream")
 	}
+	// Preserve the physical stream separately from the normal decrypted view.
+	// Compatibility recovery must inspect the original PPT record tree.
+	rawStream := stream
 	decryptedStream, decryptedPics, decryptErr := maybeDecryptPptStream(f, stream)
 	if decryptErr != nil {
 		return nil, decryptErr
 	}
 	stream = decryptedStream
-	colorScheme := parseLegacyPptColorScheme(stream)
-	fontTable := parseLegacyPptFontTable(stream)
+	var colorScheme map[uint8]string
+	var fontTable map[uint16]string
 	var slides []legacySlideText
 	var slideShapes map[int][]*presentationir.Shape
 	var theme *presentationir.Theme
 	var masterTextStyles legacyPptMasterTextStyles
 	var masterStylesByID map[int]legacyPptMasterTextStyles
-	var masterBgFill string
+	var documentBgFill string
+	var masterBgFillByPersistID map[int]string
+	var masterColorSchemes map[int]map[uint8]string
+	var slideColorSchemes map[int]map[uint8]string
+	var masterComposition legacyPptMasterComposition
 	var exHyperlinks map[uint32]string
 	var slideHeaderFooterDefaults legacyPptHeaderFooterInfo
 	var slideHeaderFooters map[int]legacyPptHeaderFooterInfo
 	var notesHeaderFooterDefaults legacyPptHeaderFooterInfo
 	var notesHeaderFooters map[int]legacyPptHeaderFooterInfo
 	if ctx, ok := extractPptPersistContext(f, stream); ok {
-		exHyperlinks = parseLegacyPptExHyperlinkURLs(stream, ctx.documentOffset)
-		theme = parseLegacyPptTheme(stream, ctx.documentOffset, colorScheme, fontTable)
-		masterBgFill = parseLegacyPptMasterBgFill(stream, ctx.documentOffset, colorScheme)
-		masterTextStyles = parseLegacyPptMasterTextStyles(stream, ctx.documentOffset, fontTable, colorScheme)
-		masterStylesByID = parseLegacyPptMasterStylesByID(stream, ctx.documentOffset, ctx.persistDirectory, ctx.masterEntries, fontTable, colorScheme)
-		slideHeaderFooterDefaults = parseLegacyPptDocumentHeaderFooterInfo(stream, ctx.documentOffset)
-		notesHeaderFooterDefaults = parseLegacyPptDocumentNotesHeaderFooterInfo(stream, ctx.documentOffset)
-		slideHeaderFooters = parseLegacyPptSlideHeaderFooterInfo(stream, ctx.persistDirectory, ctx.slidePersistIDs)
-		notesHeaderFooters = mapLegacyPptPersistHeaderFooterInfos(ctx.notesPersistIDs, parseLegacyPptPersistHeaderFooterInfos(stream, ctx.persistDirectory, ctx.notesPersistIDs))
-		slides = extractSlideTextsFromDocument(stream, ctx.documentOffset, ctx.notesListInstance, ctx.persistDirectory, fontTable, colorScheme, exHyperlinks)
-		slideShapes = parseLegacyPptSlideTextShapes(stream, ctx.persistDirectory, ctx.slidePersistIDs, slides, fontTable, colorScheme, exHyperlinks)
-		slideTableShapes := parseLegacyPptSlideTableShapes(stream, ctx.persistDirectory, ctx.slidePersistIDs, fontTable, colorScheme, exHyperlinks)
-		slideShapes = mergeLegacyShapeMaps(slideShapes, slideTableShapes)
-		externalObjects := parseLegacyPptExternalObjects(stream, ctx.documentOffset, ctx.persistDirectory)
+		// BIG22: materialize the persist lifecycle once. Slide visual consumers now
+		// receive the already-opened Slide payload from this index; masters and notes
+		// are indexed at the same boundary for the next semantic ownership transfers.
+		persistEvents := collectLegacyPptPersistEventIndex(stream, ctx)
+		// BIG27: document-owned resources are projected from the already-opened
+		// Document persist event. The valid persist path must not reopen or walk the
+		// physical PowerPoint Document stream for fonts, theme presence, hyperlinks,
+		// the drawing-group picture store, or the external-object list.
+		fontTable = parseLegacyPptFontTable(persistEvents.document.Payload)
+		colorScheme = presentationColorSchemeFromPersistEvents(persistEvents, ctx.masterEntries)
+		exHyperlinks = parseLegacyPptExHyperlinkURLsFromPayload(persistEvents.document.Payload)
+		theme = parseLegacyPptThemeFromPayload(persistEvents.document.Payload, colorScheme, fontTable)
+		masterColorSchemes = masterColorSchemesFromPersistEvents(persistEvents, ctx.masterEntries, colorScheme)
+		slideColorSchemes = slideColorSchemesFromPersistEvents(persistEvents)
+		masterBgFillByPersistID = masterBackgroundsFromPersistEvents(persistEvents, ctx.masterEntries, masterColorSchemes, colorScheme)
+		masterTextStyles = masterTextFallbackFromPersistEvents(persistEvents, ctx.masterEntries, fontTable, colorScheme)
+		masterStylesByID = parseMasterStylesFromPersistEvents(persistEvents, ctx.masterEntries, parseLegacyPptDocumentTextBundle(persistEvents.document.Payload, fontTable, colorScheme), fontTable, colorScheme)
+		// BIG29: materialize each master's OfficeArt stream once and share that semantic
+		// scene between placeholder inheritance and inherited artwork projection.
+		masterScenes := collectLegacyPptMasterVisualScenes(persistEvents, ctx.masterEntries)
+		slideHeaderFooterDefaults = parseLegacyPptDocumentHeaderFooterInfoFromPayload(persistEvents.document.Payload, 3)
+		notesHeaderFooterDefaults = parseLegacyPptDocumentHeaderFooterInfoFromPayload(persistEvents.document.Payload, 4)
+		slideHeaderFooters = parsePersistHeaderFooterInfos(persistEvents.slides, ctx.slidePersistIDs)
+		notesHeaderFooters = parsePersistHeaderFooterInfos(persistEvents.notes, ctx.notesPersistIDs)
+		slides = extractSlideTextsFromPersistEvents(persistEvents, ctx.notesListInstance, fontTable, colorScheme, exHyperlinks)
+		slides = bindLegacyPptMasterOwnership(slides, ctx.masterEntries)
+		externalObjects := parseLegacyPptExternalObjectsFromEvents(persistEvents)
 		var pictureStore map[uint32]*legacyPptPicture
 		picturesStream := decryptedPics
 		if picturesStream == nil {
@@ -499,20 +571,67 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 			}
 		}
 		if picturesStream != nil {
-			pictureStore = parseLegacyPptPictureStore(stream, ctx.documentOffset, picturesStream)
-			slideImageShapes := parseLegacyPptSlideImageShapes(stream, ctx.persistDirectory, ctx.slidePersistIDs, pictureStore, externalObjects)
-			slideShapes = mergeLegacyShapeMaps(slideShapes, slideImageShapes)
+			pictureStore = parseLegacyPptPictureStoreFromPayload(persistEvents.document.Payload, picturesStream)
 		}
-		slideConnectorShapes := parseLegacyPptSlideConnectorShapes(stream, ctx.persistDirectory, ctx.slidePersistIDs, colorScheme, slideShapes)
-		slideShapes = mergeLegacyShapeMaps(slideShapes, slideConnectorShapes)
-		slideGroupShapes := parseLegacyPptSlideGroupShapes(stream, ctx.persistDirectory, ctx.slidePersistIDs, slideShapes, fontTable, colorScheme, exHyperlinks)
-		slideShapes = filterLegacyGroupedShapeDuplicates(slideShapes, slideGroupShapes)
-		slideShapes = mergeLegacyShapeMaps(slideShapes, slideGroupShapes)
-		slides = mergeLegacySlidesInPersistOrder(ctx.slidePersistIDs, slides, slideShapes)
+
+		// Legacy PPT can encode a slide background as an OfficeArt fBackground
+		// shape whose fill is a BLIP. Such shapes deliberately have no client
+		// anchor and therefore must become slide background paint rather than a
+		// normal ShapeImage. Resolve them while the Pictures store is available.
+		for i := range slides {
+			if event, ok := persistEvents.slides[slides[i].PersistID]; ok {
+				slides[i].BgFill = legacyPptPictureBackgroundFill(collectLegacyPptVisualScene(event.Payload), pictureStore)
+			}
+		}
+
+		// BIG37: master artwork is a complete semantic scene, not a picture-side
+		// projection. Generic shapes, authored text, groups, connectors and pictures
+		// are all materialized from the same scene even when the file has no Pictures
+		// stream at all. Placeholder shapes remain templates and are not painted as
+		// duplicate master content.
+		masterComposition = composeLegacyPptMasterSemanticScenes(
+			masterScenes, ctx.masterEntries, fontTable, masterColorSchemes, colorScheme, exHyperlinks, pictureStore, externalObjects,
+		)
+
+		// BIG10: resolve each slide record exactly once at the persist boundary, then
+		// project all core visual families from that event-local payload.  The old
+		// pipeline independently re-opened the same Slide record for text, tables,
+		// images, connectors, and groups.  Keeping one slide payload/context is the
+		// first production ownership transfer to the binary event parser.
+		slideShapes = parseLegacyPptSlideVisualsEventDriven(
+			persistEvents, ctx.slidePersistIDs, slides, fontTable, colorScheme,
+			masterColorSchemes, slideColorSchemes, masterComposition.PlaceholderTemplates, exHyperlinks, pictureStore, externalObjects,
+		)
+		// Authored slide membership is resolved before master artwork is composed.
+		// Header/footer-only persists must be classified from their local scene;
+		// inherited master artwork is not evidence that a persist owns a slide.
+		slides = projectLegacySlidesInAuthoredOrder(ctx.slidePersistIDs, slides)
+		slides, slideHeaderFooters = normalizeLegacyPptHeaderFooterOnlySlides(slides, slideShapes, slideHeaderFooters)
+
+		// Compose inherited master artwork only after local structural ownership is
+		// settled. Placeholder text remains owned by the text cascade.
+		slideShapes = composeLegacyPptMasterVisuals(slides, slideShapes, masterComposition.Visuals)
 	} else {
+		// Pre-event compatibility path for damaged files without a usable persist chain.
+		fontTable = parseLegacyPptFontTable(stream)
+		colorScheme = parseLegacyPptColorScheme(stream)
 		slides = extractSlideTextsFallback(stream, fontTable, colorScheme, exHyperlinks)
 	}
 	slides = attachNotesHeaderFooterInfoByPersistID(slides, notesHeaderFooters, notesHeaderFooterDefaults)
+	if len(slides) == 0 {
+		// Some valid presentations originally created by PowerPoint 4.0 were later
+		// saved with a PPT97-style Current User/PowerPoint Document pair. Their
+		// edit/persist chain can be incomplete even though the canonical Document
+		// container at stream offset zero is intact. PowerPoint accepts these files.
+		// Recover from that canonical container before falling back to text scraping.
+		// Recover from the physical stream. Older valid files can have Current User
+		// metadata that makes encryption probing ambiguous while the root
+		// Document -> SlideListWithText tree is already plaintext.
+		slides = extractLegacyPptSlidesFromRootDocument(rawStream, fontTable, colorScheme, exHyperlinks)
+		if len(slides) == 0 && !bytes.Equal(rawStream, stream) {
+			slides = extractLegacyPptSlidesFromRootDocument(stream, fontTable, colorScheme, exHyperlinks)
+		}
+	}
 	if len(slides) == 0 {
 		text := fallbackPptText(stream)
 		if text == "" {
@@ -520,7 +639,63 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		}
 		slides = buildLegacyPptTextOnlySlides(text)
 	}
-	return buildPresentationWithExtraShapes(slides, slideShapes, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, masterBgFill), nil
+	// BIG37: effective master background/style selection is owned by presentation
+	// composition itself. There is no post-build inheritance mutation.
+	pres := buildPresentationWithMasterComposition(slides, slideShapes, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID)
+	applyLegacyPptThemeFontFallback(pres)
+	return pres, nil
+}
+
+// applyLegacyPptThemeFontFallback closes the final legacy text-cascade slot.
+// Binary PPT runs may legitimately omit a typeface and inherit the document's
+// FontEntity[0] default; unlike OOXML, those runs do not pass through the
+// DrawingML text-default cascade later. Keep explicit run/master fonts intact.
+func applyLegacyPptThemeFontFallback(pres *presentationir.Presentation) {
+	if pres == nil || pres.Theme == nil {
+		return
+	}
+	body := pres.Theme.MinorFont
+	heading := pres.Theme.MajorFont
+	if body == "" {
+		body = heading
+	}
+	if heading == "" {
+		heading = body
+	}
+	var visit func(*presentationir.Shape)
+	visit = func(shape *presentationir.Shape) {
+		if shape == nil {
+			return
+		}
+		for _, child := range shape.Children {
+			visit(child)
+		}
+		family := body
+		if shape.Placeholder == presentationir.PlaceholderTitle {
+			family = heading
+		}
+		if family == "" {
+			return
+		}
+		for _, p := range shape.Paragraphs {
+			if p == nil {
+				continue
+			}
+			for _, r := range p.Runs {
+				if r != nil && r.FontFamily == "" {
+					r.FontFamily = family
+				}
+			}
+		}
+	}
+	for _, slide := range pres.Slides {
+		if slide == nil {
+			continue
+		}
+		for _, shape := range slide.Shapes {
+			visit(shape)
+		}
+	}
 }
 
 func parsePre97Ppt(f *cfb.File, filename string) (*presentationir.Presentation, bool, error) {
@@ -614,12 +789,8 @@ func decodePP40TextPayload(payload []byte) (string, bool) {
 	return text, true
 }
 
-func parseLegacyPptTheme(stream []byte, documentOffset int, colorScheme map[uint8]string, fontTable map[uint16]string) *presentationir.Theme {
-	if len(colorScheme) == 0 {
-		return nil
-	}
-	record, payload, _, ok := readPptRecord(stream, documentOffset)
-	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
+func parseLegacyPptThemeFromPayload(payload []byte, colorScheme map[uint8]string, fontTable map[uint16]string) *presentationir.Theme {
+	if len(colorScheme) == 0 || len(payload) == 0 {
 		return nil
 	}
 	hasMaster := false
@@ -672,11 +843,7 @@ func legacyPptFirstFontName(fontTable map[uint16]string) string {
 	return bestName
 }
 
-func parseLegacyPptExHyperlinkURLs(stream []byte, documentOffset int) map[uint32]string {
-	record, payload, _, ok := readPptRecord(stream, documentOffset)
-	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
-		return nil
-	}
+func parseLegacyPptExHyperlinkURLsFromPayload(payload []byte) map[uint32]string {
 	urls := map[uint32]string{}
 	for pos := 0; pos+8 <= len(payload); {
 		child, childPayload, next, ok := readPptRecord(payload, pos)
@@ -744,11 +911,144 @@ func parseLegacyPptExHyperlinkRecord(payload []byte) (uint32, string, bool) {
 	return exHyperlinkID, url, true
 }
 
-func parseLegacyPptExternalObjects(stream []byte, documentOffset int, persistDirectory map[int]int) map[uint32]legacyPptExternalObject {
-	record, payload, _, ok := readPptRecord(stream, documentOffset)
-	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
+// parseLegacyPptExternalObjectsFromEvents resolves document-owned external-object
+// metadata and persisted OLE storage entirely from the persist event index. The
+// valid PPT97 path therefore never seeks back into the PowerPoint Document stream.
+func parseLegacyPptExternalObjectsFromEvents(events legacyPptPersistEventIndex) map[uint32]legacyPptExternalObject {
+	payload := events.document.Payload
+	sounds := parseLegacyPptSoundCollection(payload)
+	out := map[uint32]legacyPptExternalObject{}
+	for pos := 0; pos+8 <= len(payload); {
+		child, childPayload, next, ok := readPptRecord(payload, pos)
+		if !ok {
+			break
+		}
+		if child.Type == pptRTExObjList {
+			for id, ext := range parseLegacyPptExternalObjectsFromEventList(childPayload, events.resources, sounds) {
+				out[id] = ext
+			}
+		}
+		pos = next
+	}
+	if len(out) == 0 {
 		return nil
 	}
+	return out
+}
+
+func parseLegacyPptExternalObjectsFromEventList(payload []byte, resources map[int]PersistEvent, sounds map[uint32]legacyPptSound) map[uint32]legacyPptExternalObject {
+	out := map[uint32]legacyPptExternalObject{}
+	for pos := 0; pos+8 <= len(payload); {
+		record, childPayload, next, ok := readPptRecord(payload, pos)
+		if !ok {
+			break
+		}
+		switch record.Type {
+		case pptRTExOleEmbed:
+			if obj, ok := parseLegacyPptOleEmbedContainerFromEvents(childPayload, resources); ok {
+				out[obj.exObjID] = obj.external
+			}
+		case pptRTExWAVAudioEmbedded:
+			if exObjID, ext, ok := parseLegacyPptEmbeddedWAVContainer(childPayload, sounds); ok {
+				out[exObjID] = ext
+			}
+		default:
+			if record.Version == 0x0F {
+				if obj, ok := parseLegacyPptOleEmbedContainerFromEvents(childPayload, resources); ok {
+					out[obj.exObjID] = obj.external
+				} else if exObjID, ext, ok := parseLegacyPptGenericMediaContainer(childPayload); ok {
+					out[exObjID] = ext
+				}
+			}
+		}
+		pos = next
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseLegacyPptOleEmbedContainerFromEvents(payload []byte, resources map[int]PersistEvent) (legacyPptExternalObjectParse, bool) {
+	var out legacyPptExternalObjectParse
+	var persistID uint32
+	var objectType uint32
+	var menuName, progID, clipboardName string
+	for pos := 0; pos+8 <= len(payload); {
+		record, childPayload, next, ok := readPptRecord(payload, pos)
+		if !ok {
+			break
+		}
+		switch record.Type {
+		case pptRTExOleObjAtom:
+			if len(childPayload) >= 20 {
+				objectType = binary.LittleEndian.Uint32(childPayload[4:8])
+				out.exObjID = binary.LittleEndian.Uint32(childPayload[8:12])
+				persistID = binary.LittleEndian.Uint32(childPayload[16:20])
+			}
+		case pptRTCString:
+			text := normalizePptText(decodePptUTF16(childPayload))
+			switch record.Instance {
+			case 1:
+				menuName = text
+			case 2:
+				progID = text
+			case 3:
+				clipboardName = text
+			}
+		}
+		pos = next
+	}
+	if out.exObjID == 0 {
+		return legacyPptExternalObjectParse{}, false
+	}
+	data := parseLegacyPptOleStorageFromEvents(resources, int(persistID))
+	out.external = legacyPptExternalObject{Kind: presentationir.ShapeOleObject, Name: firstLegacyPptNonEmpty(clipboardName, menuName, progID, fmt.Sprintf("Embedded Object %d", out.exObjID)), ProgID: progID, Data: data, MIME: "application/x-ole-storage"}
+	if objectType == 1 {
+		out.external.LinkURL = menuName
+		out.external.Data = nil
+	}
+	return out, true
+}
+
+func parseLegacyPptOleStorageFromEvents(resources map[int]PersistEvent, persistID int) []byte {
+	e, ok := resources[persistID]
+	if !ok || e.Record.Type != pptRTExOleObjStg {
+		return nil
+	}
+	payload := e.Payload
+	if e.Record.Instance == 1 {
+		if len(payload) <= 4 {
+			return nil
+		}
+		r, err := zlib.NewReader(bytes.NewReader(payload[4:]))
+		if err != nil {
+			return nil
+		}
+		defer r.Close()
+		var out bytes.Buffer
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := r.Read(buf)
+			if n > 0 {
+				out.Write(buf[:n])
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				if out.Len() > 0 {
+					break
+				}
+				return nil
+			}
+		}
+		return out.Bytes()
+	}
+	return append([]byte(nil), payload...)
+}
+
+func parseLegacyPptExternalObjectsFromPayload(payload []byte, stream []byte, persistDirectory map[int]int) map[uint32]legacyPptExternalObject {
 	sounds := parseLegacyPptSoundCollection(payload)
 	out := map[uint32]legacyPptExternalObject{}
 	for pos := 0; pos+8 <= len(payload); {
@@ -1265,56 +1565,22 @@ func parseLegacyPptMasterTextStyles(stream []byte, documentOffset int, fontTable
 // This is the POI HSLFSlide.getMasterSheet() / HSLFSlideMaster analogue: the
 // caller can look up slide.MasterID to get the exact master's text styles
 // rather than the first-found master from a stream walk.
-func parseLegacyPptMasterStylesByID(stream []byte, documentOffset int, persistDirectory map[int]int, masterEntries []legacyPptMasterEntry, fontTable map[uint16]string, colorScheme map[uint8]string) map[int]legacyPptMasterTextStyles {
-	if len(masterEntries) == 0 || len(persistDirectory) == 0 {
-		return nil
-	}
-	// Build the Document-level defaults bundle (same as in parseLegacyPptMasterTextStyles).
+func parseLegacyPptDocumentTextBundle(payload []byte, fontTable map[uint16]string, colorScheme map[uint8]string) legacyPptMasterTextBundle {
 	var docBundle legacyPptMasterTextBundle
-	if docRecord, docPayload, _, ok := readPptRecord(stream, documentOffset); ok && docRecord.Type == pptRTDocument && docRecord.Version == 0x0F {
-		for pos := 0; pos+8 <= len(docPayload); {
-			child, childPayload, next, ok := readPptRecord(docPayload, pos)
-			if !ok {
-				break
-			}
-			switch child.Type {
-			case pptRTDocumentTextInfo:
-				docBundle.base = mergeLegacyPptMasterStyleMaps(docBundle.base, parseLegacyPptBaseMasterTextStyles(childPayload, fontTable, colorScheme))
-			default:
-				docBundle.merge(parseLegacyPptProgTagsBundle(childPayload, colorScheme))
-			}
-			pos = next
-		}
-	}
-	result := make(map[int]legacyPptMasterTextStyles, len(masterEntries))
-	for _, entry := range masterEntries {
-		streamOff, ok := persistDirectory[entry.RefID]
+	for pos := 0; pos+8 <= len(payload); {
+		child, childPayload, next, ok := readPptRecord(payload, pos)
 		if !ok {
-			continue
+			break
 		}
-		mRecord, mPayload, _, ok := readPptRecord(stream, streamOff)
-		if !ok {
-			continue
+		switch child.Type {
+		case pptRTDocumentTextInfo:
+			docBundle.base = mergeLegacyPptMasterStyleMaps(docBundle.base, parseLegacyPptBaseMasterTextStyles(childPayload, fontTable, colorScheme))
+		default:
+			docBundle.merge(parseLegacyPptProgTagsBundle(childPayload, colorScheme))
 		}
-		// Accept both the full MainMaster content record (0x03F8) and the
-		// Document-embedded MainMasterContainer stub (0x07D0); both carry
-		// TextMasterStyleAtom children.
-		if mRecord.Type != pptRTMainMasterContent && mRecord.Type != pptRTMainMaster {
-			continue
-		}
-		masterBundle := parseLegacyPptMainMasterTextBundle(mPayload, fontTable, colorScheme)
-		styles := composeLegacyPptMasterTextStyles(docBundle, masterBundle)
-		if len(styles) == 0 {
-			styles = parseLegacyPptDirectMasterTextStyles(mPayload, fontTable, colorScheme)
-		}
-		if len(styles) > 0 {
-			result[entry.SlideIdentifier] = styles
-		}
+		pos = next
 	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+	return docBundle
 }
 
 func parseLegacyPptMainMasterTextBundle(payload []byte, fontTable map[uint16]string, colorScheme map[uint8]string) legacyPptMasterTextBundle {
@@ -1902,6 +2168,24 @@ func levelFromLegacyPptMasterTextStyles(styles legacyPptMasterTextStyles, textTy
 	return legacyPptMasterTextLevel{}
 }
 
+func cloneLegacyPptMasterTextStyles(styles legacyPptMasterTextStyles) legacyPptMasterTextStyles {
+	if len(styles) == 0 {
+		return nil
+	}
+	cloned := make(legacyPptMasterTextStyles, len(styles))
+	for textType, levels := range styles {
+		if len(levels) == 0 {
+			continue
+		}
+		clonedLevels := make(map[int]legacyPptMasterTextLevel, len(levels))
+		for level, entry := range levels {
+			clonedLevels[level] = entry
+		}
+		cloned[textType] = clonedLevels
+	}
+	return cloned
+}
+
 func mergeLegacyPptMasterStyleMaps(primary, fallback legacyPptMasterTextStyles) legacyPptMasterTextStyles {
 	if len(fallback) == 0 {
 		return primary
@@ -2011,6 +2295,28 @@ func mergeLegacyPptMasterRunStyle(primary, fallback stpaCFRun) stpaCFRun {
 		primary.Color = fallback.Color
 	}
 	return primary
+}
+
+// legacyPptMasterTextLevelSemanticallyValid is a format-disambiguation gate,
+// not a renderer clamp.  A master level decoded as a control-character bullet,
+// a >400pt font, or the characteristic all-decoration collision cannot be a
+// valid PowerPoint text master.  Treating such a level as inheritance poisons
+// every otherwise-correct slide paragraph (the 720pt-per-character failure is
+// the canonical symptom), so it must not participate in the cascade.
+func legacyPptMasterTextLevelSemanticallyValid(level legacyPptMasterTextLevel) bool {
+	if level.paragraph.BulletChar != 0 && level.paragraph.BulletChar < 0x20 && level.paragraph.BulletChar != '\t' {
+		return false
+	}
+	if level.run.FontSize > 40000 {
+		return false
+	}
+	if level.run.Bold != nil && *level.run.Bold &&
+		level.run.Italic != nil && *level.run.Italic &&
+		level.run.Underline != nil && *level.run.Underline &&
+		level.run.Strike != nil && *level.run.Strike {
+		return false
+	}
+	return true
 }
 
 func legacyPptMasterTextLevelEmpty(level legacyPptMasterTextLevel) bool {
@@ -2381,6 +2687,14 @@ func applyPersistDirectoryEntries(directory map[int]int, payload []byte) {
 	}
 }
 
+func extractLegacyPptSlidesFromRootDocument(stream []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+	record, _, _, ok := readPptRecord(stream, 0)
+	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
+		return nil
+	}
+	return extractSlideTextsFromDocument(stream, 0, 2, nil, fontTable, colorScheme, exHyperlinks)
+}
+
 func extractSlideTextsFromDocument(stream []byte, documentOffset int, notesListInstance uint16, persistDirectory map[int]int, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
 	record, payload, _, ok := readPptRecord(stream, documentOffset)
 	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
@@ -2490,7 +2804,7 @@ func hydrateLegacyPptNotesFromPersistShapes(notes []legacySlideText, stream []by
 		if !ok || record.Type != pptRTNotes {
 			continue
 		}
-		shapes := parseLegacyPptTextShapesFromSlide(payload, notes[index], fontTable, colorScheme, exHyperlinks)
+		shapes := collectLegacyPptVisualScene(payload).textShapes(notes[index], fontTable, colorScheme, exHyperlinks)
 		fragments := legacyPptNotesFragmentsFromShapes(shapes)
 		if len(fragments) > 0 {
 			notes[index].Fragments = mergeLegacyPptNotesFragments(notes[index].Fragments, fragments)
@@ -2663,6 +2977,38 @@ func collectMasterEntriesFromDocument(stream []byte, documentOffset int) []legac
 	return entries
 }
 
+// parseLegacyPptSlideShowInfo decodes SSlideInfoAtom according to MS-PPT
+// §2.5.27. The flags are not OOXML transition flags: fManualAdvance is bit 0,
+// fHidden is bit 2 and fAutoAdvance is bit 10. The trailing speed byte is
+// present in the 16-byte atom payload (12 bytes of fields plus speed+unused).
+func parseLegacyPptSlideShowInfo(payload []byte) (*presentationir.SlideTransition, bool) {
+	if len(payload) < 12 {
+		return nil, false
+	}
+	slideTime := int32(binary.LittleEndian.Uint32(payload[0:4]))
+	effectType := payload[9]
+	flags := binary.LittleEndian.Uint16(payload[10:12])
+
+	transition := &presentationir.SlideTransition{
+		Type:     legacyPptTransitionType(effectType),
+		AdvClick: flags&(1<<0) != 0, // fManualAdvance
+	}
+	if flags&(1<<10) != 0 && slideTime > 0 { // fAutoAdvance
+		transition.AdvTmMs = int(slideTime)
+	}
+	if len(payload) >= 13 {
+		switch payload[12] {
+		case 0x00:
+			transition.Spd = "slow" // 0.75 s
+		case 0x01:
+			transition.Spd = "med" // 0.5 s
+		case 0x02:
+			transition.Spd = "fast" // 0.25 s
+		}
+	}
+	return transition, true
+}
+
 func parseSlideListWithText(data []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
 	var slides []legacySlideText
 	current := -1
@@ -2697,22 +3043,13 @@ func parseSlideListWithText(data []byte, fontTable map[uint16]string, colorSchem
 				slides[current].MasterID = masterID
 			}
 		case pptRTSlideShowSlideInfoAtom:
-			// SSlideInfoAtom (MS-PPT §2.5.27) carries slide transition metadata.
-			// Payload (12 bytes): slideTime int32, soundIdRef int32, effectDirection u8,
-			// effectType u8, flags u16. fAutoAdvance = bit 5; fHidden = bit 1.
-			if current >= 0 && len(payload) >= 12 {
-				slideTime := int32(binary.LittleEndian.Uint32(payload[0:4]))
-				effectType := payload[9]
-				flags := binary.LittleEndian.Uint16(payload[10:12])
-				autoAdvance := flags&(1<<5) != 0
-				transition := &presentationir.SlideTransition{
-					Type:     legacyPptTransitionType(effectType),
-					AdvClick: flags&(1<<0) != 0 || flags == 0, // fManualAdvance — default true
+			// SSlideInfoAtom (MS-PPT §2.5.27) owns legacy slide-show transition
+			// semantics. Keep its bit layout at the legacy boundary rather than
+			// translating it through OOXML defaults.
+			if current >= 0 {
+				if transition, ok := parseLegacyPptSlideShowInfo(payload); ok {
+					slides[current].Transition = transition
 				}
-				if autoAdvance && slideTime > 0 {
-					transition.AdvTmMs = int(slideTime)
-				}
-				slides[current].Transition = transition
 			}
 		case pptRTTextHeaderAtom:
 			if len(payload) >= 4 {
@@ -3156,7 +3493,7 @@ func normalizePptText(text string) string {
 }
 
 func buildPresentation(slides []legacySlideText, filename string) *presentationir.Presentation {
-	return buildPresentationWithExtraShapes(slides, nil, nil, legacyPptHeaderFooterInfo{}, filename, nil, nil, nil, "")
+	return buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, filename, nil, nil, nil, "", nil)
 }
 
 func legacyPptSlideLayoutType(payload []byte) string {
@@ -3207,7 +3544,10 @@ func legacyPptSlideLayoutType(payload []byte) string {
 	}
 }
 
-func buildPresentationWithExtraShapes(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, masterBgFill string) *presentationir.Presentation {
+// buildPresentationWithMasterComposition is the BIG37 inheritance boundary.
+// Master-specific styles and backgrounds are selected while each effective slide
+// is constructed; callers must not mutate the canonical presentation afterward.
+func buildPresentationWithMasterComposition(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string) *presentationir.Presentation {
 	slides, slideHeaderFooters = normalizeLegacyPptHeaderFooterOnlySlides(slides, extraShapes, slideHeaderFooters)
 	presentation := &presentationir.Presentation{
 		SlideWidthEMU:  defaultSlideWidthEMU,
@@ -3216,8 +3556,8 @@ func buildPresentationWithExtraShapes(slides []legacySlideText, extraShapes map[
 		Theme:          theme,
 	}
 	var masterBackgroundColor string
-	if masterBgFill != "" {
-		masterBackgroundColor = masterBgFill
+	if documentBgFill != "" {
+		masterBackgroundColor = documentBgFill
 	} else {
 		masterBackgroundColor = legacyPptMasterBackgroundColor(theme)
 	}
@@ -3227,8 +3567,21 @@ func buildPresentationWithExtraShapes(slides []legacySlideText, extraShapes map[
 		// parity); fall back to the Document-level stream-walk styles otherwise.
 		slideStyles := masterTextStyles
 		if slideText.MasterID != -1 {
-			if s, ok := masterStylesByID[slideText.MasterID]; ok {
-				slideStyles = s
+			if masterSpecific, ok := masterStylesByID[slideText.MasterID]; ok {
+				// A persisted master commonly stores only the properties that differ
+				// from DocumentTextInfo / environment defaults.  Treating that sparse
+				// map as a replacement drops the inherited character style entirely.
+				// Keep the exact master authoritative, but fill its missing properties
+				// from the document-level cascade (the same ownership model as POI's
+				// master-sheet + environment lookup).
+				slideStyles = cloneLegacyPptMasterTextStyles(masterSpecific)
+				slideStyles = mergeLegacyPptMasterStyleMaps(slideStyles, masterTextStyles)
+			}
+		}
+		effectiveBackground := masterBackgroundColor
+		if slideText.MasterPersistID != 0 {
+			if masterBackground := masterBgFillByPersistID[slideText.MasterPersistID]; masterBackground != "" {
+				effectiveBackground = masterBackground
 			}
 		}
 		headerFooterInfo := slideHeaderFooterDefaults.mergedWith(slideHeaderFooters[slideText.PersistID])
@@ -3245,16 +3598,23 @@ func buildPresentationWithExtraShapes(slides []legacySlideText, extraShapes map[
 			baseShapes = append(baseShapes, extras...)
 		}
 		if len(baseShapes) == 0 {
-			if !headerFooterInfo.hasRenderableContent() && !hasNotesContent && legacyPptSlideHasOnlyPlaceholderPrompts(slideText) {
-				presentation.Slides = append(presentation.Slides, &presentationir.Slide{
-					Index:      index,
-					MasterID:   slideText.MasterID,
-					LayoutType: slideText.LayoutType,
-					BgColor:    masterBackgroundColor,
-					Transition: slideText.Transition,
-				})
-			}
+			// Persist records that contain only PowerPoint's placeholder/sample prompts
+			// are structural scaffolding (most commonly header/footer or notes metadata),
+			// not authored empty slides.  Preserve a genuinely empty persisted slide, but
+			// never let prompt-only scaffolding materialize a second slide.
 			if !headerFooterInfo.hasRenderableContent() && !hasNotesContent {
+				if legacyPptSlideHasOnlyPlaceholderPrompts(slideText) {
+					continue
+				}
+				presentation.Slides = append(presentation.Slides, &presentationir.Slide{
+					Index:           index,
+					MasterID:        slideText.MasterID,
+					MasterPersistID: slideText.MasterPersistID,
+					LayoutType:      slideText.LayoutType,
+					BgColor:         effectiveBackground,
+					BgFill:          slideText.BgFill,
+					Transition:      slideText.Transition,
+				})
 				continue
 			}
 		}
@@ -3274,6 +3634,7 @@ func buildPresentationWithExtraShapes(slides []legacySlideText, extraShapes map[
 		for _, shape := range shapes {
 			applyLegacyPptMasterTextStylesToShape(shape, slideStyles, legacyPptMasterTextTypeForShape(shape))
 		}
+		normalizeLegacyPptPlaceholderGeometry(shapes)
 		if header != nil {
 			applyLegacyPptMasterTextStylesToShape(header, slideStyles, pptTextTypeOther)
 		}
@@ -3289,8 +3650,10 @@ func buildPresentationWithExtraShapes(slides []legacySlideText, extraShapes map[
 		presentation.Slides = append(presentation.Slides, &presentationir.Slide{
 			Index:             index,
 			MasterID:          slideText.MasterID,
+			MasterPersistID:   slideText.MasterPersistID,
 			LayoutType:        slideText.LayoutType,
-			BgColor:           masterBackgroundColor,
+			BgColor:           effectiveBackground,
+			BgFill:            slideText.BgFill,
 			Shapes:            shapes,
 			Header:            header,
 			Footer:            footer,
@@ -3315,17 +3678,51 @@ func normalizeLegacyPptHeaderFooterOnlySlides(slides []legacySlideText, extraSha
 	out := make([]legacySlideText, 0, len(slides))
 	for _, slide := range slides {
 		persistID := slide.PersistID
-		hasContent := len(slide.Fragments) > 0 || len(extraShapes[persistID]) > 0
+		// Header/footer persist records can surface through SlideListWithText as a
+		// synthetic slide containing only master prompt text.  Prompt-only text is
+		// template metadata, not authored slide content, and must not create another
+		// presentation slide.  Likewise ignore prompt-only placeholder projections
+		// when deciding whether this persist owns a real slide.
+		hasTextContent := len(slide.Fragments) > 0 && !legacyPptSlideHasOnlyPlaceholderPrompts(slide)
+		hasShapeContent := legacyPptShapesHaveAuthoredSlideContent(extraShapes[persistID])
+		hasContent := hasTextContent || hasShapeContent
 		info := normalized[persistID]
-		if !hasContent && info.hasRenderableContent() && len(out) > 0 {
+		promptOnlyPersist := legacyPptSlideHasOnlyPlaceholderPrompts(slide) && len(slide.Fragments) > 0
+		if !hasContent && len(out) > 0 && (info.hasRenderableContent() || promptOnlyPersist) {
 			lastPersistID := out[len(out)-1].PersistID
-			normalized[lastPersistID] = normalized[lastPersistID].mergedWith(info)
+			if info.hasRenderableContent() {
+				normalized[lastPersistID] = normalized[lastPersistID].mergedWith(info)
+			}
 			delete(normalized, persistID)
 			continue
 		}
 		out = append(out, slide)
 	}
 	return out, normalized
+}
+
+func legacyPptShapesHaveAuthoredSlideContent(shapes []*presentationir.Shape) bool {
+	for _, shape := range shapes {
+		if shape == nil {
+			continue
+		}
+		// Placeholder prompts belong to the template/header-footer ownership layer.
+		// A persist containing only those shapes is not an authored slide.
+		if len(shape.Paragraphs) > 0 {
+			onlyPrompts := true
+			for _, paragraph := range shape.Paragraphs {
+				if !legacyPptLooksLikePlaceholderSampleText(paragraphText(paragraph)) {
+					onlyPrompts = false
+					break
+				}
+			}
+			if onlyPrompts {
+				continue
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func legacyPptMasterTextTypeForShape(shape *presentationir.Shape) int {
@@ -3339,26 +3736,14 @@ func legacyPptMasterTextTypeForShape(shape *presentationir.Shape) int {
 		return pptTextTypeCenterBody
 	case presentationir.PlaceholderBody:
 		return pptTextTypeBody
-	case presentationir.PlaceholderFooter, presentationir.PlaceholderDateTime, presentationir.PlaceholderSlideNumber:
+	case presentationir.PlaceholderOther, presentationir.PlaceholderFooter, presentationir.PlaceholderDateTime, presentationir.PlaceholderSlideNumber:
 		return pptTextTypeOther
 	default:
 		return pptTextTypeUnknown
 	}
 }
 
-func parseLegacyPptDocumentHeaderFooterInfo(stream []byte, documentOffset int) legacyPptHeaderFooterInfo {
-	return parseLegacyPptDocumentHeaderFooterInfoByInstance(stream, documentOffset, 3)
-}
-
-func parseLegacyPptDocumentNotesHeaderFooterInfo(stream []byte, documentOffset int) legacyPptHeaderFooterInfo {
-	return parseLegacyPptDocumentHeaderFooterInfoByInstance(stream, documentOffset, 4)
-}
-
-func parseLegacyPptDocumentHeaderFooterInfoByInstance(stream []byte, documentOffset int, instance uint16) legacyPptHeaderFooterInfo {
-	record, payload, _, ok := readPptRecord(stream, documentOffset)
-	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
-		return legacyPptHeaderFooterInfo{}
-	}
+func parseLegacyPptDocumentHeaderFooterInfoFromPayload(payload []byte, instance uint16) legacyPptHeaderFooterInfo {
 	var info legacyPptHeaderFooterInfo
 	for pos := 0; pos+8 <= len(payload); {
 		child, childPayload, next, ok := readPptRecord(payload, pos)
@@ -3371,54 +3756,6 @@ func parseLegacyPptDocumentHeaderFooterInfoByInstance(stream []byte, documentOff
 		pos = next
 	}
 	return info
-}
-
-func parseLegacyPptSlideHeaderFooterInfo(stream []byte, persistDirectory map[int]int, slidePersistIDs []int) map[int]legacyPptHeaderFooterInfo {
-	if len(slidePersistIDs) == 0 || len(persistDirectory) == 0 {
-		return nil
-	}
-	infos := parseLegacyPptPersistHeaderFooterInfos(stream, persistDirectory, slidePersistIDs)
-	out := map[int]legacyPptHeaderFooterInfo{}
-	for index, persistID := range slidePersistIDs {
-		if index >= len(infos) {
-			continue
-		}
-		info := infos[index]
-		if info.hasRenderableContent() {
-			out[persistID] = info
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func parseLegacyPptPersistHeaderFooterInfos(stream []byte, persistDirectory map[int]int, persistIDs []int) []legacyPptHeaderFooterInfo {
-	if len(persistIDs) == 0 || len(persistDirectory) == 0 {
-		return nil
-	}
-	infos := make([]legacyPptHeaderFooterInfo, len(persistIDs))
-	hasAny := false
-	for index, persistID := range persistIDs {
-		persistOffset, ok := persistDirectory[persistID]
-		if !ok {
-			continue
-		}
-		_, payload, _, ok := readPptRecord(stream, persistOffset)
-		if !ok {
-			continue
-		}
-		info := parseLegacyPptHeaderFooterInfoFromPersist(payload)
-		if info.hasRenderableContent() {
-			infos[index] = info
-			hasAny = true
-		}
-	}
-	if !hasAny {
-		return nil
-	}
-	return infos
 }
 
 func mapLegacyPptPersistHeaderFooterInfos(persistIDs []int, infos []legacyPptHeaderFooterInfo) map[int]legacyPptHeaderFooterInfo {
@@ -3547,7 +3884,22 @@ func applyLegacyPptMasterTextStylesToShape(shape *presentationir.Shape, styles l
 		if !ok {
 			continue
 		}
+		if !legacyPptMasterTextLevelSemanticallyValid(masterLevel) {
+			fallback := legacyPptMasterTextLevelsWithBuiltInFallback(textType, nil)
+			masterLevel, ok = fallback[reqLevel]
+			if !ok {
+				masterLevel, ok = fallback[0]
+			}
+			if !ok {
+				continue
+			}
+		}
 		inheritedOnly := paragraphLooksUnstyled(paragraph)
+		// PT_MasterSubTitle / PT_SubTitle is a centered placeholder role. Local
+		// alignment remains authoritative; only an omitted alignment inherits it.
+		if shape.Placeholder == presentationir.PlaceholderSubtitle && paragraph.Align == "" && textType == pptTextTypeCenterBody {
+			masterLevel.paragraph.Align = "ctr"
+		}
 		shape.Paragraphs[index] = mergeLegacyPptMasterParagraph(paragraph, masterLevel, inheritedOnly)
 	}
 }
@@ -3560,31 +3912,56 @@ func legacyPptMasterTextLevelsForType(styles legacyPptMasterTextStyles, textType
 	if levels, ok := styles[textType]; ok && legacyPptMasterTextLevelsUsable(levels) {
 		primary = levels
 		if textType != pptTextTypeTitle || legacyPptMasterTextLevelsHaveRunStyling(levels) {
-			return legacyPptMasterTextLevelsWithBuiltInFallback(textType, levels)
+			return legacyPptMasterTextLevelsWithRoleRunFallback(textType, legacyPptMasterTextLevelsWithBuiltInFallback(textType, levels))
 		}
 	}
 	switch textType {
 	case pptTextTypeTitle:
 		if levels, ok := styles[pptTextTypeCenterTitle]; ok && legacyPptMasterTextLevelsUsable(levels) {
-			return legacyPptMasterTextLevelsWithBuiltInFallback(textType, levels)
+			if legacyPptMasterTextLevelsHaveRunStyling(levels) {
+				return legacyPptMasterTextLevelsWithRoleRunFallback(textType, legacyPptMasterTextLevelsWithBuiltInFallback(textType, levels))
+			}
+			primary = levels
+		}
+		// Some binary masters contain only title paragraph properties and keep
+		// the character defaults in the shared BODY/environment collection.
+		// Preserve the title paragraph role but inherit only missing run fields.
+		if body, ok := styles[pptTextTypeBody]; ok && legacyPptMasterTextLevelsHaveRunStyling(body) {
+			return mergeLegacyPptTitleLevelsWithRunFallback(primary, body)
 		}
 	case pptTextTypeCenterBody:
 		if levels, ok := styles[pptTextTypeBody]; ok && legacyPptMasterTextLevelsUsable(levels) {
-			return levels
+			return legacyPptMasterTextLevelsWithRoleRunFallback(textType, levels)
 		}
 	case pptTextTypeCenterTitle:
 		if levels, ok := styles[pptTextTypeTitle]; ok && legacyPptMasterTextLevelsUsable(levels) {
-			return legacyPptMasterTextLevelsWithBuiltInFallback(textType, levels)
+			return legacyPptMasterTextLevelsWithRoleRunFallback(textType, legacyPptMasterTextLevelsWithBuiltInFallback(textType, levels))
 		}
 	case pptTextTypeUnknown:
 		// POI HSLFSlideMaster.getPropCollection maps null txtype → BODY fallback.
 		// Shapes without an explicit TextHeaderAtom (textType = -1) should inherit
 		// body master defaults rather than receiving no styling at all.
 		if levels, ok := styles[pptTextTypeBody]; ok && legacyPptMasterTextLevelsUsable(levels) {
-			return levels
+			return legacyPptMasterTextLevelsWithRoleRunFallback(textType, levels)
 		}
 	}
-	return legacyPptMasterTextLevelsWithBuiltInFallback(textType, primary)
+	return legacyPptMasterTextLevelsWithRoleRunFallback(textType, legacyPptMasterTextLevelsWithBuiltInFallback(textType, primary))
+}
+
+func mergeLegacyPptTitleLevelsWithRunFallback(title, fallback map[int]legacyPptMasterTextLevel) map[int]legacyPptMasterTextLevel {
+	if len(title) == 0 {
+		title = map[int]legacyPptMasterTextLevel{0: {}}
+	}
+	out := make(map[int]legacyPptMasterTextLevel, len(title))
+	for level, entry := range title {
+		fallbackEntry, ok := fallback[level]
+		if !ok {
+			fallbackEntry = fallback[0]
+		}
+		entry.run = mergeLegacyPptMasterRunStyle(entry.run, fallbackEntry.run)
+		out[level] = entry
+	}
+	return legacyPptMasterTextLevelsWithRoleRunFallback(pptTextTypeTitle, legacyPptMasterTextLevelsWithBuiltInFallback(pptTextTypeTitle, out))
 }
 
 func legacyPptMasterTextLevelsUsable(levels map[int]legacyPptMasterTextLevel) bool {
@@ -3592,6 +3969,9 @@ func legacyPptMasterTextLevelsUsable(levels map[int]legacyPptMasterTextLevel) bo
 		return false
 	}
 	for _, level := range levels {
+		if !legacyPptMasterTextLevelSemanticallyValid(level) {
+			continue
+		}
 		if !legacyPptMasterTextLevelEmpty(level) {
 			return true
 		}
@@ -3602,7 +3982,13 @@ func legacyPptMasterTextLevelsUsable(levels map[int]legacyPptMasterTextLevel) bo
 func legacyPptMasterTextLevelsHaveRunStyling(levels map[int]legacyPptMasterTextLevel) bool {
 	for _, level := range levels {
 		run := level.run
-		if run.Bold != nil || run.Italic != nil || run.Underline != nil || run.Strike != nil || run.FontSize > 0 || run.FontFamily != "" || run.Color != "" {
+		// Explicit false boolean flags are useful cascade information, but they do
+		// not constitute a usable visual character default by themselves.  A master
+		// that says only "not underlined / not struck" still needs the built-in
+		// PowerPoint role metrics when no decoded font metrics are available.
+		if run.FontSize > 0 || run.FontFamily != "" || run.Color != "" ||
+			(run.Bold != nil && *run.Bold) || (run.Italic != nil && *run.Italic) ||
+			(run.Underline != nil && *run.Underline) || (run.Strike != nil && *run.Strike) {
 			return true
 		}
 	}
@@ -3627,14 +4013,61 @@ func legacyPptMasterTextLevelsWithBuiltInFallback(textType int, levels map[int]l
 	return merged
 }
 
-func legacyPptBuiltInMasterTextLevel(textType int) (legacyPptMasterTextLevel, bool) {
+func legacyPptMasterTextLevelsWithRoleRunFallback(textType int, levels map[int]legacyPptMasterTextLevel) map[int]legacyPptMasterTextLevel {
+	if len(levels) == 0 {
+		return levels
+	}
+	// Title roles have semantic PowerPoint metrics even when the decoded master
+	// level is sparse (for example, it specifies only a typeface). Fill only
+	// missing title run fields. BODY levels intentionally remain sparse: their
+	// missing metrics are resolved by the document/master cascade, not invented
+	// per master.
+	if textType != pptTextTypeTitle && textType != pptTextTypeCenterTitle && legacyPptMasterTextLevelsHaveRunStyling(levels) {
+		return levels
+	}
+	fallback, ok := legacyPptRoleRunFallback(textType)
+	if !ok {
+		return levels
+	}
+	merged := make(map[int]legacyPptMasterTextLevel, len(levels))
+	for level, entry := range levels {
+		entry.run = mergeLegacyPptMasterRunStyle(entry.run, fallback)
+		merged[level] = entry
+	}
+	return merged
+}
+
+func legacyPptRoleRunFallback(textType int) (stpaCFRun, bool) {
 	switch textType {
 	case pptTextTypeTitle, pptTextTypeCenterTitle:
-		bold := true
-		return legacyPptMasterTextLevel{
-			paragraph: stpaPFEntry{Align: "ctr"},
-			run:       stpaCFRun{Bold: &bold, FontSize: 4400},
-		}, true
+		return stpaCFRun{FontSize: 4400, FontFamily: "Arial", Color: "000000"}, true
+	case pptTextTypeBody, pptTextTypeCenterBody, pptTextTypeUnknown:
+		return stpaCFRun{FontSize: 3200, FontFamily: "Arial", Color: "000000"}, true
+	case pptTextTypeOther:
+		// Ordinary TextHeaderAtom "other" bodies are free-standing text boxes,
+		// whose legacy PowerPoint fallback is 24pt. Keep the family unset so the
+		// document FontEntity default remains authoritative.
+		return stpaCFRun{FontSize: 2400, Color: "000000"}, true
+	default:
+		return stpaCFRun{}, false
+	}
+}
+
+func legacyPptBuiltInMasterTextLevel(textType int) (legacyPptMasterTextLevel, bool) {
+	// These are PowerPoint's role defaults, expressed in the legacy parser's
+	// 1/100-point units. They are a last-resort semantic fallback only: decoded
+	// document/master/local character properties remain authoritative.
+	switch textType {
+	case pptTextTypeTitle:
+		return legacyPptMasterTextLevel{paragraph: stpaPFEntry{Align: "ctr"}}, true
+	case pptTextTypeCenterTitle:
+		return legacyPptMasterTextLevel{paragraph: stpaPFEntry{Align: "ctr"}}, true
+	case pptTextTypeCenterBody:
+		return legacyPptMasterTextLevel{paragraph: stpaPFEntry{Align: "ctr"}}, true
+	case pptTextTypeBody:
+		return legacyPptMasterTextLevel{}, true
+	case pptTextTypeOther:
+		return legacyPptMasterTextLevel{}, true
 	default:
 		return legacyPptMasterTextLevel{}, false
 	}
@@ -3835,6 +4268,72 @@ func cloneLegacyShapeRecursive(shape *presentationir.Shape, nextID *int) *presen
 		return nil
 	}
 	clone := *shape
+	// Master and extra shapes are semantic templates. Deep-clone the shared
+	// OfficeArt graph as well as presentation-owned mutable slices so layout,
+	// composition, or later fidelity passes cannot mutate a sibling slide through
+	// an apparently independent presentation Shape.
+	clone.OfficeArt = cloneLegacyOfficeArtShape(shape.OfficeArt)
+	// BIG39 final closure: every mutable presentation-side value reachable from a
+	// master template is slide-local, just like the shared OfficeArt graph.
+	if shape.PictureTile != nil {
+		tile := *shape.PictureTile
+		clone.PictureTile = &tile
+	}
+	if shape.EffectOverlay != nil {
+		overlay := *shape.EffectOverlay
+		clone.EffectOverlay = &overlay
+	}
+	if shape.GeometryData != nil {
+		geometry := *shape.GeometryData
+		geometry.Guides = append([]drawing.Guide(nil), shape.GeometryData.Guides...)
+		geometry.Handles = append([]drawing.AdjustHandle(nil), shape.GeometryData.Handles...)
+		if len(shape.GeometryData.Paths) != 0 {
+			geometry.Paths = make([]drawing.Path, len(shape.GeometryData.Paths))
+			for i, sourcePath := range shape.GeometryData.Paths {
+				geometry.Paths[i] = sourcePath
+				if len(sourcePath.Commands) != 0 {
+					geometry.Paths[i].Commands = make([]drawing.PathCommand, len(sourcePath.Commands))
+					for j, sourceCommand := range sourcePath.Commands {
+						geometry.Paths[i].Commands[j] = sourceCommand
+						geometry.Paths[i].Commands[j].Points = append([]drawing.Point(nil), sourceCommand.Points...)
+					}
+				}
+			}
+		}
+		clone.GeometryData = &geometry
+	}
+	if shape.GroupTransform != nil {
+		transform := *shape.GroupTransform
+		clone.GroupTransform = &transform
+	}
+	if shape.LineStyle != nil {
+		line := *shape.LineStyle
+		line.CompoundWidths = append([]float64(nil), shape.LineStyle.CompoundWidths...)
+		if shape.LineStyle.HeadEnd != nil {
+			head := *shape.LineStyle.HeadEnd
+			line.HeadEnd = &head
+		}
+		if shape.LineStyle.TailEnd != nil {
+			tail := *shape.LineStyle.TailEnd
+			line.TailEnd = &tail
+		}
+		clone.LineStyle = &line
+	}
+	clone.ChartData = append([]byte(nil), shape.ChartData...)
+	clone.ImageEffects = append([]drawing.Effect(nil), shape.ImageEffects...)
+	clone.GeometryAdjustments = append([]float64(nil), shape.GeometryAdjustments...)
+	clone.ConnectorAdjustments = append([]int(nil), shape.ConnectorAdjustments...)
+	clone.ConnectorPath = append([]presentationir.Point(nil), shape.ConnectorPath...)
+	clone.AnimationTriggers = append([]string(nil), shape.AnimationTriggers...)
+	clone.EmphasisEffects = append([]string(nil), shape.EmphasisEffects...)
+	if shape.ConnectorStart != nil {
+		point := *shape.ConnectorStart
+		clone.ConnectorStart = &point
+	}
+	if shape.ConnectorEnd != nil {
+		point := *shape.ConnectorEnd
+		clone.ConnectorEnd = &point
+	}
 	if nextID != nil {
 		clone.ID = *nextID
 		*nextID++
@@ -3855,7 +4354,27 @@ func cloneLegacyShapeRecursive(shape *presentationir.Shape, nextID *int) *presen
 		clone.OLEIconData = append([]byte(nil), shape.OLEIconData...)
 	}
 	if len(shape.Paragraphs) > 0 {
-		clone.Paragraphs = append([]*presentationir.Paragraph(nil), shape.Paragraphs...)
+		clone.Paragraphs = make([]*presentationir.Paragraph, 0, len(shape.Paragraphs))
+		for _, paragraph := range shape.Paragraphs {
+			if paragraph == nil {
+				clone.Paragraphs = append(clone.Paragraphs, nil)
+				continue
+			}
+			paragraphClone := *paragraph
+			paragraphClone.TabStops = append([]presentationir.TabStop(nil), paragraph.TabStops...)
+			if len(paragraph.Runs) != 0 {
+				paragraphClone.Runs = make([]*presentationir.Run, 0, len(paragraph.Runs))
+				for _, run := range paragraph.Runs {
+					if run == nil {
+						paragraphClone.Runs = append(paragraphClone.Runs, nil)
+						continue
+					}
+					runClone := *run
+					paragraphClone.Runs = append(paragraphClone.Runs, &runClone)
+				}
+			}
+			clone.Paragraphs = append(clone.Paragraphs, &paragraphClone)
+		}
 	}
 	if len(shape.Children) > 0 {
 		clone.Children = make([]*presentationir.Shape, 0, len(shape.Children))
@@ -3863,6 +4382,98 @@ func cloneLegacyShapeRecursive(shape *presentationir.Shape, nextID *int) *presen
 			if childClone := cloneLegacyShapeRecursive(child, nextID); childClone != nil {
 				clone.Children = append(clone.Children, childClone)
 			}
+		}
+	}
+	return &clone
+}
+
+func cloneLegacyOfficeArtShape(shape *officeartir.Shape) *officeartir.Shape {
+	if shape == nil {
+		return nil
+	}
+	clone := *shape
+	clone.Geometry.Adjustments = append([]float64(nil), shape.Geometry.Adjustments...)
+	if len(shape.Geometry.Paths) > 0 {
+		clone.Geometry.Paths = make([]officeartir.Path, len(shape.Geometry.Paths))
+		for i, path := range shape.Geometry.Paths {
+			clone.Geometry.Paths[i] = path
+			if len(path.Commands) > 0 {
+				clone.Geometry.Paths[i].Commands = make([]officeartir.PathCommand, len(path.Commands))
+				for j, command := range path.Commands {
+					clone.Geometry.Paths[i].Commands[j] = command
+					clone.Geometry.Paths[i].Commands[j].Points = append([]officeartir.PointF(nil), command.Points...)
+				}
+			}
+		}
+	}
+	if shape.Fill.Gradient != nil {
+		gradient := *shape.Fill.Gradient
+		gradient.Stops = append([]officeartir.GradientStop(nil), shape.Fill.Gradient.Stops...)
+		clone.Fill.Gradient = &gradient
+	}
+	if shape.Fill.Pattern != nil {
+		pattern := *shape.Fill.Pattern
+		clone.Fill.Pattern = &pattern
+	}
+	if shape.Fill.Picture != nil {
+		picture := *shape.Fill.Picture
+		picture.Image.Data = append([]byte(nil), shape.Fill.Picture.Image.Data...)
+		if shape.Fill.Picture.Tile != nil {
+			tile := *shape.Fill.Picture.Tile
+			picture.Tile = &tile
+		}
+		clone.Fill.Picture = &picture
+	}
+	if shape.Effects.Shadow != nil {
+		shadow := *shape.Effects.Shadow
+		clone.Effects.Shadow = &shadow
+	}
+	if shape.Effects.Glow != nil {
+		glow := *shape.Effects.Glow
+		clone.Effects.Glow = &glow
+	}
+	if shape.Effects.Blur != nil {
+		blur := *shape.Effects.Blur
+		clone.Effects.Blur = &blur
+	}
+	if shape.Text != nil {
+		text := *shape.Text
+		if len(shape.Text.Paragraphs) > 0 {
+			text.Paragraphs = make([]officeartir.Paragraph, len(shape.Text.Paragraphs))
+			for i, paragraph := range shape.Text.Paragraphs {
+				text.Paragraphs[i] = paragraph
+				text.Paragraphs[i].Runs = append([]officeartir.TextRun(nil), paragraph.Runs...)
+			}
+		}
+		clone.Text = &text
+	}
+	if shape.GeometryText != nil {
+		geometryText := *shape.GeometryText
+		clone.GeometryText = &geometryText
+	}
+	if shape.Image != nil {
+		image := *shape.Image
+		image.Data = append([]byte(nil), shape.Image.Data...)
+		clone.Image = &image
+	}
+	if shape.Connector != nil {
+		connector := *shape.Connector
+		if shape.Connector.Start != nil {
+			point := *shape.Connector.Start
+			connector.Start = &point
+		}
+		if shape.Connector.End != nil {
+			point := *shape.Connector.End
+			connector.End = &point
+		}
+		connector.Path = append([]officeartir.Point(nil), shape.Connector.Path...)
+		connector.Adjustments = append([]float64(nil), shape.Connector.Adjustments...)
+		clone.Connector = &connector
+	}
+	if len(shape.Children) > 0 {
+		clone.Children = make([]*officeartir.Shape, 0, len(shape.Children))
+		for _, child := range shape.Children {
+			clone.Children = append(clone.Children, cloneLegacyOfficeArtShape(child))
 		}
 	}
 	return &clone
@@ -4319,6 +4930,11 @@ func legacyFooterBoundsForPlaceholder(placeholder presentationir.PlaceholderKind
 		return presentationir.Rect{X: 685800, Y: defaultSlideHeightEMU - 685800, W: 2286000, H: 304800}
 	case presentationir.PlaceholderSlideNumber:
 		return presentationir.Rect{X: defaultSlideWidthEMU - 2286000 - 685800, Y: defaultSlideHeightEMU - 685800, W: 2286000, H: 304800}
+	case presentationir.PlaceholderFooter:
+		// Keep a synthetic footer out of the date and slide-number columns.
+		// Old/damaged PPTs can omit the authored footer anchor; using the generic
+		// full-width fallback makes date and footer paint on top of each other.
+		return presentationir.Rect{X: defaultSlideWidthEMU * 325 / 1000, Y: defaultSlideHeightEMU - 685800, W: defaultSlideWidthEMU * 350 / 1000, H: 304800}
 	default:
 		return legacyFooterBounds()
 	}
@@ -4424,6 +5040,36 @@ func isLegacyBulletRomanMarker(marker string) bool {
 	return true
 }
 
+// normalizeLegacyPptPlaceholderGeometry repairs a legacy placeholder whose local
+// Escher rectangle aliases the title rectangle instead of contributing its own
+// layout geometry. The fallback is semantic (placeholder role), not fixture-specific.
+// Authored non-overlapping geometry is preserved unchanged.
+func normalizeLegacyPptPlaceholderGeometry(shapes []*presentationir.Shape) {
+	var title *presentationir.Shape
+	for _, shape := range shapes {
+		if shape != nil && shape.Placeholder == presentationir.PlaceholderTitle {
+			title = shape
+			break
+		}
+	}
+	if title == nil {
+		return
+	}
+	titleBottom := title.Bounds.Y + title.Bounds.H
+	for _, shape := range shapes {
+		if shape == nil || shape.Placeholder != presentationir.PlaceholderSubtitle {
+			continue
+		}
+		if shape.Bounds.Y < titleBottom && legacyRectsOverlap(title.Bounds, shape.Bounds) {
+			shape.Bounds = legacySubtitleBounds()
+		}
+	}
+}
+
+func legacyRectsOverlap(a, b presentationir.Rect) bool {
+	return a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H
+}
+
 func legacyTitleBounds() presentationir.Rect {
 	return presentationir.Rect{X: 685800, Y: 457200, W: defaultSlideWidthEMU - 1371600, H: 914400}
 }
@@ -4443,10 +5089,16 @@ func legacyBodyBounds(hasTitle bool) presentationir.Rect {
 }
 
 func buildTextParagraphs(text string) []*presentationir.Paragraph {
-	lines := strings.Split(normalizePptText(text), "\n")
-	paragraphs := make([]*presentationir.Paragraph, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
+	// CR/LF are paragraph marks in the plain-text fallback. VT/FF are soft
+	// line breaks and must remain inside the same IR paragraph so paragraph
+	// spacing/list semantics are not applied to a visual line break.
+	text = strings.ReplaceAll(text, "\r\n", "\r")
+	text = strings.ReplaceAll(text, "\n", "\r")
+	text = normalizePptSoftLineBreaks(text)
+	rawParagraphs := strings.Split(text, "\r")
+	paragraphs := make([]*presentationir.Paragraph, 0, len(rawParagraphs))
+	for _, raw := range rawParagraphs {
+		line := strings.TrimSpace(raw)
 		if line == "" || legacyPptLooksLikePlaceholderSampleText(line) {
 			continue
 		}
@@ -4633,34 +5285,38 @@ func mergeLegacySlides(dst, src []legacySlideText) []legacySlideText {
 	return dst
 }
 
-func mergeLegacySlidesInPersistOrder(order []int, slides []legacySlideText, extraShapes map[int][]*presentationir.Shape) []legacySlideText {
+func projectLegacySlidesInAuthoredOrder(order []int, slides []legacySlideText) []legacySlideText {
 	if len(order) == 0 {
 		return slides
 	}
 	byPersistID := make(map[int]legacySlideText, len(slides))
 	for _, slide := range slides {
-		if slide.PersistID != 0 {
+		if slide.PersistID == 0 {
+			continue
+		}
+		// The authored SlideListWithText order owns membership and ordering. If
+		// duplicate projections exist, keep the first materialized projection;
+		// later parser passes may enrich it through mergeLegacySlides before this
+		// structural projection runs.
+		if _, exists := byPersistID[slide.PersistID]; !exists {
 			byPersistID[slide.PersistID] = slide
 		}
 	}
-	seen := map[int]struct{}{}
 	out := make([]legacySlideText, 0, len(order))
+	seen := make(map[int]struct{}, len(order))
 	for _, persistID := range order {
+		if persistID == 0 {
+			continue
+		}
+		if _, duplicate := seen[persistID]; duplicate {
+			continue
+		}
+		seen[persistID] = struct{}{}
 		slide, ok := byPersistID[persistID]
 		if !ok {
-			if len(extraShapes[persistID]) == 0 {
-				continue
-			}
+			// Authored membership is authoritative even for drawing-only, table-only,
+			// or otherwise empty slides that produced no text projection.
 			slide = legacySlideText{PersistID: persistID}
-		}
-		out = append(out, slide)
-		seen[persistID] = struct{}{}
-	}
-	for _, slide := range slides {
-		if slide.PersistID != 0 {
-			if _, ok := seen[slide.PersistID]; ok {
-				continue
-			}
 		}
 		out = append(out, slide)
 	}
@@ -4682,6 +5338,109 @@ func mergeLegacyShapeMaps(dst, src map[int][]*presentationir.Shape) map[int][]*p
 		dst[persistID] = append(dst[persistID], shapes...)
 	}
 	return dst
+}
+
+func filterLegacyDuplicateProjectedTables(flatShapes, tableShapes map[int][]*presentationir.Shape) map[int][]*presentationir.Shape {
+	if len(flatShapes) == 0 || len(tableShapes) == 0 {
+		return tableShapes
+	}
+	for persistID, tables := range tableShapes {
+		siblings := flatShapes[persistID]
+		if len(siblings) == 0 {
+			continue
+		}
+		filtered := tables[:0]
+		for _, tableShape := range tables {
+			if legacyTableDuplicatesSiblingText(tableShape, siblings) {
+				continue
+			}
+			filtered = append(filtered, tableShape)
+		}
+		if len(filtered) == 0 {
+			delete(tableShapes, persistID)
+		} else {
+			tableShapes[persistID] = filtered
+		}
+	}
+	return tableShapes
+}
+
+func legacyTableDuplicatesSiblingText(tableShape *presentationir.Shape, siblings []*presentationir.Shape) bool {
+	if tableShape == nil || tableShape.Table == nil {
+		return false
+	}
+
+	// Compare paragraph-sized projection atoms rather than whole-cell strings.
+	// Legacy diagrams commonly project one logical label per ordinary text shape,
+	// while the compatibility table scanner combines several of those labels into
+	// one inferred cell. Whole-cell comparison therefore misses the duplicate even
+	// though both projections came from the same Escher group.
+	cellTexts := make([]string, 0)
+	for _, row := range tableShape.Table.Rows {
+		if row == nil {
+			continue
+		}
+		for _, cell := range row.Cells {
+			if cell == nil {
+				continue
+			}
+			cellTexts = append(cellTexts, legacyPptParagraphProjectionKeys(cell.Paragraphs)...)
+		}
+	}
+	if len(cellTexts) < 2 {
+		return false
+	}
+
+	siblingTexts := make(map[string]int)
+	var collect func([]*presentationir.Shape)
+	collect = func(shapes []*presentationir.Shape) {
+		for _, shape := range shapes {
+			if shape == nil || shape == tableShape {
+				continue
+			}
+			for _, text := range legacyPptParagraphProjectionKeys(shape.Paragraphs) {
+				siblingTexts[text]++
+			}
+			if len(shape.Children) > 0 {
+				collect(shape.Children)
+			}
+		}
+	}
+	collect(siblings)
+
+	matched := 0
+	for _, text := range cellTexts {
+		if siblingTexts[text] > 0 {
+			matched++
+			siblingTexts[text]--
+		}
+	}
+	// Require multiple independently projected labels and majority coverage. This
+	// rejects diagram-derived pseudo tables without letting one coincidental label
+	// suppress a legitimate compatibility table such as bug57820.
+	return matched >= 2 && matched*2 >= len(cellTexts)
+}
+
+func legacyPptParagraphProjectionKeys(paragraphs []*presentationir.Paragraph) []string {
+	keys := make([]string, 0, len(paragraphs))
+	for _, paragraph := range paragraphs {
+		if paragraph == nil {
+			continue
+		}
+		var b strings.Builder
+		for _, run := range paragraph.Runs {
+			if run != nil {
+				b.WriteString(run.Text)
+			}
+		}
+		// Projection paths disagree about tabs/newlines and repeated spaces. Those
+		// are formatting details, not provenance, so compare canonical word spacing.
+		key := strings.Join(strings.Fields(b.String()), " ")
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func filterLegacyGroupedShapeDuplicates(flatShapes, groupShapes map[int][]*presentationir.Shape) map[int][]*presentationir.Shape {
@@ -4739,35 +5498,6 @@ func collectLegacyGroupedShapeIDs(groups []*presentationir.Shape) map[uint32]str
 	return ids
 }
 
-func parseLegacyPptSlideGroupShapes(stream []byte, persistDirectory map[int]int, slidePersistIDs []int, resolved map[int][]*presentationir.Shape, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) map[int][]*presentationir.Shape {
-	if len(slidePersistIDs) == 0 || len(persistDirectory) == 0 || len(resolved) == 0 {
-		return nil
-	}
-	out := map[int][]*presentationir.Shape{}
-	for _, persistID := range slidePersistIDs {
-		slideOffset, ok := persistDirectory[persistID]
-		if !ok {
-			continue
-		}
-		record, payload, _, ok := readPptRecord(stream, slideOffset)
-		if !ok || record.Type != pptRTSlide {
-			continue
-		}
-		byID := legacyPptShapeIndexByOriginalID(resolved[persistID])
-		if len(byID) == 0 {
-			continue
-		}
-		groups := parseLegacyPptGroupShapesFromSlide(payload, byID, fontTable, colorScheme, exHyperlinks)
-		if len(groups) > 0 {
-			out[persistID] = groups
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 func legacyPptShapeIndexByOriginalID(shapes []*presentationir.Shape) map[uint32]*presentationir.Shape {
 	if len(shapes) == 0 {
 		return nil
@@ -4796,111 +5526,76 @@ func legacyPptShapeIndexByOriginalID(shapes []*presentationir.Shape) map[uint32]
 	return out
 }
 
-func parseLegacyPptGroupShapesFromSlide(payload []byte, resolvedByID map[uint32]*presentationir.Shape, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	if len(payload) == 0 || len(resolvedByID) == 0 {
-		return nil
-	}
-	var groups []*presentationir.Shape
-	ordinal := 1
-	for pos := 0; pos+8 <= len(payload); {
-		record, childPayload, next, ok := readPptRecord(payload, pos)
-		if !ok {
-			break
-		}
-		if record.Type == pptRTPPDrawing {
-			collectLegacyPptGroupShapesFromOfficeArt(childPayload, legacyPptGroupFrame{}, resolvedByID, fontTable, colorScheme, exHyperlinks, &groups, &ordinal)
-		}
-		pos = next
-	}
-	if len(groups) == 0 {
-		return nil
-	}
-	return groups
+// legacyPptGroupChildSource supplies semantic payload for a shape while group
+// construction owns its authored local geometry. This deliberately prevents the
+// group parser from treating the slide-space discovery index as canonical visual
+// composition. The source is transitional: subsequent passes can populate it
+// directly from Escher shape containers without changing group construction.
+type legacyPptGroupChildSource interface {
+	CloneSemanticPayload(shapeID uint32) *presentationir.Shape
 }
 
-func collectLegacyPptGroupShapesFromOfficeArt(data []byte, frame legacyPptGroupFrame, resolvedByID map[uint32]*presentationir.Shape, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, groups *[]*presentationir.Shape, ordinal *int) {
-	for off := 0; off+8 <= len(data); {
-		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
-		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
-		if recLen < 0 || off+8+recLen > len(data) {
-			break
-		}
-		body := data[off+8 : off+8+recLen]
-		if recType == legacyOfficeArtSpgrContainer {
-			if groupShape, ok := parseLegacyPptGroupShapeFromContainer(body, frame, resolvedByID, fontTable, colorScheme, exHyperlinks, *ordinal); ok {
-				*groups = append(*groups, groupShape)
-				*ordinal = *ordinal + 1
-			}
-		}
-		off += 8 + recLen
+type legacyPptDiscoveredShapeSource map[uint32]*presentationir.Shape
+
+func (s legacyPptDiscoveredShapeSource) CloneSemanticPayload(shapeID uint32) *presentationir.Shape {
+	shape := s[shapeID]
+	if shape == nil {
+		return nil
 	}
+	clone := cloneLegacyShapeRecursive(shape, nil)
+	if clone == nil {
+		return nil
+	}
+	// Discovery is allowed to supply semantic payload only. Canonical geometry and
+	// transform state are reconstructed from the Escher SpContainer below.
+	clone.Bounds = presentationir.Rect{}
+	clone.RotationDeg = 0
+	clone.FlipH = false
+	clone.FlipV = false
+	clone.ConnectorStart = nil
+	clone.ConnectorEnd = nil
+	clone.ConnectorPath = nil
+	return clone
 }
 
-func parseLegacyPptGroupShapeFromContainer(data []byte, parent legacyPptGroupFrame, resolvedByID map[uint32]*presentationir.Shape, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, ordinal int) (*presentationir.Shape, bool) {
-	if legacyPptGroupIsTableLike(data, parent, fontTable, colorScheme, exHyperlinks) {
-		return nil, false
+// canonicalizeLegacyPptGroupChild reconstructs every visual property whose meaning
+// depends on the Escher shape container. The discovery pipeline contributes only
+// payload that cannot be recovered locally (resolved text, image bytes, etc.).
+// This keeps the canonical group tree independent from slide-space discovery.
+func canonicalizeLegacyPptGroupChild(child *presentationir.Shape, data []byte, colorScheme map[uint8]string) bool {
+	if child == nil {
+		return false
 	}
-	meta, frame, ok := parseLegacyPptGroupShapeMetaFromSpgrContainer(data, parent, exHyperlinks)
+	node, err := officeartescher.ParseShapeContainerPayload(data)
+	if err != nil || node == nil || len(node.ChildAnchor) == 0 {
+		return false
+	}
+	bounds, ok := parseLegacyPptChildAnchor(node.ChildAnchor)
 	if !ok {
-		return nil, false
+		return false
 	}
-	children := collectLegacyPptGroupChildren(data, frame, resolvedByID, fontTable, colorScheme, exHyperlinks)
-	if len(children) == 0 {
-		return nil, false
-	}
-	for _, child := range children {
-		applyLegacyPptGroupTransformToShape(child, meta.bounds, meta.transform)
-	}
-	group := &presentationir.Shape{
-		Kind:            presentationir.ShapeGroup,
-		Name:            fmt.Sprintf("Legacy Group %d", ordinal),
-		OriginalShapeID: meta.shapeID,
-		Bounds:          meta.bounds,
-		Children:        children,
-		HyperlinkURL:    meta.hyperlinkURL,
-		ActionLink:      meta.actionLink,
-	}
-	applyLegacyPptShapeTransform(group, meta.transform)
-	applyLegacyPptAnimationMetadata(group, meta.animation)
-	return group, true
-}
+	child.OriginalShapeID = node.ShapeID
+	child.Bounds = bounds
+	child.OfficeArt = officeartlegacy.ShapeFromEscherWithColorResolver(node, func(raw uint32) string {
+		return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
+	})
+	applyLegacyPptOfficeArtGeometry(child, child.OfficeArt)
+	applyLegacyPptOfficeArtVisual(child, child.OfficeArt)
 
-func collectLegacyPptGroupChildren(data []byte, frame legacyPptGroupFrame, resolvedByID map[uint32]*presentationir.Shape, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	var children []*presentationir.Shape
-	skippedRoot := false
-	for off := 0; off+8 <= len(data); {
-		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
-		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
-		if recLen < 0 || off+8+recLen > len(data) {
-			break
-		}
-		body := data[off+8 : off+8+recLen]
-		switch recType {
-		case legacyOfficeArtSpgrContainer:
-			if legacyPptGroupIsTableLike(body, frame, fontTable, colorScheme, exHyperlinks) {
-				if tableShape, ok := parseLegacyPptTableShapeFromGroupContainer(body, frame, fontTable, colorScheme, exHyperlinks, len(children)+1); ok {
-					children = append(children, tableShape)
-				}
-			} else if groupShape, ok := parseLegacyPptGroupShapeFromContainer(body, frame, resolvedByID, fontTable, colorScheme, exHyperlinks, len(children)+1); ok {
-				children = append(children, groupShape)
-			}
-		case legacyOfficeArtSpContainer:
-			if !skippedRoot && legacyPptSpContainerHasGroupRect(body) {
-				skippedRoot = true
-				off += 8 + recLen
-				continue
-			}
-			if shapeID, ok := legacyPptSpContainerShapeID(body); ok {
-				if resolved, ok := resolvedByID[shapeID]; ok {
-					if clone := cloneLegacyShapeRecursive(resolved, nil); clone != nil {
-						children = append(children, clone)
-					}
-				}
-			}
-		}
-		off += 8 + recLen
+	var transform legacyPptShapeTransform
+	transform.FlipH = node.Flags&legacyOfficeArtSpFlagFlipH != 0
+	transform.FlipV = node.Flags&legacyOfficeArtSpFlagFlipV != 0
+	if len(node.Properties) > 0 {
+		parseLegacyPptFOPTPropertiesTransform(node.Properties, colorScheme, &transform)
 	}
-	return children
+	applyLegacyPptShapeTransform(child, transform)
+
+	if child.Kind == presentationir.ShapeConnector {
+		child.ConnectorFlipH = transform.FlipH
+		child.ConnectorFlipV = transform.FlipV
+		child.ConnectorStart, child.ConnectorEnd = legacyPptConnectorEndpoints(bounds, transform.FlipH, transform.FlipV)
+	}
+	return true
 }
 
 func parseLegacyPptGroupShapeMetaFromSpgrContainer(data []byte, parent legacyPptGroupFrame, exHyperlinks map[uint32]string) (legacyPptGroupShapeMeta, legacyPptGroupFrame, bool) {
@@ -4927,7 +5622,7 @@ func parseLegacyPptGroupShapeMetaFromSpContainer(data []byte, parent legacyPptGr
 	if !ok {
 		return legacyPptGroupShapeMeta{}, legacyPptGroupFrame{}, false
 	}
-	meta := legacyPptGroupShapeMeta{bounds: frame.target}
+	meta := legacyPptGroupShapeMeta{bounds: frame.localTarget}
 	for off := 0; off+8 <= len(data); {
 		verInst := binary.LittleEndian.Uint16(data[off : off+2])
 		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
@@ -4947,7 +5642,10 @@ func parseLegacyPptGroupShapeMetaFromSpContainer(data []byte, parent legacyPptGr
 				meta.transform.FlipV = spFlags&legacyOfficeArtSpFlagFlipV != 0
 			}
 			_ = verInst
-		case legacyOfficeArtFOPT:
+		case officeartescher.RecordFOPT, officeartescher.RecordSecondaryFOPT, officeartescher.RecordTertiaryFOPT:
+			// OfficeArt properties are a three-tier cascade. Later secondary/tertiary
+			// tables override earlier authored values and must participate in the same
+			// transform decode as the primary FOPT.
 			parseLegacyPptFOPTTransform(body, int(verInst>>4), nil, &meta.transform)
 		case legacyOfficeArtClientData:
 			if meta.hyperlinkURL == "" && meta.actionLink == "" {
@@ -4962,28 +5660,175 @@ func parseLegacyPptGroupShapeMetaFromSpContainer(data []byte, parent legacyPptGr
 	return meta, frame, true
 }
 
-func parseLegacyPptSlideTextShapes(stream []byte, persistDirectory map[int]int, slidePersistIDs []int, slides []legacySlideText, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) map[int][]*presentationir.Shape {
-	if len(slidePersistIDs) == 0 || len(persistDirectory) == 0 {
+// parseLegacyPptSlideVisualsEventDriven is the production bridge from the
+// forward binary record boundary to canonical visual IR.  Each persisted Slide
+// record is opened once.  All core visual projections share that same payload
+// and are reconciled before the parser advances to the next slide.
+//
+// The family decoders are intentionally reused in this takeover pass: they
+// already encode years of OfficeArt compatibility behavior.  What changes here
+// is ownership and traversal.  Subsequent legacy passes can replace individual
+// projections with direct RecordEvent consumers without changing the slide
+// lifecycle or downstream IR contract again.
+
+type legacyPptSlideVisualDispatch struct {
+	containers legacyPptShapeContainerScene
+	rules      map[uint32]legacyPptConnectorRule
+}
+
+func collectLegacyPptSlideVisualDispatch(payload []byte) legacyPptSlideVisualDispatch {
+	var dispatch legacyPptSlideVisualDispatch
+	for pos := 0; pos+8 <= len(payload); {
+		record, childPayload, next, ok := readPptRecord(payload, pos)
+		if !ok {
+			break
+		}
+		if record.Type == pptRTPPDrawing {
+			events, _ := CollectOfficeArtEvents(childPayload)
+			dispatch.containers = mergeLegacyPptShapeContainerScenes(dispatch.containers, decodeLegacyPptShapeContainerScene(events))
+			for id, rule := range parseLegacyPptConnectorRules(childPayload) {
+				if dispatch.rules == nil {
+					dispatch.rules = map[uint32]legacyPptConnectorRule{}
+				}
+				dispatch.rules[id] = rule
+			}
+		}
+		pos = next
+	}
+	return dispatch
+}
+
+type legacyPptEventGroupState struct {
+	shape       *presentationir.Shape
+	frame       legacyPptGroupFrame
+	skippedRoot bool
+	skip        bool
+}
+
+func buildLegacyPptGroupShapesFromScene(scene legacyPptShapeContainerScene, childSource legacyPptGroupChildSource, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
+	if len(scene.officeArtEvents()) == 0 || childSource == nil {
 		return nil
 	}
-	byPersistID := make(map[int]legacySlideText, len(slides))
-	for _, slide := range slides {
-		if slide.PersistID != 0 {
-			byPersistID[slide.PersistID] = slide
+	stack := []legacyPptEventGroupState{{frame: legacyPptGroupFrame{}}}
+	var groups []*presentationir.Shape
+	ordinal := 1
+	groupIndex := 0
+	for _, event := range scene.officeArtEvents() {
+		switch {
+		case event.GroupStart:
+			parent := stack[len(stack)-1]
+			state := legacyPptEventGroupState{frame: parent.frame, skip: parent.skip}
+			var semanticGroup legacyPptShapeGroup
+			if groupIndex < len(scene.groups) {
+				semanticGroup = scene.groups[groupIndex]
+			}
+			groupIndex++
+			table, tableOwned := parseLegacyPptTableShapeFromSceneGroup(scene, semanticGroup, fontTable, colorScheme, exHyperlinks, 1)
+			if !state.skip && tableOwned {
+				state.skip = true
+				if len(stack) > 1 && parent.shape != nil {
+					parent.shape.Children = append(parent.shape.Children, table)
+					stack[len(stack)-1] = parent
+				}
+			} else if !state.skip {
+				meta, frame, ok := parseLegacyPptGroupShapeMetaFromSpgrContainer(event.Payload, parent.frame, exHyperlinks)
+				if ok {
+					state.frame = frame
+					groupTransform := legacyPptCanonicalGroupTransform(frame, meta.transform)
+					state.shape = &presentationir.Shape{Kind: presentationir.ShapeGroup, Name: fmt.Sprintf("Legacy Group %d", ordinal), OriginalShapeID: meta.shapeID, Bounds: meta.bounds, GroupTransform: &groupTransform, HyperlinkURL: meta.hyperlinkURL, ActionLink: meta.actionLink}
+					applyLegacyPptShapeTransform(state.shape, meta.transform)
+					applyLegacyPptAnimationMetadata(state.shape, meta.animation)
+					ordinal++
+				}
+			}
+			stack = append(stack, state)
+		case event.ShapeStart:
+			if len(stack) <= 1 {
+				continue
+			}
+			state := &stack[len(stack)-1]
+			if state.skip || state.shape == nil {
+				continue
+			}
+			if !state.skippedRoot && event.ShapeNode != nil && event.ShapeNode.GroupRect != nil {
+				state.skippedRoot = true
+				continue
+			}
+			shapeID := uint32(0)
+			if event.ShapeNode != nil {
+				shapeID = event.ShapeNode.ShapeID
+			}
+			if shapeID == 0 {
+				continue
+			}
+			child := childSource.CloneSemanticPayload(shapeID)
+			if child != nil && canonicalizeLegacyPptGroupChild(child, event.Payload, colorScheme) {
+				state.shape.Children = append(state.shape.Children, child)
+			}
+		case event.GroupEnd:
+			if len(stack) <= 1 {
+				continue
+			}
+			state := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if state.skip || state.shape == nil || len(state.shape.Children) == 0 {
+				continue
+			}
+			parent := &stack[len(stack)-1]
+			if parent.shape != nil && !parent.skip {
+				parent.shape.Children = append(parent.shape.Children, state.shape)
+			} else if len(stack) == 1 {
+				groups = append(groups, state.shape)
+			}
 		}
 	}
-	out := map[int][]*presentationir.Shape{}
+	if len(groups) == 0 {
+		return nil
+	}
+	return groups
+}
+
+func parseLegacyPptSlideVisualsEventDriven(
+	persistEvents legacyPptPersistEventIndex,
+	slidePersistIDs []int,
+	slides []legacySlideText,
+	fontTable map[uint16]string,
+	colorScheme map[uint8]string,
+	masterColorSchemes map[int]map[uint8]string,
+	slideColorSchemes map[int]map[uint8]string,
+	masterPlaceholderTemplates map[int]map[presentationir.PlaceholderKind]legacyPptTextShape,
+	exHyperlinks map[uint32]string,
+	pictureStore map[uint32]*legacyPptPicture,
+	externalObjects map[uint32]legacyPptExternalObject,
+) map[int][]*presentationir.Shape {
+	if len(slidePersistIDs) == 0 || len(persistEvents.slides) == 0 {
+		return nil
+	}
+	textByPersistID := make(map[int]legacySlideText, len(slides))
+	for _, slide := range slides {
+		if slide.PersistID != 0 {
+			textByPersistID[slide.PersistID] = slide
+		}
+	}
+	out := make(map[int][]*presentationir.Shape, len(slidePersistIDs))
 	for _, persistID := range slidePersistIDs {
-		slideOffset, ok := persistDirectory[persistID]
-		if !ok {
+		event, ok := persistEvents.slides[persistID]
+		if !ok || event.Record.Type != pptRTSlide {
 			continue
 		}
-		record, payload, _, ok := readPptRecord(stream, slideOffset)
-		if !ok || record.Type != pptRTSlide {
-			continue
-		}
-		shapes := parseLegacyPptTextShapesFromSlide(payload, byPersistID[persistID], fontTable, colorScheme, exHyperlinks)
-		if len(shapes) > 0 {
+		payload := event.Payload
+
+		// BIG13: one physical OfficeArt traversal feeds every core visual family.
+		// Family decoders consume the transient event buffer rather than reopening or
+		// recursively walking SpgrContainer/SpContainer trees independently.
+		scene := collectLegacyPptVisualScene(payload)
+		slideScheme := effectiveLegacyPptSlideColorScheme(textByPersistID[persistID], persistID, colorScheme, masterColorSchemes, slideColorSchemes)
+		shapes := scene.project(
+			textByPersistID[persistID], fontTable, slideScheme,
+			masterPlaceholderTemplates[textByPersistID[persistID].MasterID],
+			exHyperlinks, pictureStore, externalObjects,
+		)
+		if len(shapes) != 0 {
 			out[persistID] = shapes
 		}
 	}
@@ -4993,11 +5838,7 @@ func parseLegacyPptSlideTextShapes(stream []byte, persistDirectory map[int]int, 
 	return out
 }
 
-func parseLegacyPptTextShapesFromSlide(payload []byte, slideText legacySlideText, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	if len(payload) == 0 {
-		return nil
-	}
-	metas := parseLegacyPptTextShapeContainers(payload, fontTable, colorScheme, exHyperlinks)
+func buildLegacyPptTextShapesFromMetas(metas []legacyPptTextShape, slideText legacySlideText) []*presentationir.Shape {
 	if len(metas) == 0 {
 		return nil
 	}
@@ -5098,65 +5939,66 @@ func parseLegacyPptTextShapesFromSlide(payload []byte, slideText legacySlideText
 	return shapes
 }
 
-func parseLegacyPptTextShapeContainers(payload []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacyPptTextShape {
-	var shapes []legacyPptTextShape
-	for pos := 0; pos+8 <= len(payload); {
-		record, childPayload, next, ok := readPptRecord(payload, pos)
-		if !ok {
-			break
-		}
-		if record.Type == pptRTPPDrawing {
-			collectLegacyPptTextShapesFromOfficeArt(childPayload, legacyPptGroupFrame{}, fontTable, colorScheme, exHyperlinks, &shapes)
-		}
-		pos = next
-	}
-	return shapes
-}
-
-func collectLegacyPptTextShapesFromOfficeArt(data []byte, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, shapes *[]legacyPptTextShape) {
-	for off := 0; off+8 <= len(data); {
-		verInst := binary.LittleEndian.Uint16(data[off : off+2])
-		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
-		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
-		if recLen < 0 || off+8+recLen > len(data) {
-			break
-		}
-		version := verInst & 0x000F
-		body := data[off+8 : off+8+recLen]
-		switch recType {
-		case legacyOfficeArtSpgrContainer:
-			if legacyPptGroupIsTableLike(body, frame, fontTable, colorScheme, exHyperlinks) {
-				off += 8 + recLen
-				continue
+func collectLegacyPptTextShapesFromEvents(events []OfficeArtEvent, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, shapes *[]legacyPptTextShape) {
+	frames := []legacyPptGroupFrame{frame}
+	skipTableGroups := 0
+	_ = walkCollectedOfficeArtEvents(events, OfficeArtConsumerFunc(func(event OfficeArtEvent) error {
+		switch {
+		case event.GroupStart:
+			parent := frames[len(frames)-1]
+			next := parent
+			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(event.Payload, parent); ok {
+				next = groupFrame
 			}
-			nextFrame := frame
-			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(body, frame); ok {
-				nextFrame = groupFrame
+			frames = append(frames, next)
+			// Compatibility table inference is intentionally confined to this
+			// event-owned recovery decision. It does not reopen the stream or
+			// become an independent production visual traversal.
+			if skipTableGroups > 0 || recoverLegacyPptGroupIsTableLike(event.Payload, parent, fontTable, colorScheme, exHyperlinks) {
+				skipTableGroups++
 			}
-			collectLegacyPptTextShapesFromOfficeArt(body, nextFrame, fontTable, colorScheme, exHyperlinks, shapes)
-		case legacyOfficeArtSpContainer:
-			shape, ok := parseLegacyPptTextShapeContainer(body, frame, fontTable, colorScheme, exHyperlinks)
+		case event.GroupEnd:
+			if skipTableGroups > 0 {
+				skipTableGroups--
+			}
+			if len(frames) > 1 {
+				frames = frames[:len(frames)-1]
+			}
+		case event.ShapeStart:
+			if skipTableGroups > 0 {
+				return nil
+			}
+			shape, ok := parseLegacyPptTextShapeNode(event.ShapeNode, frames[len(frames)-1], fontTable, colorScheme, exHyperlinks)
 			if ok {
 				*shapes = append(*shapes, shape)
 			}
-		default:
-			if version == 0x000F {
-				collectLegacyPptTextShapesFromOfficeArt(body, frame, fontTable, colorScheme, exHyperlinks, shapes)
-			}
 		}
-		off += 8 + recLen
-	}
+		return nil
+	}))
 }
 
 func parseLegacyPptTextShapeContainer(data []byte, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) (legacyPptTextShape, bool) {
+	node, err := officeartescher.ParseShapeContainerPayload(data)
+	if err != nil {
+		return legacyPptTextShape{}, false
+	}
+	return parseLegacyPptTextShapeNode(node, frame, fontTable, colorScheme, exHyperlinks)
+}
+
+func parseLegacyPptTextShapeNode(node *officeartescher.ShapeNode, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) (legacyPptTextShape, bool) {
 	var shape legacyPptTextShape
 	shape.outlineRef = -1
 	shape.textType = pptTextTypeUnknown
-
-	node, err := officeartescher.ParseShapeContainerPayload(data)
-	if err != nil || node == nil {
+	if node == nil {
 		return legacyPptTextShape{}, false
 	}
+	// Connector SpContainers can carry an empty ClientTextbox in legacy PPT.
+	// They are owned by the connector projection; treating that textbox as a
+	// text shape paints the connector's bounding rectangle a second time.
+	if legacyPptConnectorType(node.ShapeType) != "" {
+		return legacyPptTextShape{}, false
+	}
+	shape.shapeID = node.ShapeID
 	shape.shapeID = node.ShapeID
 	shape.transform.FlipH = node.Flags&legacyOfficeArtSpFlagFlipH != 0
 	shape.transform.FlipV = node.Flags&legacyOfficeArtSpFlagFlipV != 0
@@ -5192,7 +6034,7 @@ func parseLegacyPptTextShapeContainer(data []byte, frame legacyPptGroupFrame, fo
 	}
 
 	if len(node.Properties) > 0 {
-		if color, ok := parseLegacyPptFOPTPropertiesFillColor(node.Properties, colorScheme); ok {
+		if color, ok := parseLegacyPptFOPTPropertiesTextFillColor(node.Properties, colorScheme); ok {
 			shape.fillColor = color
 		}
 		parseLegacyPptFOPTPropertiesTransform(node.Properties, colorScheme, &shape.transform)
@@ -5265,6 +6107,14 @@ func parseLegacyPptPlaceholderAtom(payload []byte) (presentationir.PlaceholderKi
 	// placeholderId (byte 4) encodes the placeholder type per MS-PPT
 	// OEPlaceholderAtom PlaceholderEnum (spec section 2.9.29).
 	switch payload[4] {
+	case 0x01: // PT_MasterTitle
+		return presentationir.PlaceholderTitle, true
+	case 0x02: // PT_MasterBody
+		return presentationir.PlaceholderBody, true
+	case 0x03: // PT_MasterCenterTitle
+		return presentationir.PlaceholderTitle, true
+	case 0x04: // PT_MasterSubTitle
+		return presentationir.PlaceholderSubtitle, true
 	case 0x0D: // PT_Title
 		return presentationir.PlaceholderTitle, true
 	case 0x0E: // PT_Body
@@ -5502,8 +6352,10 @@ func legacyPptPlaceholderFromTextType(textType int, hasTitleContext bool) presen
 			return presentationir.PlaceholderSubtitle
 		}
 		return presentationir.PlaceholderBody
-	case pptTextTypeBody, pptTextTypeOther, pptTextTypeUnknown:
+	case pptTextTypeBody, pptTextTypeUnknown:
 		return presentationir.PlaceholderBody
+	case pptTextTypeOther:
+		return presentationir.PlaceholderOther
 	default:
 		return presentationir.PlaceholderNone
 	}
@@ -5785,12 +6637,8 @@ func legacyPptTextShapeName(index int, placeholder presentationir.PlaceholderKin
 	}
 }
 
-func parseLegacyPptPictureStore(stream []byte, documentOffset int, picturesStream []byte) map[uint32]*legacyPptPicture {
-	if len(picturesStream) == 0 {
-		return nil
-	}
-	record, payload, _, ok := readPptRecord(stream, documentOffset)
-	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
+func parseLegacyPptPictureStoreFromPayload(payload []byte, picturesStream []byte) map[uint32]*legacyPptPicture {
+	if len(picturesStream) == 0 || len(payload) == 0 {
 		return nil
 	}
 
@@ -5965,23 +6813,50 @@ func legacyPptInflate(data []byte) []byte {
 	return inflated
 }
 
-func parseLegacyPptSlideImageShapes(stream []byte, persistDirectory map[int]int, slidePersistIDs []int, pictureStore map[uint32]*legacyPptPicture, externalObjects map[uint32]legacyPptExternalObject) map[int][]*presentationir.Shape {
-	if len(slidePersistIDs) == 0 || len(persistDirectory) == 0 || len(pictureStore) == 0 {
+// bindLegacyPptMasterOwnership resolves the two master identities carried by PPT:
+// SlideAtom references a SlideIdentifier, while persisted master payloads are opened by
+// RefID. Keep both identities on the slide so later semantic stages never have to infer
+// persist ownership from ordering or from whichever master happened to be decoded first.
+func bindLegacyPptMasterOwnership(slides []legacySlideText, entries []legacyPptMasterEntry) []legacySlideText {
+	if len(slides) == 0 || len(entries) == 0 {
+		return slides
+	}
+	byIdentifier := make(map[int]int, len(entries))
+	for _, entry := range entries {
+		if entry.RefID == 0 {
+			continue
+		}
+		// SlideListWithText is authored order. Preserve the first binding for a
+		// duplicated identifier instead of letting a later malformed entry silently
+		// retarget already-authored slides.
+		if _, exists := byIdentifier[entry.SlideIdentifier]; !exists {
+			byIdentifier[entry.SlideIdentifier] = entry.RefID
+		}
+	}
+	for i := range slides {
+		if refID, ok := byIdentifier[slides[i].MasterID]; ok {
+			slides[i].MasterPersistID = refID
+		}
+	}
+	return slides
+}
+
+// collectLegacyPptMasterVisualDispatches is the master-side counterpart to the
+// slide visual boundary. Each persisted master drawing is traversed exactly once;
+// every downstream master semantic projection consumes this shared event scene.
+func collectLegacyPptMasterVisualScenes(events legacyPptPersistEventIndex, entries []legacyPptMasterEntry) map[int]legacyPptVisualScene {
+	if len(events.masters) == 0 || len(entries) == 0 {
 		return nil
 	}
-	out := map[int][]*presentationir.Shape{}
-	for _, persistID := range slidePersistIDs {
-		slideOffset, ok := persistDirectory[persistID]
-		if !ok {
+	out := make(map[int]legacyPptVisualScene, len(entries))
+	for _, entry := range entries {
+		e, ok := events.masters[entry.RefID]
+		if !ok || len(e.Payload) == 0 {
 			continue
 		}
-		record, payload, _, ok := readPptRecord(stream, slideOffset)
-		if !ok || record.Type != pptRTSlide {
-			continue
-		}
-		shapes := parseLegacyPptImageShapesFromSlide(payload, pictureStore, externalObjects)
-		if len(shapes) > 0 {
-			out[persistID] = shapes
+		scene := collectLegacyPptVisualScene(e.Payload)
+		if !scene.empty() {
+			out[entry.RefID] = scene
 		}
 	}
 	if len(out) == 0 {
@@ -5990,102 +6865,619 @@ func parseLegacyPptSlideImageShapes(stream []byte, persistDirectory map[int]int,
 	return out
 }
 
-func parseLegacyPptSlideTableShapes(stream []byte, persistDirectory map[int]int, slidePersistIDs []int, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) map[int][]*presentationir.Shape {
-	if len(slidePersistIDs) == 0 || len(persistDirectory) == 0 {
-		return nil
+// parseLegacyPptMasterPlaceholderTemplatesFromEvents captures the authored placeholder
+// geometry/paint owned by each master from the same persist + OfficeArt event boundary
+// used by slide visuals. Placeholder prompt text is never materialized as slide content;
+// the template only supplies inherited visual properties to a slide-local placeholder.
+// legacyPptMasterComposition is the single BIG37 master semantic product.
+// Placeholder templates and painted artwork are two projections of the same
+// already-decoded master scenes; production must not rediscover either family
+// from the PowerPoint stream or independently collect OfficeArt.
+type legacyPptMasterComposition struct {
+	Visuals              map[int][]*presentationir.Shape // keyed by master persist-directory RefID
+	PlaceholderTemplates map[int]map[presentationir.PlaceholderKind]legacyPptTextShape
+}
+
+func composeLegacyPptMasterSemanticScenes(
+	scenes map[int]legacyPptVisualScene,
+	entries []legacyPptMasterEntry,
+	fontTable map[uint16]string,
+	masterSchemes map[int]map[uint8]string,
+	fallbackScheme map[uint8]string,
+	exHyperlinks map[uint32]string,
+	pictureStore map[uint32]*legacyPptPicture,
+	externalObjects map[uint32]legacyPptExternalObject,
+) legacyPptMasterComposition {
+	if len(scenes) == 0 || len(entries) == 0 {
+		return legacyPptMasterComposition{}
 	}
-	out := map[int][]*presentationir.Shape{}
-	for _, persistID := range slidePersistIDs {
-		slideOffset, ok := persistDirectory[persistID]
+	composition := legacyPptMasterComposition{
+		Visuals:              make(map[int][]*presentationir.Shape),
+		PlaceholderTemplates: make(map[int]map[presentationir.PlaceholderKind]legacyPptTextShape),
+	}
+	for _, entry := range entries {
+		scene, ok := scenes[entry.RefID]
+		if !ok || scene.empty() {
+			continue
+		}
+		scheme := masterSchemes[entry.SlideIdentifier]
+		if len(scheme) == 0 {
+			scheme = fallbackScheme
+		}
+
+		for _, meta := range scene.textMetas(fontTable, scheme, exHyperlinks) {
+			if meta.placeholder == presentationir.PlaceholderNone {
+				continue
+			}
+			byKind := composition.PlaceholderTemplates[entry.SlideIdentifier]
+			if byKind == nil {
+				byKind = make(map[presentationir.PlaceholderKind]legacyPptTextShape)
+				composition.PlaceholderTemplates[entry.SlideIdentifier] = byKind
+			}
+			if _, exists := byKind[meta.placeholder]; !exists {
+				meta.paragraphs = nil
+				meta.inlineFallback = nil
+				byKind[meta.placeholder] = meta
+			}
+		}
+
+		projected := scene.project(legacySlideText{}, fontTable, scheme, nil, exHyperlinks, pictureStore, externalObjects)
+		visuals := projected[:0]
+		for _, shape := range projected {
+			if shape == nil || shape.Placeholder != presentationir.PlaceholderNone {
+				continue
+			}
+			// A master drawing can contain ClientTextbox containers that are semantic
+			// scaffolding only: no text, no fill and no stroke.  They are useful while
+			// resolving placeholder/text inheritance, but they are not painted master
+			// artwork.  Materializing them on every slide is especially harmful when
+			// an old SmallRectStruct carries a very large (but syntactically valid)
+			// anchor: the invisible box expands the HTML/layout scene by several slide
+			// widths.  Keep the source anchor intact and make the ownership decision at
+			// the master semantic boundary instead of clipping geometry downstream.
+			if !legacyPptShapePaintsMasterArtwork(shape) {
+				continue
+			}
+			visuals = append(visuals, shape)
+		}
+		if len(visuals) != 0 {
+			composition.Visuals[entry.RefID] = visuals
+		}
+	}
+	if len(composition.Visuals) == 0 {
+		composition.Visuals = nil
+	}
+	if len(composition.PlaceholderTemplates) == 0 {
+		composition.PlaceholderTemplates = nil
+	}
+	return composition
+}
+
+func inheritLegacyPptMasterPlaceholderTemplates(metas []legacyPptTextShape, templates map[presentationir.PlaceholderKind]legacyPptTextShape) []legacyPptTextShape {
+	if len(metas) == 0 || len(templates) == 0 {
+		return metas
+	}
+	for i := range metas {
+		kind := metas[i].placeholder
+		if kind == presentationir.PlaceholderNone {
+			continue
+		}
+		template, ok := templates[kind]
 		if !ok {
 			continue
 		}
-		record, payload, _, ok := readPptRecord(stream, slideOffset)
-		if !ok || record.Type != pptRTSlide {
+		// A slide anchor is authoritative. Missing/degenerate local geometry inherits
+		// the master anchor instead of falling back to renderer-era role heuristics.
+		if metas[i].bounds.W <= 0 || metas[i].bounds.H <= 0 {
+			metas[i].bounds = template.bounds
+		}
+		if metas[i].fillColor == "" {
+			metas[i].fillColor = template.fillColor
+		}
+		metas[i].transform = mergeLegacyPptPlaceholderTransform(metas[i].transform, template.transform)
+	}
+	return metas
+}
+
+func normalizeLegacyTextInsetPresence(t *legacyPptShapeTransform) {
+	if t == nil || !t.HasTextInsets {
+		return
+	}
+	if t.HasTextInsetLeft || t.HasTextInsetTop || t.HasTextInsetRight || t.HasTextInsetBottom {
+		return
+	}
+	t.HasTextInsetLeft, t.HasTextInsetTop, t.HasTextInsetRight, t.HasTextInsetBottom = true, true, true, true
+}
+
+func mergeLegacyPptPlaceholderTransform(local, inherited legacyPptShapeTransform) legacyPptShapeTransform {
+	// Compatibility for transforms constructed before per-edge provenance was
+	// introduced: HasTextInsets historically meant all four values were owned.
+	normalizeLegacyTextInsetPresence(&local)
+	normalizeLegacyTextInsetPresence(&inherited)
+	if !local.HasRotation && inherited.HasRotation {
+		local.HasRotation, local.Rotation = true, inherited.Rotation
+	}
+	if !local.FlipH {
+		local.FlipH = inherited.FlipH
+	}
+	if !local.FlipV {
+		local.FlipV = inherited.FlipV
+	}
+	if local.LineColor == "" {
+		local.LineColor = inherited.LineColor
+	}
+	if local.LineWidthEMU == 0 {
+		local.LineWidthEMU = inherited.LineWidthEMU
+	}
+	if local.LineDash == "" {
+		local.LineDash = inherited.LineDash
+	}
+	if !local.HasLineEnable && inherited.HasLineEnable {
+		local.HasLineEnable, local.LineEnabled = true, inherited.LineEnabled
+	}
+	// Placeholder text-body semantics are part of the master's authored visual
+	// contract just like its anchor and stroke. A slide placeholder only
+	// overrides properties it explicitly owns; otherwise keep the master's
+	// vertical anchor, margins and overflow/autofit behavior.
+	if !local.HasTextAnchor && inherited.HasTextAnchor {
+		local.HasTextAnchor, local.TextAnchor = true, inherited.TextAnchor
+	}
+	if !local.HasAnchorCenter && inherited.HasAnchorCenter {
+		local.HasAnchorCenter, local.AnchorCenter = true, inherited.AnchorCenter
+	}
+	if !local.HasTextWrap && inherited.HasTextWrap {
+		local.HasTextWrap, local.TextWrap = true, inherited.TextWrap
+	}
+	if !local.HasTextVertical && inherited.HasTextVertical {
+		local.HasTextVertical, local.TextVertical = true, inherited.TextVertical
+	}
+	// Text insets are independently authored OfficeArt properties.  Merge each
+	// edge separately: a slide placeholder may override only its left inset and
+	// still inherit the other three edges from the master.
+	if !local.HasTextInsetLeft && inherited.HasTextInsetLeft {
+		local.HasTextInsetLeft, local.TextInsetLeft = true, inherited.TextInsetLeft
+	}
+	if !local.HasTextInsetTop && inherited.HasTextInsetTop {
+		local.HasTextInsetTop, local.TextInsetTop = true, inherited.TextInsetTop
+	}
+	if !local.HasTextInsetRight && inherited.HasTextInsetRight {
+		local.HasTextInsetRight, local.TextInsetRight = true, inherited.TextInsetRight
+	}
+	if !local.HasTextInsetBottom && inherited.HasTextInsetBottom {
+		local.HasTextInsetBottom, local.TextInsetBottom = true, inherited.TextInsetBottom
+	}
+	local.HasTextInsets = local.HasTextInsetLeft || local.HasTextInsetTop || local.HasTextInsetRight || local.HasTextInsetBottom
+	if !local.HasAllowOverflow && inherited.HasAllowOverflow {
+		local.HasAllowOverflow, local.AllowOverflow = true, inherited.AllowOverflow
+	}
+	if !local.HasAutoGrow && inherited.HasAutoGrow {
+		local.HasAutoGrow, local.AutoGrow = true, inherited.AutoGrow
+	}
+	if !local.HasGeometryText && inherited.HasGeometryText {
+		local.HasGeometryText, local.GeometryText = true, inherited.GeometryText
+	}
+	if !local.HasImageCrop && inherited.HasImageCrop {
+		local.HasImageCrop = true
+		local.CropTop, local.CropBottom = inherited.CropTop, inherited.CropBottom
+		local.CropLeft, local.CropRight = inherited.CropLeft, inherited.CropRight
+	}
+	if local.ArrowHead == "" {
+		local.ArrowHead = inherited.ArrowHead
+	}
+	if local.ArrowHeadWidth == "" {
+		local.ArrowHeadWidth = inherited.ArrowHeadWidth
+	}
+	if local.ArrowHeadLength == "" {
+		local.ArrowHeadLength = inherited.ArrowHeadLength
+	}
+	if local.ArrowTail == "" {
+		local.ArrowTail = inherited.ArrowTail
+	}
+	if local.ArrowTailWidth == "" {
+		local.ArrowTailWidth = inherited.ArrowTailWidth
+	}
+	if local.ArrowTailLength == "" {
+		local.ArrowTailLength = inherited.ArrowTailLength
+	}
+	return local
+}
+
+func legacyPptShapeContainsOnlyPlaceholderPromptText(shape *presentationir.Shape) bool {
+	if shape == nil || len(shape.Paragraphs) == 0 {
+		return false
+	}
+	sawText := false
+	for _, paragraph := range shape.Paragraphs {
+		if paragraph == nil {
 			continue
 		}
-		shapes := parseLegacyPptTableShapesFromSlide(payload, fontTable, colorScheme, exHyperlinks)
-		if len(shapes) > 0 {
-			out[persistID] = shapes
+		text := strings.TrimSpace(paragraphText(paragraph))
+		if text == "" {
+			continue
+		}
+		sawText = true
+		if !legacyPptLooksLikePlaceholderSampleText(text) {
+			return false
 		}
 	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return sawText
 }
 
-func parseLegacyPptTableShapesFromSlide(payload []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	if len(payload) == 0 {
-		return nil
+func legacyPptShapePaintsMasterArtwork(shape *presentationir.Shape) bool {
+	if shape == nil {
+		return false
 	}
-	var shapes []*presentationir.Shape
-	for pos := 0; pos+8 <= len(payload); {
-		record, childPayload, next, ok := readPptRecord(payload, pos)
+	// Master sample/prompt text is inheritance scaffolding, not painted artwork.
+	// Some legacy producers omit placeholder metadata on these ClientTextbox shapes,
+	// so classify the text itself at the semantic master boundary rather than letting
+	// it materialize as an extra slide-local object.
+	if legacyPptShapeContainsOnlyPlaceholderPromptText(shape) {
+		return false
+	}
+	switch shape.Kind {
+	case presentationir.ShapeImage, presentationir.ShapeChart, presentationir.ShapeTable, presentationir.ShapeConnector:
+		return true
+	case presentationir.ShapeGroup:
+		for _, child := range shape.Children {
+			if legacyPptShapePaintsMasterArtwork(child) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, paragraph := range shape.Paragraphs {
+		if paragraph == nil {
+			continue
+		}
+		for _, run := range paragraph.Runs {
+			if run != nil && run.Text != "" {
+				return true
+			}
+		}
+	}
+	fillPaints := shape.Fill != nil
+	switch shape.Fill.(type) {
+	case drawing.NoFill, *drawing.NoFill:
+		fillPaints = false
+	}
+	if fillPaints || shape.FillColor != "" || shape.LineStyle != nil || shape.LineColor != "" || shape.LineWidthPt > 0 {
+		return true
+	}
+	return false
+}
+
+func composeLegacyPptMasterVisuals(slides []legacySlideText, slideShapes map[int][]*presentationir.Shape, masterVisualShapesByPersistID map[int][]*presentationir.Shape) map[int][]*presentationir.Shape {
+	if len(slides) == 0 || len(masterVisualShapesByPersistID) == 0 {
+		return slideShapes
+	}
+	if slideShapes == nil {
+		slideShapes = make(map[int][]*presentationir.Shape)
+	}
+	for _, slide := range slides {
+		// SlideAtom.fMasterObjects is the authored switch for master artwork.
+		// A slide that explicitly clears it still inherits master text/style semantics,
+		// but must not receive painted master shapes.
+		if slide.HasSlideFlags && !slide.FollowMasterObjects {
+			continue
+		}
+		// Painted master artwork is persist-owned. SlideIdentifier is only the authored
+		// reference token; use the binding resolved at the document/persist boundary.
+		inherited := masterVisualShapesByPersistID[slide.MasterPersistID]
+		if len(inherited) == 0 {
+			continue
+		}
+		local := slideShapes[slide.PersistID]
+		composed := make([]*presentationir.Shape, 0, len(inherited)+len(local))
+		// A master scene is a template, not a set of shape instances. Materialize
+		// independent semantic shapes for every referencing slide so later
+		// composition/layout work can never leak state between sibling slides.
+		for _, masterShape := range inherited {
+			if clone := cloneLegacyShapeRecursive(masterShape, nil); clone != nil {
+				composed = append(composed, clone)
+			}
+		}
+		composed = append(composed, local...)
+		slideShapes[slide.PersistID] = composed
+	}
+	return slideShapes
+}
+
+func collectLegacyPptTableShapesFromScene(scene legacyPptShapeContainerScene, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, shapes *[]*presentationir.Shape) {
+	collectLegacyPptTableShapesFromSceneForSlide(scene, frame, legacySlideText{}, fontTable, colorScheme, exHyperlinks, shapes)
+}
+
+func collectLegacyPptTableShapesFromSceneForSlide(scene legacyPptShapeContainerScene, frame legacyPptGroupFrame, slideText legacySlideText, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, shapes *[]*presentationir.Shape) {
+	var ownedTablePaths [][]int
+	for _, group := range scene.shapeGroups() {
+		if legacyPptGroupPathOwned(group.Path, ownedTablePaths) {
+			continue
+		}
+		tableShape, ok := parseLegacyPptTableShapeFromSceneGroupForSlide(scene, group, slideText, fontTable, colorScheme, exHyperlinks, len(*shapes)+1)
 		if !ok {
-			break
+			// The scene projection is authoritative when the ShapeNode topology is
+			// complete. Damaged PPTs can, however, preserve the raw SpgrContainer's
+			// table marker / ClientTextbox records while the decoded scene loses a
+			// usable child anchor. Keep that compatibility recovery at this same
+			// ownership boundary instead of re-walking the slide from parsePptFile.
+			tableShape, ok = recoverLegacyPptTableShapeFromGroupContainer(
+				group.Event.Payload, group.ParentFrame, fontTable, colorScheme, exHyperlinks, len(*shapes)+1,
+			)
+			if ok {
+				hydrateLegacyPptRecoveredTableText(tableShape, slideText)
+			}
 		}
-		if record.Type == pptRTPPDrawing {
-			collectLegacyPptTableShapesFromOfficeArt(childPayload, legacyPptGroupFrame{}, fontTable, colorScheme, exHyperlinks, &shapes)
+		if ok {
+			*shapes = append(*shapes, tableShape)
+			ownedTablePaths = append(ownedTablePaths, append([]int(nil), group.Path...))
 		}
-		pos = next
 	}
-	if len(shapes) == 0 {
-		return nil
-	}
-	return shapes
 }
 
-func collectLegacyPptTableShapesFromOfficeArt(data []byte, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, shapes *[]*presentationir.Shape) {
+func hydrateLegacyPptRecoveredTableText(tableShape *presentationir.Shape, slideText legacySlideText) {
+	if tableShape == nil || tableShape.Table == nil || len(slideText.Fragments) == 0 {
+		return
+	}
+	// Compatibility recovery can reconstruct geometry from a damaged group while
+	// the cell text survives only in SlideListWithText. Fill empty cells in authored
+	// fragment order; never overwrite text already decoded from ClientTextbox.
+	fragment := 0
+	for _, row := range tableShape.Table.Rows {
+		if row == nil {
+			continue
+		}
+		for _, cell := range row.Cells {
+			if cell == nil || len(legacyPptParagraphProjectionKeys(cell.Paragraphs)) != 0 {
+				continue
+			}
+			for fragment < len(slideText.Fragments) {
+				f := slideText.Fragments[fragment]
+				fragment++
+				if len(f.Paragraphs) == 0 || legacyPptLooksLikePlaceholderPromptParagraphs(f.Paragraphs) {
+					continue
+				}
+				cell.Paragraphs = cloneLegacyParagraphs(f.Paragraphs)
+				break
+			}
+		}
+	}
+}
+
+// parseLegacyPptTableShapeFromSceneGroup classifies and materializes a table from
+// the scene-owned topology. It deliberately does not recursively walk the group's
+// raw SpgrContainer payload; descendants and coordinate frames were established
+// once while the shape-container scene was decoded.
+func parseLegacyPptTableShapeFromSceneGroup(scene legacyPptShapeContainerScene, group legacyPptShapeGroup, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, ordinal int) (*presentationir.Shape, bool) {
+	return parseLegacyPptTableShapeFromSceneGroupForSlide(scene, group, legacySlideText{}, fontTable, colorScheme, exHyperlinks, ordinal)
+}
+
+func parseLegacyPptTableShapeFromSceneGroupForSlide(scene legacyPptShapeContainerScene, group legacyPptShapeGroup, slideText legacySlideText, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, ordinal int) (*presentationir.Shape, bool) {
+	if legacyPptOfficeArtContainsExternalObject(group.Event.Payload) {
+		return nil, false
+	}
+	var cells []legacyPptTableCellShape
+	var gridLines []presentationir.Rect
+	for _, container := range scene.containersUnder(group.Path) {
+		// BIG36 ownership rule: table topology consumes scene-owned descendants,
+		// but a nested group that authors its own tableProperties marker owns its
+		// subtree independently. Do not let that nested table promote or feed an
+		// ancestor composition table. Structural membership still comes entirely
+		// from the decoded scene; this is semantic ownership partitioning, not a
+		// recursive raw-OfficeArt walk.
+		if legacyPptSceneContainerOwnedByNestedExplicitTable(scene, group.Path, container.GroupPath) {
+			continue
+		}
+		frame := group.Frame
+		for _, nested := range scene.shapeGroups() {
+			if legacyPptGroupPathEqual(nested.Path, container.GroupPath) {
+				frame = nested.Frame
+				break
+			}
+		}
+		body := container.Event.Payload
+		if container.Node != nil && container.Node.ShapeType == 20 {
+			if line, ok := parseLegacyPptConnectorShapeContainer(body, frame, colorScheme); ok {
+				gridLines = append(gridLines, line.bounds)
+			} else {
+				gridLines = append(gridLines, presentationir.Rect{})
+			}
+			continue
+		}
+		shape, ok := parseLegacyPptTextShapeContainer(body, frame, fontTable, colorScheme, exHyperlinks)
+		if !ok {
+			continue
+		}
+		paragraphs := shape.paragraphs
+		if len(paragraphs) == 0 {
+			paragraphs = shape.inlineFallback
+		}
+		cells = append(cells, legacyPptTableCellShape{bounds: shape.bounds, paragraphs: cloneLegacyParagraphs(paragraphs), fillColor: shape.fillColor, outlineRef: shape.outlineRef})
+	}
+	if len(cells) == 0 {
+		return nil, false
+	}
+	// In binary PPT the cell's ClientTextbox can carry only OutlineTextRefAtom;
+	// the authored text itself lives in SlideListWithText. Hydrate those cells at
+	// the semantic scene boundary before table ownership/building, rather than
+	// letting the generic text projector own the same content separately.
+	if len(slideText.Fragments) != 0 {
+		used := make([]bool, len(slideText.Fragments))
+		for i := range cells {
+			if len(cells[i].paragraphs) != 0 || cells[i].outlineRef < 0 {
+				continue
+			}
+			if paragraphs := previewLegacyPptOutlineRefParagraphs(slideText, used, cells[i].outlineRef); len(paragraphs) != 0 {
+				cells[i].paragraphs = cloneLegacyParagraphs(paragraphs)
+				markLegacySlideFragmentByOutlineRef(slideText, used, cells[i].outlineRef)
+			}
+		}
+	}
+	explicitTable := legacyPptGroupContainerIsTable(group.Event.Payload)
+	if !legacyPptSceneGroupOwnsTable(explicitTable, cells, gridLines) {
+		return nil, false
+	}
+	table, bounds, ok := buildLegacyPptTableFromCells(cells, group.Frame.target)
+	if !ok || table == nil || len(table.Rows) == 0 {
+		return nil, false
+	}
+	groupShapeID, _ := legacyPptGroupRootShapeID(group.Event.Payload)
+	return &presentationir.Shape{Kind: presentationir.ShapeTable, Name: fmt.Sprintf("Legacy Table %d", ordinal), OriginalShapeID: groupShapeID, Bounds: bounds, Table: table}, true
+}
+
+func legacyPptSceneContainerOwnedByNestedExplicitTable(scene legacyPptShapeContainerScene, ownerPath, containerPath []int) bool {
+	for _, nested := range scene.shapeGroups() {
+		if len(nested.Path) <= len(ownerPath) || !legacyPptGroupPathHasPrefix(nested.Path, ownerPath) {
+			continue
+		}
+		if !legacyPptGroupPathHasPrefix(containerPath, nested.Path) {
+			continue
+		}
+		if legacyPptGroupContainerIsTable(nested.Event.Payload) {
+			return true
+		}
+	}
+	return false
+}
+
+// legacyPptSceneGroupOwnsTable is the production table-ownership gate for the
+// event-decoded OfficeArt scene. A scene group must carry authored table semantics
+// or prove a coherent cell lattice. Merely containing connector/line shapes is not
+// table evidence: diagrams and charts routinely contain both text boxes and lines.
+// The older permissive line-presence fallback remains confined to compatibility
+// recovery and must not steal ordinary group ownership in the semantic scene.
+func legacyPptSceneGroupOwnsTable(explicit bool, cells []legacyPptTableCellShape, gridLines []presentationir.Rect) bool {
+	if explicit {
+		return true
+	}
+	// OutlineTextRefAtom identifies authored text storage, but it is also used by
+	// ordinary one-axis grouped diagrams. It becomes table ownership evidence only
+	// when the cells establish both row and column axes. This preserves sparse/merged
+	// tables without allowing a row of labelled boxes to become a semantic table.
+	if legacyPptCellsCarryTableSemantics(cells, len(gridLines)) && legacyPptOutlineRefsSupportTableOwnership(cells) {
+		return true
+	}
+	if len(cells) >= 4 && legacyPptTableCellGridHasTwoAxes(cells) && legacyPptTableCellGridIsDense(cells) {
+		return true
+	}
+	return legacyPptGridLinesSupportCellLattice(cells, gridLines)
+}
+
+func legacyPptGroupPathEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func legacyPptGroupPathKey(path []int) string {
+	if len(path) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, v := range path {
+		fmt.Fprintf(&b, "/%d", v)
+	}
+	return b.String()
+}
+
+func legacyPptGroupPathOwned(path []int, owners [][]int) bool {
+	for _, owner := range owners {
+		if len(owner) > len(path) {
+			continue
+		}
+		match := true
+		for i := range owner {
+			if owner[i] != path[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func legacyPptOfficeArtContainsExternalObject(data []byte) bool {
 	for off := 0; off+8 <= len(data); {
 		verInst := binary.LittleEndian.Uint16(data[off : off+2])
 		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
 		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
 		if recLen < 0 || off+8+recLen > len(data) {
-			break
+			return false
 		}
 		version := verInst & 0x000F
 		body := data[off+8 : off+8+recLen]
-		switch recType {
-		case legacyOfficeArtSpgrContainer:
-			if tableShape, ok := parseLegacyPptTableShapeFromGroupContainer(body, frame, fontTable, colorScheme, exHyperlinks, len(*shapes)+1); ok {
-				*shapes = append(*shapes, tableShape)
-				off += 8 + recLen
-				continue
+
+		if recType == legacyOfficeArtSpContainer {
+			node, err := officeartescher.ParseShapeContainerPayload(body)
+			if err == nil && node != nil && len(node.ClientData) > 0 {
+				if _, ok := parseLegacyPptExObjRef(node.ClientData); ok {
+					return true
+				}
 			}
-			nextFrame := frame
-			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(body, frame); ok {
-				nextFrame = groupFrame
-			}
-			collectLegacyPptTableShapesFromOfficeArt(body, nextFrame, fontTable, colorScheme, exHyperlinks, shapes)
-		default:
-			if version == 0x000F {
-				collectLegacyPptTableShapesFromOfficeArt(body, frame, fontTable, colorScheme, exHyperlinks, shapes)
-			}
+		}
+		if version == 0x000F && legacyPptOfficeArtContainsExternalObject(body) {
+			return true
 		}
 		off += 8 + recLen
 	}
+	return false
 }
 
-func parseLegacyPptTableShapeFromGroupContainer(data []byte, parent legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, ordinal int) (*presentationir.Shape, bool) {
+func recoverLegacyPptTableShapeFromGroupContainer(data []byte, parent legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, ordinal int) (*presentationir.Shape, bool) {
+	// An embedded/linked OLE object may contain a surprisingly rich OfficeArt
+	// subtree (chart labels, grid lines, drawing primitives, and text boxes).
+	// Those children describe the object's preview; they are not a PowerPoint
+	// table and must never be promoted into slide-level table geometry. The OLE
+	// shape parser owns the outer Escher anchor and materializes the preview
+	// strictly inside that authored rectangle.
+	if legacyPptOfficeArtContainsExternalObject(data) {
+		return nil, false
+	}
+
 	tableFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(data, parent)
 	if !ok {
 		return nil, false
 	}
 	groupShapeID, _ := legacyPptGroupRootShapeID(data)
 	var cells []legacyPptTableCellShape
-	lineCount := 0
-	collectLegacyPptTableCellsFromGroup(data, tableFrame, fontTable, colorScheme, exHyperlinks, &cells, &lineCount)
+	var gridLines []presentationir.Rect
+	recoverLegacyPptTableCellsFromGroup(data, tableFrame, fontTable, colorScheme, exHyperlinks, &cells, &gridLines)
 	if len(cells) == 0 {
 		return nil, false
 	}
-	if !legacyPptGroupContainerIsTable(data) && !legacyPptLooksLikeTableGroup(cells, lineCount) {
+	// Prefer the authored OfficeArt tableProperties marker.  Older producers
+	// (and a few POI corpus files) omit that property but still encode table
+	// cells as a group of text boxes carrying OutlineTextRefAtom identities plus
+	// authored grid-line shapes.  That is semantic record evidence, not merely a
+	// geometric lattice, and is safe as the compatibility fallback.
+	explicitTable := legacyPptGroupContainerIsTable(data)
+	// Some older producers omit groupshape.tableProperties. Preserve that legacy
+	// compatibility when the group carries semantic cell identities. OutlineTextRefAtom
+	// identities are authored PowerPoint table evidence and must not be subjected to
+	// geometric density heuristics: valid merged/sparse legacy tables such as bug57820
+	// can occupy only a small fraction of their inferred lattice. For producers that
+	// lack those semantic identities, retain the geometric compatibility path only
+	// behind the density gate so sparse labelled diagrams remain ordinary drawings.
+	fallbackTable := (legacyPptCellsCarryTableSemantics(cells, len(gridLines)) && legacyPptOutlineRefsSupportTableOwnership(cells)) || legacyPptLooksLikeTableGroup(cells, gridLines)
+	if !explicitTable && !fallbackTable {
 		return nil, false
 	}
 	table, bounds, ok := buildLegacyPptTableFromCells(cells, tableFrame.target)
 	if !ok || table == nil || len(table.Rows) == 0 {
 		return nil, false
 	}
+	// Unmarked legacy tables are recognized from the authored cell lattice itself.
+	// Do not compare transformed child bounds with the group frame here: several valid
+	// legacy producers use child/group coordinate spaces that are not directly comparable.
+	// The density gate above rejects sparse diagram compositions without depending on
+	// those coordinate-space assumptions.
 	return &presentationir.Shape{
 		Kind:            presentationir.ShapeTable,
 		Name:            fmt.Sprintf("Legacy Table %d", ordinal),
@@ -6095,33 +7487,114 @@ func parseLegacyPptTableShapeFromGroupContainer(data []byte, parent legacyPptGro
 	}, true
 }
 
-func legacyPptGroupIsTableLike(data []byte, parent legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) bool {
-	if legacyPptGroupContainerIsTable(data) {
-		return true
+func legacyPptCellsCarryTableSemantics(cells []legacyPptTableCellShape, lineCount int) bool {
+	if len(cells) < 2 {
+		return false
 	}
-	frame, ok := parseLegacyPptGroupFrameFromSpgrContainer(data, parent)
+	withOutlineRef := 0
+	for _, cell := range cells {
+		if cell.outlineRef >= 0 {
+			withOutlineRef++
+		}
+	}
+	// Require multiple independently referenced text cells.  This deliberately
+	// avoids classifying ordinary grouped drawings from alignment alone.
+	return withOutlineRef >= 2
+}
+
+func legacyPptOutlineRefsSupportTableOwnership(cells []legacyPptTableCellShape) bool {
+	haveUsableBounds := false
+	for _, cell := range cells {
+		if cell.bounds.W > 0 && cell.bounds.H > 0 {
+			haveUsableBounds = true
+			break
+		}
+	}
+	// Damaged compatibility records can preserve OutlineTextRef identities after
+	// losing usable anchors. In that case the authored references are the only
+	// remaining table evidence. Once geometry exists, require a genuine 2-D cell
+	// arrangement so a one-row labelled diagram cannot steal table ownership.
+	return !haveUsableBounds || legacyPptTableCellGridHasTwoAxesRelaxed(cells)
+}
+
+func legacyPptTableCellGridHasTwoAxesRelaxed(cells []legacyPptTableCellShape) bool {
+	if len(cells) < 2 {
+		return false
+	}
+	return len(legacyPptTableAxisPositions(cells, true)) >= 2 && len(legacyPptTableAxisPositions(cells, false)) >= 2
+}
+
+func legacyPptTableCellGridHasTwoAxes(cells []legacyPptTableCellShape) bool {
+	if len(cells) < 4 {
+		return false
+	}
+	cols := legacyPptTableAxisPositions(cells, true)
+	rows := legacyPptTableAxisPositions(cells, false)
+	return len(cols) >= 2 && len(rows) >= 2
+}
+
+func legacyPptTableCellGridIsDense(cells []legacyPptTableCellShape) bool {
+	if len(cells) < 2 {
+		return false
+	}
+	cols := legacyPptTableAxisPositions(cells, true)
+	rows := legacyPptTableAxisPositions(cells, false)
+	if len(cols) == 0 || len(rows) == 0 {
+		return false
+	}
+	slots := len(cols) * len(rows)
+	// Legacy merged cells can make a real table less than 100% occupied, but a table
+	// still populates a substantial part of its inferred row/column lattice. Requiring
+	// half the slots rejects sparse labelled diagrams such as the GPS composition while
+	// preserving ordinary and merged legacy tables.
+	return len(cells)*2 >= slots
+}
+
+func legacyPptRectContainedByFrame(rect, frame presentationir.Rect) bool {
+	if rect.W <= 0 || rect.H <= 0 || frame.W <= 0 || frame.H <= 0 {
+		return false
+	}
+	// Small rounding differences are normal when child anchors are transformed
+	// through nested group coordinate systems.  Two percent of the frame is
+	// enough tolerance for those differences without accepting escaped geometry.
+	tolX := frame.W / 50
+	tolY := frame.H / 50
+	return rect.X >= frame.X-tolX && rect.Y >= frame.Y-tolY &&
+		rect.X+rect.W <= frame.X+frame.W+tolX &&
+		rect.Y+rect.H <= frame.Y+frame.H+tolY
+}
+
+func recoverLegacyPptGroupIsTableLike(data []byte, parent legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) bool {
+	// Text-family routing must use the same ownership gate as the semantic scene.
+	// OutlineTextRefAtom is common in ordinary grouped diagrams and is not, by
+	// itself, table evidence. A weaker compatibility-table guess here used to
+	// suppress every ClientTextbox in such groups before semantic reconciliation.
+	if legacyPptOfficeArtContainsExternalObject(data) {
+		return false
+	}
+	tableFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(data, parent)
 	if !ok {
 		return false
 	}
 	var cells []legacyPptTableCellShape
-	lineCount := 0
-	collectLegacyPptTableCellsFromGroup(data, frame, fontTable, colorScheme, exHyperlinks, &cells, &lineCount)
-	return legacyPptLooksLikeTableGroup(cells, lineCount)
+	var gridLines []presentationir.Rect
+	recoverLegacyPptTableCellsFromGroup(data, tableFrame, fontTable, colorScheme, exHyperlinks, &cells, &gridLines)
+	return legacyPptSceneGroupOwnsTable(legacyPptGroupContainerIsTable(data), cells, gridLines)
 }
 
 func legacyPptGroupContainerIsTable(data []byte) bool {
 	for off := 0; off+8 <= len(data); {
-		verInst := binary.LittleEndian.Uint16(data[off : off+2])
 		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
 		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
 		if recLen < 0 || off+8+recLen > len(data) {
 			break
 		}
 		body := data[off+8 : off+8+recLen]
-		if recType == legacyOfficeArtSpContainer && legacyPptSpContainerIsTable(body) {
-			return true
-		}
-		if verInst&0x000F == 0x000F && legacyPptGroupContainerIsTable(body) {
+		// Only the group's own root SpContainer can author tableProperties for
+		// this group. Nested SpgrContainers own their markers independently.
+		// Recursing here promotes an ordinary composition group when one of its
+		// descendant groups happens to be a table.
+		if recType == legacyOfficeArtSpContainer && legacyPptSpContainerHasGroupRect(body) && legacyPptSpContainerIsTable(body) {
 			return true
 		}
 		off += 8 + recLen
@@ -6130,7 +7603,6 @@ func legacyPptGroupContainerIsTable(data []byte) bool {
 }
 
 func legacyPptSpContainerIsTable(data []byte) bool {
-	var sawGroupRect bool
 	for off := 0; off+8 <= len(data); {
 		verInst := binary.LittleEndian.Uint16(data[off : off+2])
 		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
@@ -6140,10 +7612,11 @@ func legacyPptSpContainerIsTable(data []byte) bool {
 		}
 		body := data[off+8 : off+8+recLen]
 		switch recType {
-		case legacyOfficeArtSpgr:
-			sawGroupRect = true
-		case legacyOfficeArtFOPT:
-			if sawGroupRect && legacyPptFOPTMarksTable(body, int(verInst>>4)) {
+		case officeartescher.RecordFOPT, officeartescher.RecordSecondaryFOPT, officeartescher.RecordTertiaryFOPT:
+			// groupshape.tableProperties is itself the semantic marker.  Escher
+			// property ordering is not constrained to follow the Spgr atom, so do
+			// not make recognition depend on having already visited that sibling.
+			if legacyPptFOPTMarksTable(body, int(verInst>>4)) {
 				return true
 			}
 		}
@@ -6162,13 +7635,15 @@ func legacyPptFOPTMarksTable(body []byte, propCount int) bool {
 		if opid&0x3FFF != legacyOfficeArtPropTableProperties {
 			continue
 		}
-		value := binary.LittleEndian.Uint32(body[offset+2 : offset+6])
-		return value&1 == 1
+		// POI/HSLF treats the presence of groupshape.tableProperties as the
+		// semantic table marker.  The property value is a flag bundle and bit 0
+		// is not an "is table" discriminator.
+		return true
 	}
 	return false
 }
 
-func collectLegacyPptTableCellsFromGroup(data []byte, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, cells *[]legacyPptTableCellShape, lineCount *int) {
+func recoverLegacyPptTableCellsFromGroup(data []byte, frame legacyPptGroupFrame, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, cells *[]legacyPptTableCellShape, gridLines *[]presentationir.Rect) {
 	for off := 0; off+8 <= len(data); {
 		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
 		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
@@ -6182,15 +7657,23 @@ func collectLegacyPptTableCellsFromGroup(data []byte, frame legacyPptGroupFrame,
 			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(body, frame); ok {
 				nextFrame = groupFrame
 			}
-			collectLegacyPptTableCellsFromGroup(body, nextFrame, fontTable, colorScheme, exHyperlinks, cells, lineCount)
+			recoverLegacyPptTableCellsFromGroup(body, nextFrame, fontTable, colorScheme, exHyperlinks, cells, gridLines)
 		case legacyOfficeArtSpContainer:
 			if legacyPptSpContainerHasGroupRect(body) {
 				off += 8 + recLen
 				continue
 			}
 			if shapeType, ok := legacyPptSpContainerShapeType(body); ok && shapeType == 20 {
-				if lineCount != nil {
-					*lineCount++
+				// Candidate discovery must remain permissive for old PPT producers: the
+				// mere presence of a line shape was historically part of compatibility
+				// table inference. Preserve that fact even when the connector parser cannot
+				// recover a usable rectangle. Ownership is decided later by
+				// recoverLegacyPptGroupIsTableLike/provenance, so a diagram is free to produce a
+				// candidate without surrendering its group projection.
+				if line, ok := parseLegacyPptConnectorShapeContainer(body, frame, colorScheme); ok {
+					*gridLines = append(*gridLines, line.bounds)
+				} else {
+					*gridLines = append(*gridLines, presentationir.Rect{})
 				}
 				off += 8 + recLen
 				continue
@@ -6208,6 +7691,7 @@ func collectLegacyPptTableCellsFromGroup(data []byte, frame legacyPptGroupFrame,
 				bounds:     shape.bounds,
 				paragraphs: cloneLegacyParagraphs(paragraphs),
 				fillColor:  shape.fillColor,
+				outlineRef: shape.outlineRef,
 			})
 		}
 		off += 8 + recLen
@@ -6265,19 +7749,94 @@ func legacyPptGroupRootShapeID(data []byte) (uint32, bool) {
 	return 0, false
 }
 
-func legacyPptLooksLikeTableGroup(cells []legacyPptTableCellShape, lineCount int) bool {
+func legacyPptLooksLikeTableGroup(cells []legacyPptTableCellShape, gridLines []presentationir.Rect) bool {
 	if len(cells) < 2 {
 		return false
 	}
-	colPos := sortedLegacyPptTablePositions(cells, func(cell legacyPptTableCellShape) int64 { return cell.bounds.X })
-	rowPos := sortedLegacyPptTablePositions(cells, func(cell legacyPptTableCellShape) int64 { return cell.bounds.Y })
+	colPos := legacyPptTableAxisPositions(cells, true)
+	rowPos := legacyPptTableAxisPositions(cells, false)
 	if len(colPos) < 2 && len(rowPos) < 2 {
 		return false
 	}
-	if lineCount > 0 {
+
+	// A sufficiently populated cell lattice is useful evidence even when an old
+	// producer omitted tableProperties and did not emit explicit grid lines. Two
+	// arbitrary text boxes can trivially form a 2x2 half-filled lattice, so density
+	// only becomes table evidence once there are enough independently anchored cells.
+	if len(cells) >= 4 && legacyPptTableCellGridIsDense(cells) {
 		return true
 	}
-	return len(cells) >= 6 && len(colPos) >= 2 && len(rowPos) >= 2
+
+	// Sparse/merged legacy tables exist (bug57820 is the compatibility fixture).
+	// Candidate discovery intentionally retains the historical line-presence fallback:
+	// some producers do not give us enough geometry to prove a coherent lattice. A
+	// candidate is not ownership. recoverLegacyPptGroupIsTableLike deliberately does *not*
+	// call this helper, so weak candidates keep their ordinary group projection and
+	// can be rejected by the later sibling-provenance pass.
+	if legacyPptGridLinesSupportCellLattice(cells, gridLines) {
+		return true
+	}
+	return len(gridLines) > 0
+}
+
+func legacyPptGridLinesSupportCellLattice(cells []legacyPptTableCellShape, lines []presentationir.Rect) bool {
+	// A one-cell table is legal and occurs in damaged legacy files where the table
+	// flag has been lost but the enclosing border/grid survives.  Requiring two
+	// text cells made those tables impossible to recover.  The two-axis line test
+	// below is the ownership proof and still rejects ordinary one-row diagrams.
+	if len(cells) < 1 || len(lines) < 2 {
+		return false
+	}
+	bounds := legacyPptTableBounds(cells)
+	if bounds.W <= 0 || bounds.H <= 0 {
+		return false
+	}
+	// Child anchors are integer OfficeArt coordinates and may differ slightly after
+	// nested-group projection. Use a small scale-relative tolerance, never a fixed
+	// fixture-specific distance.
+	tolX := bounds.W / 100
+	tolY := bounds.H / 100
+	if tolX < 1 {
+		tolX = 1
+	}
+	if tolY < 1 {
+		tolY = 1
+	}
+
+	xEdges := make([]int64, 0, len(cells)*2)
+	yEdges := make([]int64, 0, len(cells)*2)
+	for _, cell := range cells {
+		xEdges = append(xEdges, cell.bounds.X, cell.bounds.X+cell.bounds.W)
+		yEdges = append(yEdges, cell.bounds.Y, cell.bounds.Y+cell.bounds.H)
+	}
+	near := func(value int64, edges []int64, tol int64) bool {
+		for _, edge := range edges {
+			d := value - edge
+			if d < 0 {
+				d = -d
+			}
+			if d <= tol {
+				return true
+			}
+		}
+		return false
+	}
+
+	vertical, horizontal := 0, 0
+	for _, line := range lines {
+		// Zero-width/height anchors are common for OfficeArt lines. A slightly
+		// non-zero minor axis is also accepted when it is tiny relative to the span.
+		if line.H > 0 && (line.W == 0 || line.W*20 <= line.H) && near(line.X, xEdges, tolX) {
+			vertical++
+		}
+		if line.W > 0 && (line.H == 0 || line.H*20 <= line.W) && near(line.Y, yEdges, tolY) {
+			horizontal++
+		}
+	}
+
+	// A real grid must constrain both axes. Requiring two aligned rules overall
+	// still permits sparse/merged tables while rejecting directional diagram arrows.
+	return vertical > 0 && horizontal > 0 && vertical+horizontal >= 2
 }
 
 func legacyPptSpContainerHasGroupRect(data []byte) bool {
@@ -6299,18 +7858,10 @@ func buildLegacyPptTableFromCells(cells []legacyPptTableCellShape, fallbackBound
 	if len(cells) == 0 {
 		return nil, presentationir.Rect{}, false
 	}
-	colPos := sortedLegacyPptTablePositions(cells, func(cell legacyPptTableCellShape) int64 { return cell.bounds.X })
-	rowPos := sortedLegacyPptTablePositions(cells, func(cell legacyPptTableCellShape) int64 { return cell.bounds.Y })
+	colPos := legacyPptTableAxisPositions(cells, true)
+	rowPos := legacyPptTableAxisPositions(cells, false)
 	if len(colPos) == 0 || len(rowPos) == 0 {
 		return nil, presentationir.Rect{}, false
-	}
-	colIndex := make(map[int64]int, len(colPos))
-	for i, pos := range colPos {
-		colIndex[pos] = i
-	}
-	rowIndex := make(map[int64]int, len(rowPos))
-	for i, pos := range rowPos {
-		rowIndex[pos] = i
 	}
 	grid := make([][]*presentationir.TableCell, len(rowPos))
 	for r := range grid {
@@ -6319,8 +7870,8 @@ func buildLegacyPptTableFromCells(cells []legacyPptTableCellShape, fallbackBound
 	rowHeights := make([]int64, len(rowPos))
 	colWidths := make([]int64, len(colPos))
 	for _, cell := range cells {
-		r, okRow := rowIndex[cell.bounds.Y]
-		c, okCol := colIndex[cell.bounds.X]
+		r, okRow := legacyPptNearestTablePositionIndex(rowPos, cell.bounds.Y, legacyPptTableAxisTolerance(cells, false))
+		c, okCol := legacyPptNearestTablePositionIndex(colPos, cell.bounds.X, legacyPptTableAxisTolerance(cells, true))
 		if !okRow || !okCol {
 			continue
 		}
@@ -6392,6 +7943,62 @@ func buildLegacyPptTableFromCells(cells []legacyPptTableCellShape, fallbackBound
 		return nil, presentationir.Rect{}, false
 	}
 	return table, bounds, true
+}
+
+func legacyPptTableAxisTolerance(cells []legacyPptTableCellShape, horizontal bool) int64 {
+	sizes := make([]int64, 0, len(cells))
+	for _, cell := range cells {
+		size := cell.bounds.H
+		if horizontal {
+			size = cell.bounds.W
+		}
+		if size > 0 {
+			sizes = append(sizes, size)
+		}
+	}
+	if len(sizes) == 0 {
+		return 1
+	}
+	sort.Slice(sizes, func(i, j int) bool { return sizes[i] < sizes[j] })
+	tol := sizes[len(sizes)/2] / 50
+	if tol < 1 {
+		tol = 1
+	}
+	return tol
+}
+
+func legacyPptTableAxisPositions(cells []legacyPptTableCellShape, horizontal bool) []int64 {
+	values := make([]int64, 0, len(cells))
+	for _, cell := range cells {
+		if horizontal {
+			values = append(values, cell.bounds.X)
+		} else {
+			values = append(values, cell.bounds.Y)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	tol := legacyPptTableAxisTolerance(cells, horizontal)
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if len(out) == 0 || value-out[len(out)-1] > tol {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func legacyPptNearestTablePositionIndex(positions []int64, value, tolerance int64) (int, bool) {
+	best, bestDistance := -1, int64(0)
+	for i, position := range positions {
+		d := value - position
+		if d < 0 {
+			d = -d
+		}
+		if best < 0 || d < bestDistance {
+			best, bestDistance = i, d
+		}
+	}
+	return best, best >= 0 && bestDistance <= tolerance
 }
 
 func sortedLegacyPptTablePositions(cells []legacyPptTableCellShape, project func(legacyPptTableCellShape) int64) []int64 {
@@ -6467,123 +8074,75 @@ func legacyPptTableBounds(cells []legacyPptTableCellShape) presentationir.Rect {
 	return presentationir.Rect{X: left, Y: top, W: right - left, H: bottom - top}
 }
 
-func parseLegacyPptSlideConnectorShapes(stream []byte, persistDirectory map[int]int, slidePersistIDs []int, colorScheme map[uint8]string, existing map[int][]*presentationir.Shape) map[int][]*presentationir.Shape {
-	if len(slidePersistIDs) == 0 || len(persistDirectory) == 0 {
-		return nil
-	}
-	out := map[int][]*presentationir.Shape{}
-	for _, persistID := range slidePersistIDs {
-		slideOffset, ok := persistDirectory[persistID]
-		if !ok {
-			continue
-		}
-		record, payload, _, ok := readPptRecord(stream, slideOffset)
-		if !ok || record.Type != pptRTSlide {
-			continue
-		}
-		shapeIndex := legacyPptShapeIndexByOriginalID(existing[persistID])
-		shapes := parseLegacyPptConnectorShapesFromSlideWithTargets(payload, colorScheme, shapeIndex)
-		if len(shapes) > 0 {
-			out[persistID] = shapes
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func parseLegacyPptConnectorShapesFromSlide(payload []byte, colorScheme map[uint8]string) []*presentationir.Shape {
-	return parseLegacyPptConnectorShapesFromSlideWithTargets(payload, colorScheme, nil)
-}
-
-func parseLegacyPptConnectorShapesFromSlideWithTargets(payload []byte, colorScheme map[uint8]string, shapeIndex map[uint32]*presentationir.Shape) []*presentationir.Shape {
-	if len(payload) == 0 {
-		return nil
-	}
-	var shapes []*presentationir.Shape
-	for pos := 0; pos+8 <= len(payload); {
-		record, childPayload, next, ok := readPptRecord(payload, pos)
-		if !ok {
-			break
-		}
-		if record.Type == pptRTPPDrawing {
-			rules := parseLegacyPptConnectorRules(childPayload)
-			collectLegacyPptConnectorShapesFromOfficeArt(childPayload, legacyPptGroupFrame{}, colorScheme, rules, shapeIndex, &shapes)
-		}
-		pos = next
-	}
-	if len(shapes) == 0 {
-		return nil
-	}
-	return shapes
-}
-
-func collectLegacyPptConnectorShapesFromOfficeArt(data []byte, frame legacyPptGroupFrame, colorScheme map[uint8]string, rules map[uint32]legacyPptConnectorRule, shapeIndex map[uint32]*presentationir.Shape, shapes *[]*presentationir.Shape) {
-	for off := 0; off+8 <= len(data); {
-		verInst := binary.LittleEndian.Uint16(data[off : off+2])
-		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
-		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
-		if recLen < 0 || off+8+recLen > len(data) {
-			break
-		}
-		version := verInst & 0x000F
-		body := data[off+8 : off+8+recLen]
-		switch recType {
-		case legacyOfficeArtSpgrContainer:
-			if legacyPptGroupContainerIsTable(body) {
-				off += 8 + recLen
-				continue
+func collectLegacyPptConnectorShapesFromEvents(events []OfficeArtEvent, frame legacyPptGroupFrame, colorScheme map[uint8]string, rules map[uint32]legacyPptConnectorRule, shapeIndex map[uint32]*presentationir.Shape, shapes *[]*presentationir.Shape) {
+	frames := []legacyPptGroupFrame{frame}
+	skipTableGroups := 0
+	_ = walkCollectedOfficeArtEvents(events, OfficeArtConsumerFunc(func(event OfficeArtEvent) error {
+		switch {
+		case event.GroupStart:
+			parent := frames[len(frames)-1]
+			next := parent
+			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(event.Payload, parent); ok {
+				next = groupFrame
 			}
-			nextFrame := frame
-			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(body, frame); ok {
-				nextFrame = groupFrame
+			frames = append(frames, next)
+			if skipTableGroups > 0 || legacyPptGroupContainerIsTable(event.Payload) {
+				skipTableGroups++
 			}
-			collectLegacyPptConnectorShapesFromOfficeArt(body, nextFrame, colorScheme, rules, shapeIndex, shapes)
-		case legacyOfficeArtSpContainer:
-			connector, ok := parseLegacyPptConnectorShapeContainer(body, frame, colorScheme)
-			if ok {
-				start, end := legacyPptConnectorEndpoints(connector.bounds, connector.transform.FlipH, connector.transform.FlipV)
-				if rule, ok := rules[connector.shapeID]; ok {
-					if target := shapeIndex[rule.startShapeID]; target != nil {
-						start = legacyPptConnectionSitePoint(target.Bounds, rule.startSite)
-					}
-					if target := shapeIndex[rule.endShapeID]; target != nil {
-						end = legacyPptConnectionSitePoint(target.Bounds, rule.endSite)
-					}
+		case event.GroupEnd:
+			if skipTableGroups > 0 {
+				skipTableGroups--
+			}
+			if len(frames) > 1 {
+				frames = frames[:len(frames)-1]
+			}
+		case event.ShapeStart:
+			if skipTableGroups > 0 {
+				return nil
+			}
+			connector, ok := parseLegacyPptConnectorShapeNode(event.ShapeNode, frames[len(frames)-1], colorScheme)
+			if !ok {
+				return nil
+			}
+			start, end := legacyPptConnectorEndpoints(connector.bounds, connector.transform.FlipH, connector.transform.FlipV)
+			if rule, ok := rules[connector.shapeID]; ok {
+				if target := shapeIndex[rule.startShapeID]; target != nil {
+					start = legacyPptConnectorRuleSitePointForShape(target, rule.startSite)
 				}
-				connectorIR := &presentationir.Shape{
-					Kind:                 presentationir.ShapeConnector,
-					Name:                 fmt.Sprintf("Legacy Connector %d", len(*shapes)+1),
-					OriginalShapeID:      connector.shapeID,
-					Bounds:               connector.bounds,
-					ConnectorType:        legacyPptConnectorType(connector.shapeType),
-					ConnectorFlipH:       connector.transform.FlipH,
-					ConnectorFlipV:       connector.transform.FlipV,
-					ConnectorAdjustments: append([]int(nil), connector.adjustments...),
-					ConnectorStart:       start,
-					ConnectorEnd:         end,
+				if target := shapeIndex[rule.endShapeID]; target != nil {
+					end = legacyPptConnectorRuleSitePointForShape(target, rule.endSite)
 				}
-				applyLegacyPptShapeTransform(connectorIR, connector.transform)
-				applyLegacyPptAnimationMetadata(connectorIR, connector.animation)
-				*shapes = append(*shapes, connectorIR)
 			}
-		default:
-			if version == 0x000F {
-				collectLegacyPptConnectorShapesFromOfficeArt(body, frame, colorScheme, rules, shapeIndex, shapes)
-			}
+			connectorIR := &presentationir.Shape{Kind: presentationir.ShapeConnector, Name: fmt.Sprintf("Legacy Connector %d", len(*shapes)+1), OriginalShapeID: connector.shapeID, Bounds: connector.bounds, ConnectorType: legacyPptConnectorType(connector.shapeType), ConnectorFlipH: connector.transform.FlipH, ConnectorFlipV: connector.transform.FlipV, ConnectorAdjustments: append([]int(nil), connector.adjustments...), ConnectorStart: start, ConnectorEnd: end, OfficeArt: connector.officeArt}
+			// Stroke and arrow semantics are decoded with the connector transform.
+			// Materialize them on canonical IR before geometry/layout consumes it.
+			applyLegacyPptShapeTransform(connectorIR, connector.transform)
+			applyLegacyPptOfficeArtGeometry(connectorIR, connector.officeArt)
+			applyLegacyPptOfficeArtVisual(connectorIR, connector.officeArt)
+			applyLegacyPptShapeTransform(connectorIR, connector.transform)
+			applyLegacyPptAnimationMetadata(connectorIR, connector.animation)
+			*shapes = append(*shapes, connectorIR)
 		}
-		off += 8 + recLen
-	}
+		return nil
+	}))
 }
-
 func parseLegacyPptConnectorShapeContainer(data []byte, frame legacyPptGroupFrame, colorScheme map[uint8]string) (legacyPptConnectorShape, bool) {
-	var shape legacyPptConnectorShape
 	node, err := officeartescher.ParseShapeContainerPayload(data)
-	if err != nil || node == nil {
+	if err != nil {
+		return legacyPptConnectorShape{}, false
+	}
+	return parseLegacyPptConnectorShapeNode(node, frame, colorScheme)
+}
+
+func parseLegacyPptConnectorShapeNode(node *officeartescher.ShapeNode, frame legacyPptGroupFrame, colorScheme map[uint8]string) (legacyPptConnectorShape, bool) {
+	var shape legacyPptConnectorShape
+	if node == nil {
 		return legacyPptConnectorShape{}, false
 	}
 	shape.shapeID = node.ShapeID
+	shape.officeArt = officeartlegacy.ShapeFromEscherWithColorResolver(node, func(raw uint32) string {
+		return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
+	})
 	shape.shapeType = node.ShapeType
 	shape.transform.FlipH = node.Flags&legacyOfficeArtSpFlagFlipH != 0
 	shape.transform.FlipV = node.Flags&legacyOfficeArtSpFlagFlipV != 0
@@ -6750,22 +8309,169 @@ func parseLegacyPptConnectorRules(data []byte) map[uint32]legacyPptConnectorRule
 	return rules
 }
 
+// legacyPptConnectionSitePointForShape resolves FConnectorRule site indices against
+// the target AutoShape contract. Site counts are shape-specific: treating cpti as
+// `site % 4` is only valid for four-site shapes and silently attaches triangle
+// connectors to the wrong edge. Keep the rectangle fallback for unknown presets,
+// but own the non-four-site contracts here at the legacy OfficeArt boundary.
+// legacyPptConnectorRuleSitePointForShape converts the cptiA/cptiB index stored
+// by OfficeArt FConnectorRule into the canonical connection-site ordering used by
+// the presentation IR. FConnectorRule numbers sites clockwise from the right-hand
+// side for the legacy presets, while the canonical helper below numbers them from
+// the top counterclockwise. Keeping this conversion at the rule boundary avoids
+// corrupting geometry/site contracts used by OOXML and layout.
+func legacyPptConnectorRuleSitePointForShape(shape *presentationir.Shape, site uint32) *presentationir.Point {
+	if shape == nil {
+		return nil
+	}
+	count := legacyPptConnectionSiteCountForShape(shape)
+	if count == 0 {
+		count = 4
+	}
+	canonicalSite := count - 1 - (site % count)
+	return legacyPptConnectionSitePointForShape(shape, canonicalSite)
+}
+
+func legacyPptConnectionSiteCountForShape(shape *presentationir.Shape) uint32 {
+	if shape == nil {
+		return 0
+	}
+	preset := shape.Geometry
+	if preset == "" && shape.OfficeArt != nil {
+		preset = shape.OfficeArt.Geometry.Preset
+	}
+	switch preset {
+	case "triangle", "rtTriangle":
+		return 3
+	case "pentagon":
+		return 5
+	case "hexagon":
+		return 6
+	case "octagon":
+		return 8
+	default:
+		return 4
+	}
+}
+
+func legacyPptConnectionSitePointForShape(shape *presentationir.Shape, site uint32) *presentationir.Point {
+	if shape == nil {
+		return nil
+	}
+	b := shape.Bounds
+	preset := shape.Geometry
+	if preset == "" && shape.OfficeArt != nil {
+		preset = shape.OfficeArt.Geometry.Preset
+	}
+
+	// Prefer a preset-specific site contract. These points are expressed in the
+	// shape's local bounding box and transformed below, so solver attachment
+	// follows authored flip/rotation instead of attaching to the untransformed box.
+	var point presentationir.Point
+	var ok bool
+	switch preset {
+	case "triangle":
+		points := []presentationir.Point{
+			{X: b.X + b.W/2, Y: b.Y},
+			{X: b.X, Y: b.Y + b.H},
+			{X: b.X + b.W, Y: b.Y + b.H},
+		}
+		point, ok = legacyPptIndexedConnectionSite(points, site)
+	case "rtTriangle":
+		points := []presentationir.Point{
+			{X: b.X, Y: b.Y},
+			{X: b.X, Y: b.Y + b.H},
+			{X: b.X + b.W, Y: b.Y + b.H},
+		}
+		point, ok = legacyPptIndexedConnectionSite(points, site)
+	case "diamond":
+		point, ok = legacyPptIndexedConnectionSite(legacyPptRegularPolygonConnectionSites(b, 4), site)
+	case "pentagon":
+		point, ok = legacyPptIndexedConnectionSite(legacyPptRegularPolygonConnectionSites(b, 5), site)
+	case "hexagon":
+		point, ok = legacyPptIndexedConnectionSite(legacyPptRegularPolygonConnectionSites(b, 6), site)
+	case "octagon":
+		point, ok = legacyPptIndexedConnectionSite(legacyPptRegularPolygonConnectionSites(b, 8), site)
+	}
+	if !ok {
+		fallback := legacyPptConnectionSitePoint(b, site)
+		if fallback == nil {
+			return nil
+		}
+		point = *fallback
+	}
+	return legacyPptTransformConnectionSite(shape, point)
+}
+
+func legacyPptIndexedConnectionSite(points []presentationir.Point, site uint32) (presentationir.Point, bool) {
+	if len(points) == 0 {
+		return presentationir.Point{}, false
+	}
+	return points[int(site)%len(points)], true
+}
+
+func legacyPptRegularPolygonConnectionSites(bounds presentationir.Rect, sides int) []presentationir.Point {
+	if sides < 3 {
+		return nil
+	}
+	cx := float64(bounds.X) + float64(bounds.W)/2
+	cy := float64(bounds.Y) + float64(bounds.H)/2
+	rx := float64(bounds.W) / 2
+	ry := float64(bounds.H) / 2
+	points := make([]presentationir.Point, sides)
+	for i := range points {
+		// Office site ordering starts at the top and proceeds counterclockwise.
+		a := -math.Pi/2 - 2*math.Pi*float64(i)/float64(sides)
+		points[i] = presentationir.Point{
+			X: int64(math.Round(cx + rx*math.Cos(a))),
+			Y: int64(math.Round(cy + ry*math.Sin(a))),
+		}
+	}
+	return points
+}
+
+func legacyPptTransformConnectionSite(shape *presentationir.Shape, point presentationir.Point) *presentationir.Point {
+	if shape == nil || (!shape.FlipH && !shape.FlipV && shape.RotationDeg == 0) {
+		return &point
+	}
+	b := shape.Bounds
+	cx := float64(b.X) + float64(b.W)/2
+	cy := float64(b.Y) + float64(b.H)/2
+	x := float64(point.X) - cx
+	y := float64(point.Y) - cy
+	if shape.FlipH {
+		x = -x
+	}
+	if shape.FlipV {
+		y = -y
+	}
+	if shape.RotationDeg != 0 {
+		a := shape.RotationDeg * math.Pi / 180
+		cosA, sinA := math.Cos(a), math.Sin(a)
+		x, y = x*cosA-y*sinA, x*sinA+y*cosA
+	}
+	out := presentationir.Point{X: int64(math.Round(cx + x)), Y: int64(math.Round(cy + y))}
+	return &out
+}
+
 func legacyPptConnectionSitePoint(bounds presentationir.Rect, site uint32) *presentationir.Point {
-	// Standard Office preset shapes enumerate the four cardinal sites clockwise
-	// from the right edge. Shapes with additional sites still get a stable
-	// cardinal fallback by cycling the site index.
+	// Office connection sites are numbered from the top and proceed
+	// counterclockwise. OfficeArt connector rules store the same zero-based
+	// site index (cptiA/cptiB), so the cardinal fallback is top, left, bottom,
+	// right. The previous right/bottom/left/top mapping rotated every attached
+	// legacy connector by one side.
 	cx := bounds.X + bounds.W/2
 	cy := bounds.Y + bounds.H/2
 	var point presentationir.Point
 	switch site % 4 {
 	case 0:
-		point = presentationir.Point{X: bounds.X + bounds.W, Y: cy}
-	case 1:
-		point = presentationir.Point{X: cx, Y: bounds.Y + bounds.H}
-	case 2:
-		point = presentationir.Point{X: bounds.X, Y: cy}
-	default:
 		point = presentationir.Point{X: cx, Y: bounds.Y}
+	case 1:
+		point = presentationir.Point{X: bounds.X, Y: cy}
+	case 2:
+		point = presentationir.Point{X: cx, Y: bounds.Y + bounds.H}
+	default:
+		point = presentationir.Point{X: bounds.X + bounds.W, Y: cy}
 	}
 	return &point
 }
@@ -6782,73 +8488,50 @@ func legacyPptConnectorEndpoints(bounds presentationir.Rect, flipH, flipV bool) 
 	return &start, &end
 }
 
-func parseLegacyPptImageShapesFromSlide(payload []byte, pictureStore map[uint32]*legacyPptPicture, externalObjects map[uint32]legacyPptExternalObject) []*presentationir.Shape {
-	if len(payload) == 0 || len(pictureStore) == 0 {
-		return nil
-	}
-	var shapes []*presentationir.Shape
-	for pos := 0; pos+8 <= len(payload); {
-		record, childPayload, next, ok := readPptRecord(payload, pos)
-		if !ok {
-			break
-		}
-		if record.Type == pptRTPPDrawing {
-			collectLegacyPptImageShapesFromOfficeArt(childPayload, legacyPptGroupFrame{}, pictureStore, externalObjects, &shapes)
-		}
-		pos = next
-	}
-	if len(shapes) == 0 {
-		return nil
-	}
-	return shapes
-}
-
-func collectLegacyPptImageShapesFromOfficeArt(data []byte, frame legacyPptGroupFrame, pictureStore map[uint32]*legacyPptPicture, externalObjects map[uint32]legacyPptExternalObject, shapes *[]*presentationir.Shape) {
-	for off := 0; off+8 <= len(data); {
-		verInst := binary.LittleEndian.Uint16(data[off : off+2])
-		recType := binary.LittleEndian.Uint16(data[off+2 : off+4])
-		recLen := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
-		if recLen < 0 || off+8+recLen > len(data) {
-			break
-		}
-		version := verInst & 0x000F
-		body := data[off+8 : off+8+recLen]
-		switch recType {
-		case legacyOfficeArtSpgrContainer:
-			nextFrame := frame
-			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(body, frame); ok {
-				nextFrame = groupFrame
+func collectLegacyPptImageShapesFromEvents(events []OfficeArtEvent, frame legacyPptGroupFrame, pictureStore map[uint32]*legacyPptPicture, externalObjects map[uint32]legacyPptExternalObject, shapes *[]*presentationir.Shape) {
+	frames := []legacyPptGroupFrame{frame}
+	_ = walkCollectedOfficeArtEvents(events, OfficeArtConsumerFunc(func(event OfficeArtEvent) error {
+		switch {
+		case event.GroupStart:
+			parent := frames[len(frames)-1]
+			next := parent
+			if groupFrame, ok := parseLegacyPptGroupFrameFromSpgrContainer(event.Payload, parent); ok {
+				next = groupFrame
 			}
-			collectLegacyPptImageShapesFromOfficeArt(body, nextFrame, pictureStore, externalObjects, shapes)
-		case legacyOfficeArtSpContainer:
-			pictureShape, ok := parseLegacyPptPictureShapeContainer(body, frame)
+			frames = append(frames, next)
+		case event.GroupEnd:
+			if len(frames) > 1 {
+				frames = frames[:len(frames)-1]
+			}
+		case event.ShapeStart:
+			pictureShape, ok := parseLegacyPptPictureShapeNode(event.ShapeNode, frames[len(frames)-1])
 			if !ok {
-				break
+				return nil
 			}
-			picture, ok := pictureStore[pictureShape.blipRef]
-			if !ok || picture == nil || len(picture.Data) == 0 || picture.MIME == "" {
-				break
-			}
+			picture := pictureStore[pictureShape.blipRef]
+			// Preserve the semantic picture node even when a damaged or unusual PPT
+			// cannot resolve its BLIP payload. Dropping the whole shape here makes a
+			// media-resolution failure indistinguishable from absent artwork and prevents
+			// later diagnostics/recovery from retaining authored geometry and z-order.
 			pictureIR := buildLegacyPptPictureOrExternalObjectShape(len(*shapes)+1, pictureShape, picture, externalObjects[pictureShape.exObjID])
+			pictureIR.OfficeArt = pictureShape.officeArt
+			applyLegacyPptOfficeArtGeometry(pictureIR, pictureShape.officeArt)
+			applyLegacyPptOfficeArtVisual(pictureIR, pictureShape.officeArt)
 			applyLegacyPptShapeTransform(pictureIR, pictureShape.transform)
 			applyLegacyPptAnimationMetadata(pictureIR, pictureShape.animation)
 			*shapes = append(*shapes, pictureIR)
-		default:
-			if version == 0x000F {
-				collectLegacyPptImageShapesFromOfficeArt(body, frame, pictureStore, externalObjects, shapes)
-			}
 		}
-		off += 8 + recLen
-	}
+		return nil
+	}))
 }
-
 func buildLegacyPptPictureOrExternalObjectShape(ordinal int, pictureShape legacyPptPictureShape, picture *legacyPptPicture, ext legacyPptExternalObject) *presentationir.Shape {
 	if picture == nil {
-		return nil
+		picture = &legacyPptPicture{}
 	}
 	if ext.Kind == presentationir.ShapeOleObject {
 		return &presentationir.Shape{
 			Kind:             presentationir.ShapeOleObject,
+			OriginalShapeID:  pictureShape.shapeID,
 			Name:             firstLegacyPptNonEmpty(ext.Name, fmt.Sprintf("Legacy OLE Object %d", ordinal)),
 			Bounds:           pictureShape.bounds,
 			OLEObjectData:    append([]byte(nil), ext.Data...),
@@ -6863,6 +8546,7 @@ func buildLegacyPptPictureOrExternalObjectShape(ordinal int, pictureShape legacy
 	if ext.Kind == presentationir.ShapeMedia {
 		return &presentationir.Shape{
 			Kind:            presentationir.ShapeMedia,
+			OriginalShapeID: pictureShape.shapeID,
 			Name:            firstLegacyPptNonEmpty(ext.Name, fmt.Sprintf("Legacy Media %d", ordinal)),
 			Bounds:          pictureShape.bounds,
 			MediaKind:       ext.MediaKind,
@@ -6873,21 +8557,32 @@ func buildLegacyPptPictureOrExternalObjectShape(ordinal int, pictureShape legacy
 			MediaPosterMIME: picture.MIME,
 		}
 	}
+	imageData := append([]byte(nil), picture.Data...)
+	imageMIME := picture.MIME
+	if svg, _, _, ok := metafile.ToSVG(imageData, imageMIME); ok {
+		imageData = svg
+		imageMIME = "image/svg+xml"
+	}
 	return &presentationir.Shape{
-		Kind:      presentationir.ShapeImage,
-		Name:      fmt.Sprintf("Legacy Picture %d", ordinal),
-		Bounds:    pictureShape.bounds,
-		ImageData: append([]byte(nil), picture.Data...),
-		ImageMIME: picture.MIME,
+		Kind:            presentationir.ShapeImage,
+		OriginalShapeID: pictureShape.shapeID,
+		Name:            fmt.Sprintf("Legacy Picture %d", ordinal),
+		Bounds:          pictureShape.bounds,
+		ImageData:       imageData,
+		ImageMIME:       imageMIME,
 	}
 }
 
-func parseLegacyPptPictureShapeContainer(data []byte, frame legacyPptGroupFrame) (legacyPptPictureShape, bool) {
+func parseLegacyPptPictureShapeNode(node *officeartescher.ShapeNode, frame legacyPptGroupFrame) (legacyPptPictureShape, bool) {
 	var shape legacyPptPictureShape
-	node, err := officeartescher.ParseShapeContainerPayload(data)
-	if err != nil || node == nil {
+	if node == nil {
 		return legacyPptPictureShape{}, false
 	}
+	// Preserve the OfficeArt identity at the picture-family decode boundary.
+	// BIG37 uses OriginalShapeID to reconcile richer picture/media/OLE
+	// projections with the generic AutoShape projection from the same scene.
+	shape.shapeID = node.ShapeID
+	shape.officeArt = officeartlegacy.ShapeFromEscher(node)
 	shape.transform.FlipH = node.Flags&legacyOfficeArtSpFlagFlipH != 0
 	shape.transform.FlipV = node.Flags&legacyOfficeArtSpFlagFlipV != 0
 
@@ -6934,7 +8629,12 @@ func parseLegacyPptPictureShapeContainer(data []byte, frame legacyPptGroupFrame)
 		shape.bounds = childAnchorBounds
 		haveAnchor = true
 	}
-	if node.ShapeType != legacyOfficeArtShapePicture || shape.blipRef == 0 || !haveAnchor {
+	// Picture-family ownership is established by the authored OfficeArt shape,
+	// not by successful BLIP resolution. Embedded media/OLE shapes can carry an
+	// ExObj reference without a poster BLIP, and damaged decks can retain the
+	// picture SpContainer after its BStore entry is lost. Preserve that semantic
+	// node so generic AutoShape projection cannot duplicate it.
+	if node.ShapeType != legacyOfficeArtShapePicture || (shape.blipRef == 0 && shape.exObjID == 0) || !haveAnchor {
 		return legacyPptPictureShape{}, false
 	}
 	return shape, true
@@ -7099,12 +8799,39 @@ func applyLegacyPptShapeTransform(shape *presentationir.Shape, t legacyPptShapeT
 
 	if t.HasTextAnchor {
 		shape.TextAnchor = t.TextAnchor
+		shape.TextBodyProps.Anchor = t.TextAnchor
+	}
+	if t.HasAnchorCenter {
+		shape.TextBodyProps.AnchorCtr = t.AnchorCenter
+	}
+	if t.HasTextWrap {
+		shape.TextBodyProps.Wrap = t.TextWrap
+	}
+	if t.HasTextVertical {
+		shape.TextBodyProps.Vert = t.TextVertical
 	}
 	if t.HasTextInsets {
-		shape.TextInsetLeftEMU = t.TextInsetLeft
-		shape.TextInsetTopEMU = t.TextInsetTop
-		shape.TextInsetRightEMU = t.TextInsetRight
-		shape.TextInsetBottomEMU = t.TextInsetBottom
+		normalizeLegacyTextInsetPresence(&t)
+		shape.HasTextInsets = true
+		// OfficeArt insets are independent properties.  Materialize absent edges
+		// with the same physical defaults used by the canonical text-frame layer
+		// instead of turning an omitted edge into an explicit zero inset.
+		shape.TextInsetLeftEMU = 91440
+		shape.TextInsetRightEMU = 91440
+		shape.TextInsetTopEMU = 45720
+		shape.TextInsetBottomEMU = 45720
+		if t.HasTextInsetLeft {
+			shape.TextInsetLeftEMU = t.TextInsetLeft
+		}
+		if t.HasTextInsetTop {
+			shape.TextInsetTopEMU = t.TextInsetTop
+		}
+		if t.HasTextInsetRight {
+			shape.TextInsetRightEMU = t.TextInsetRight
+		}
+		if t.HasTextInsetBottom {
+			shape.TextInsetBottomEMU = t.TextInsetBottom
+		}
 	}
 	if t.HasAllowOverflow {
 		shape.TextAllowOverflow = t.AllowOverflow
@@ -7201,7 +8928,7 @@ func parseLegacyPptFOPTPropertiesTransform(props []officeartescher.Property, col
 		return
 	}
 	resolve := func(raw uint32) string {
-		return resolveLegacyPptColorRef(byte(raw), byte(raw>>8), byte(raw>>16), byte(raw>>24), colorScheme)
+		return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
 	}
 	visual := officeartlegacy.DecodeVisualProperties(props, resolve)
 	if geometryText := officeartlegacy.DecodeGeometryText(props); geometryText.Present {
@@ -7269,6 +8996,10 @@ func parseLegacyPptFOPTPropertiesTransform(props []officeartescher.Property, col
 	text := visual.Text
 	if text.HasLeft || text.HasTop || text.HasRight || text.HasBottom {
 		out.HasTextInsets = true
+		out.HasTextInsetLeft = text.HasLeft
+		out.HasTextInsetTop = text.HasTop
+		out.HasTextInsetRight = text.HasRight
+		out.HasTextInsetBottom = text.HasBottom
 		if text.HasLeft {
 			out.TextInsetLeft = text.Insets.Left
 		}
@@ -7292,14 +9023,25 @@ func parseLegacyPptFOPTPropertiesTransform(props []officeartescher.Property, col
 		default:
 			out.TextAnchor = "t"
 		}
+		out.HasAnchorCenter = true
+		out.AnchorCenter = text.AnchorCenter
 	}
 	if text.HasWrap {
-		out.HasAllowOverflow = true
-		out.AllowOverflow = text.Wrap == officeartir.TextWrapNone
+		out.HasTextWrap = true
+		out.TextWrap = string(text.Wrap)
+	}
+	if text.HasVert {
+		out.HasTextVertical = true
+		out.TextVertical = string(text.Vert)
 	}
 	if text.HasAutoFit {
+		// OfficeArt's fitShapeToText ownership is independent of wrapText.
+		// Keep the canonical layout policy presence-aware so an explicit local
+		// "off" also overrides an inherited spAutoFit contract.
 		out.HasAutoGrow = true
 		out.AutoGrow = text.AutoFit == officeartir.AutoFitShape
+		out.HasAllowOverflow = true
+		out.AllowOverflow = text.AutoFit == officeartir.AutoFitNone
 	}
 	if visual.HasCrop {
 		out.HasImageCrop = true
@@ -7363,9 +9105,37 @@ func parseLegacyPptFOPTFillColor(body []byte, propCount int, colorScheme map[uin
 	return parseLegacyPptFOPTPropertiesFillColor(props, colorScheme)
 }
 
+// Text boxes/placeholders are transparent by default in binary PowerPoint.
+// A fillColor property can still be present as an inherited/default OfficeArt value;
+// it becomes paint only when fillStyleBooleanProperties explicitly enables fFilled.
+func parseLegacyPptFOPTPropertiesTextFillColor(props []officeartescher.Property, colorScheme map[uint8]string) (string, bool) {
+	resolve := func(raw uint32) string {
+		return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
+	}
+	visual := officeartlegacy.DecodeVisualProperties(props, resolve)
+	// For text containers, only an authored fFilled use/value pair transfers
+	// paint ownership. Other fillStyleBoolean bits are frequently present on
+	// legacy placeholders and must not turn a cached fillColor into a box.
+	explicitFilled := false
+	for _, prop := range props {
+		if prop.IsComplex || prop.IsBlip || prop.ID != legacyOfficeArtPropFillBools {
+			continue
+		}
+		valueBits := prop.Value & 0xFFFF
+		useBits := (prop.Value >> 16) & 0xFFFF
+		if useBits&(1<<4) != 0 {
+			explicitFilled = valueBits&(1<<4) != 0
+		}
+	}
+	if !explicitFilled || visual.FillType > 0 || !visual.HasFillColor || visual.FillColor == "" {
+		return "", false
+	}
+	return visual.FillColor, true
+}
+
 func parseLegacyPptFOPTPropertiesFillColor(props []officeartescher.Property, colorScheme map[uint8]string) (string, bool) {
 	resolve := func(raw uint32) string {
-		return resolveLegacyPptColorRef(byte(raw), byte(raw>>8), byte(raw>>16), byte(raw>>24), colorScheme)
+		return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
 	}
 	visual := officeartlegacy.DecodeVisualProperties(props, resolve)
 	if visual.HasFill && !visual.FillEnabled {
@@ -7375,26 +9145,6 @@ func parseLegacyPptFOPTPropertiesFillColor(props []officeartescher.Property, col
 		return "", false
 	}
 	return visual.FillColor, true
-}
-
-func parseLegacyPptMasterBgFill(stream []byte, documentOffset int, colorScheme map[uint8]string) string {
-	record, payload, _, ok := readPptRecord(stream, documentOffset)
-	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
-		return ""
-	}
-	for pos := 0; pos+8 <= len(payload); {
-		child, childPayload, next, ok := readPptRecord(payload, pos)
-		if !ok {
-			break
-		}
-		if child.Type == pptRTMainMaster {
-			if fill := parseLegacyPptBgFillFromContainer(childPayload, colorScheme); fill != "" {
-				return fill
-			}
-		}
-		pos = next
-	}
-	return ""
 }
 
 // parseLegacyPptBgFillFromContainer looks for a BackgroundContainer
@@ -7444,7 +9194,9 @@ func parseLegacyPptBackgroundContainerFill(payload []byte, colorScheme map[uint8
 	}
 	var fillColor string
 	walkLegacyPptOfficeArtRecords(ppDrawingPayload, func(recType, inst, _ uint16, body []byte) {
-		if recType == legacyOfficeArtFOPT && fillColor == "" {
+		if recType == officeartescher.RecordFOPT || recType == officeartescher.RecordSecondaryFOPT || recType == officeartescher.RecordTertiaryFOPT {
+			// Primary -> secondary -> tertiary is an override cascade. Do not stop
+			// after the first color: a later table is authoritative when present.
 			if color, ok := parseLegacyPptFOPTFillColor(body, int(inst), colorScheme); ok {
 				fillColor = color
 			}
@@ -7504,26 +9256,33 @@ func parseLegacyPptGroupFrameFromSpContainer(data []byte, parent legacyPptGroupF
 	}
 	if len(node.ChildAnchor) > 0 {
 		if rect, ok := parseLegacyPptChildAnchor(node.ChildAnchor); ok {
-			if mapped, ok := mapLegacyPptRectThroughGroupFrame(rect, parent); ok {
-				childAnchorBounds = mapped
-				haveChildAnchor = true
-			}
+			// Keep the authored anchor for canonical group IR, while retaining a
+			// materialized target for legacy discovery paths outside the IR boundary.
+			childAnchorBounds = rect
+			haveChildAnchor = true
 		}
 	}
 
-	var target presentationir.Rect
+	var localTarget, target presentationir.Rect
 	switch {
 	case haveClientAnchor:
+		localTarget = clientAnchorBounds
 		target = clientAnchorBounds
 	case haveChildAnchor:
+		localTarget = childAnchorBounds
 		target = childAnchorBounds
+		if parent.valid {
+			if mapped, ok := mapLegacyPptRectThroughGroupFrame(childAnchorBounds, parent); ok {
+				target = mapped
+			}
+		}
 	default:
 		return legacyPptGroupFrame{}, false
 	}
-	if target.W == 0 || target.H == 0 {
+	if localTarget.W == 0 || localTarget.H == 0 {
 		return legacyPptGroupFrame{}, false
 	}
-	return legacyPptGroupFrame{domain: domain, target: target, valid: true}, true
+	return legacyPptGroupFrame{domain: domain, localTarget: localTarget, target: target, valid: true}, true
 }
 
 func parseLegacyPptGroupRect(body []byte) (presentationir.Rect, bool) {
@@ -7552,6 +9311,14 @@ func parseLegacyPptChildAnchor(body []byte) (presentationir.Rect, bool) {
 	return legacyPptRectFromOfficeArt(rect), ok
 }
 
+func legacyPptLocalChildBoundsFromSpContainer(data []byte) (presentationir.Rect, bool) {
+	node, err := officeartescher.ParseShapeContainerPayload(data)
+	if err != nil || node == nil || len(node.ChildAnchor) == 0 {
+		return presentationir.Rect{}, false
+	}
+	return parseLegacyPptChildAnchor(node.ChildAnchor)
+}
+
 func mapLegacyPptRectThroughGroupFrame(local presentationir.Rect, frame legacyPptGroupFrame) (presentationir.Rect, bool) {
 	mapped, ok := officeartlegacy.MapRectThroughGroup(
 		legacyPptRectToOfficeArt(local),
@@ -7560,75 +9327,41 @@ func mapLegacyPptRectThroughGroupFrame(local presentationir.Rect, frame legacyPp
 	return legacyPptRectFromOfficeArt(mapped), ok
 }
 
-func applyLegacyPptGroupTransformToShape(shape *presentationir.Shape, groupBounds presentationir.Rect, transform legacyPptShapeTransform) {
-	if shape == nil {
-		return
-	}
-	shape.Bounds = transformLegacyPptRectAroundGroup(shape.Bounds, groupBounds, transform)
+func legacyPptCanonicalGroupTransform(frame legacyPptGroupFrame, transform legacyPptShapeTransform) presentationir.VisualTransform {
+	rotation := 0.0
 	if transform.HasRotation {
-		shape.RotationDeg += transform.Rotation
+		rotation = transform.Rotation
 	}
-	shape.FlipH = shape.FlipH != transform.FlipH
-	shape.FlipV = shape.FlipV != transform.FlipV
-	shape.ConnectorFlipH = shape.ConnectorFlipH != transform.FlipH
-	shape.ConnectorFlipV = shape.ConnectorFlipV != transform.FlipV
-	shape.ConnectorStart = transformLegacyPptPointAroundGroup(shape.ConnectorStart, groupBounds, transform)
-	shape.ConnectorEnd = transformLegacyPptPointAroundGroup(shape.ConnectorEnd, groupBounds, transform)
-	for index := range shape.ConnectorPath {
-		point := shape.ConnectorPath[index]
-		mapped := transformLegacyPptPointAroundGroup(&point, groupBounds, transform)
-		if mapped != nil {
-			shape.ConnectorPath[index] = *mapped
-		}
+	return presentationir.VisualTransform{
+		Offset:      presentationir.Point{X: frame.localTarget.X, Y: frame.localTarget.Y},
+		Extent:      presentationir.VisualSize{W: frame.localTarget.W, H: frame.localTarget.H},
+		ChildOffset: presentationir.Point{X: frame.domain.X, Y: frame.domain.Y},
+		ChildExtent: presentationir.VisualSize{W: frame.domain.W, H: frame.domain.H},
+		Rotation:    rotation,
+		FlipH:       transform.FlipH,
+		FlipV:       transform.FlipV,
 	}
-	for _, child := range shape.Children {
-		applyLegacyPptGroupTransformToShape(child, groupBounds, transform)
-	}
-}
-
-func transformLegacyPptRectAroundGroup(rect, groupBounds presentationir.Rect, transform legacyPptShapeTransform) presentationir.Rect {
-	if (!transform.HasRotation || transform.Rotation == 0) && !transform.FlipH && !transform.FlipV {
-		return rect
-	}
-	center := presentationir.Point{X: rect.X + rect.W/2, Y: rect.Y + rect.H/2}
-	mapped := transformLegacyPptPointAroundGroup(&center, groupBounds, transform)
-	if mapped == nil {
-		return rect
-	}
-	return presentationir.Rect{X: mapped.X - rect.W/2, Y: mapped.Y - rect.H/2, W: rect.W, H: rect.H}
-}
-
-func transformLegacyPptPointAroundGroup(point *presentationir.Point, groupBounds presentationir.Rect, transform legacyPptShapeTransform) *presentationir.Point {
-	if point == nil {
-		return nil
-	}
-	cx := float64(groupBounds.X) + float64(groupBounds.W)/2
-	cy := float64(groupBounds.Y) + float64(groupBounds.H)/2
-	dx := float64(point.X) - cx
-	dy := float64(point.Y) - cy
-	if transform.FlipH {
-		dx = -dx
-	}
-	if transform.FlipV {
-		dy = -dy
-	}
-	if transform.HasRotation && transform.Rotation != 0 {
-		radians := transform.Rotation * math.Pi / 180
-		cosTheta := math.Cos(radians)
-		sinTheta := math.Sin(radians)
-		dx, dy = dx*cosTheta-dy*sinTheta, dx*sinTheta+dy*cosTheta
-	}
-	return &presentationir.Point{X: int64(math.Round(cx + dx)), Y: int64(math.Round(cy + dy))}
 }
 
 func parseLegacyPptClientAnchor(body []byte) (presentationir.Rect, bool) {
-	if len(body) < 8 {
+	// [MS-PPT] OfficeArtClientAnchorData stores both RectStruct (16-byte)
+	// and SmallRectStruct (8-byte) as top, left, right, bottom. Coordinates
+	// are signed; negative anchors are valid for objects extending off-slide.
+	var top, left, right, bottom int64
+	switch {
+	case len(body) >= 16:
+		top = int64(int32(binary.LittleEndian.Uint32(body[0:4])))
+		left = int64(int32(binary.LittleEndian.Uint32(body[4:8])))
+		right = int64(int32(binary.LittleEndian.Uint32(body[8:12])))
+		bottom = int64(int32(binary.LittleEndian.Uint32(body[12:16])))
+	case len(body) >= 8:
+		top = int64(int16(binary.LittleEndian.Uint16(body[0:2])))
+		left = int64(int16(binary.LittleEndian.Uint16(body[2:4])))
+		right = int64(int16(binary.LittleEndian.Uint16(body[4:6])))
+		bottom = int64(int16(binary.LittleEndian.Uint16(body[6:8])))
+	default:
 		return presentationir.Rect{}, false
 	}
-	left := int(binary.LittleEndian.Uint16(body[0:2]))
-	top := int(binary.LittleEndian.Uint16(body[2:4]))
-	right := int(binary.LittleEndian.Uint16(body[4:6]))
-	bottom := int(binary.LittleEndian.Uint16(body[6:8]))
 	if right < left {
 		left, right = right, left
 	}
@@ -7639,10 +9372,10 @@ func parseLegacyPptClientAnchor(body []byte) (presentationir.Rect, bool) {
 		return presentationir.Rect{}, false
 	}
 	return presentationir.Rect{
-		X: int64(left) * defaultSlideWidthEMU / legacyPptMasterWidth,
-		Y: int64(top) * defaultSlideHeightEMU / legacyPptMasterHeight,
-		W: int64(right-left) * defaultSlideWidthEMU / legacyPptMasterWidth,
-		H: int64(bottom-top) * defaultSlideHeightEMU / legacyPptMasterHeight,
+		X: left * defaultSlideWidthEMU / legacyPptMasterWidth,
+		Y: top * defaultSlideHeightEMU / legacyPptMasterHeight,
+		W: (right - left) * defaultSlideWidthEMU / legacyPptMasterWidth,
+		H: (bottom - top) * defaultSlideHeightEMU / legacyPptMasterHeight,
 	}, true
 }
 
@@ -7761,6 +9494,8 @@ func parseTextRulerAtom(payload []byte) (legacyPptTextRuler, bool) {
 		if pos+2 > len(payload) {
 			return ruler, false
 		}
+		ruler.defaultTabSize = int(int16(binary.LittleEndian.Uint16(payload[pos : pos+2])))
+		ruler.hasDefaultTab = true
 		pos += 2
 	}
 
@@ -7784,9 +9519,28 @@ func parseTextRulerAtom(payload []byte) (legacyPptTextRuler, bool) {
 			return ruler, false
 		}
 		count := int(binary.LittleEndian.Uint16(payload[pos : pos+2]))
-		pos += 2 + count*4
-		if pos > len(payload) {
+		pos += 2
+		if pos+count*4 > len(payload) {
 			return ruler, false
+		}
+		ruler.hasTabs = true
+		ruler.tabs = make([]presentationir.TabStop, 0, count)
+		for i := 0; i < count; i++ {
+			posMu := int16(binary.LittleEndian.Uint16(payload[pos : pos+2]))
+			tabType := binary.LittleEndian.Uint16(payload[pos+2 : pos+4])
+			pos += 4
+			tab := presentationir.TabStop{Pos: int64(posMu) * 127}
+			switch tabType {
+			case 0:
+				tab.Algn = "l"
+			case 1:
+				tab.Algn = "ctr"
+			case 2:
+				tab.Algn = "r"
+			case 3:
+				tab.Algn = "dec"
+			}
+			ruler.tabs = append(ruler.tabs, tab)
 		}
 	}
 
@@ -7811,6 +9565,9 @@ func parseTextRulerAtom(payload []byte) (legacyPptTextRuler, bool) {
 		}
 	}
 
+	if ruler.hasDefaultTab || ruler.hasTabs {
+		return ruler, true
+	}
 	for i := 0; i < 5; i++ {
 		if ruler.hasLeft[i] || ruler.hasIndent[i] {
 			return ruler, true
@@ -7858,6 +9615,14 @@ func applyRulerLevelsToParas(paras []*presentationir.Paragraph, ruler legacyPptT
 			p.TextIndentEMU = ruler.indents[p.Level] * 127
 			p.HasTextIndent = true
 		}
+		// TextRuler owns fallback tabbing only. Paragraph-level PFException
+		// values remain authoritative, including an explicitly empty tab list.
+		if p.DefaultTabSizeEMU == 0 && ruler.hasDefaultTab && ruler.defaultTabSize > 0 {
+			p.DefaultTabSizeEMU = ruler.defaultTabSize * 127
+		}
+		if len(p.TabStops) == 0 && ruler.hasTabs {
+			p.TabStops = append([]presentationir.TabStop(nil), ruler.tabs...)
+		}
 	}
 }
 
@@ -7888,13 +9653,33 @@ func applyStyleTextProp9ToParas(paras []*presentationir.Paragraph, stpa9Data map
 
 		// Look up auto-numbering data for this level
 		if exc, ok := stpa9Data[level]; ok {
+			if exc.hasBulletAutoNumberSpecified && !exc.hasBulletAutoNumber {
+				p.AutoNum = false
+				p.AutoNumType = ""
+				p.AutoNumStart = 0
+				continue
+			}
 			if exc.hasBulletAutoNumber {
 				p.AutoNum = true
-				p.AutoNumType = exc.autoNumberScheme
+				if exc.autoNumberScheme != "" {
+					p.AutoNumType = exc.autoNumberScheme
+				}
 				if exc.autoNumberStart > 0 {
 					p.AutoNumStart = exc.autoNumberStart
 				}
 			}
 		}
 	}
+}
+
+// PptProducer adapts the legacy binary parser to the shared presentation event
+// producer contract. It deliberately hides CFB/PowerPoint record details from
+// downstream consumers.
+type PptProducer struct {
+	Data     []byte
+	Filename string
+}
+
+func (p PptProducer) ProducePresentationEvents(consumer presentationevent.Consumer) error {
+	return WalkPptBytes(p.Data, p.Filename, consumer)
 }

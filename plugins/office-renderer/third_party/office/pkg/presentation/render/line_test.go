@@ -1,9 +1,11 @@
 package render
 
 import (
+	"strings"
 	"testing"
 
 	"office/pkg/ooxml/drawing"
+	playout "office/pkg/presentation/layout"
 )
 
 func TestCSSBorderStyleForLine(t *testing.T) {
@@ -25,5 +27,22 @@ func TestCSSBorderStyleForLine(t *testing.T) {
 				t.Errorf("cssBorderStyleForLine() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+func TestWriteSVGStrokePlanMaterializesPhysicalAlphaAndScaledDash(t *testing.T) {
+	var b strings.Builder
+	writeSVGStrokePlan(&b, playout.StrokeVisualPlan{
+		Color: "123456", WidthPt: 2, SVGLineCap: "round", SVGLineJoin: "miter",
+		MiterLimit: 8, DashArray: "2, 6", Alpha: 0.4, AlphaSet: true,
+	}, "", "")
+	got := b.String()
+	for _, want := range []string{
+		`stroke="#123456"`, `stroke-width="2.00"`, `stroke-linecap="round"`,
+		`stroke-linejoin="miter"`, `stroke-miterlimit="8.00"`, `stroke-dasharray="2, 6"`,
+		`stroke-opacity="0.4000"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stroke output %q missing %q", got, want)
+		}
 	}
 }

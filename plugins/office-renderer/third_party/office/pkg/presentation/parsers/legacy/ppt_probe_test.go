@@ -59,7 +59,7 @@ func TestProbePowerPointGeneratedNotesDateFixture(t *testing.T) {
 		} else {
 			t.Logf("notes persist id=%d type=0x%04x version=0x%x instance=%d", persistID, record.Type, record.Version, record.Instance)
 		}
-		shapes := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil)
+		shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil)
 		t.Logf("parsed note-persist shapes = %#v", shapes)
 		if len(texts) > 0 || persistID == ctx.notesPersistIDs[0] {
 			walkPptRecords(payload, func(record pptRecord, childPayload []byte) {
@@ -126,8 +126,8 @@ func TestProbeLegacyTableFixtures(t *testing.T) {
 				continue
 			}
 			t.Logf("%s persist=%d type=0x%04x version=0x%x instance=%d", name, persistID, record.Type, record.Version, record.Instance)
-			textShapes := parseLegacyPptTextShapesFromSlide(payload, legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil)
-			tableShapes := parseLegacyPptTableShapesFromSlide(payload, fontTable, colorScheme, nil)
+			textShapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil)
+			tableShapes := collectLegacyPptVisualScene(payload).tables(fontTable, colorScheme, nil)
 			t.Logf("%s persist=%d textShapes=%d tableShapes=%d", name, persistID, len(textShapes), len(tableShapes))
 			dumpPptRecordTree(t, payload, 1, 2)
 			for pos := 0; pos+8 <= len(payload); {

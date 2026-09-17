@@ -1879,3 +1879,29 @@ func TestParseChartDataLabelTextProperties(t *testing.T) {
 		t.Fatalf("point color = %q, want 00FF00", dp.LabelStyle.Color)
 	}
 }
+
+func TestParseChartPreservesTitleLegendAndAxisTextProperties(t *testing.T) {
+	xmlData := []byte(`<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <c:chart>
+    <c:title><c:tx><c:rich><a:p><a:r><a:t>Styled</a:t></a:r></a:p></c:rich></c:tx><c:txPr><a:defRPr sz="1800" b="1" i="1"><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:defRPr></c:txPr></c:title>
+    <c:plotArea>
+      <c:barChart><c:barDir val="col"/><c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>S1</c:v></c:tx><c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:barChart>
+      <c:valAx><c:axId val="1"/><c:txPr><a:defRPr sz="850"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:defRPr></c:txPr></c:valAx>
+    </c:plotArea>
+    <c:legend><c:legendPos val="r"/><c:txPr><a:defRPr sz="900" i="1"><a:solidFill><a:srgbClr val="778899"/></a:solidFill></a:defRPr></c:txPr></c:legend>
+  </c:chart>
+</c:chartSpace>`)
+	got, err := ParseChart(xmlData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TitleStyle == nil || got.TitleStyle.FontSize != 1800 || !got.TitleStyle.Bold || !got.TitleStyle.Italic || got.TitleStyle.Color != "112233" {
+		t.Fatalf("title style = %#v", got.TitleStyle)
+	}
+	if got.Legend.TextStyle == nil || got.Legend.TextStyle.FontSize != 900 || !got.Legend.TextStyle.Italic || got.Legend.TextStyle.Color != "778899" {
+		t.Fatalf("legend style = %#v", got.Legend.TextStyle)
+	}
+	if got.YAxis.LabelStyle == nil || got.YAxis.LabelStyle.FontSize != 850 || got.YAxis.LabelStyle.Color != "445566" {
+		t.Fatalf("axis label style = %#v", got.YAxis.LabelStyle)
+	}
+}

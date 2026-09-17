@@ -13,10 +13,14 @@ type TextBodyProperties struct {
 	Wrap string
 	// Anchor is vertical alignment: "t" (top), "ctr" (centre), "b" (bottom).
 	Anchor string
-	// AnchorCtr centers text horizontally when true.
-	AnchorCtr bool
-	// Rot is the text rotation in thousandths of a degree (clockwise).
-	Rot int
+	// AnchorCtr centers the body rotation anchor. HasAnchorCtr preserves an
+	// explicitly authored false value across placeholder inheritance.
+	AnchorCtr    bool
+	HasAnchorCtr bool
+	// Rot is the text rotation in thousandths of a degree (clockwise). HasRot
+	// distinguishes an authored zero rotation from an omitted/inherited value.
+	Rot    int
+	HasRot bool
 	// AutofitType: "noAutofit", "spAutoFit" (shape grows), "normAutofit" (font shrinks).
 	AutofitType string
 	// AutofitFontScale is the normAutofit font scale in thousandths of a percent.

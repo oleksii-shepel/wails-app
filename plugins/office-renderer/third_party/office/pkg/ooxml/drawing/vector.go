@@ -94,10 +94,10 @@ func BuildConnectorPrimitives(spec ConnectorSpec) []VectorPrimitive {
 
 	headTrim, tailTrim := 0.0, 0.0
 	if spec.ArrowHead != "" {
-		headTrim = ArrowTrimDistance(spec.ArrowHead, spec.ArrowHeadLength)
+		headTrim = ArrowTrimDistanceForStroke(spec.ArrowHead, spec.ArrowHeadLength, spec.LineWidthPt)
 	}
 	if spec.ArrowTail != "" {
-		tailTrim = ArrowTrimDistance(spec.ArrowTail, spec.ArrowTailLength)
+		tailTrim = ArrowTrimDistanceForStroke(spec.ArrowTail, spec.ArrowTailLength, spec.LineWidthPt)
 	}
 	drawPoints := ShortenWaypointsForArrows(origPoints, headTrim, tailTrim)
 
@@ -137,11 +137,11 @@ func BuildConnectorPrimitives(spec ConnectorSpec) []VectorPrimitive {
 		}
 	}
 
-	if prim, ok := arrowPrimitive(spec.ArrowHead, spec.ArrowHeadWidth, spec.ArrowHeadLength, color, origPoints[0], origPoints[1]); ok {
+	if prim, ok := arrowPrimitiveForStroke(spec.ArrowHead, spec.ArrowHeadWidth, spec.ArrowHeadLength, spec.LineWidthPt, color, origPoints[0], origPoints[1]); ok {
 		primitives = append(primitives, prim)
 	}
 	if last := len(origPoints) - 1; last > 0 {
-		if prim, ok := arrowPrimitive(spec.ArrowTail, spec.ArrowTailWidth, spec.ArrowTailLength, color, origPoints[last], origPoints[last-1]); ok {
+		if prim, ok := arrowPrimitiveForStroke(spec.ArrowTail, spec.ArrowTailWidth, spec.ArrowTailLength, spec.LineWidthPt, color, origPoints[last], origPoints[last-1]); ok {
 			primitives = append(primitives, prim)
 		}
 	}
@@ -150,7 +150,11 @@ func BuildConnectorPrimitives(spec ConnectorSpec) []VectorPrimitive {
 }
 
 func arrowPrimitive(arrowType, widthSize, lengthSize, color string, tip, neighbor Point) (VectorPrimitive, bool) {
-	ag := ComputeArrowGeometry(arrowType, widthSize, lengthSize, tip, neighbor)
+	return arrowPrimitiveForStroke(arrowType, widthSize, lengthSize, 1, color, tip, neighbor)
+}
+
+func arrowPrimitiveForStroke(arrowType, widthSize, lengthSize string, strokeWidthPt float64, color string, tip, neighbor Point) (VectorPrimitive, bool) {
+	ag := ComputeArrowGeometryForStroke(arrowType, widthSize, lengthSize, strokeWidthPt, tip, neighbor)
 	if ag == nil {
 		return VectorPrimitive{}, false
 	}

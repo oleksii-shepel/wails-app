@@ -247,12 +247,81 @@ func scanPNGEnd(data []byte) (int, bool) {
 }
 
 func scanJPEGEnd(data []byte) (int, bool) {
-	if len(data) < 4 {
+	// JPEG payloads may contain arbitrary application metadata, including
+	// embedded JPEG previews. A byte scan for FF D9 therefore truncates the
+	// outer image at an EOI marker that belongs to metadata. Walk the JPEG
+	// marker stream instead and skip length-delimited segments atomically.
+	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
 		return 0, false
 	}
-	for i := 2; i+1 < len(data); i++ {
-		if data[i] == 0xFF && data[i+1] == 0xD9 {
-			return i + 2, true
+
+	pos := 2
+	inScan := false
+	for pos < len(data) {
+		if inScan {
+			// Entropy-coded scan data uses FF 00 byte stuffing and may contain
+			// restart markers. Any other unstuffed marker ends the scan and is
+			// processed by the normal marker parser below.
+			for pos < len(data) {
+				if data[pos] != 0xFF {
+					pos++
+					continue
+				}
+				markerPos := pos
+				for pos < len(data) && data[pos] == 0xFF {
+					pos++
+				}
+				if pos >= len(data) {
+					return 0, false
+				}
+				marker := data[pos]
+				if marker == 0x00 { // stuffed literal FF
+					pos++
+					continue
+				}
+				if marker >= 0xD0 && marker <= 0xD7 { // restart marker
+					pos++
+					continue
+				}
+				pos = markerPos
+				inScan = false
+				break
+			}
+			if inScan {
+				return 0, false
+			}
+		}
+
+		if pos >= len(data) || data[pos] != 0xFF {
+			return 0, false
+		}
+		for pos < len(data) && data[pos] == 0xFF {
+			pos++
+		}
+		if pos >= len(data) {
+			return 0, false
+		}
+		marker := data[pos]
+		pos++
+
+		switch {
+		case marker == 0xD9: // EOI
+			return pos, true
+		case marker == 0xD8, marker == 0x01, marker >= 0xD0 && marker <= 0xD7:
+			// SOI, TEM and restart markers have no length field.
+			continue
+		}
+
+		if pos+2 > len(data) {
+			return 0, false
+		}
+		segmentLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+		if segmentLen < 2 || pos+segmentLen > len(data) {
+			return 0, false
+		}
+		pos += segmentLen
+		if marker == 0xDA { // SOS: entropy-coded bytes follow the scan header.
+			inScan = true
 		}
 	}
 	return 0, false

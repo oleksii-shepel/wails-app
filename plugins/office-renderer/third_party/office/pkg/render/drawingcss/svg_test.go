@@ -185,3 +185,18 @@ func TestPictureSVGDefinitionTileModeNoImageData(t *testing.T) {
 		t.Fatalf("expected default height 100 when no image data: %s", svg)
 	}
 }
+
+func TestSVGDefinitionUsesGradientFillToRectFocus(t *testing.T) {
+	fill := drawing.GradientFill{
+		GradientType: drawing.GradientTypePath,
+		FillToRect:   &drawing.Rect{X: .65, Y: 0, Width: .35, Height: .02},
+		Stops: []drawing.GradientStop{
+			{Position: 0, Color: "FFFFFF"},
+			{Position: 1, Color: "000000"},
+		},
+	}
+	got := drawingcss.SVGDefinition(fill, "g")
+	if !strings.Contains(got, `cx="82.5000%" cy="1.0000%"`) {
+		t.Fatalf("path gradient focus not materialized from fillToRect: %s", got)
+	}
+}

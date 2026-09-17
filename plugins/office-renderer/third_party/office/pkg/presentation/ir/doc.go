@@ -11,7 +11,7 @@
 // # Overview
 //
 // The IR is produced by
-// [office/pkg/presentation/parsers/ooxml/resolve.ResolvePackage] and consumed
+// the presentation SAX/package projection pipeline and consumed
 // by the layout and render layers. It can also be consumed directly by callers
 // who need structured access to slide content without going through the
 // rendering pipeline.

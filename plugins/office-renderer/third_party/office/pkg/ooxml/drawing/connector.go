@@ -376,13 +376,22 @@ func moveTowardPt(from, to Point, dist float64) Point {
 // arrowType is e.g. "triangle", "stealth", "arrow", "diamond", "oval".
 // widthSize and lengthSize are "sm", "med" (or ""), or "lg".
 func ArrowDimensions(arrowType, widthSize, lengthSize string) (lengthPt, widthPt float64) {
-	lengthPt = mapArrowLengthPt(lengthSize)
-	widthPt = mapArrowWidthPt(widthSize)
+	return ArrowDimensionsForStroke(arrowType, widthSize, lengthSize, 1)
+}
+
+// ArrowDimensionsForStroke resolves Office arrow size enums against the
+// effective line width. Endpoint sizes are relative to the owning stroke;
+// treating sm/med/lg as absolute point sizes makes thin lines grow giant
+// markers and thick lines grow undersized markers.
+func ArrowDimensionsForStroke(arrowType, widthSize, lengthSize string, strokeWidthPt float64) (lengthPt, widthPt float64) {
+	if strokeWidthPt <= 0 {
+		strokeWidthPt = 1
+	}
+	lengthPt = mapArrowLengthPt(lengthSize) * strokeWidthPt
+	widthPt = mapArrowWidthPt(widthSize) * strokeWidthPt
 	switch arrowType {
 	case "diamond":
 		return lengthPt / 2, widthPt
-	case "oval":
-		return lengthPt, widthPt
 	default:
 		return lengthPt, widthPt
 	}
@@ -410,15 +419,38 @@ func mapArrowWidthPt(size string) float64 {
 	}
 }
 
-// ArrowTrimDistance returns how far the connector line endpoint should be
-// pulled back from the arrowhead tip, in points.
-func ArrowTrimDistance(arrowType, lengthSize string) float64 {
-	length, _ := ArrowDimensions(arrowType, "", lengthSize)
+// supportedArrowMarkerType reports whether an Office arrow type has canonical
+// geometry in this package. Keep shaft trimming and marker materialization on
+// the same contract: an unsupported marker must never create an invisible gap.
+func supportedArrowMarkerType(arrowType string) bool {
 	switch arrowType {
-	case "diamond", "oval":
-		return length / 2
+	case "triangle", "stealth", "arrow", "diamond", "oval":
+		return true
+	default:
+		return false
+	}
+}
+
+// ArrowTrimDistance returns the legacy 1pt-stroke trim for callers that do
+// not yet carry an effective stroke width.
+func ArrowTrimDistance(arrowType, lengthSize string) float64 {
+	return ArrowTrimDistanceForStroke(arrowType, lengthSize, 1)
+}
+
+// ArrowTrimDistanceForStroke returns how far the connector shaft should be
+// pulled back from the authored endpoint for the effective stroke width.
+func ArrowTrimDistanceForStroke(arrowType, lengthSize string, strokeWidthPt float64) float64 {
+	if !supportedArrowMarkerType(arrowType) {
+		return 0
+	}
+	length, _ := ArrowDimensionsForStroke(arrowType, "", lengthSize, strokeWidthPt)
+	switch arrowType {
+	case "diamond":
+		return length * 2
+	case "oval":
+		return length
 	case "arrow":
-		return length * 0.7
+		return 0
 	default:
 		return length
 	}
@@ -450,10 +482,16 @@ type ArrowGeometry struct {
 // ComputeArrowGeometry returns the ArrowGeometry for an arrowhead at tip,
 // pointing away from neighbor. Returns nil when arrowType is empty or "none".
 func ComputeArrowGeometry(arrowType, widthSize, lengthSize string, tip, neighbor Point) *ArrowGeometry {
-	if arrowType == "" || arrowType == "none" {
+	return ComputeArrowGeometryForStroke(arrowType, widthSize, lengthSize, 1, tip, neighbor)
+}
+
+// ComputeArrowGeometryForStroke materializes an endpoint marker using the
+// effective connector stroke width.
+func ComputeArrowGeometryForStroke(arrowType, widthSize, lengthSize string, strokeWidthPt float64, tip, neighbor Point) *ArrowGeometry {
+	if !supportedArrowMarkerType(arrowType) {
 		return nil
 	}
-	length, width := ArrowDimensions(arrowType, widthSize, lengthSize)
+	length, width := ArrowDimensionsForStroke(arrowType, widthSize, lengthSize, strokeWidthPt)
 
 	dx := tip.X - neighbor.X
 	dy := tip.Y - neighbor.Y
@@ -484,7 +522,7 @@ func ComputeArrowGeometry(arrowType, widthSize, lengthSize string, tip, neighbor
 		ag.PolyPts = []Point{tip, left, notch, right}
 	case "arrow":
 		ag.Left, ag.Right = left, right
-		ag.StrokeWidth = 1.5
+		ag.StrokeWidth = math.Max(1.5*strokeWidthPt, 0.5)
 	case "diamond":
 		back := Point{X: tip.X - ux*(length*2), Y: tip.Y - uy*(length*2)}
 		ag.PolyPts = []Point{tip, left, back, right}

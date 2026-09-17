@@ -41,7 +41,7 @@ func TestResolveSmartArtConnectors(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestResolveSmartArtNodeIDsAndConnections(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestResolveSmartArtHierarchyConnectorPath(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestResolveSmartArtBlipFill(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestResolveSmartArtParagraphTabStops(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestResolveSmartArtPlaceholderText(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestResolveSmartArtConnectorDirections(t *testing.T) {
 				},
 			}
 
-			pres, err := ResolvePackage(pptPkg)
+			pres, err := resolveFixturePackage(pptPkg)
 			if err != nil {
 				t.Fatalf("resolve: %v", err)
 			}
@@ -510,7 +510,7 @@ func TestResolveSmartArtConnectorFromStyleDef(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestResolveSmartArtConnectorDrawingOverridesStyle(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestResolveSmartArtPreRenderedConnectorGeometry(t *testing.T) {
 		},
 	}
 
-	pres, err := ResolvePackage(pptPkg)
+	pres, err := resolveFixturePackage(pptPkg)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -720,5 +720,22 @@ func TestResolveSmartArtPreRenderedConnectorGeometry(t *testing.T) {
 	}
 	if conn.DrawingOrder == 0 {
 		t.Error("expected connector DrawingOrder to be set")
+	}
+}
+
+func TestPreRenderedSmartArtWithoutConnectorShapesDoesNotSynthesizeLogicalEdges(t *testing.T) {
+	// A dsp:drawing is an authoritative visual scene. Logical data-model edges
+	// must not turn into painted diagonal connectors when the drawing itself has
+	// no dsp:cxnSp records.
+	part := &parts.SmartArtPart{
+		RelID:        "rId1",
+		DataModelXML: []byte(`<?xml version="1.0"?><dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:ptLst><dgm:pt modelId="a"/><dgm:pt modelId="b"/></dgm:ptLst><dgm:cxnLst><dgm:cxn modelId="c" srcId="a" destId="b"/></dgm:cxnLst></dgm:dataModel>`),
+		DrawingXML:   []byte(`<?xml version="1.0"?><dsp:drawing xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dsp:spTree><dsp:sp><dsp:nvSpPr><dsp:cNvPr id="1" name=""/><dsp:cNvSpPr/><dsp:nvPr><dsp:extLst><a:ext uri="x"><dsp:dataModelExt relId="" minVer=""/></a:ext></dsp:extLst></dsp:nvPr></dsp:nvSpPr><dsp:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="500000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></dsp:spPr></dsp:sp></dsp:spTree></dsp:drawing>`),
+	}
+	shapes, _ := ResolveSmartArtPart(part, nil, nil, nil, nil)
+	for _, shape := range shapes {
+		if shape != nil && shape.Kind == ShapeSmartArtConnector {
+			t.Fatalf("pre-rendered drawing without cxnSp synthesized connector: %#v", shape)
+		}
 	}
 }

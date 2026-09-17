@@ -61,13 +61,14 @@ type entry struct {
 // File is a parsed Compound File Binary archive.
 // Use Stream to access named streams embedded in the archive.
 type File struct {
-	raw              []byte   // in-memory source used by OpenBytes / compatibility Open
+	raw              []byte // in-memory source used by OpenBytes / compatibility Open
 	reader           io.ReaderAt
 	readerSize       int64
 	closer           io.Closer
 	sectorSize       int      // 512 (v3) or 4096 (v4)
 	miniSectorSize   int      // always 64
 	miniStreamCutoff uint32   // streams smaller than this use the mini stream
+	majorVersion     uint16   // 3 for 512-byte sectors, 4 for 4096-byte sectors
 	fat              []uint32 // main FAT: fat[sectorN] = next sector
 	miniFAT          []uint32 // mini FAT: miniFAT[miniSectorN] = next mini-sector
 	rootData         []byte   // content of the root entry stream (mini-stream container)
@@ -111,8 +112,22 @@ func (f *File) SectorSize() int {
 // The lookup is case-insensitive.  Returns (nil, false) when the stream does
 // not exist in the archive.
 func (f *File) Stream(name string) ([]byte, bool) {
-	data, ok, _ := f.StreamWithError(name)
-	return data, ok
+	data, ok, err := f.StreamWithError(name)
+	if !ok {
+		return nil, false
+	}
+	if err == nil {
+		return data, true
+	}
+
+	// Stream is the compatibility/best-effort API. A number of real-world and
+	// fuzzed Office compound files have a valid directory entry whose declared
+	// stream size extends past the readable FAT chain. Historically we returned
+	// (nil, true) here, which made callers that probe stream content conclude
+	// that a known stream was absent. Preserve strict validation in
+	// StreamWithError, but let Stream expose the readable prefix.
+	data, _, _ = f.StreamBestEffort(name)
+	return data, true
 }
 
 // StreamWithError returns the raw content of the named top-level stream.
@@ -390,11 +405,15 @@ func parse(raw []byte) (*File, error) {
 	}
 
 	f := &File{raw: raw}
+	f.majorVersion = u16(raw, 26)
 	f.sectorSize = 1 << u16(raw, 30)     // 0x0009 → 512, 0x000C → 4096
 	f.miniSectorSize = 1 << u16(raw, 32) // always 0x0006 → 64
 
 	if f.sectorSize < 512 {
 		return nil, fmt.Errorf("cfb: sector size %d is too small", f.sectorSize)
+	}
+	if (f.majorVersion == 3 && f.sectorSize != 512) || (f.majorVersion == 4 && f.sectorSize != 4096) {
+		return nil, fmt.Errorf("cfb: major version %d is incompatible with sector size %d", f.majorVersion, f.sectorSize)
 	}
 
 	fatCount := int(u32(raw, 44))     // total FAT sectors
@@ -456,7 +475,7 @@ func parse(raw []byte) (*File, error) {
 	count := len(dirData) / dirEntrySize
 	f.entries = make([]*entry, count)
 	for i := 0; i < count; i++ {
-		f.entries[i] = parseDirEntry(dirData[i*dirEntrySize : (i+1)*dirEntrySize])
+		f.entries[i] = parseDirEntry(dirData[i*dirEntrySize:(i+1)*dirEntrySize], f.majorVersion)
 	}
 	if count == 0 || f.entries[0] == nil {
 		return nil, fmt.Errorf("cfb: no directory entries found")
@@ -484,7 +503,7 @@ func parse(raw []byte) (*File, error) {
 }
 
 // parseDirEntry decodes one 128-byte directory entry.
-func parseDirEntry(d []byte) *entry {
+func parseDirEntry(d []byte, majorVersion uint16) *entry {
 	// Name: 64 bytes UTF-16LE, length (including null) in bytes at offset 64.
 	nameBytes := int(u16(d, 64))
 	if nameBytes > 64 {
@@ -502,10 +521,13 @@ func parseDirEntry(d []byte) *entry {
 		}
 	}
 
-	// High 32 bits of size (v4 only); for v3 they must be 0.
-	sizeLo := uint64(u32(d, 120))
-	sizeHi := uint64(u32(d, 124))
-	size := (sizeHi << 32) | sizeLo
+	// The upper DWORD of Stream Size exists only for CFB v4. In v3 these
+	// bytes are reserved and must be ignored. Real legacy Office files can
+	// contain non-zero garbage there.
+	size := uint64(u32(d, 120))
+	if majorVersion == 4 {
+		size |= uint64(u32(d, 124)) << 32
+	}
 
 	return &entry{
 		name:      name,

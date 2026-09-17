@@ -19,21 +19,37 @@ type VisualProperties struct {
 	HasRotation bool
 	RotationDeg float64
 
-	HasFillColor bool
-	FillColor    string
-	HasFill      bool
-	FillEnabled  bool
-	HasFillType  bool
-	FillType     uint32
+	HasFillColor     bool
+	FillColor        string
+	HasFill          bool
+	FillEnabled      bool
+	HasFillType      bool
+	FillType         uint32
+	HasFillBackColor bool
+	FillBackColor    string
+	HasFillAngle     bool
+	FillAngleDeg     float64
+	HasFillFocus     bool
+	FillFocus        int32
+	HasFillToLeft    bool
+	FillToLeft       float64
+	HasFillToTop     bool
+	FillToTop        float64
+	HasFillToRight   bool
+	FillToRight      float64
+	HasFillToBottom  bool
+	FillToBottom     float64
 
-	HasLineColor bool
-	LineColor    string
-	HasLineWidth bool
-	LineWidthEMU int64
-	HasLineDash  bool
-	LineDash     string
-	HasLine      bool
-	LineEnabled  bool
+	HasLineColor   bool
+	LineColor      string
+	HasLineWidth   bool
+	LineWidthEMU   int64
+	HasLineDash    bool
+	LineDash       string
+	HasLineOpacity bool
+	LineOpacity    float64
+	HasLine        bool
+	LineEnabled    bool
 
 	HasStartArrow    bool
 	StartArrow       ArrowKind
@@ -62,6 +78,8 @@ type VisualProperties struct {
 	HasPictureBiLevel    bool
 	PictureBiLevel       bool
 
+	HasShadow         bool
+	ShadowEnabled     bool
 	HasShadowColor    bool
 	ShadowColor       string
 	HasShadowOpacity  bool
@@ -99,6 +117,27 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 		case escher.PropFillColor:
 			out.HasFillColor = true
 			out.FillColor = resolve(v)
+		case escher.PropFillBackColor:
+			out.HasFillBackColor = true
+			out.FillBackColor = resolve(v)
+		case escher.PropFillAngle:
+			out.HasFillAngle = true
+			out.FillAngleDeg = float64(int32(v)) / 65536.0
+		case escher.PropFillFocus:
+			out.HasFillFocus = true
+			out.FillFocus = int32(v)
+		case escher.PropFillToLeft:
+			out.HasFillToLeft = true
+			out.FillToLeft = Fixed16ToFraction(v)
+		case escher.PropFillToTop:
+			out.HasFillToTop = true
+			out.FillToTop = Fixed16ToFraction(v)
+		case escher.PropFillToRight:
+			out.HasFillToRight = true
+			out.FillToRight = Fixed16ToFraction(v)
+		case escher.PropFillToBottom:
+			out.HasFillToBottom = true
+			out.FillToBottom = Fixed16ToFraction(v)
 		case escher.PropFillBooleans:
 			out.HasFill = true
 			valueBits := v & 0xFFFF
@@ -120,6 +159,9 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 		case escher.PropLineDashing:
 			out.HasLineDash = true
 			out.LineDash = DashName(v)
+		case escher.PropLineOpacity:
+			out.HasLineOpacity = true
+			out.LineOpacity = Fixed16ToFraction(v)
 		case escher.PropLineBooleans:
 			out.HasLine = true
 			out.LineEnabled = ((v >> 3) & 1) == 1
@@ -183,6 +225,14 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 				out.PictureBiLevel = valueBits&0x0002 != 0
 			}
 
+		case escher.PropShadowBooleans:
+			valueBits := v & 0xFFFF
+			useBits := (v >> 16) & 0xFFFF
+			// fShadow is conceptual PID 0x023E: value bit 14, use bit 30.
+			if useBits&(1<<14) != 0 {
+				out.HasShadow = true
+				out.ShadowEnabled = valueBits&(1<<14) != 0
+			}
 		case escher.PropShadowColor:
 			out.HasShadowColor = true
 			out.ShadowColor = resolve(v)
@@ -222,6 +272,34 @@ func MergeVisualProperties(base, incoming VisualProperties) VisualProperties {
 		base.HasFillType = true
 		base.FillType = incoming.FillType
 	}
+	if incoming.HasFillBackColor {
+		base.HasFillBackColor = true
+		base.FillBackColor = incoming.FillBackColor
+	}
+	if incoming.HasFillAngle {
+		base.HasFillAngle = true
+		base.FillAngleDeg = incoming.FillAngleDeg
+	}
+	if incoming.HasFillFocus {
+		base.HasFillFocus = true
+		base.FillFocus = incoming.FillFocus
+	}
+	if incoming.HasFillToLeft {
+		base.HasFillToLeft = true
+		base.FillToLeft = incoming.FillToLeft
+	}
+	if incoming.HasFillToTop {
+		base.HasFillToTop = true
+		base.FillToTop = incoming.FillToTop
+	}
+	if incoming.HasFillToRight {
+		base.HasFillToRight = true
+		base.FillToRight = incoming.FillToRight
+	}
+	if incoming.HasFillToBottom {
+		base.HasFillToBottom = true
+		base.FillToBottom = incoming.FillToBottom
+	}
 	if incoming.HasLineColor {
 		base.HasLineColor = true
 		base.LineColor = incoming.LineColor
@@ -233,6 +311,10 @@ func MergeVisualProperties(base, incoming VisualProperties) VisualProperties {
 	if incoming.HasLineDash {
 		base.HasLineDash = true
 		base.LineDash = incoming.LineDash
+	}
+	if incoming.HasLineOpacity {
+		base.HasLineOpacity = true
+		base.LineOpacity = incoming.LineOpacity
 	}
 	if incoming.HasLine {
 		base.HasLine = true
@@ -293,6 +375,10 @@ func MergeVisualProperties(base, incoming VisualProperties) VisualProperties {
 	if incoming.HasPictureBiLevel {
 		base.HasPictureBiLevel = true
 		base.PictureBiLevel = incoming.PictureBiLevel
+	}
+	if incoming.HasShadow {
+		base.HasShadow = true
+		base.ShadowEnabled = incoming.ShadowEnabled
 	}
 	if incoming.HasShadowColor {
 		base.HasShadowColor = true

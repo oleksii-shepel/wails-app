@@ -41,8 +41,12 @@ type Slide struct {
 	Index int
 	// SectionName is the organizational section this slide belongs to, if any.
 	SectionName string
-	// MasterID is the persist ID of the slide master this slide uses (legacy PPT).
+	// MasterID is the SlideIdentifier referenced by SlideAtom.masterID (legacy PPT).
+	// It is intentionally distinct from the master persist-directory RefID.
 	MasterID int
+	// MasterPersistID is the persist-directory RefID of the resolved legacy PPT master.
+	// It is zero when the source format does not expose that identity or the master is unresolved.
+	MasterPersistID int
 	// LayoutType is the slide layout type from SSlideLayoutAtom (legacy PPT).
 	// Values include "title", "titleBody", "blank", "titleOnly", etc.
 	LayoutType string
@@ -174,6 +178,9 @@ type Shape struct {
 	GeometryAdjustments []float64
 	// DrawingOrder preserves the source drawing order for SmartArt shapes.
 	DrawingOrder int
+	// HasTransform preserves a:xfrm provenance so placeholder inheritance can
+	// distinguish an absent transform from an authored zero-valued transform.
+	HasTransform bool
 	// RotationDeg is the clockwise shape rotation in degrees.
 	RotationDeg float64
 	// FlipH indicates horizontal mirroring of the shape.
@@ -182,7 +189,9 @@ type Shape struct {
 	FlipV bool
 	// TextAnchor is the vertical text anchoring mode from bodyPr ("t", "ctr", "b").
 	TextAnchor string
-	// TextInset* are the resolved text-box insets in EMU.
+	// TextInset* are the resolved text-box insets in EMU. HasTextInsets preserves
+	// source provenance so an explicit zero inset is not confused with "unset".
+	HasTextInsets      bool
 	TextInsetLeftEMU   int64
 	TextInsetRightEMU  int64
 	TextInsetTopEMU    int64
@@ -238,7 +247,10 @@ type Shape struct {
 	MediaPosterData []byte
 	// MediaPosterMIME is the MIME type for MediaPosterData.
 	MediaPosterMIME string
-	// Children holds nested shapes for Group shapes.
+	// GroupTransform preserves the canonical local-to-parent coordinate system for
+	// group shapes. Parsers populate it; layout owns materialization into slide space.
+	GroupTransform *VisualTransform
+	// Children holds nested shapes for Group shapes in their local coordinate space.
 	Children []*Shape
 	// LineColor is the stroke color for Connector shapes (sRGB hex).
 	LineColor string
@@ -309,6 +321,9 @@ type Shape struct {
 	// SmartArtNodeID is the data-model node identifier for shapes produced from
 	// a SmartArt diagram. It is used to resolve connections between diagram nodes.
 	SmartArtNodeID string
+	// SmartArtPicturePlaceholder marks an unpopulated SmartArt picture node.
+	// PowerPoint paints a picture-placeholder glyph inside this geometry.
+	SmartArtPicturePlaceholder bool
 
 	// SmartArtConnections lists the data-model node IDs that are children of this
 	// SmartArt shape, derived from dgm:cxn connections.
@@ -435,6 +450,8 @@ type Paragraph struct {
 	FontAlign string // "t", "ctr", "base", "b", ""
 	// BulletChar is the explicit bullet character (e.g. "●"), or "" if none.
 	BulletChar string
+	// BulletNone records an explicit no-bullet setting so inherited bullets do not leak back in.
+	BulletNone bool
 	// AutoNum is true when the paragraph uses automatic numbering (1. 2. 3. etc.).
 	AutoNum bool
 	// AutoNumType is the numbering style (e.g. "arabicPeriod", "arabicParenR").
@@ -445,6 +462,9 @@ type Paragraph struct {
 	BulletColor string
 	// BulletFontFamily is the resolved list marker font family.
 	BulletFontFamily string
+	// BulletFontTx means a:buFontTx: the marker must use the effective paragraph text font,
+	// overriding any bullet font inherited from layout/master.
+	BulletFontTx bool
 	// BulletSize is the resolved list marker size in hundredths of a point.
 	BulletSize int
 	// BulletSizePct is the resolved list marker size as a percentage in
@@ -460,8 +480,12 @@ type Paragraph struct {
 	// Used when spcPct is specified instead of spcPts. Non-zero means percentage-based spacing is set.
 	SpaceBeforePct int
 	SpaceAfterPct  int
-	// LineSpacingPct is the paragraph line spacing in thousandths of a percent when resolved.
+	// LineSpacingPct is paragraph line spacing in thousandths of a percent.
+	// LineSpacingPt is absolute line spacing in hundredths of a point (DrawingML spcPts).
+	// Only one form is active at a time; preserving both forms prevents the cascade
+	// from discarding an authored absolute line box.
 	LineSpacingPct int
+	LineSpacingPt  int
 	HasLineSpacing bool
 	Runs           []*Run
 }
@@ -488,10 +512,15 @@ type Run struct {
 	SmallCaps    bool
 	Superscript  bool
 	Subscript    bool
-	FontSize     int // hundredths of a point (0 = inherited)
-	FontFamily   string
-	Color        string // sRGB hex, e.g. "FF0000", or "" for inherited
-	Highlight    string // sRGB hex highlight color, or "" for none
+	// BaselineShiftPct preserves the authored baseline displacement as a percentage
+	// of the run font size. Positive values raise text; negative values lower it.
+	BaselineShiftPct float64
+	FontSize         int // hundredths of a point (0 = inherited)
+	CharSpacing      int // hundredths of a point; DrawingML rPr@spc
+	Kern             int // hundredths of a point; DrawingML rPr@kern threshold
+	FontFamily       string
+	Color            string // sRGB hex, e.g. "FF0000", or "" for inherited
+	Highlight        string // sRGB hex highlight color, or "" for none
 	// Effects holds DrawingML text effects such as shadow/glow/reflection.
 	Effects drawing.EffectList
 }

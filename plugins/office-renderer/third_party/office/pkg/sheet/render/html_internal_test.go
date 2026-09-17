@@ -777,3 +777,67 @@ func TestConditionalFormattingExpressionPreservesAbsoluteReferences(t *testing.T
 		t.Fatal("absolute $A$4 reference must remain anchored while evaluating C6")
 	}
 }
+
+func TestCellDisplayGeometryUsesMergedVisibleWidth(t *testing.T) {
+	sheet := &resolve.Sheet{
+		ColumnWidths: map[int]float64{1: 4, 2: 6, 3: 8},
+		HiddenCols:   map[int]bool{2: true},
+	}
+	merged := &resolve.MergedCell{TopRow: 1, LeftCol: 1, BottomRow: 1, RightCol: 3}
+	got := buildCellDisplayGeometry(sheet, map[int]*resolve.Cell{}, 1, merged)
+	want := worksheetColumnWidthPx(4) + worksheetColumnWidthPx(8)
+	if got.widthPx != want {
+		t.Fatalf("merged display width = %d, want %d", got.widthPx, want)
+	}
+	if !got.merged {
+		t.Fatal("merged anchor must be marked as merged display geometry")
+	}
+}
+
+func TestNumericOverflowHashesUseEffectiveCellBox(t *testing.T) {
+	cell := &resolve.Cell{
+		Kind:     resolve.CellNumber,
+		NumValue: 123456789,
+		Style:    resolve.CellStyle{FontSizePt: 11},
+	}
+	if !shouldRenderNumericOverflowHashes(cell, "123,456,789", cellDisplayGeometry{widthPx: 35, hasExplicitGeometry: true}) {
+		t.Fatal("clearly over-wide numeric display must use Excel overflow hashes")
+	}
+	if shouldRenderNumericOverflowHashes(cell, "123", cellDisplayGeometry{widthPx: 70, hasExplicitGeometry: true}) {
+		t.Fatal("numeric display that fits must remain visible")
+	}
+}
+
+func TestTextOverflowRequiresEmptyAdjacentCell(t *testing.T) {
+	cell := &resolve.Cell{Kind: resolve.CellString, StrValue: "long label"}
+	if !shouldAllowTextOverflow(cell, cell.StrValue, cellDisplayGeometry{widthPx: 35, hasExplicitGeometry: true}) {
+		t.Fatal("left-aligned text should be allowed to overflow into an empty neighbor")
+	}
+	if shouldAllowTextOverflow(cell, cell.StrValue, cellDisplayGeometry{widthPx: 35, hasExplicitGeometry: true, nextCellOccupied: true}) {
+		t.Fatal("occupied neighbor must clip text overflow")
+	}
+	cell.Style.WrapText = true
+	if shouldAllowTextOverflow(cell, cell.StrValue, cellDisplayGeometry{widthPx: 35, hasExplicitGeometry: true}) {
+		t.Fatal("wrapped text must stay inside its own cell box")
+	}
+}
+
+func TestDrawingImageTransformStylePreservesRotationAndFlips(t *testing.T) {
+	style := drawingImageTransformStyle(&resolve.DrawingImage{RotationDeg: 90, FlipH: true, FlipV: true})
+	for _, want := range []string{"transform-origin:center center", "rotate(90.0000deg)", "scaleX(-1)", "scaleY(-1)"} {
+		if !strings.Contains(style, want) {
+			t.Fatalf("picture transform style %q missing %q", style, want)
+		}
+	}
+}
+
+func TestNormalizeDrawingSVGSizeUsesActualDrawingBounds(t *testing.T) {
+	got := normalizeDrawingSVGSize(`<svg xmlns="http://www.w3.org/2000/svg" width="812" height="457" viewBox="0 0 812 457"><rect/></svg>`, 630, 229)
+	if !strings.Contains(got, `width="630"`) || !strings.Contains(got, `height="229"`) {
+		t.Fatalf("normalized chart SVG size = %s", got)
+	}
+	got = normalizeDrawingSVGSize(`<svg viewBox="0 0 600 400"></svg>`, 320, 180)
+	if !strings.Contains(got, `width="320"`) || !strings.Contains(got, `height="180"`) {
+		t.Fatalf("chart SVG without authored dimensions = %s", got)
+	}
+}

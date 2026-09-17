@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	presentationir "office/pkg/presentation/ir"
+	presparts "office/pkg/presentation/parsers/ooxml/parts"
 )
 
 func TestConvertNilPresentation(t *testing.T) {
@@ -291,5 +292,35 @@ func TestConvertGroupAnimations(t *testing.T) {
 	}
 	if len(slide.AnimationTriggers) != 1 {
 		t.Fatalf("expected 1 trigger shape, got %v", slide.AnimationTriggers)
+	}
+}
+func TestLayoutForSlideDoesNotBorrowFirstMasterLayout(t *testing.T) {
+	masterA := &presentationir.SlideMaster{Name: "A"}
+	layoutA := &presentationir.SlideLayout{Type: "blank", Master: masterA}
+	masterA.Layouts = []*presentationir.SlideLayout{layoutA}
+	masterB := &presentationir.SlideMaster{Name: "B"}
+	layoutB := &presentationir.SlideLayout{Type: "blank", Master: masterB}
+	masterB.Layouts = []*presentationir.SlideLayout{layoutB}
+
+	c := &converter{pkg: &presparts.Package{}}
+	c.convertSlideMasters([]*presentationir.SlideMaster{masterA, masterB})
+	if got := c.layoutForSlide(&presentationir.Slide{LayoutType: "blank"}); got != nil {
+		t.Fatalf("unowned slide borrowed layout %q", got.PartName)
+	}
+	if got := c.layoutForSlide(&presentationir.Slide{Master: masterB, LayoutType: "blank"}); got != c.layoutParts[layoutB] {
+		t.Fatalf("master-owned slide layout = %p, want master B layout %p", got, c.layoutParts[layoutB])
+	}
+}
+
+func TestLayoutForSlideUsesExactLayoutOwnershipBeforeType(t *testing.T) {
+	master := &presentationir.SlideMaster{Name: "M"}
+	first := &presentationir.SlideLayout{Type: "blank", Name: "first", Master: master}
+	second := &presentationir.SlideLayout{Type: "blank", Name: "second", Master: master}
+	master.Layouts = []*presentationir.SlideLayout{first, second}
+	c := &converter{pkg: &presparts.Package{}}
+	c.convertSlideMasters([]*presentationir.SlideMaster{master})
+	got := c.layoutForSlide(&presentationir.Slide{Master: master, Layout: second, LayoutType: "blank"})
+	if got != c.layoutParts[second] {
+		t.Fatalf("layout = %p, want exact second layout %p", got, c.layoutParts[second])
 	}
 }

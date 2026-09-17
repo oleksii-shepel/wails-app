@@ -12,6 +12,7 @@ import (
 	"office/pkg/ooxml/drawingxml"
 	"office/pkg/ooxml/fontdata"
 	"office/pkg/ooxml/media"
+	prel "office/pkg/presentation/parsers/ooxml/relationship"
 )
 
 // Scene3D stores a subset of DrawingML scene3d camera and lighting metadata.
@@ -67,22 +68,22 @@ const (
 	transitionalOfficeRelBase = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
 	strictOfficeRelBase       = "http://purl.oclc.org/ooxml/officeDocument/relationships/"
 
-	relTypeOfficeDocument = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
-	relTypeSlide          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
-	relTypeSlideMaster    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
-	relTypeSlideLayout    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
-	relTypeTheme          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
-	relTypeThemeOverride  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/themeOverride"
-	relTypeFont           = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
-	relTypeImage          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
-	relTypeAudio          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
-	relTypeVideo          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
-	relTypeNotesMaster    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster"
-	relTypeNotesSlide     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide"
-	relTypeComments       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
-	relTypeCommentAuthors = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors"
-	relTypeHyperlink      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
-	relTypeTableStyles    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles"
+	relTypeOfficeDocument = prel.OfficeDocument
+	relTypeSlide          = prel.Slide
+	relTypeSlideMaster    = prel.SlideMaster
+	relTypeSlideLayout    = prel.SlideLayout
+	relTypeTheme          = prel.Theme
+	relTypeThemeOverride  = prel.ThemeOverride
+	relTypeFont           = prel.Font
+	relTypeImage          = prel.Image
+	relTypeAudio          = prel.Audio
+	relTypeVideo          = prel.Video
+	relTypeNotesMaster    = prel.NotesMaster
+	relTypeNotesSlide     = prel.NotesSlide
+	relTypeComments       = prel.Comments
+	relTypeCommentAuthors = prel.CommentAuthors
+	relTypeHyperlink      = prel.Hyperlink
+	relTypeTableStyles    = prel.TableStyles
 
 	drawingGraphicDataURIChartTransitional   = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 	drawingGraphicDataURIChartStrict         = "http://purl.oclc.org/ooxml/drawingml/chart"
@@ -93,21 +94,13 @@ const (
 	drawingGraphicDataURIOLETransitional     = "http://schemas.openxmlformats.org/presentationml/2006/ole"
 	drawingGraphicDataURIOLEStrict           = "http://purl.oclc.org/ooxml/presentationml/ole"
 
-	relTypeOLEObject = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
-	relTypePackage   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
+	relTypeOLEObject = prel.OLEObject
+	relTypePackage   = prel.Package
 )
 
-func canonicalRelationshipType(value string) string {
-	value = strings.TrimSpace(value)
-	if strings.HasPrefix(value, strictOfficeRelBase) {
-		return transitionalOfficeRelBase + strings.TrimPrefix(value, strictOfficeRelBase)
-	}
-	return value
-}
+func canonicalRelationshipType(value string) string { return prel.CanonicalType(value) }
 
-func relationshipTypeIs(value, expected string) bool {
-	return canonicalRelationshipType(value) == expected
-}
+func relationshipTypeIs(value, expected string) bool { return prel.Is(value, expected) }
 
 // Package contains the typed PresentationML parts resolved from an OOXML package.
 type Package struct {
@@ -227,6 +220,7 @@ type Presentation struct {
 	SlideIDs          []IDRef            `xml:"sldIdLst>sldId"`
 	Sections          []Section          `xml:"sectionLst>section"`
 	EmbeddedFontDecls []EmbeddedFontDecl `xml:"embeddedFontLst>embeddedFont"`
+	DefaultTextStyle  *DMLTextListStyle  `xml:"defaultTextStyle"`
 }
 
 // SlideSize holds the slide canvas dimensions in EMU.
@@ -2935,7 +2929,7 @@ type Blip struct {
 	Lum          *BlipLum         `xml:"lum"`
 	HSL          *BlipHSL         `xml:"hsl"`
 	AlphaMod     *BlipAmount      `xml:"alphaMod"`
-	AlphaModFix  *BlipAmount      `xml:"alphaModFix"`
+	AlphaModFix  *BlipAlphaModFix `xml:"alphaModFix"`
 	AlphaOff     *BlipAmount      `xml:"alphaOff"`
 	AlphaRepl    *BlipAlphaRepl   `xml:"alphaRepl"`
 	AlphaBiLevel *BlipBiLevel     `xml:"alphaBiLevel"`
@@ -2964,6 +2958,20 @@ type BlipHSL struct {
 
 type BlipAmount struct {
 	Amt int `xml:"amt,attr,omitempty"`
+}
+
+// BlipAlphaModFix keeps presence of the optional amt attribute distinct from
+// an authored zero. PowerPoint emits <a:alphaModFix/> for ordinary pictures;
+// that shorthand is a no-op (100%), not fully transparent (0%).
+type BlipAlphaModFix struct {
+	Amt *int `xml:"amt,attr"`
+}
+
+func (a *BlipAlphaModFix) amount() int {
+	if a == nil || a.Amt == nil {
+		return 100000
+	}
+	return *a.Amt
 }
 
 type BlipAlphaRepl struct {
@@ -3023,7 +3031,7 @@ func (b *Blip) DrawingEffects(themeColors map[string]string) []drawing.Effect {
 		effects = append(effects, drawing.AlphaMod{Amount: b.AlphaMod.Amt})
 	}
 	if b.AlphaModFix != nil {
-		effects = append(effects, drawing.AlphaModFix{Amount: b.AlphaModFix.Amt})
+		effects = append(effects, drawing.AlphaModFix{Amount: b.AlphaModFix.amount()})
 	}
 	if b.AlphaOff != nil {
 		effects = append(effects, drawing.AlphaOff{Amount: b.AlphaOff.Amt})
@@ -3264,6 +3272,7 @@ type DMLTextStyleLevel struct {
 	BuClr       *ColorRef             `xml:"buClr>srgbClr"`
 	BuClrScheme *drawingxml.SchemeClr `xml:"buClr>schemeClr"`
 	BuFont      *BuFont               `xml:"buFont"`
+	BuFontTx    *struct{}             `xml:"buFontTx"`
 	BuSzPts     *BuSzPts              `xml:"buSzPts"`
 	BuSzPct     *BuSzPct              `xml:"buSzPct"`
 	TabStops    []TabStop             `xml:"tabLst>tab"`
@@ -3276,8 +3285,8 @@ type DMLParagraph struct {
 	Fields     []DMLField    `xml:"fld"`
 	Breaks     []DMLBreak    `xml:"br"`
 	Properties *DMLParaProps `xml:"pPr"`
-	// EndParaRPr carries default character properties for this paragraph
-	// (used when runs lack explicit formatting).
+	// EndParaRPr carries character properties for the paragraph end mark.
+	// It is not a default for ordinary runs; pPr/defRPr owns that role.
 	EndParaRPr *DMLRunPr `xml:"endParaRPr"`
 	// Inlines preserves ordered run / field / math / break content from UnmarshalXML.
 	// When non-nil the resolver uses this slice instead of Runs + Fields.
@@ -3407,9 +3416,14 @@ type DMLParaProps struct {
 	BuClr       *ColorRef             `xml:"buClr>srgbClr"`
 	BuClrScheme *drawingxml.SchemeClr `xml:"buClr>schemeClr"`
 	BuFont      *BuFont               `xml:"buFont"`
+	BuFontTx    *struct{}             `xml:"buFontTx"`
 	BuSzPts     *BuSzPts              `xml:"buSzPts"`
 	BuSzPct     *BuSzPct              `xml:"buSzPct"`
 	TabStops    []TabStop             `xml:"tabLst>tab"`
+	// DefRPr is the paragraph-local default character formatting. It is the
+	// authoritative source for runs that do not carry their own rPr; dropping
+	// it makes those runs incorrectly fall through to layout/master sizes.
+	DefRPr *DMLRunPr `xml:"defRPr"`
 }
 
 // TabStop is a custom tab stop within a paragraph.
@@ -3470,7 +3484,9 @@ type DMLRun struct {
 // DMLRunPr holds run-level formatting.
 type DMLRunPr struct {
 	Lang            string                `xml:"lang,attr,omitempty"`
-	FontSize        int                   `xml:"sz,attr,omitempty"` // hundredths of a point
+	FontSize        int                   `xml:"sz,attr,omitempty"`   // hundredths of a point
+	Spacing         *int                  `xml:"spc,attr,omitempty"`  // hundredths of a point between characters
+	Kern            *int                  `xml:"kern,attr,omitempty"` // minimum font size for kerning, hundredths of a point
 	Bold            *bool                 `xml:"b,attr,omitempty"`
 	Italic          *bool                 `xml:"i,attr,omitempty"`
 	Underline       string                `xml:"u,attr,omitempty"`

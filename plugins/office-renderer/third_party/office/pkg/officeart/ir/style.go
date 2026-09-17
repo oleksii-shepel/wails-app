@@ -25,6 +25,24 @@ type GradientFill struct {
 	Type  string
 	Angle float64
 	Stops []GradientStop
+
+	// ScaleAngleWithAspect preserves msofillShadeScale semantics until physical layout,
+	// where the final painted width/height are known.
+	ScaleAngleWithAspect bool
+
+	// LegacyShadeType preserves the originating MSOFILLTYPE shade semantic
+	// (shade, shadeCenter, shadeShape, shadeScale, shadeTitle) so host-specific
+	// behavior is not lost when several variants share one canonical geometry.
+	LegacyShadeType string
+
+	// FillTo* are normalized OfficeArt center-rectangle insets. They are
+	// preserved separately from geometry because radial/concentric fills use
+	// them to position the gradient focus inside the painted shape.
+	HasFillTo    bool
+	FillToLeft   float64
+	FillToTop    float64
+	FillToRight  float64
+	FillToBottom float64
 }
 
 type GradientStop struct {

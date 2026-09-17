@@ -13,7 +13,8 @@ import (
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/fontdata"
 	"office/pkg/ooxml/htmlasset"
-	"office/pkg/presentation/parsers/ooxml/resolve"
+	ir "office/pkg/presentation/ir"
+	playout "office/pkg/presentation/layout"
 	drawingcss "office/pkg/render/drawingcss"
 )
 
@@ -37,6 +38,14 @@ type HTMLOptions struct {
 	ExternalImageDir string
 	FontMode         HTMLFontMode
 	ExternalFontDir  string
+	// IncludeNotes exposes speaker notes as an inspection panel after each slide.
+	// Normal presentation rendering intentionally leaves auxiliary stories out.
+	IncludeNotes bool
+	// IncludeComments exposes comments as an inspection panel after each slide.
+	IncludeComments bool
+	// EnablePlayback opts into slideshow-style playback. Normal HTML is a document
+	// view and renders every slide even when the source contains transitions or animations.
+	EnablePlayback bool
 }
 
 type htmlRenderContext struct {
@@ -47,6 +56,7 @@ type htmlRenderContext struct {
 	nextMediaIndex   int
 	nextFontIndex    int
 	nextEffectIndex  int
+	nextWordArtIndex int
 	animShapeIDs     map[int]struct{}
 	slideNumber      int    // 1-based current slide number for field rendering
 	defaultTextColor string // sRGB hex fallback when run.Color is empty (theme dk1)
@@ -54,14 +64,14 @@ type htmlRenderContext struct {
 
 // HTML renders a resolved Presentation as an HTML document.
 // Each slide is rendered as a positioned canvas div.
-func HTML(pres *resolve.Presentation) (string, error) {
+func HTML(pres *ir.Presentation) (string, error) {
 	html, _, err := HTMLWithOptions(pres, HTMLOptions{})
 	return html, err
 }
 
 // HTMLWithOptions renders a resolved Presentation as an HTML document and
 // returns any sidecar assets generated for the selected image mode.
-func HTMLWithOptions(pres *resolve.Presentation, opts HTMLOptions) (string, []HTMLAsset, error) {
+func HTMLWithOptions(pres *ir.Presentation, opts HTMLOptions) (string, []HTMLAsset, error) {
 	if pres == nil {
 		return "", nil, fmt.Errorf("presentation render: presentation is nil")
 	}
@@ -78,22 +88,27 @@ func HTMLWithOptions(pres *resolve.Presentation, opts HTMLOptions) (string, []HT
 		slideH = 540 // 7.5 inch default
 	}
 	ctx := newHTMLRenderContext(pres, opts)
-	playbackEnabled := presentationNeedsPlayback(pres)
+	physicalSlides := make([]playout.PhysicalSlidePlan, 0, len(pres.Slides))
+	for _, slide := range pres.Slides {
+		physicalSlides = append(physicalSlides, playout.MaterializePhysicalSlide(slide))
+	}
+	playbackEnabled := opts.EnablePlayback && physicalPresentationNeedsPlayback(physicalSlides)
+	behaviorRuntimeEnabled := playbackEnabled || physicalPresentationNeedsBehaviorRuntime(physicalSlides)
 
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n<html>\n<head>\n")
 	b.WriteString("<meta charset=\"utf-8\">\n")
 	b.WriteString("<style>\n")
 	renderEmbeddedFontCSS(&b, pres, ctx)
-	fmt.Fprintf(&b, slideCSS, slideW, slideH, slideW/slideH)
-	if playbackEnabled {
+	fmt.Fprintf(&b, slideCSS, slideW, slideH, slideW/slideH, slideW, slideH)
+	if behaviorRuntimeEnabled {
 		fmt.Fprintf(&b, playbackCSS, slideW/slideH)
 	}
 	if len(pres.Diagnostics) > 0 {
 		b.WriteString(diagnosticsCSS)
 	}
 	b.WriteString("</style>\n")
-	if playbackEnabled {
+	if behaviorRuntimeEnabled {
 		b.WriteString("<script>\n")
 		b.WriteString(playbackScript)
 		b.WriteString("\n</script>\n")
@@ -101,16 +116,17 @@ func HTMLWithOptions(pres *resolve.Presentation, opts HTMLOptions) (string, []HT
 	b.WriteString("</head>\n<body>\n")
 	renderDiagnostics(&b, pres.Diagnostics)
 
-	for _, slide := range pres.Slides {
-		ctx.slideNumber = slide.Index + 1
-		renderSlide(&b, slide, slideW, slideH, ctx)
+	for i := range physicalSlides {
+		physicalSlide := &physicalSlides[i]
+		ctx.slideNumber = physicalSlide.Index + 1
+		renderSlide(&b, physicalSlide, slideW, slideH, ctx)
 	}
 
 	b.WriteString("</body>\n</html>")
 	return b.String(), ctx.assetsCopy(), nil
 }
 
-func newHTMLRenderContext(pres *resolve.Presentation, opts HTMLOptions) *htmlRenderContext {
+func newHTMLRenderContext(pres *ir.Presentation, opts HTMLOptions) *htmlRenderContext {
 	ctx := &htmlRenderContext{
 		embeddedFamilies: map[string]struct{}{},
 		options:          opts.normalized(),
@@ -119,11 +135,8 @@ func newHTMLRenderContext(pres *resolve.Presentation, opts HTMLOptions) *htmlRen
 	if pres == nil {
 		return ctx
 	}
-	if pres.Theme != nil {
-		if dk1, ok := pres.Theme.ColorScheme["dk1"]; ok && dk1 != "" {
-			ctx.defaultTextColor = dk1
-		}
-	}
+	presentationVisual := playout.ResolvePresentationVisualPlan(pres)
+	ctx.defaultTextColor = presentationVisual.DefaultTextColor
 	for _, font := range pres.EmbeddedFonts {
 		if font == nil {
 			continue
@@ -159,6 +172,9 @@ func (opts HTMLOptions) normalized() HTMLOptions {
 		ExternalImageDir: imageDir,
 		FontMode:         fontMode,
 		ExternalFontDir:  fontDir,
+		IncludeNotes:     opts.IncludeNotes,
+		IncludeComments:  opts.IncludeComments,
+		EnablePlayback:   opts.EnablePlayback,
 	}
 }
 
@@ -186,102 +202,74 @@ func (ctx *htmlRenderContext) assetsCopy() []HTMLAsset {
 	return assets
 }
 
-func renderSlide(b *strings.Builder, slide *resolve.Slide, slideW, slideH float64, ctx *htmlRenderContext) {
+func renderSlide(b *strings.Builder, physicalSlide *playout.PhysicalSlidePlan, slideW, slideH float64, ctx *htmlRenderContext) {
+	if physicalSlide == nil {
+		return
+	}
 	if ctx != nil {
-		ctx.animShapeIDs = animationTargetShapeIDs(slide)
+		ctx.animShapeIDs = physicalSlide.Playback.AnimationTargetShapeIDs
 	}
-	fmt.Fprintf(b, "<div class=\"slide\" id=\"slide-%d\"", slide.Index+1)
-	if slide.SectionName != "" {
-		fmt.Fprintf(b, " data-section=%q", slide.SectionName)
+	fmt.Fprintf(b, "<div class=\"slide\" id=\"slide-%d\"", physicalSlide.Index+1)
+	if physicalSlide.SectionName != "" {
+		fmt.Fprintf(b, " data-section=%q", physicalSlide.SectionName)
 	}
-	if slide.Transition != nil {
-		tr := slide.Transition
-		if tr.Type != "" {
-			fmt.Fprintf(b, " data-transition=%q", tr.Type)
-		}
-		if tr.Spd != "" {
-			fmt.Fprintf(b, " data-transition-spd=%q", tr.Spd)
-		}
-		if !tr.AdvClick {
-			b.WriteString(" data-transition-adv-click=\"0\"")
-		}
-		if tr.AdvTmMs > 0 {
-			fmt.Fprintf(b, " data-transition-adv-tm=\"%d\"", tr.AdvTmMs)
-		}
+	playback := physicalSlide.Playback
+	if playback.TransitionType != "" {
+		fmt.Fprintf(b, " data-transition=%q", playback.TransitionType)
 	}
-	if maxStep := slideMaxAnimStep(slide); maxStep > 0 {
-		fmt.Fprintf(b, " data-max-anim-step=%q", strconv.Itoa(maxStep))
+	if playback.TransitionSpeed != "" {
+		fmt.Fprintf(b, " data-transition-spd=%q", playback.TransitionSpeed)
 	}
-	if len(slide.AnimationTimeline) > 0 {
+	if !playback.AdvanceClick {
+		b.WriteString(" data-transition-adv-click=\"0\"")
+	}
+	if playback.AdvanceTimeMs > 0 {
+		fmt.Fprintf(b, " data-transition-adv-tm=\"%d\"", playback.AdvanceTimeMs)
+	}
+	if playback.MaxAnimationStep > 0 {
+		fmt.Fprintf(b, " data-max-anim-step=%q", strconv.Itoa(playback.MaxAnimationStep))
+	}
+	if playback.HasAnimationTimeline() {
 		b.WriteString(" data-has-anim-timeline=\"1\"")
 	}
 	b.WriteString(">\n")
-	fmt.Fprintf(b, "<div class=\"slide-num\">Slide %d</div>\n", slide.Index+1)
+	fmt.Fprintf(b, "<div class=\"slide-num\">Slide %d</div>\n", physicalSlide.Index+1)
 	bgStyle := ""
-	if slide.BgColor != "" {
-		bgStyle = fmt.Sprintf(" style=\"background-color:#%s\"", slide.BgColor)
+	if physicalSlide.Background.Color != "" {
+		bgStyle = fmt.Sprintf(" style=\"background-color:#%s\"", physicalSlide.Background.Color)
 	}
 	fmt.Fprintf(b, "<div class=\"slide-scroll\"><div class=\"canvas\"%s>\n", bgStyle)
-	if slide.BgFill != nil && drawingcss.NeedsSVGDefinition(slide.BgFill) {
-		fillDefID := fmt.Sprintf("slide-bg-fill-%d", slide.Index)
+	if physicalSlide.Background.Fill != nil && drawingcss.NeedsSVGDefinition(physicalSlide.Background.Fill) {
+		fillDefID := fmt.Sprintf("slide-bg-fill-%d", physicalSlide.Index)
 		bgWEMU := slideW * 12700.0
 		bgHEMU := slideH * 12700.0
-		fmt.Fprintf(b, "<svg class=\"slide-background\" style=\"position:absolute;inset:0;width:100%%;height:100%%;z-index:0\" viewBox=\"0 0 %.0f %.0f\" preserveAspectRatio=\"none\">", bgWEMU, bgHEMU)
-		fmt.Fprintf(b, "<defs>%s</defs>", svgFillDefinition(slide.BgFill, slide.BgPictureTile, fillDefID, bgWEMU, bgHEMU, 1.0))
+		fmt.Fprintf(b, "<svg class=\"slide-background\" style=\"position:absolute;inset:0;width:100%%;height:100%%;z-index:%d\" viewBox=\"0 0 %.0f %.0f\" preserveAspectRatio=\"none\">", physicalSlide.Background.ZIndex, bgWEMU, bgHEMU)
+		fmt.Fprintf(b, "<defs>%s</defs>", svgFillDefinition(physicalSlide.Background.Fill, physicalSlide.Background.PictureTile, fillDefID, bgWEMU, bgHEMU, 1.0))
 		fmt.Fprintf(b, "<rect width=\"100%%\" height=\"100%%\" fill=\"url(#%s)\"/></svg>\n", fillDefID)
 	}
 
-	for _, shape := range slide.Shapes {
-		renderShape(b, shape, slideW, slideH, ctx)
-	}
+	// Layout owns the complete slide paint sequence. The slide-number wrapper is
+	// inserted inline and therefore does not regroup or reorder physical paint.
+	renderPhysicalSlidePaintOrder(b, physicalSlide, slideW, slideH, ctx)
 
 	b.WriteString("</div></div>\n")
 
-	// Render headers/footers if present
-	if slide.Header != nil || slide.Footer != nil || slide.DateTime != nil || slide.SlideNumber != nil {
-		b.WriteString("<div class=\"headers-footers\">\n")
-		if slide.Header != nil {
-			b.WriteString("<div class=\"header\">\n")
-			renderShape(b, slide.Header, slideW, slideH, ctx)
-			b.WriteString("</div>\n")
-		}
-		if slide.Footer != nil {
-			b.WriteString("<div class=\"footer\">\n")
-			renderShape(b, slide.Footer, slideW, slideH, ctx)
-			b.WriteString("</div>\n")
-		}
-		if slide.DateTime != nil {
-			b.WriteString("<div class=\"datetime\">\n")
-			renderShape(b, slide.DateTime, slideW, slideH, ctx)
-			b.WriteString("</div>\n")
-		}
-		if slide.SlideNumber != nil {
-			b.WriteString("<div class=\"slide-number\">\n")
-			renderShape(b, slide.SlideNumber, slideW, slideH, ctx)
-			b.WriteString("</div>\n")
-		}
-		b.WriteString("</div>\n")
-	}
-
-	// Render notes slide if present
-	if slide.Notes != nil && len(slide.Notes.Shapes) > 0 {
+	// Auxiliary slide surfaces are physically materialized by layout and remain opt-in.
+	if ctx != nil && ctx.options.IncludeNotes && physicalSlide.Auxiliary.Notes != nil && len(physicalSlide.Auxiliary.Notes.Content) > 0 {
 		notesStyle := ""
-		if slide.Notes.BgColor != "" {
-			notesStyle = fmt.Sprintf(" style=\"background-color:#%s\"", slide.Notes.BgColor)
+		if physicalSlide.Auxiliary.Notes.BackgroundColor != "" {
+			notesStyle = fmt.Sprintf(" style=\"background-color:#%s\"", physicalSlide.Auxiliary.Notes.BackgroundColor)
 		}
 		fmt.Fprintf(b, "<div class=\"notes\"%s>\n", notesStyle)
-		for _, shape := range slide.Notes.Shapes {
-			renderShape(b, shape, slideW, slideH, ctx)
-		}
+		renderPhysicalVisuals(b, physicalSlide.Auxiliary.Notes.Content, slideW, slideH, ctx)
 		b.WriteString("</div>\n")
 	}
 
-	// Render comments if present
-	if len(slide.Comments) > 0 {
-		renderSlideComments(b, slide.Comments)
+	if ctx != nil && ctx.options.IncludeComments && len(physicalSlide.Auxiliary.Comments) > 0 {
+		renderPhysicalSlideComments(b, physicalSlide.Auxiliary.Comments)
 	}
-	if len(slide.AnimationTimeline) > 0 {
-		if raw, err := json.Marshal(slide.AnimationTimeline); err == nil {
+	if playback.HasAnimationTimeline() {
+		if raw, err := json.Marshal(playback.AnimationTimeline); err == nil {
 			payload := strings.ReplaceAll(string(raw), "<", "\\u003c")
 			fmt.Fprintf(b, "<script type=\"application/json\" class=\"ppt-animation-timeline\">%s</script>\n", payload)
 		}
@@ -290,7 +278,7 @@ func renderSlide(b *strings.Builder, slide *resolve.Slide, slideW, slideH float6
 	b.WriteString("</div>\n")
 }
 
-func renderSlideComments(b *strings.Builder, comments []*resolve.Comment) {
+func renderPhysicalSlideComments(b *strings.Builder, comments []playout.PhysicalCommentPlan) {
 	b.WriteString("<aside class=\"comments\">\n")
 	for _, c := range comments {
 		b.WriteString("<div class=\"comment\">\n")
@@ -308,10 +296,125 @@ func renderSlideComments(b *strings.Builder, comments []*resolve.Comment) {
 	b.WriteString("</aside>\n")
 }
 
-func renderShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
+func renderVisualShapes(b *strings.Builder, shapes []*ir.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
+	physical := playout.MaterializePhysicalVisualTree(shapes)
+	renderPhysicalVisuals(b, physical, slideW, slideH, ctx)
+}
+
+func renderPhysicalVisuals(b *strings.Builder, physical []playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	for i := range physical {
+		renderPhysicalVisual(b, &physical[i], slideW, slideH, ctx)
+	}
+}
+
+func renderPhysicalSlidePaintOrder(b *strings.Builder, slide *playout.PhysicalSlidePlan, slideW, slideH float64, ctx *htmlRenderContext) {
+	if slide == nil {
+		return
+	}
+	for i := range slide.PaintOrder {
+		item := &slide.PaintOrder[i]
+		// The wrapper is semantic/CSS compatibility only. It is emitted exactly
+		// where the slide-number visual occurs in the physical paint sequence,
+		// so it cannot move that visual above later authored paint.
+		if slide.SlideNumber != nil && item.SourceShape == slide.SlideNumber.SourceShape {
+			b.WriteString("<div class=\"slide-number\">\n")
+			renderPhysicalVisual(b, item, slideW, slideH, ctx)
+			b.WriteString("</div>\n")
+			continue
+		}
+		renderPhysicalVisual(b, item, slideW, slideH, ctx)
+	}
+}
+
+// renderPhysicalVisual serializes explicit ancestor clips already resolved by
+// layout. Each clip is a full-slide wrapper, so nested wrappers naturally
+// intersect without asking HTML to reconstruct group hierarchy. The wrapper
+// owns the paint-layer z-index; the leaf remains positioned in slide space.
+func renderPhysicalVisual(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	if item == nil || item.SourceShape == nil || item.Drawing == nil {
+		return
+	}
+	// Layout owns clip visibility. A fully clipped visual remains in the physical
+	// scene for identity/order semantics but produces no HTML paint.
+	if item.Drawing.Paint.PaintClipped && item.Drawing.Paint.ClippedBounds.Empty() {
+		return
+	}
+	opened := 0
+	for _, clip := range item.Drawing.Paint.AncestorClips {
+		path := physicalAncestorClipCSSPath(clip, slideW, slideH)
+		if path == "" {
+			continue
+		}
+		styles := []string{"position:absolute", "inset:0", "pointer-events:none", "clip-path:" + path}
+		if opened == 0 && item.Drawing.Paint.ZIndex > 0 {
+			styles = append(styles, fmt.Sprintf("z-index:%d", item.Drawing.Paint.ZIndex))
+		}
+		fmt.Fprintf(b, "<div class=\"shape-ancestor-clip\" style=%q>", strings.Join(styles, ";"))
+		opened++
+	}
+	renderShape(b, item, slideW, slideH, ctx)
+	for opened > 0 {
+		b.WriteString("</div>")
+		opened--
+	}
+	if len(item.Drawing.Paint.AncestorClips) > 0 {
+		b.WriteByte('\n')
+	}
+}
+
+func physicalAncestorClipCSSPath(clip playout.PhysicalAncestorClipPlan, slideW, slideH float64) string {
+	if clip.Bounds.Empty() || slideW <= 0 || slideH <= 0 {
+		return ""
+	}
+	if len(clip.Polygon) >= 3 {
+		points := make([]string, 0, len(clip.Polygon))
+		for _, point := range clip.Polygon {
+			points = append(points, fmt.Sprintf("%.4f%% %.4f%%", point.XPt*100/slideW, point.YPt*100/slideH))
+		}
+		return "polygon(" + strings.Join(points, ",") + ")"
+	}
+	left := clip.Bounds.LeftPt * 100 / slideW
+	top := clip.Bounds.TopPt * 100 / slideH
+	width := clip.Bounds.WidthPt * 100 / slideW
+	height := clip.Bounds.HeightPt * 100 / slideH
+	right := 100 - left - width
+	bottom := 100 - top - height
+	switch strings.ToLower(clip.Kind) {
+	case "ellipse":
+		return fmt.Sprintf("ellipse(%.4f%% %.4f%% at %.4f%% %.4f%%)", width/2, height/2, left+width/2, top+height/2)
+	case "roundrect":
+		radiusPt := math.Min(clip.Bounds.WidthPt, clip.Bounds.HeightPt) * 0.08
+		return fmt.Sprintf("inset(%.4f%% %.4f%% %.4f%% %.4f%% round %.4fpt)", top, right, bottom, left, radiusPt)
+	default:
+		return fmt.Sprintf("inset(%.4f%% %.4f%% %.4f%% %.4f%%)", top, right, bottom, left)
+	}
+}
+
+func appendPhysicalPaintStyles(styles []string, paint playout.PhysicalPaintPlan) []string {
+	if paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", paint.ZIndex))
+	}
+	if paint.OverflowVisible {
+		styles = append(styles, "overflow:visible")
+	}
+	return styles
+}
+
+func physicalPaintSVGStyle(paint playout.PhysicalPaintPlan) string {
+	if paint.ZIndex <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(";z-index:%d", paint.ZIndex)
+}
+
+func renderShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	if item == nil || item.SourceShape == nil {
+		return
+	}
+	shape := item.SourceShape
 	if shape.HyperlinkURL != "" || shape.ActionLink != "" {
 		var inner strings.Builder
-		renderShapeContent(&inner, shape, slideW, slideH, ctx)
+		renderShapeContent(&inner, item, slideW, slideH, ctx)
 		if shape.HyperlinkURL != "" {
 			fmt.Fprintf(b, "<a href=%q class=\"shape-link\">%s</a>\n", escapeAttr(shape.HyperlinkURL), inner.String())
 		} else {
@@ -319,7 +422,7 @@ func renderShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float6
 		}
 		return
 	}
-	renderShapeContent(b, shape, slideW, slideH, ctx)
+	renderShapeContent(b, item, slideW, slideH, ctx)
 }
 
 func actionLinkAnchor(action string) string {
@@ -333,161 +436,210 @@ func actionLinkAnchor(action string) string {
 	return "action-" + action
 }
 
-func renderShapeContent(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	switch shape.Kind {
-	case resolve.ShapeText:
-		renderTextShape(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeImage:
-		renderImageShape(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeGroup:
-		for _, child := range shape.Children {
-			renderShape(b, child, slideW, slideH, ctx)
-		}
-	case resolve.ShapeTable:
-		renderTableShape(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeConnector:
-		renderConnector(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeSmartArt:
-		renderSmartArtShape(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeSmartArtConnector:
-		renderSmartArtConnector(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeChart:
-		renderChartShape(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeMedia:
-		renderMediaShape(b, shape, slideW, slideH, ctx)
-	case resolve.ShapeOleObject:
-		renderOleObjectShape(b, shape, slideW, slideH, ctx)
+func renderShapeContent(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	switch item.Kind {
+	case ir.ShapeText:
+		renderTextShape(b, item, slideW, slideH, ctx)
+	case ir.ShapeImage:
+		renderImageShape(b, item, slideW, slideH, ctx)
+	case ir.ShapeGroup:
+		// Groups are canonical composition nodes, not renderable objects. Layout
+		// must flatten them before HTML emission.
+		return
+	case ir.ShapeTable:
+		renderTableShape(b, item, slideW, slideH, ctx)
+	case ir.ShapeConnector:
+		renderConnector(b, item, slideW, slideH, ctx)
+	case ir.ShapeSmartArt:
+		renderSmartArtShape(b, item, slideW, slideH, ctx)
+	case ir.ShapeSmartArtConnector:
+		renderSmartArtConnector(b, item, slideW, slideH, ctx)
+	case ir.ShapeChart:
+		renderChartShape(b, item, slideW, slideH, ctx)
+	case ir.ShapeMedia:
+		renderMediaShape(b, item, slideW, slideH, ctx)
+	case ir.ShapeOleObject:
+		renderOleObjectShape(b, item, slideW, slideH, ctx)
 	}
 }
 
-func renderTableShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	if shape == nil || shape.Table == nil || len(shape.Table.Rows) == 0 {
+func renderTableShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape // generic animation metadata only
+	table := item.Table
+	if table == nil || len(table.Rows) == 0 {
 		return
 	}
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
-	styles := []string{
-		fmt.Sprintf("left:%.4f%%", x),
-		fmt.Sprintf("top:%.4f%%", y),
-		fmt.Sprintf("width:%.4f%%", w),
-	}
+	x, y, w, h := physicalBoundsPercent(table.FrameBounds, slideW, slideH)
+	styles := []string{fmt.Sprintf("left:%.4f%%", x), fmt.Sprintf("top:%.4f%%", y), fmt.Sprintf("width:%.4f%%", w)}
 	if h > 0 {
-		styles = append(styles, fmt.Sprintf("min-height:%.4f%%", h))
+		// The physical table frame is authoritative; browser content must not grow it.
+		styles = append(styles, fmt.Sprintf("height:%.4f%%", h))
 	}
-	effectStyles := effectStyleProps(shape)
-	if len(effectStyles) > 0 {
+	var transforms []string
+	if table.Transform.RotationDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", table.Transform.RotationDeg))
+	}
+	if table.Transform.FlipH {
+		transforms = append(transforms, "scaleX(-1)")
+	}
+	if table.Transform.FlipV {
+		transforms = append(transforms, "scaleY(-1)")
+	}
+	effectStyles := presentationEffectPlanStyles(table.Effects)
+	transform, origin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
+	if transform != "" {
+		styles = append(styles, "transform:"+transform)
+	}
+	if origin != "" {
+		styles = append(styles, "transform-origin:"+origin)
+	}
+	styles = appendSortedCSSProps(styles, effectStyles)
+	if table.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", table.Paint.ZIndex))
+	}
+	if table.Paint.OverflowVisible {
 		styles = append(styles, "overflow:visible")
-		transform, origin := mergeEffectTransform("", effectStyles)
-		if transform != "" {
-			styles = append(styles, "transform:"+transform)
-		}
-		if origin != "" {
-			styles = append(styles, "transform-origin:"+origin)
-		}
-		styles = appendSortedCSSProps(styles, effectStyles)
 	}
-	fmt.Fprintf(b, "<div class=\"shape shape--table\" style=%q%s%s%s%s>\n", strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
+	anim, emphasis, motion, trigger := "", "", "", ""
+	if shape != nil {
+		anim = animationAttrs(shape, ctx)
+		emphasis = emphasisEffectsAttr(shape)
+		motion = motionPathAttr(shape)
+		trigger = triggerAttr(shape)
+	}
+	fmt.Fprintf(b, "<div class=\"shape shape--table\" style=%q%s%s%s%s>\n", strings.Join(styles, ";"), anim, emphasis, motion, trigger)
 	b.WriteString("<table class=\"ppt-table\">\n")
-	if len(shape.Table.ColumnWidthsEMU) > 0 {
-		total := int64(0)
-		for _, colW := range shape.Table.ColumnWidthsEMU {
-			total += colW
+	if len(table.ColumnWidthsPercent) > 0 {
+		b.WriteString("<colgroup>")
+		for _, width := range table.ColumnWidthsPercent {
+			fmt.Fprintf(b, "<col style=%q>", fmt.Sprintf("width:%.4f%%", width))
 		}
-		if total > 0 {
-			b.WriteString("<colgroup>")
-			for _, colW := range shape.Table.ColumnWidthsEMU {
-				fmt.Fprintf(b, "<col style=%q>", fmt.Sprintf("width:%.4f%%", float64(colW)*100/float64(total)))
-			}
-			b.WriteString("</colgroup>\n")
-		}
+		b.WriteString("</colgroup>\n")
 	}
-	for _, row := range shape.Table.Rows {
+	for _, row := range table.Rows {
 		rowStyle := ""
-		if row != nil && row.HeightEMU > 0 {
-			rowStyle = fmt.Sprintf(" style=%q", fmt.Sprintf("height:%.2fpt", emuToPt(row.HeightEMU)))
+		if row.HeightPt > 0 {
+			rowStyle = fmt.Sprintf(" style=%q", fmt.Sprintf("height:%.2fpt", row.HeightPt))
 		}
 		fmt.Fprintf(b, "<tr%s>\n", rowStyle)
 		for _, cell := range row.Cells {
-			if cell == nil || cell.HMerge || cell.VMerge {
+			if cell.Skip {
 				continue
 			}
-			var attrs []string
-			if cell.GridSpan > 1 {
-				attrs = append(attrs, fmt.Sprintf("colspan=\"%d\"", cell.GridSpan))
+			var attrs, cellStyles []string
+			if cell.ColumnSpan > 1 {
+				attrs = append(attrs, fmt.Sprintf("colspan=\"%d\"", cell.ColumnSpan))
 			}
 			if cell.RowSpan > 1 {
 				attrs = append(attrs, fmt.Sprintf("rowspan=\"%d\"", cell.RowSpan))
 			}
-			var cellStyles []string
-			cellStyles = append(cellStyles, cssBackgroundFillPropsForFill(cell.Fill, cell.FillColor)...)
-			cellStyles = appendSortedCSSProps(cellStyles, effectStylePropsForList(cell.Effects))
-			appendBorderStyle := func(slot string, line *drawing.LineStyle) {
-				if line == nil {
-					return
+			cellStyles = append(cellStyles, cssBackgroundFillPropsForFill(cell.Fill.Fill, cell.Fill.FallbackColor)...)
+			cellStyles = appendSortedCSSProps(cellStyles, presentationEffectPlanStyles(cell.Effects))
+			appendBorder := func(slot string, stroke playout.StrokeVisualPlan) {
+				if stroke.WidthPt > 0 && stroke.Color != "" {
+					style := stroke.CSSStyle
+					if style == "" {
+						style = "solid"
+					}
+					cellStyles = append(cellStyles, fmt.Sprintf("border-%s:%.2fpt %s %s", slot, stroke.WidthPt, style, physicalEffectColor(stroke.Color, stroke.Alpha)))
 				}
-				width := line.Width
-				if width <= 0 {
-					width = 0.75
-				}
-				color := line.Color
-				if color == "" {
-					color = "000000"
-				}
-				cellStyles = append(cellStyles, fmt.Sprintf("border-%s:%.2fpt solid #%s", slot, width, color))
 			}
-			appendBorderStyle("left", cell.BorderLeft)
-			appendBorderStyle("right", cell.BorderRight)
-			appendBorderStyle("top", cell.BorderTop)
-			appendBorderStyle("bottom", cell.BorderBottom)
-			if cell.MarginLeftEMU != 0 || cell.MarginRightEMU != 0 || cell.MarginTopEMU != 0 || cell.MarginBottomEMU != 0 {
-				cellStyles = append(cellStyles, fmt.Sprintf("padding:%.2fpt %.2fpt %.2fpt %.2fpt", emuToPt(cell.MarginTopEMU), emuToPt(cell.MarginRightEMU), emuToPt(cell.MarginBottomEMU), emuToPt(cell.MarginLeftEMU)))
+			appendBorder("left", cell.BorderLeft)
+			appendBorder("right", cell.BorderRight)
+			appendBorder("top", cell.BorderTop)
+			appendBorder("bottom", cell.BorderBottom)
+			if cell.PaddingLeftPt != 0 || cell.PaddingRightPt != 0 || cell.PaddingTopPt != 0 || cell.PaddingBottomPt != 0 {
+				cellStyles = append(cellStyles, fmt.Sprintf("padding:%.2fpt %.2fpt %.2fpt %.2fpt", cell.PaddingTopPt, cell.PaddingRightPt, cell.PaddingBottomPt, cell.PaddingLeftPt))
 			}
-			switch cell.TextAnchor {
-			case "ctr":
-				cellStyles = append(cellStyles, "vertical-align:middle")
-			case "b":
-				cellStyles = append(cellStyles, "vertical-align:bottom")
-			default:
-				cellStyles = append(cellStyles, "vertical-align:top")
-			}
+			// Cell vertical placement is materialized by the physical content box below.
+			// Keep the table cell itself top-aligned so browser table layout cannot
+			// reinterpret PowerPoint's anchor semantics.
+			cellStyles = append(cellStyles, "vertical-align:top")
 			if len(cellStyles) > 0 {
 				attrs = append(attrs, fmt.Sprintf("style=%q", strings.Join(cellStyles, ";")))
 			}
 			fmt.Fprintf(b, "<td %s>", strings.Join(attrs, " "))
-			autoCounters := map[string]int{}
-			for _, p := range cell.Paragraphs {
-				renderParagraph(b, p, autoCounters, 1.0, 1.0, ctx)
+			contentStyles := []string{"display:flex", "flex-direction:column", "justify-content:" + cell.JustifyContent}
+			if cell.ContentHeightPt > 0 {
+				contentStyles = append(contentStyles, fmt.Sprintf("height:%.4fpt", cell.ContentHeightPt))
 			}
-			b.WriteString("</td>\n")
+			if cell.ClipContent {
+				contentStyles = append(contentStyles, "overflow:hidden")
+			}
+			fmt.Fprintf(b, "<div class=\"ppt-table__cell-content\" style=%q>", strings.Join(contentStyles, ";"))
+			for i, p := range cell.Paragraphs {
+				if i >= len(cell.ParagraphPlans) {
+					break
+				}
+				renderParagraphWithPlan(b, p, cell.ParagraphPlans[i], 1.0, ctx)
+			}
+			b.WriteString("</div></td>\n")
 		}
 		b.WriteString("</tr>\n")
 	}
 	b.WriteString("</table>\n")
-	writeHTMLFillOverlays(b, shape.Effects)
+	if len(table.Edges) > 0 {
+		b.WriteString("<div class=\"ppt-table__edge-layer\" style=\"position:absolute;inset:0;pointer-events:none\">")
+		for _, edge := range table.Edges {
+			stroke := edge.Stroke
+			if stroke.WidthPt <= 0 || stroke.Color == "" {
+				continue
+			}
+			style := stroke.CSSStyle
+			if style == "" {
+				style = "solid"
+			}
+			color := physicalEffectColor(stroke.Color, stroke.Alpha)
+			if edge.Y1Pct == edge.Y2Pct {
+				fmt.Fprintf(b, "<span class=\"ppt-table__edge ppt-table__edge--h\" style=%q></span>", fmt.Sprintf("position:absolute;left:%.4f%%;top:%.4f%%;width:%.4f%%;height:0;border-top:%.2fpt %s %s", edge.X1Pct, edge.Y1Pct, edge.X2Pct-edge.X1Pct, stroke.WidthPt, style, color))
+			} else {
+				fmt.Fprintf(b, "<span class=\"ppt-table__edge ppt-table__edge--v\" style=%q></span>", fmt.Sprintf("position:absolute;left:%.4f%%;top:%.4f%%;height:%.4f%%;width:0;border-left:%.2fpt %s %s", edge.X1Pct, edge.Y1Pct, edge.Y2Pct-edge.Y1Pct, stroke.WidthPt, style, color))
+			}
+		}
+		b.WriteString("</div>\n")
+	}
+	writeHTMLFillOverlays(b, item.Drawing.Visual.Effects)
 	b.WriteString("</div>\n")
 }
 
-func renderTextShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	hasContent := len(shape.Paragraphs) > 0 || shapeHasVisibleFill(shape) || shape.Geometry != "" || shape.GeometryData != nil || shape.LineColor != "" || shapeHasTimelineTarget(shape, ctx)
+func renderTextShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
+	visual := item.Drawing.Visual
+	hasContent := len(shape.Paragraphs) > 0 || visual.HasVisibleFill || visual.HasGeometry || visual.HasVisibleStroke || shapeHasTimelineTarget(shape, ctx)
 	if !hasContent {
 		return
 	}
-	effectStyles := effectStyleProps(shape)
+	textPlan := *item.Text
+	effectStyles := presentationTextShapeEffectPlanStyles(textPlan.Effects)
 
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
+	x, y, w, h := physicalBoundsPercent(textPlan.FrameBounds, slideW, slideH)
 
 	var classes []string
 	classes = append(classes, "shape", "shape--text")
-	if shape.Placeholder != resolve.PlaceholderNone {
-		classes = append(classes, placeholderClass(shape.Placeholder))
+	if item.PlaceholderClass != "" {
+		classes = append(classes, item.PlaceholderClass)
 	}
 
+	textFrame := textPlan.Frame
+	textFlow := textPlan.Flow
+	frameLayout := textPlan.Layout
+	textGeometry := textPlan.Geometry
+	textBox := textPlan.Box
+
 	var styles []string
-	if shape.TextAutoGrow {
+	if textBox.MinOuterWidthPt > 0 {
+		styles = append(styles,
+			fmt.Sprintf("left:%.4f%%", x),
+			fmt.Sprintf("top:%.4f%%", y),
+			fmt.Sprintf("min-width:%.4fpt", textBox.MinOuterWidthPt),
+			fmt.Sprintf("height:%.4f%%", h),
+		)
+	} else if textBox.MinOuterHeightPt > 0 {
 		styles = append(styles,
 			fmt.Sprintf("left:%.4f%%", x),
 			fmt.Sprintf("top:%.4f%%", y),
 			fmt.Sprintf("width:%.4f%%", w),
-			fmt.Sprintf("min-height:%.4f%%", h),
+			fmt.Sprintf("min-height:%.4fpt", textBox.MinOuterHeightPt),
 		)
 	} else {
 		styles = append(styles,
@@ -497,18 +649,18 @@ func renderTextShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH fl
 			fmt.Sprintf("height:%.4f%%", h),
 		)
 	}
-	if len(effectStyles) > 0 || shape.TextAllowOverflow || shape.TextAutoGrow {
+	if len(effectStyles) > 0 || textBox.OverflowVisible {
 		styles = append(styles, "overflow:visible")
 	}
-	// Apply rotation and flip transforms
+	// Outer text-shape transforms are already materialized by layout.
 	var transforms []string
-	if shape.RotationDeg != 0 {
-		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", shape.RotationDeg))
+	if textPlan.Transform.RotationDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", textPlan.Transform.RotationDeg))
 	}
-	if shape.FlipH {
+	if textPlan.Transform.FlipH {
 		transforms = append(transforms, "scaleX(-1)")
 	}
-	if shape.FlipV {
+	if textPlan.Transform.FlipV {
 		transforms = append(transforms, "scaleY(-1)")
 	}
 	transform, effectOrigin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
@@ -526,20 +678,44 @@ func renderTextShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH fl
 		styles = appendSortedCSSProps(styles, effectStyles)
 	}
 
-	fmt.Fprintf(b, "<div class=%q style=%q%s%s%s%s>\n", strings.Join(classes, " "), strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
-	renderedVector := renderTextShapeVector(b, shape, nil)
-	if !renderedVector {
-		if shape.FillColor != "" {
-			fmt.Fprintf(b, "<div class=\"shape__background\" style=%q></div>\n", strings.Join(rectShapeStyles(shape), ";"))
-		} else if shape.LineColor != "" && shape.LineWidthPt > 0 {
-			fmt.Fprintf(b, "<div class=\"shape__background\" style=%q></div>\n", strings.Join(rectShapeStyles(shape), ";"))
+	if textPlan.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", textPlan.Paint.ZIndex))
+	}
+	if textPlan.Paint.OverflowVisible && !textBox.OverflowVisible && len(effectStyles) == 0 {
+		styles = append(styles, "overflow:visible")
+	}
+	geometryAttrs := ""
+	if textGeometry.Enabled {
+		geometryAttrs = ` data-text-geometry="wordart"`
+		if textGeometry.Warp != "" {
+			geometryAttrs += fmt.Sprintf(" data-text-warp=%q", escapeAttr(textGeometry.Warp))
 		}
-		writeHTMLFillOverlays(b, shape.Effects)
+	}
+	fmt.Fprintf(b, "<div class=%q style=%q%s%s%s%s%s>\n", strings.Join(classes, " "), strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), geometryAttrs)
+	renderedWordArt := renderPhysicalWordArt(b, textGeometry, visual, ctx)
+	renderedVector := renderedWordArt
+	if !renderedWordArt {
+		renderedVector = renderTextShapeVector(b, shape, visual, nil, item.Drawing.Paint.SVG.OverflowVisible, ctx)
+	}
+	if !renderedVector {
+		if visual.HasVisibleFill || visual.HasVisibleStroke {
+			fmt.Fprintf(b, "<div class=\"shape__background\" style=%q></div>\n", strings.Join(rectShapeStyles(visual), ";"))
+		}
+		writeHTMLFillOverlays(b, visual.Effects)
+	}
+
+	if renderedWordArt {
+		b.WriteString("</div>\n")
+		return
 	}
 
 	var contentStyles []string
+	contentWidth := "width:100%"
 	contentHeight := "height:100%"
-	if shape.TextAutoGrow || shape.TextAllowOverflow {
+	if textBox.ContentAutoWidth {
+		contentWidth = "width:auto"
+	}
+	if textBox.ContentAutoHeight {
 		contentHeight = "height:auto"
 	}
 	contentStyles = append(contentStyles,
@@ -548,69 +724,111 @@ func renderTextShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH fl
 		"display:flex",
 		"flex-direction:column",
 		"box-sizing:border-box",
-		"width:100%",
+		contentWidth,
 		contentHeight,
 	)
-	if shape.TextAllowOverflow || shape.TextAutoGrow {
+	if textBox.OverflowVisible || frameLayout.Measured {
 		contentStyles = append(contentStyles, "overflow:visible")
+	} else if textBox.ClipContent {
+		contentStyles = append(contentStyles, "overflow:hidden")
 	}
 
-	// Use drawingcss.TextBodyProps for text body styling
-	cssProps := drawingcss.TextBodyProps(shape.TextBodyProps)
-	contentStyles = appendSortedCSSProps(contentStyles, cssProps)
-
-	// Fall back to individual fields if CSS() doesn't provide certain properties
-	if _, hasJustifyContent := cssProps["justify-content"]; !hasJustifyContent && shape.TextAnchor != "" {
-		contentStyles = append(contentStyles, "justify-content:"+textAnchorJustify(shape.TextAnchor))
+	// Text-body composition is fully layout-owned. HTML serializes the physical
+	// frame/flow plan and never reinterprets DrawingML bodyPr.
+	if textFlow.RotationDeg != 0 {
+		contentStyles = append(contentStyles, fmt.Sprintf("transform:rotate(%.2fdeg)", textFlow.RotationDeg))
 	}
-
-	// Use TextBodyProps for insets if available, otherwise fall back to individual fields
-	topInset := drawing.EMUToPoints(shape.TextBodyProps.InsetT)
-	rightInset := drawing.EMUToPoints(shape.TextBodyProps.InsetR)
-	bottomInset := drawing.EMUToPoints(shape.TextBodyProps.InsetB)
-	leftInset := drawing.EMUToPoints(shape.TextBodyProps.InsetL)
-
-	// Fall back to individual fields if TextBodyProps insets are zero
-	if topInset == 0 {
-		topInset = drawing.EMUToPoints(shape.TextInsetTopEMU)
+	if textFlow.TransformOrigin != "" {
+		contentStyles = append(contentStyles, "transform-origin:"+textFlow.TransformOrigin)
 	}
-	if rightInset == 0 {
-		rightInset = drawing.EMUToPoints(shape.TextInsetRightEMU)
+	if textFlow.NoWrap {
+		contentStyles = append(contentStyles, "white-space:nowrap")
 	}
-	if bottomInset == 0 {
-		bottomInset = drawing.EMUToPoints(shape.TextInsetBottomEMU)
+	if textFlow.WritingMode != "" {
+		contentStyles = append(contentStyles, "writing-mode:"+textFlow.WritingMode)
 	}
-	if leftInset == 0 {
-		leftInset = drawing.EMUToPoints(shape.TextInsetLeftEMU)
-	}
-
-	if shape.Geometry == "ellipse" {
-		width := drawing.EMUToPoints(shape.Bounds.W)
-		height := drawing.EMUToPoints(shape.Bounds.H)
-		if width > 0 && height > 0 {
-			topInset = maxFloat(topInset, height*0.16)
-			rightInset = maxFloat(rightInset, width*0.18)
-			bottomInset = maxFloat(bottomInset, height*0.16)
-			leftInset = maxFloat(leftInset, width*0.18)
+	if textFlow.Columns > 1 {
+		contentStyles = append(contentStyles, fmt.Sprintf("column-count:%d", textFlow.Columns))
+		if textFlow.ColumnGapPt > 0 {
+			contentStyles = append(contentStyles, fmt.Sprintf("column-gap:%.2fpt", textFlow.ColumnGapPt))
 		}
 	}
-	if topInset > 0 || rightInset > 0 || bottomInset > 0 || leftInset > 0 {
-		contentStyles = append(contentStyles, fmt.Sprintf("padding:%.2fpt %.2fpt %.2fpt %.2fpt", topInset, rightInset, bottomInset, leftInset))
+
+	// OfficeArt geometry text / WordArt is projected by layout. Keep these
+	// glyph-level semantics on the text content rather than reconstructing the
+	// legacy FOPT payload in the serializer.
+	if textGeometry.Enabled {
+		if textGeometry.FontFamily != "" {
+			contentStyles = append(contentStyles, "font-family:"+textGeometry.FontFamily)
+		}
+		if textGeometry.FontSizePt > 0 {
+			contentStyles = append(contentStyles, fmt.Sprintf("font-size:%.2fpt", textGeometry.FontSizePt))
+		}
+		if textGeometry.LetterSpaceEm != 0 {
+			contentStyles = append(contentStyles, fmt.Sprintf("letter-spacing:%.4fem", textGeometry.LetterSpaceEm))
+		}
+		if textGeometry.Align != "" {
+			contentStyles = append(contentStyles, "text-align:"+textGeometry.Align)
+		}
+		if textGeometry.Vertical {
+			contentStyles = append(contentStyles, "writing-mode:vertical-rl")
+		}
+		if textGeometry.Bold {
+			contentStyles = append(contentStyles, "font-weight:700")
+		}
+		if textGeometry.Italic {
+			contentStyles = append(contentStyles, "font-style:italic")
+		}
+		if textGeometry.SmallCaps {
+			contentStyles = append(contentStyles, "font-variant:small-caps")
+		}
+		var decorations []string
+		if textGeometry.Underline {
+			decorations = append(decorations, "underline")
+		}
+		if textGeometry.Strike {
+			decorations = append(decorations, "line-through")
+		}
+		if len(decorations) > 0 {
+			contentStyles = append(contentStyles, "text-decoration:"+strings.Join(decorations, " "))
+		}
+		if textGeometry.Shadow {
+			contentStyles = append(contentStyles, "text-shadow:1pt 1pt 1pt rgba(0,0,0,.35)")
+		}
+		if textGeometry.Tight {
+			contentStyles = append(contentStyles, "font-kerning:normal")
+		}
 	}
-	if shape.Geometry == "ellipse" {
-		contentStyles = append(contentStyles, "clip-path:ellipse(50% 50% at 50% 50%)")
+
+	contentStyles = appendTextBoxPlacementStyles(contentStyles, textFrame, frameLayout, textBox)
+	if item.Drawing.Paint.Clip.ClipContent && item.Drawing.Paint.Clip.CSSPath != "" {
+		contentStyles = append(contentStyles, "clip-path:"+item.Drawing.Paint.Clip.CSSPath)
 	}
 	fmt.Fprintf(b, "<div class=\"shape__content\" style=%q>\n", strings.Join(contentStyles, ";"))
 
-	autoCounters := map[string]int{}
-	fontScale := textAutofitFontScale(shape.TextBodyProps)
-	lineScale := textAutofitLineScale(shape.TextBodyProps)
-	for _, p := range shape.Paragraphs {
-		renderParagraph(b, p, autoCounters, fontScale, lineScale, ctx)
+	fontScale := textFrame.FontScale
+	for i, p := range shape.Paragraphs {
+		if i >= len(textPlan.Paragraphs) {
+			break
+		}
+		renderParagraphWithPlan(b, p, textPlan.Paragraphs[i], fontScale, ctx)
 	}
 
 	b.WriteString("</div>\n")
 	b.WriteString("</div>\n")
+}
+
+// removeLayoutOwnedTextBodyCSS removes properties whose effective values are
+// already resolved by presentation/layout. Keeping them here would create a
+// second CSS-side text layout model and, in particular, duplicate padding.
+func removeLayoutOwnedTextBodyCSS(props map[string]string) {
+	for _, key := range []string{
+		"transform", "text-align", "white-space", "writing-mode",
+		"column-count", "column-gap", "justify-content",
+		"padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+	} {
+		delete(props, key)
+	}
 }
 
 func appendSortedCSSProps(dst []string, props map[string]string) []string {
@@ -628,67 +846,162 @@ func appendSortedCSSProps(dst []string, props map[string]string) []string {
 	return dst
 }
 
-func renderTextShapeVector(b *strings.Builder, shape *resolve.Shape, effectStyles map[string]string) bool {
-	if shape == nil {
+func renderPhysicalWordArt(b *strings.Builder, geometry playout.TextGeometryVisualPlan, visual playout.ShapeVisualPlan, ctx *htmlRenderContext) bool {
+	if b == nil || !geometry.Enabled || !geometry.Vector || geometry.PathData == "" || strings.TrimSpace(geometry.Text) == "" {
 		return false
 	}
-	requiresVectorFill := drawingcss.NeedsSVGDefinition(shape.Fill)
-	if shape.Geometry == "" && shape.GeometryData == nil && !requiresVectorFill {
+	pathID := fmt.Sprintf("wordart-path-%d", ctx.nextWordArtIndex)
+	ctx.nextWordArtIndex++
+	fill := visual.Fill.FallbackColor
+	if fill == "" {
+		fill = "000000"
+	}
+	if !strings.HasPrefix(fill, "#") {
+		fill = "#" + fill
+	}
+	styles := []string{"dominant-baseline:middle", "paint-order:stroke fill"}
+	if geometry.FontFamily != "" {
+		styles = append(styles, "font-family:'"+strings.ReplaceAll(geometry.FontFamily, "'", "\\\\'")+"'")
+	}
+	if geometry.FontSizePt > 0 {
+		styles = append(styles, fmt.Sprintf("font-size:%.2fpt", geometry.FontSizePt))
+	}
+	if geometry.LetterSpaceEm != 0 {
+		styles = append(styles, fmt.Sprintf("letter-spacing:%.4fem", geometry.LetterSpaceEm))
+	}
+	if geometry.Bold {
+		styles = append(styles, "font-weight:700")
+	}
+	if geometry.Italic {
+		styles = append(styles, "font-style:italic")
+	}
+	if geometry.SmallCaps {
+		styles = append(styles, "font-variant:small-caps")
+	}
+	var decorations []string
+	if geometry.Underline {
+		decorations = append(decorations, "underline")
+	}
+	if geometry.Strike {
+		decorations = append(decorations, "line-through")
+	}
+	if len(decorations) > 0 {
+		styles = append(styles, "text-decoration:"+strings.Join(decorations, " "))
+	}
+	if geometry.Kerning || geometry.Tight {
+		styles = append(styles, "font-kerning:normal")
+	}
+	if geometry.Shadow {
+		styles = append(styles, "filter:drop-shadow(1px 1px 1px rgba(0,0,0,.45))")
+	}
+
+	fmt.Fprintf(b, `<svg class="shape__wordart" viewBox="0 0 100 100" width="100%%" height="100%%" preserveAspectRatio="none" role="img" aria-label=%q xmlns="http://www.w3.org/2000/svg">`, geometry.Text)
+	fmt.Fprintf(b, `<defs><path id=%q d=%q pathLength="100"/></defs>`, pathID, geometry.PathData)
+	fmt.Fprintf(b, `<text fill=%q text-anchor=%q style=%q`, fill, geometry.TextAnchor, strings.Join(styles, ";"))
+	if visual.Stroke.Color != "" && visual.Stroke.WidthPt > 0 {
+		stroke := visual.Stroke.Color
+		if !strings.HasPrefix(stroke, "#") {
+			stroke = "#" + stroke
+		}
+		fmt.Fprintf(b, ` stroke=%q stroke-width="%.4f"`, stroke, visual.Stroke.WidthPt)
+	}
+	b.WriteString(`>`)
+	fmt.Fprintf(b, `<textPath href="#%s" startOffset=%q`, pathID, geometry.StartOffset)
+	if geometry.Stretch || geometry.BestFit || geometry.ShrinkFit {
+		b.WriteString(` textLength="90" lengthAdjust="spacingAndGlyphs"`)
+	}
+	b.WriteString(`>`)
+	b.WriteString(escapeHTML(geometry.Text))
+	b.WriteString(`</textPath></text></svg>`)
+	return true
+}
+
+func renderTextShapeVector(b *strings.Builder, shape *ir.Shape, visual playout.ShapeVisualPlan, effectStyles map[string]string, svgOverflowVisible bool, ctx *htmlRenderContext) bool {
+	if !visual.HasGeometry && !visual.UseVector {
 		return false
 	}
-	width := drawing.EMUToPoints(shape.Bounds.W)
-	height := drawing.EMUToPoints(shape.Bounds.H)
-	if width <= 0 || height <= 0 {
-		return false
+	prefix := "shape"
+	if shape != nil && shape.ID != 0 {
+		prefix = fmt.Sprintf("shape-%d", shape.ID)
 	}
-	presetName := shape.Geometry
-	if presetName == "" {
-		presetName = "rect"
-	}
-	primitives, err := drawing.BuildShapePrimitives(drawing.ShapeGeometrySpec{
-		Geometry:    shape.GeometryData,
-		Preset:      &drawing.PresetGeometry{Name: presetName, Adjustments: shape.GeometryAdjustments},
-		Width:       width,
-		Height:      height,
-		Fill:        shape.Fill,
-		FillColor:   shape.FillColor,
-		Stroke:      shape.LineStyle,
-		StrokeColor: shape.LineColor,
-		StrokeWidth: shape.LineWidthPt,
+	return renderCanonicalShapeVector(b, visual, effectStyles, shapeVectorRenderOptions{
+		DefPrefix:          prefix,
+		UsePictureTile:     true,
+		PictureTile:        visual.Fill.PictureTile,
+		WidthHeightAttr:    false,
+		SVGOverflowVisible: svgOverflowVisible,
 	})
-	if err != nil {
+}
+
+type shapeVectorRenderOptions struct {
+	DefPrefix          string
+	UsePictureTile     bool
+	PictureTile        *ir.PictureTile
+	WidthHeightAttr    bool
+	SVGOverflowVisible bool
+}
+
+// renderCanonicalShapeVector is the single SVG materialization path for
+// canonical presentation shape visuals. Ordinary shapes and SmartArt resolve
+// their semantics before entering this function; only surface-specific SVG
+// attributes and definition identifiers remain configurable here.
+func renderCanonicalShapeVector(b *strings.Builder, visual playout.ShapeVisualPlan, effectStyles map[string]string, opts shapeVectorRenderOptions) bool {
+	if b == nil || visual.WidthPt <= 0 || visual.HeightPt <= 0 {
 		return false
 	}
+	primitives := visual.Primitives
 	if len(primitives) == 0 {
 		return false
+	}
+	prefix := opts.DefPrefix
+	if prefix == "" {
+		prefix = "shape"
 	}
 
 	fillDefID := ""
 	fillDef := ""
-	if drawingcss.NeedsSVGDefinition(shape.Fill) {
-		fillDefID = "shape-fill"
-		fillDef = svgFillDefinition(shape.Fill, shape.PictureTile, fillDefID, width, height, 1.0/12700.0)
+	if visual.FillNeedsDefinition {
+		fillDefID = prefix + "-fill"
+		if visual.Fill.Gradient != nil {
+			fillDef = svgPhysicalGradientDefinition(visual.Fill.Gradient, fillDefID)
+		} else if opts.UsePictureTile {
+			fillDef = svgFillDefinition(visual.Fill.Fill, opts.PictureTile, fillDefID, visual.WidthPt, visual.HeightPt, 1.0/12700.0)
+		} else {
+			fillDef = svgDrawingFillDefinition(visual.Fill.Fill, fillDefID)
+		}
 	}
-	lightOverlays := drawingcss.ThreeDLightOverlays(extractShapeThreeD(shape.Effects))
-	overlayRenders := drawingcss.BuildSVGOverlays(lightOverlays, "shape-fill-overlay")
-	fillOverlays := fillOverlayEffects(shape.Effects)
+
+	lightOverlays := physicalEffectOverlays(visual.Effects.Composition.ThreeD)
+	overlayRenders := drawingcss.BuildSVGOverlays(lightOverlays, prefix+"-fill-overlay")
+	fillOverlays := visual.Effects.Overlays
 	fillOverlayDefs := make([]string, len(fillOverlays))
 	fillOverlayDefIDs := make([]string, len(fillOverlays))
 	for i, overlay := range fillOverlays {
-		if overlay.Fill != nil && drawingcss.NeedsSVGDefinition(overlay.Fill) {
-			id := fmt.Sprintf("shape-effect-fill-%d", i)
+		if overlay.Fill != nil && overlay.NeedsDefinition {
+			id := fmt.Sprintf("%s-effect-fill-%d", prefix, i)
 			fillOverlayDefIDs[i] = id
 			fillOverlayDefs[i] = svgDrawingFillDefinition(overlay.Fill, id)
 		}
 	}
-	strokeDefs := collectStrokeFillDefs(primitives, "shape")
-	fmt.Fprintf(b, "<svg class=\"shape__vector\" viewBox=\"0 0 %.4f %.4f\" preserveAspectRatio=\"none\" aria-hidden=\"true\"", width, height)
+	strokeDefs := collectStrokeFillDefsPlans(primitives, prefix)
+
+	fmt.Fprintf(b, "<svg class=\"shape__vector\"")
+	if opts.WidthHeightAttr {
+		b.WriteString(" width=\"100%\" height=\"100%\"")
+	}
+	fmt.Fprintf(b, " viewBox=\"0 0 %.4f %.4f\" preserveAspectRatio=\"none\"", visual.WidthPt, visual.HeightPt)
+	var svgStyles []string
 	if len(effectStyles) > 0 {
-		var styles []string
-		styles = appendSortedCSSProps(styles, effectStyles)
-		fmt.Fprintf(b, " style=%q", strings.Join(styles, ";"))
+		svgStyles = appendSortedCSSProps(svgStyles, effectStyles)
+	}
+	if opts.SVGOverflowVisible {
+		svgStyles = append(svgStyles, "overflow:visible")
+	}
+	if len(svgStyles) > 0 {
+		fmt.Fprintf(b, " style=%q", strings.Join(svgStyles, ";"))
 	}
 	b.WriteString(" xmlns=\"http://www.w3.org/2000/svg\">")
+
 	if fillDef != "" || len(strokeDefs) > 0 || len(overlayRenders) > 0 || len(fillOverlayDefs) > 0 {
 		b.WriteString("<defs>")
 		if fillDef != "" {
@@ -709,9 +1022,10 @@ func renderTextShapeVector(b *strings.Builder, shape *resolve.Shape, effectStyle
 		}
 		b.WriteString("</defs>")
 	}
-	writeThreeDExtrusionSVG(b, primitives, extractShapeThreeD(shape.Effects))
+
+	writeThreeDExtrusionSVG(b, primitives, visual.Effects.Composition.ThreeD)
 	for _, primitive := range primitives {
-		writeSVGPrimitive(b, primitive, fillDefID)
+		writeSVGPrimitivePlan(b, primitive, fillDefID)
 	}
 	for _, overlay := range overlayRenders {
 		if overlay.Fill == nil {
@@ -723,7 +1037,7 @@ func renderTextShapeVector(b *strings.Builder, shape *resolve.Shape, effectStyle
 			b.WriteString("<g>")
 		}
 		for _, primitive := range primitives {
-			writeSVGPrimitive(b, overlayShapePrimitiveFill(primitive, overlay.Fill), overlay.DefID)
+			writeSVGPrimitivePlan(b, playout.VectorPrimitivePlan{Primitive: overlayShapePrimitiveFill(primitive.Primitive, overlay.Fill), Stroke: primitive.Stroke}, overlay.DefID)
 		}
 		b.WriteString("</g>")
 	}
@@ -741,7 +1055,7 @@ func renderTextShapeVector(b *strings.Builder, shape *resolve.Shape, effectStyle
 			b.WriteString("<g class=\"shape__effect-overlay\">")
 		}
 		for _, primitive := range primitives {
-			writeSVGPrimitive(b, overlayShapePrimitiveFill(primitive, overlay.Fill), fillOverlayDefIDs[i])
+			writeSVGPrimitivePlan(b, playout.VectorPrimitivePlan{Primitive: overlayShapePrimitiveFill(primitive.Primitive, overlay.Fill), Stroke: primitive.Stroke}, fillOverlayDefIDs[i])
 		}
 		b.WriteString("</g>")
 	}
@@ -749,7 +1063,7 @@ func renderTextShapeVector(b *strings.Builder, shape *resolve.Shape, effectStyle
 	return true
 }
 
-func svgFillDefinition(fill drawing.Fill, tile *resolve.PictureTile, id string, width, height, emuScale float64) string {
+func svgFillDefinition(fill drawing.Fill, tile *ir.PictureTile, id string, width, height, emuScale float64) string {
 	def := svgDrawingFillDefinition(fill, id)
 	if tile == nil || def == "" || width <= 0 || height <= 0 {
 		return def
@@ -858,23 +1172,22 @@ func pictureTileAlignmentOffset(alignment string, width, height, tileW, tileH fl
 	return x, y
 }
 
-func extractShapeThreeD(effects drawing.EffectList) *drawing.ThreeD {
-	for _, effect := range effects.Effects {
-		if threeD, ok := effect.(drawing.ThreeD); ok {
-			return &threeD
-		}
-		if threeD, ok := effect.(*drawing.ThreeD); ok {
-			return threeD
-		}
+func physicalEffectOverlays(t *playout.ThreeDVisualPlan) []drawing.FillOverlay {
+	if t == nil || len(t.LightingOverlays) == 0 {
+		return nil
 	}
-	return nil
+	overlays := make([]drawing.FillOverlay, 0, len(t.LightingOverlays))
+	for _, overlay := range t.LightingOverlays {
+		overlays = append(overlays, drawing.FillOverlay{Fill: overlay.Fill, BlendMode: overlay.BlendMode})
+	}
+	return overlays
 }
 
-func writeThreeDExtrusionSVG(b *strings.Builder, primitives []drawing.VectorPrimitive, t *drawing.ThreeD) {
-	if b == nil || t == nil || t.ExtrusionDepth <= 0 || len(primitives) == 0 {
+func writeThreeDExtrusionSVG(b *strings.Builder, primitives []playout.VectorPrimitivePlan, t *playout.ThreeDVisualPlan) {
+	if b == nil || t == nil || t.ExtrusionDepthPt <= 0 || len(primitives) == 0 {
 		return
 	}
-	depth := t.ExtrusionDepth
+	depth := t.ExtrusionDepthPt
 	steps := int(math.Ceil(depth / 1.5))
 	if steps < 2 {
 		steps = 2
@@ -896,18 +1209,18 @@ func writeThreeDExtrusionSVG(b *strings.Builder, primitives []drawing.VectorPrim
 		opacity := 0.32 + (1-f)*0.28
 		fmt.Fprintf(b, "<g transform=\"translate(%.4f %.4f)\" opacity=\"%.4f\">", x, y, opacity)
 		for _, primitive := range primitives {
-			writeSVGPrimitive(b, overlayShapePrimitiveFill(primitive, fill), "")
+			writeSVGPrimitivePlan(b, playout.VectorPrimitivePlan{Primitive: overlayShapePrimitiveFill(primitive.Primitive, fill), Stroke: primitive.Stroke}, "")
 		}
 		b.WriteString("</g>")
 	}
 	b.WriteString("</g>")
 }
 
-func threeDDepthVector(t drawing.ThreeD) (float64, float64) {
+func threeDDepthVector(t playout.ThreeDVisualPlan) (float64, float64) {
 	// Project extrusion away from the camera. Camera rotations dominate; preset
 	// names provide a deterministic fallback for files that omit explicit rot.
-	x := math.Sin(t.RotationY * math.Pi / 180.0)
-	y := math.Sin(t.RotationX * math.Pi / 180.0)
+	x := math.Sin(t.RotationYDeg * math.Pi / 180.0)
+	y := math.Sin(t.RotationXDeg * math.Pi / 180.0)
 	if math.Abs(x)+math.Abs(y) < 0.05 {
 		preset := strings.ToLower(t.CameraPreset)
 		switch {
@@ -951,6 +1264,238 @@ func pictureFillEffects(fill drawing.Fill) []drawing.Effect {
 	return nil
 }
 
+func svgPhysicalGradientDefinition(gradient *playout.GradientVisualPlan, id string) string {
+	if gradient == nil || id == "" || len(gradient.Stops) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if gradient.Kind == drawing.GradientTypePath && strings.EqualFold(gradient.PathBoundary, "rect") {
+		if def := svgRectangularPathGradientDefinition(gradient, id); def != "" {
+			return def
+		}
+	}
+	if gradient.Kind == drawing.GradientTypePath && gradient.PathBoundaryPath != nil {
+		if def := svgShapePathGradientDefinition(gradient, id); def != "" {
+			return def
+		}
+	}
+	if gradient.Kind == drawing.GradientTypeRadial || gradient.Kind == drawing.GradientTypePath {
+		cx, cy := 50.0, 50.0
+		if gradient.HasCenter {
+			cx, cy = gradient.CenterX*100, gradient.CenterY*100
+		}
+		// OfficeArt fillTo* defines the center rectangle of a concentric shade.
+		// SVG has no rectangular focal plateau, but a zero-sized center rectangle
+		// (the form used by the legacy PPT corpus) maps exactly to a radial focus
+		// point. Keep non-zero extents in the physical plan rather than discarding
+		// them so a future path-gradient backend can materialize them losslessly.
+		radius := 70.7107
+		// OfficeArt ShadeShape starts at the actual shape boundary and converges
+		// on the interior focus. For an ellipse, SVG objectBoundingBox radial
+		// geometry is an exact representation: r=50% is the ellipse boundary.
+		// Keep the conservative corner-reaching approximation for arbitrary paths
+		// until the path-gradient backend can materialize their true boundary.
+		if gradient.Kind == drawing.GradientTypePath && strings.EqualFold(gradient.PathBoundary, "ellipse") {
+			radius = 50
+		}
+		fmt.Fprintf(&b, `<radialGradient id="%s" cx="%.4f%%" cy="%.4f%%" r="%.4f%%">`, escapeAttr(id), cx, cy, radius)
+	} else {
+		// Physical layout owns linear gradient orientation. Compatibility for
+		// direct renderer-unit plans remains intentionally narrow; production
+		// plans always carry HasLinearVector.
+		x1, y1, x2, y2 := gradient.LinearX1*100, gradient.LinearY1*100, gradient.LinearX2*100, gradient.LinearY2*100
+		if !gradient.HasLinearVector {
+			a := gradient.AngleDeg * math.Pi / 180
+			dx, dy := math.Cos(a), math.Sin(a)
+			x1, y1 = 50-50*dx, 50-50*dy
+			x2, y2 = 50+50*dx, 50+50*dy
+			if gradient.FlipH {
+				x1, x2 = 100-x1, 100-x2
+			}
+			if gradient.FlipV {
+				y1, y2 = 100-y1, 100-y2
+			}
+		}
+		fmt.Fprintf(&b, `<linearGradient id="%s" x1="%.4f%%" y1="%.4f%%" x2="%.4f%%" y2="%.4f%%">`, escapeAttr(id), x1, y1, x2, y2)
+	}
+	for _, stop := range gradient.Stops {
+		// Alpha has already been canonicalized by physical layout. In
+		// particular, zero means fully transparent and must not be rewritten as
+		// opaque by the renderer.
+		alpha := math.Max(0, math.Min(1, stop.Alpha))
+		fmt.Fprintf(&b, `<stop offset="%.4f%%" stop-color="%s"`, stop.Position*100, escapeAttr(svgPaintColor(stop.Color)))
+		if alpha < 1 {
+			fmt.Fprintf(&b, ` stop-opacity="%.4f"`, alpha)
+		}
+		b.WriteString(`/>`)
+	}
+	if gradient.Kind == drawing.GradientTypeRadial || gradient.Kind == drawing.GradientTypePath {
+		b.WriteString(`</radialGradient>`)
+	} else {
+		b.WriteString(`</linearGradient>`)
+	}
+	return b.String()
+}
+
+func svgShapePathGradientDefinition(gradient *playout.GradientVisualPlan, id string) string {
+	if gradient == nil || gradient.PathBoundaryPath == nil || id == "" || len(gradient.Stops) == 0 || gradient.PathBoundaryWidthPt <= 0 || gradient.PathBoundaryHeightPt <= 0 {
+		return ""
+	}
+	// SVG has no native path-gradient primitive. Materialize OfficeArt ShadeShape
+	// as nested copies of the actual shape boundary, contracting toward the
+	// authored focus point. This preserves arbitrary preset/freeform outlines
+	// instead of replacing them with an unrelated radial ellipse.
+	const layers = 128
+	cx, cy := .5, .5
+	if gradient.HasCenter {
+		cx, cy = gradient.CenterX, gradient.CenterY
+	}
+	w, h := gradient.PathBoundaryWidthPt, gradient.PathBoundaryHeightPt
+	// fillTo* is an inner rectangle in normalized shape coordinates.  For an
+	// arbitrary ShadeShape boundary, materialize each contour with the affine
+	// map that takes the original shape box to an interpolated box between the
+	// outer boundary and that authored inner rectangle.  The point-focus case
+	// is simply a zero-sized inner box.  This keeps the actual freeform/preset
+	// outline at every contour instead of falling back to radial geometry.
+	cw, ch := gradient.CenterWidth, gradient.CenterHeight
+	left, top := cx-cw/2, cy-ch/2
+	pathData := svgPathData(*gradient.PathBoundaryPath)
+	if strings.TrimSpace(pathData) == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<pattern id="%s" patternUnits="objectBoundingBox" patternContentUnits="userSpaceOnUse" width="1" height="1" viewBox="0 0 %.6f %.6f" preserveAspectRatio="none">`, escapeAttr(id), w, h)
+	for i := 0; i < layers; i++ {
+		t := float64(i) / float64(layers-1) // outline -> inner fillTo box
+		sx := math.Max(0, 1-t+t*cw)
+		sy := math.Max(0, 1-t+t*ch)
+		tx := t * left * w
+		ty := t * top * h
+		color, alpha, ok := samplePhysicalGradient(gradient.Stops, 1-t)
+		if !ok {
+			return ""
+		}
+		fmt.Fprintf(&b, `<path d=%q transform="matrix(%.8f 0 0 %.8f %.6f %.6f)" fill="%s"`, pathData, sx, sy, tx, ty, escapeAttr(color))
+		if alpha < 1 {
+			fmt.Fprintf(&b, ` fill-opacity="%.4f"`, alpha)
+		}
+		b.WriteString(`/>`)
+	}
+	b.WriteString(`</pattern>`)
+	return b.String()
+}
+
+func svgRectangularPathGradientDefinition(gradient *playout.GradientVisualPlan, id string) string {
+	if gradient == nil || id == "" || len(gradient.Stops) == 0 {
+		return ""
+	}
+	// OfficeArt ShadeShape is a path gradient: the last gradient position lies
+	// on the shape outline and the first lies at the interior focus/center
+	// rectangle. SVG 1.1 has no path-gradient primitive. For rectangular
+	// boundaries, however, the authored geometry can be materialized exactly as
+	// nested rectangular contours converging on the OfficeArt fillTo rectangle.
+	// The layers are deliberately emitted in object-bounding-box coordinates so
+	// the definition remains independent of the physical shape size.
+	const layers = 128
+	cx, cy := .5, .5
+	cw, ch := 0.0, 0.0
+	if gradient.HasCenter {
+		cx, cy = gradient.CenterX, gradient.CenterY
+		cw, ch = gradient.CenterWidth, gradient.CenterHeight
+	}
+	left, top := cx-cw/2, cy-ch/2
+	right, bottom := cx+cw/2, cy+ch/2
+	left = math.Max(0, math.Min(1, left))
+	top = math.Max(0, math.Min(1, top))
+	right = math.Max(left, math.Min(1, right))
+	bottom = math.Max(top, math.Min(1, bottom))
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<pattern id="%s" patternUnits="objectBoundingBox" patternContentUnits="objectBoundingBox" width="1" height="1">`, escapeAttr(id))
+	for i := 0; i < layers; i++ {
+		t := float64(i) / float64(layers-1) // outline -> center
+		x := t * left
+		y := t * top
+		x2 := 1 - t*(1-right)
+		y2 := 1 - t*(1-bottom)
+		w, h := math.Max(0, x2-x), math.Max(0, y2-y)
+		color, alpha, ok := samplePhysicalGradient(gradient.Stops, 1-t)
+		if !ok {
+			return ""
+		}
+		fmt.Fprintf(&b, `<rect x="%.6f" y="%.6f" width="%.6f" height="%.6f" fill="%s"`, x, y, w, h, escapeAttr(color))
+		if alpha < 1 {
+			fmt.Fprintf(&b, ` fill-opacity="%.4f"`, alpha)
+		}
+		b.WriteString(`/>`)
+	}
+	b.WriteString(`</pattern>`)
+	return b.String()
+}
+
+func samplePhysicalGradient(stops []playout.GradientStopVisualPlan, position float64) (string, float64, bool) {
+	if len(stops) == 0 {
+		return "", 1, false
+	}
+	position = math.Max(0, math.Min(1, position))
+	lo, hi := stops[0], stops[len(stops)-1]
+	if position <= lo.Position {
+		return normalizedPhysicalGradientColor(lo.Color, lo.Alpha)
+	}
+	if position >= hi.Position {
+		return normalizedPhysicalGradientColor(hi.Color, hi.Alpha)
+	}
+	for i := 1; i < len(stops); i++ {
+		if position > stops[i].Position {
+			continue
+		}
+		lo, hi = stops[i-1], stops[i]
+		span := hi.Position - lo.Position
+		t := 0.0
+		if span > 0 {
+			t = (position - lo.Position) / span
+		}
+		lr, lg, lb, lok := parsePhysicalGradientRGB(lo.Color)
+		hr, hg, hb, hok := parsePhysicalGradientRGB(hi.Color)
+		if !lok || !hok {
+			return "", 1, false
+		}
+		r := math.Round(float64(lr) + (float64(hr)-float64(lr))*t)
+		g := math.Round(float64(lg) + (float64(hg)-float64(lg))*t)
+		bl := math.Round(float64(lb) + (float64(hb)-float64(lb))*t)
+		la, ha := normalizedPhysicalGradientAlpha(lo.Alpha), normalizedPhysicalGradientAlpha(hi.Alpha)
+		return fmt.Sprintf("#%02X%02X%02X", int(r), int(g), int(bl)), la + (ha-la)*t, true
+	}
+	return normalizedPhysicalGradientColor(hi.Color, hi.Alpha)
+}
+
+func normalizedPhysicalGradientColor(color string, alpha float64) (string, float64, bool) {
+	r, g, b, ok := parsePhysicalGradientRGB(color)
+	if !ok {
+		return "", 1, false
+	}
+	return fmt.Sprintf("#%02X%02X%02X", r, g, b), normalizedPhysicalGradientAlpha(alpha), true
+}
+
+func normalizedPhysicalGradientAlpha(alpha float64) float64 {
+	if alpha <= 0 || alpha > 1 {
+		return 1
+	}
+	return alpha
+}
+
+func parsePhysicalGradientRGB(color string) (int, int, int, bool) {
+	color = strings.TrimPrefix(strings.TrimSpace(color), "#")
+	if len(color) != 6 {
+		return 0, 0, 0, false
+	}
+	v, err := strconv.ParseUint(color, 16, 24)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return int(v >> 16), int((v >> 8) & 0xff), int(v & 0xff), true
+}
+
 func svgDrawingFillDefinition(fill drawing.Fill, id string) string {
 	def := drawingcss.SVGDefinition(fill, id)
 	effects := pictureFillEffects(fill)
@@ -969,17 +1514,78 @@ func svgDrawingFillDefinition(fill drawing.Fill, id string) string {
 	return filterDef + def
 }
 
-func imageEffectNames(effects []drawing.Effect) string {
+func imageEffectPlanNames(effects []playout.ImageEffectVisualPlan) string {
 	if len(effects) == 0 {
 		return ""
 	}
-	var names []string
+	names := make([]string, 0, len(effects))
 	for _, effect := range effects {
-		if effect != nil {
-			names = append(names, string(effect.Type()))
+		if effect.Type != "" {
+			names = append(names, effect.Type)
 		}
 	}
 	return strings.Join(names, " ")
+}
+
+func imageEffectPlanFilterDefinition(visual playout.ImageVisualPlan, id string) string {
+	effects := visual.Effects
+	if len(effects) == 0 || id == "" {
+		return ""
+	}
+	var primitives []string
+	input := "SourceGraphic"
+	for _, e := range effects {
+		switch e.Type {
+		case string(drawing.EffectTypeGrayscale), string(drawing.EffectTypeDeSat):
+			result := fmt.Sprintf("fx%d", len(primitives)+1)
+			primitives = append(primitives, fmt.Sprintf(`<feColorMatrix in="%s" type="saturate" values="0" result="%s"/>`, input, result))
+			input = result
+		case string(drawing.EffectTypeBiLevel):
+			input = appendBiLevelFilter(&primitives, input, e.Int1)
+		case string(drawing.EffectTypeDuotone):
+			input = appendDuotoneFilter(&primitives, input, e.Color1, e.Color2)
+		case string(drawing.EffectTypeLum):
+			input = appendLuminanceFilter(&primitives, input, e.Int1, e.Int2)
+		case string(drawing.EffectTypeHSLEffect):
+			input = appendHSLFilterValues(&primitives, input, e.Int1, e.Int2, e.Int3)
+		case string(drawing.EffectTypeDeSatMod):
+			result := fmt.Sprintf("fx%d", len(primitives)+1)
+			amount := clampFloat64(float64(e.Int1)/100000.0, 0, 1)
+			primitives = append(primitives, fmt.Sprintf(`<feColorMatrix in="%s" type="saturate" values="%.6f" result="%s"/>`, input, amount, result))
+			input = result
+		case string(drawing.EffectTypeAlphaMod), string(drawing.EffectTypeAlphaModFix):
+			input = appendAlphaLinearFilter(&primitives, input, float64(e.Int1)/100000.0, 0)
+		case string(drawing.EffectTypeAlphaOff):
+			input = appendAlphaLinearFilter(&primitives, input, 1, float64(e.Int1)/100000.0)
+		case string(drawing.EffectTypeAlphaRepl):
+			input = appendAlphaLinearFilter(&primitives, input, 0, float64(e.Int1)/100000.0)
+		case string(drawing.EffectTypeAlphaInv):
+			input = appendAlphaInvertFilter(&primitives, input)
+		case string(drawing.EffectTypeAlphaBiLevel):
+			input = appendAlphaThresholdFilter(&primitives, input, float64(e.Int1)/100000.0)
+		case string(drawing.EffectTypeAlphaCeiling):
+			input = appendAlphaCeilingFilter(&primitives, input)
+		case string(drawing.EffectTypeAlphaFloor):
+			input = appendAlphaFloorFilter(&primitives, input)
+		case string(drawing.EffectTypeAlphaOutset):
+			input = appendAlphaOutsetFilter(&primitives, input, e.Float1)
+		case string(drawing.EffectTypeClrRepl):
+			input = appendColorReplacementFilter(&primitives, input, e.Color1)
+		case string(drawing.EffectTypeClrChange):
+			input = appendColorChangeFilterValues(&primitives, input, e.Color1, e.Color2, e.Float1, e.Float2, e.Bool1)
+		}
+	}
+	if len(primitives) == 0 {
+		return ""
+	}
+	x, y, w, h := visual.FilterXPct, visual.FilterYPct, visual.FilterWidthPct, visual.FilterHeightPct
+	if w <= 0 {
+		w = 100
+	}
+	if h <= 0 {
+		h = 100
+	}
+	return fmt.Sprintf(`<filter id="%s" x="%.4f%%" y="%.4f%%" width="%.4f%%" height="%.4f%%" color-interpolation-filters="sRGB">%s</filter>`, escapeAttr(id), x, y, w, h, strings.Join(primitives, ""))
 }
 
 func imageEffectFilterDefinition(effects []drawing.Effect, id string) string {
@@ -1108,6 +1714,9 @@ func imageEffectFilterDefinition(effects []drawing.Effect, id string) string {
 	if len(primitives) == 0 {
 		return ""
 	}
+	// Raw-effect fallback has no physical ImageVisualPlan. Keep its conservative
+	// viewport here; the normal picture path uses imageEffectPlanFilterDefinition,
+	// whose viewport is owned by layout and materialized on ImageVisualPlan.
 	return fmt.Sprintf(`<filter id="%s" x="-25%%" y="-25%%" width="150%%" height="150%%" color-interpolation-filters="sRGB">%s</filter>`, escapeAttr(id), strings.Join(primitives, ""))
 }
 
@@ -1149,6 +1758,11 @@ func appendLuminanceFilter(primitives *[]string, input string, brightness, contr
 }
 
 func appendHSLFilter(primitives *[]string, input string, effect drawing.HSLEffect) string {
+	return appendHSLFilterValues(primitives, input, effect.Hue, effect.Sat, effect.Lum)
+}
+
+func appendHSLFilterValues(primitives *[]string, input string, hue, sat, lum int) string {
+	effect := drawing.HSLEffect{Hue: hue, Sat: sat, Lum: lum}
 	if effect.Hue != 0 {
 		result := fmt.Sprintf("fx%d", len(*primitives)+1)
 		*primitives = append(*primitives, fmt.Sprintf(`<feColorMatrix in="%s" type="hueRotate" values="%.6f" result="%s"/>`, input, float64(effect.Hue)/60000.0, result))
@@ -1241,6 +1855,11 @@ func appendAlphaOutsetFilter(primitives *[]string, input string, radius float64)
 }
 
 func appendColorChangeFilter(primitives *[]string, input string, effect drawing.ClrChange) string {
+	return appendColorChangeFilterValues(primitives, input, effect.From, effect.To, effect.FromAlpha, effect.ToAlpha, effect.UseAlpha)
+}
+
+func appendColorChangeFilterValues(primitives *[]string, input, from, to string, fromAlpha, toAlpha float64, useAlpha bool) string {
+	effect := drawing.ClrChange{From: from, To: to, FromAlpha: fromAlpha, ToAlpha: toAlpha, UseAlpha: useAlpha}
 	fr, fg, fb, okFrom := hexRGB01(effect.From)
 	tr, tg, tb, okTo := hexRGB01(effect.To)
 	if !okFrom || !okTo {
@@ -1310,137 +1929,81 @@ func clampFloat64(v, min, max float64) float64 {
 // collectStrokeFillDefs scans primitives for gradient/pattern stroke fills and
 // assigns each a unique SVG def ID.  The returned defs are emitted before the
 // primitives so the stroke can reference them.
-func collectStrokeFillDefs(primitives []drawing.VectorPrimitive, prefix string) []string {
+func collectStrokeFillDefsPlans(primitives []playout.VectorPrimitivePlan, prefix string) []string {
 	var defs []string
 	for i := range primitives {
-		if primitives[i].Style.Stroke != nil && primitives[i].Style.Stroke.Fill != nil && drawingcss.NeedsSVGDefinition(primitives[i].Style.Stroke.Fill) {
+		primitive := &primitives[i].Primitive
+		if primitive.Style.Stroke != nil && primitive.Style.Stroke.Fill != nil && drawingcss.NeedsSVGDefinition(primitive.Style.Stroke.Fill) {
 			id := fmt.Sprintf("%s-stroke-%d", prefix, len(defs))
-			primitives[i].Style.StrokeFillDefID = id
-			defs = append(defs, svgDrawingFillDefinition(primitives[i].Style.Stroke.Fill, id))
+			primitive.Style.StrokeFillDefID = id
+			defs = append(defs, svgDrawingFillDefinition(primitive.Style.Stroke.Fill, id))
 		}
 	}
 	return defs
 }
 
-func rectShapeStyles(shape *resolve.Shape) []string {
+func rectShapeStyles(visual playout.ShapeVisualPlan) []string {
 	var styles []string
 	styles = append(styles,
 		"position:absolute",
 		"inset:0",
 	)
-	if shape.FillColor != "" {
-		styles = append(styles, cssBackgroundFillPropsForFill(shape.Fill, shape.FillColor)...)
+	if visual.HasVisibleFill {
+		styles = append(styles, cssBackgroundFillPropsForFill(visual.Fill.Fill, visual.Fill.FallbackColor)...)
 	}
-	if shape.LineColor != "" && shape.LineWidthPt > 0 {
-		styles = append(styles, fmt.Sprintf("border:%.2fpt %s #%s", shape.LineWidthPt, cssBorderStyleForLine(shape.LineStyle), shape.LineColor))
+	stroke := visual.Stroke
+	if stroke.Color != "" && stroke.WidthPt > 0 {
+		styles = append(styles, fmt.Sprintf("border:%.2fpt %s #%s", stroke.WidthPt, stroke.CSSStyle, stroke.Color))
 	}
 	return styles
 }
 
-// cssBorderStyleForLine maps a DrawingML line style to a CSS border style.
-// Compound lines are approximated: "dbl" becomes "double"; other compound
-// variants fall back to "double" as well because CSS does not distinguish
-// thick-thin or triple lines.
-func cssBorderStyleForLine(style *drawing.LineStyle) string {
-	if style != nil && style.CompoundType != "" && style.CompoundType != "sng" {
-		return "double"
-	}
-	if style != nil && style.Dash != drawing.DashPatternSolid {
-		return "dashed"
-	}
-	return "solid"
-}
-
-func svgFillValue(shape *resolve.Shape) string {
-	if shape == nil {
-		return "none"
-	}
-	if shape.Fill != nil {
-		if fill, ok := drawingcss.Fill(shape.Fill)["fill"]; ok && fill != "" {
-			return fill
-		}
-	}
-	if shape.FillColor != "" {
-		return "#" + shape.FillColor
-	}
-	return "none"
-}
-
-func shapeHasVisibleFill(shape *resolve.Shape) bool {
-	if shape == nil {
-		return false
-	}
-	if shape.FillColor != "" {
-		return true
-	}
-	switch shape.Fill.(type) {
-	case nil, drawing.NoFill, *drawing.NoFill:
-		return false
-	default:
-		return true
-	}
-}
-
-func cssBackgroundFillValue(shape *resolve.Shape) string {
-	if shape == nil {
-		return ""
-	}
-	return strings.Join(cssBackgroundFillPropsForFill(shape.Fill, shape.FillColor), ";")
-}
-
-func effectStyleProps(shape *resolve.Shape) map[string]string {
-	if shape == nil || len(shape.Effects.Effects) == 0 {
+func presentationEffectPlanStyles(effects playout.EffectVisualPlan) map[string]string {
+	if !effects.HasEffects {
 		return nil
 	}
-	return presentationEffectStyles(shape.Effects)
-}
-
-func presentationEffectStyles(effects drawing.EffectList) map[string]string {
-	if len(effects.Effects) == 0 {
-		return nil
-	}
-	props := drawingcss.EffectList(effects)
-	if props == nil {
-		props = make(map[string]string)
-	}
+	props := make(map[string]string)
+	composition := effects.Composition
 	var transforms []string
-	for _, effect := range effects.Effects {
-		switch e := effect.(type) {
-		case drawing.RelativeOffset:
-			transforms = append(transforms, relativeOffsetTransform(e))
-		case *drawing.RelativeOffset:
-			if e != nil {
-				transforms = append(transforms, relativeOffsetTransform(*e))
-			}
-		case drawing.TransformEffect:
-			transforms = append(transforms, drawingTransformCSS(e))
-		case *drawing.TransformEffect:
-			if e != nil {
-				transforms = append(transforms, drawingTransformCSS(*e))
-			}
-		case drawing.BlendMode:
-			if mode := cssBlendMode(e.Mode); mode != "" {
-				props["mix-blend-mode"] = mode
-			}
-		case *drawing.BlendMode:
-			if e != nil {
-				if mode := cssBlendMode(e.Mode); mode != "" {
-					props["mix-blend-mode"] = mode
-				}
-			}
-		case drawing.Reflection:
-			applyReflectionCSS(props, e)
-		case *drawing.Reflection:
-			if e != nil {
-				applyReflectionCSS(props, *e)
-			}
-		case drawing.ThreeD:
-			applyThreeDCSS(props, e)
-		case *drawing.ThreeD:
-			if e != nil {
-				applyThreeDCSS(props, *e)
-			}
+	for _, step := range composition.Transforms {
+		if value := effectTransformStepCSS(step); value != "" {
+			transforms = append(transforms, value)
 		}
+	}
+	if mode := cssBlendMode(composition.BlendMode); mode != "" && composition.BlendMode != "" {
+		props["mix-blend-mode"] = mode
+	}
+	if composition.Reflection != nil {
+		applyReflectionVisualCSS(props, *composition.Reflection)
+	}
+	if composition.ThreeD != nil {
+		applyThreeDVisualCSS(props, *composition.ThreeD)
+	}
+
+	// Presentation effects belong to the painted shape, never to the rectangular
+	// DOM positioning frame. CSS box-shadow follows that frame's border box and
+	// therefore turns freeforms, connectors and other non-rectangular DrawingML
+	// geometry into visible rectangles. drop-shadow instead follows the alpha of
+	// the rendered descendants (SVG geometry, picture or text paint).
+	var filters []string
+	for _, shadow := range effects.Shadows {
+		if shadow.Inner || shadow.Color == "" {
+			continue
+		}
+		filters = append(filters, fmt.Sprintf("drop-shadow(%.3fpt %.3fpt %.3fpt %s)", shadow.OffsetXPt, shadow.OffsetYPt, shadow.BlurPt, physicalEffectColor(shadow.Color, shadow.Alpha)))
+	}
+	for _, glow := range effects.Glows {
+		if glow.Color != "" && glow.RadiusPt > 0 {
+			filters = append(filters, fmt.Sprintf("drop-shadow(0 0 %.3fpt %s)", glow.RadiusPt, physicalEffectColor(glow.Color, glow.Alpha)))
+		}
+	}
+	for _, blur := range effects.Blurs {
+		if blur.RadiusPt > 0 {
+			filters = append(filters, fmt.Sprintf("blur(%.3fpt)", blur.RadiusPt))
+		}
+	}
+	if len(filters) > 0 {
+		props["filter"] = strings.Join(filters, " ")
 	}
 	if len(transforms) > 0 {
 		base := strings.TrimSpace(props["transform"])
@@ -1448,11 +2011,7 @@ func presentationEffectStyles(effects drawing.EffectList) map[string]string {
 		if base != "" {
 			parts = append(parts, base)
 		}
-		for _, t := range transforms {
-			if strings.TrimSpace(t) != "" {
-				parts = append(parts, t)
-			}
-		}
+		parts = append(parts, transforms...)
 		props["transform"] = strings.Join(parts, " ")
 		if strings.TrimSpace(props["transform-origin"]) == "" {
 			props["transform-origin"] = "50% 50%"
@@ -1461,35 +2020,104 @@ func presentationEffectStyles(effects drawing.EffectList) map[string]string {
 	return props
 }
 
-func relativeOffsetTransform(e drawing.RelativeOffset) string {
-	if e.X == 0 && e.Y == 0 {
-		return ""
-	}
-	return fmt.Sprintf("translate(%.4f%%,%.4f%%)", e.X*100, e.Y*100)
+func presentationPictureEffectPlanStyles(effects playout.EffectVisualPlan) map[string]string {
+	return presentationEffectPlanStyles(effects)
 }
 
-func drawingTransformCSS(e drawing.TransformEffect) string {
-	var parts []string
-	if e.TranslateX != 0 || e.TranslateY != 0 {
-		parts = append(parts, fmt.Sprintf("translate(%.4f%%,%.4f%%)", e.TranslateX*100, e.TranslateY*100))
+// presentationTextShapeEffectPlanStyles uses the same geometry-aware shape
+// effect contract as every other presentation visual. Text shapes are not a
+// special case: the positioning wrapper never owns presentation paint.
+func presentationTextShapeEffectPlanStyles(effects playout.EffectVisualPlan) map[string]string {
+	return presentationEffectPlanStyles(effects)
+}
+
+func presentationTextEffectPlanStyles(effects playout.EffectVisualPlan) map[string]string {
+	if !effects.HasEffects {
+		return nil
 	}
-	sx, sy := e.ScaleX, e.ScaleY
-	if sx == 0 {
-		sx = 1
+	props := presentationEffectPlanStyles(effects)
+	delete(props, "box-shadow")
+	var filters []string
+	for _, shadow := range effects.Shadows {
+		if shadow.Inner || shadow.Color == "" {
+			continue
+		}
+		filters = append(filters, fmt.Sprintf("drop-shadow(%.3fpt %.3fpt %.3fpt %s)", shadow.OffsetXPt, shadow.OffsetYPt, shadow.BlurPt, physicalEffectColor(shadow.Color, shadow.Alpha)))
 	}
-	if sy == 0 {
-		sy = 1
+	for _, glow := range effects.Glows {
+		if glow.Color != "" && glow.RadiusPt > 0 {
+			filters = append(filters, fmt.Sprintf("drop-shadow(0 0 %.3fpt %s)", glow.RadiusPt, physicalEffectColor(glow.Color, glow.Alpha)))
+		}
 	}
-	if sx != 1 || sy != 1 {
-		parts = append(parts, fmt.Sprintf("scale(%.4f,%.4f)", sx, sy))
+	for _, blur := range effects.Blurs {
+		if blur.RadiusPt > 0 {
+			filters = append(filters, fmt.Sprintf("blur(%.3fpt)", blur.RadiusPt))
+		}
 	}
-	if e.SkewX != 0 {
-		parts = append(parts, fmt.Sprintf("skewX(%.4fdeg)", e.SkewX))
+	if len(filters) > 0 {
+		props["filter"] = strings.Join(filters, " ")
 	}
-	if e.SkewY != 0 {
-		parts = append(parts, fmt.Sprintf("skewY(%.4fdeg)", e.SkewY))
+	return props
+}
+
+func svgPaintColor(color string) string {
+	color = strings.TrimSpace(color)
+	if color == "" || color == "none" || strings.HasPrefix(color, "#") || strings.HasPrefix(color, "rgb(") || strings.HasPrefix(color, "rgba(") || strings.HasPrefix(color, "url(") || strings.HasPrefix(color, "var(") {
+		return color
 	}
-	return strings.Join(parts, " ")
+	if len(color) == 3 || len(color) == 6 || len(color) == 8 {
+		for _, r := range color {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return color
+			}
+		}
+		return "#" + color
+	}
+	return color
+}
+
+func physicalEffectColor(hex string, alpha float64) string {
+	hex = strings.TrimPrefix(strings.TrimSpace(hex), "#")
+	if alpha <= 0 || alpha > 1 {
+		alpha = 1
+	}
+	if len(hex) == 6 {
+		if r, err := strconv.ParseUint(hex[0:2], 16, 8); err == nil {
+			if g, err := strconv.ParseUint(hex[2:4], 16, 8); err == nil {
+				if b, err := strconv.ParseUint(hex[4:6], 16, 8); err == nil {
+					return fmt.Sprintf("rgba(%d,%d,%d,%.4f)", r, g, b, alpha)
+				}
+			}
+		}
+	}
+	return "#" + hex
+}
+
+func effectTransformStepCSS(step playout.EffectTransformStep) string {
+	switch step.Kind {
+	case "offset":
+		if step.X == 0 && step.Y == 0 {
+			return ""
+		}
+		return fmt.Sprintf("translate(%.4f%%,%.4f%%)", step.X*100, step.Y*100)
+	case "transform":
+		var parts []string
+		if step.X != 0 || step.Y != 0 {
+			parts = append(parts, fmt.Sprintf("translate(%.4f%%,%.4f%%)", step.X*100, step.Y*100))
+		}
+		if step.ScaleX != 1 || step.ScaleY != 1 {
+			parts = append(parts, fmt.Sprintf("scale(%.4f,%.4f)", step.ScaleX, step.ScaleY))
+		}
+		if step.SkewXDeg != 0 {
+			parts = append(parts, fmt.Sprintf("skewX(%.4fdeg)", step.SkewXDeg))
+		}
+		if step.SkewYDeg != 0 {
+			parts = append(parts, fmt.Sprintf("skewY(%.4fdeg)", step.SkewYDeg))
+		}
+		return strings.Join(parts, " ")
+	default:
+		return ""
+	}
 }
 
 func cssBlendMode(mode string) string {
@@ -1509,7 +2137,7 @@ func cssBlendMode(mode string) string {
 	}
 }
 
-func applyThreeDCSS(props map[string]string, t drawing.ThreeD) {
+func applyThreeDVisualCSS(props map[string]string, t playout.ThreeDVisualPlan) {
 	if props == nil {
 		return
 	}
@@ -1536,14 +2164,14 @@ func applyThreeDCSS(props map[string]string, t drawing.ThreeD) {
 	if !strings.Contains(base, "perspective(") {
 		transforms = append(transforms, fmt.Sprintf("perspective(%.0fpx)", perspective))
 	}
-	if t.RotationX != 0 {
-		transforms = append(transforms, fmt.Sprintf("rotateX(%.4fdeg)", t.RotationX))
+	if t.RotationXDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotateX(%.4fdeg)", t.RotationXDeg))
 	}
-	if t.RotationY != 0 {
-		transforms = append(transforms, fmt.Sprintf("rotateY(%.4fdeg)", -t.RotationY))
+	if t.RotationYDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotateY(%.4fdeg)", -t.RotationYDeg))
 	}
-	if t.RotationZ != 0 {
-		transforms = append(transforms, fmt.Sprintf("rotateZ(%.4fdeg)", t.RotationZ))
+	if t.RotationZDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotateZ(%.4fdeg)", t.RotationZDeg))
 	}
 	if zoom != 1 {
 		transforms = append(transforms, fmt.Sprintf("scale(%.4f)", zoom))
@@ -1567,12 +2195,12 @@ func applyThreeDCSS(props map[string]string, t drawing.ThreeD) {
 	}
 }
 
-func applyReflectionCSS(props map[string]string, r drawing.Reflection) {
+func applyReflectionVisualCSS(props map[string]string, r playout.ReflectionVisualPlan) {
 	if props == nil {
 		return
 	}
 	direction := "below"
-	a := math.Mod(r.Direction, 360)
+	a := math.Mod(r.DirectionDeg, 360)
 	if a < 0 {
 		a += 360
 	}
@@ -1586,44 +2214,29 @@ func applyReflectionCSS(props map[string]string, r drawing.Reflection) {
 	}
 	startAlpha := r.Alpha
 	if r.StartAlpha > 0 {
-		startAlpha = float64(r.StartAlpha) / 100000.0
+		startAlpha = r.StartAlpha
 	}
 	if startAlpha <= 0 {
 		startAlpha = 0.3
 	}
 	endAlpha := 0.0
 	if r.EndAlpha > 0 {
-		endAlpha = float64(r.EndAlpha) / 100000.0
+		endAlpha = r.EndAlpha
 	}
-	startPos := float64(r.StartPosition) / 1000.0
-	endPos := float64(r.EndPosition) / 1000.0
+	startPos := r.StartPosition
+	endPos := r.EndPosition
 	if endPos <= startPos {
 		startPos, endPos = 0, 100
 	}
 	mask := fmt.Sprintf("linear-gradient(to bottom,rgba(0,0,0,%.4f) %.2f%%,rgba(0,0,0,%.4f) %.2f%%)", startAlpha, startPos, endAlpha, endPos)
-	props["-webkit-box-reflect"] = fmt.Sprintf("%s %.2fpt %s", direction, r.Distance, mask)
+	props["-webkit-box-reflect"] = fmt.Sprintf("%s %.2fpt %s", direction, r.DistancePt, mask)
 }
 
-func fillOverlayEffects(effects drawing.EffectList) []drawing.FillOverlay {
-	var overlays []drawing.FillOverlay
-	for _, effect := range effects.Effects {
-		switch e := effect.(type) {
-		case drawing.FillOverlay:
-			overlays = append(overlays, e)
-		case *drawing.FillOverlay:
-			if e != nil {
-				overlays = append(overlays, *e)
-			}
-		}
-	}
-	return overlays
-}
-
-func writeHTMLFillOverlays(b *strings.Builder, effects drawing.EffectList) {
+func writeHTMLFillOverlays(b *strings.Builder, effects playout.EffectVisualPlan) {
 	if b == nil {
 		return
 	}
-	for _, overlay := range fillOverlayEffects(effects) {
+	for _, overlay := range effects.Overlays {
 		if overlay.Fill == nil {
 			continue
 		}
@@ -1670,7 +2283,7 @@ func cssBackgroundFillPropsForFill(fill drawing.Fill, fillColor string) []string
 }
 
 func effectStylePropsForList(effects drawing.EffectList) map[string]string {
-	return presentationEffectStyles(effects)
+	return presentationEffectPlanStyles(playout.ResolveEffectVisualPlan(effects))
 }
 
 func mergeEffectTransform(base string, props map[string]string) (string, string) {
@@ -1730,9 +2343,47 @@ func svgPathData(path drawing.Path) string {
 	return strings.Join(parts, " ")
 }
 
-func renderImageShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
-	effectStyles := effectStyleProps(shape)
+func appendImagePhysicalPaintStyles(styles []string, image playout.ImageVisualPlan) []string {
+	if image.Composition.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", image.Composition.Paint.ZIndex))
+	}
+	if image.Composition.Paint.OverflowVisible {
+		styles = append(styles, "overflow:visible")
+	}
+	return styles
+}
+
+func appendMediaPhysicalPaintStyles(styles []string, media *playout.PhysicalMediaPlan) []string {
+	if media == nil {
+		return styles
+	}
+	if media.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", media.Paint.ZIndex))
+	}
+	if media.Paint.OverflowVisible {
+		styles = append(styles, "overflow:visible")
+	}
+	return styles
+}
+
+func appendOLEPhysicalPaintStyles(styles []string, ole *playout.PhysicalOLEPlan) []string {
+	if ole == nil {
+		return styles
+	}
+	if ole.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", ole.Paint.ZIndex))
+	}
+	if ole.Paint.OverflowVisible {
+		styles = append(styles, "overflow:visible")
+	}
+	return styles
+}
+
+func renderImageShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
+	imageVisual := *item.Image
+	x, y, w, h := physicalBoundsPercent(imageVisual.Composition.FrameBounds, slideW, slideH)
+	effectStyles := presentationPictureEffectPlanStyles(imageVisual.Composition.Effects)
 	if len(shape.ImageData) > 0 {
 		if !browserRenderablePresentationImage(imageContentType(shape)) {
 			var styles []string
@@ -1763,6 +2414,7 @@ func renderImageShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 				}
 				styles = appendSortedCSSProps(styles, effectStyles)
 			}
+			styles = appendImagePhysicalPaintStyles(styles, imageVisual)
 			fmt.Fprintf(b,
 				"<div class=\"shape shape--image shape--image-placeholder\" style=%q%s%s%s%s aria-label=%q>[%s]</div>\n",
 				strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(shape.Name), escapeHTML(imageContentType(shape)))
@@ -1780,15 +2432,15 @@ func renderImageShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 		if len(effectStyles) > 0 {
 			styles = append(styles, "overflow:visible")
 		}
-		// Apply rotation and flip transforms
+		// Picture outer effects are alpha-aware and run after geometry masking.
 		var transforms []string
-		if shape.RotationDeg != 0 {
-			transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", shape.RotationDeg))
+		if imageVisual.Composition.Transform.RotationDeg != 0 {
+			transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", imageVisual.Composition.Transform.RotationDeg))
 		}
-		if shape.FlipH {
+		if imageVisual.Composition.Transform.FlipH {
 			transforms = append(transforms, "scaleX(-1)")
 		}
-		if shape.FlipV {
+		if imageVisual.Composition.Transform.FlipV {
 			transforms = append(transforms, "scaleY(-1)")
 		}
 		transform, effectOrigin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
@@ -1805,33 +2457,37 @@ func renderImageShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 		if len(effectStyles) > 0 {
 			styles = appendSortedCSSProps(styles, effectStyles)
 		}
-		frameStyles := imageFrameStyles(shape)
-		imgStyles := imageElementStyles(shape)
+		clipStyles := imageClipStyles(imageVisual)
+		frameStyles := imageFrameStyles(imageVisual)
+		imgStyles := imageElementStyles(imageVisual)
 		imageFilterID := fmt.Sprintf("picture-%d-blip-filter", shape.ID)
 		if ctx != nil {
 			ctx.nextEffectIndex++
 			imageFilterID = fmt.Sprintf("picture-blip-filter-%d", ctx.nextEffectIndex)
 		}
-		imageFilterDef := imageEffectFilterDefinition(shape.ImageEffects, imageFilterID)
+		imageFilterDef := imageEffectPlanFilterDefinition(imageVisual, imageFilterID)
 		if imageFilterDef != "" {
 			imgStyles = append(imgStyles, "filter:url(#"+imageFilterID+")")
 		}
 		imageEffectsAttr := ""
-		if names := imageEffectNames(shape.ImageEffects); names != "" {
+		if names := imageEffectPlanNames(imageVisual.Effects); names != "" {
 			imageEffectsAttr = fmt.Sprintf(" data-ppt-image-effects=%q", names)
 		}
+		styles = appendImagePhysicalPaintStyles(styles, imageVisual)
 		fmt.Fprintf(b, "<div class=\"shape shape--image\" style=%q%s%s%s%s>", strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
 		if imageFilterDef != "" {
 			fmt.Fprintf(b, "<svg width=\"0\" height=\"0\" aria-hidden=\"true\"><defs>%s</defs></svg>", imageFilterDef)
 		}
+		fmt.Fprintf(b, "<div class=\"shape__image-clip\" style=%q>", strings.Join(clipStyles, ";"))
 		fmt.Fprintf(b, "<div class=\"shape__image-frame\" style=%q>", strings.Join(frameStyles, ";"))
-		geometryAttr := fmt.Sprintf(" data-ppt-image-dpi=%q data-ppt-rot-with-shape=%q data-ppt-fill-rect=%q", strconv.Itoa(shape.ImageDPI), strconv.FormatBool(!shape.ImageRotWithShapeSet || shape.ImageRotWithShape), fmt.Sprintf("%.5f,%.5f,%.5f,%.5f", shape.ImageFillLeft, shape.ImageFillTop, shape.ImageFillRight, shape.ImageFillBottom))
+		geometryAttr := fmt.Sprintf(" data-ppt-image-dpi=%q data-ppt-rot-with-shape=%q data-ppt-fill-rect=%q", strconv.Itoa(imageVisual.DPI), strconv.FormatBool(imageVisual.RotWithShape), fmt.Sprintf("%.5f,%.5f,%.5f,%.5f", imageVisual.FrameLeft/100, imageVisual.FrameTop/100, imageVisual.FrameRight/100, imageVisual.FrameBottom/100))
 		fmt.Fprintf(b,
 			"<img class=\"shape__image\" style=%q src=%q alt=%q%s%s>",
 			strings.Join(imgStyles, ";"), src, escapeAttr(shape.Name), imageEffectsAttr, geometryAttr)
 		b.WriteString("</div>")
-		writeHTMLFillOverlays(b, shape.Effects)
-		b.WriteString("</div>\n")
+		// Shape-local overlays stay inside the authored picture geometry mask.
+		writeHTMLFillOverlays(b, imageVisual.Composition.Effects)
+		b.WriteString("</div></div>\n")
 	} else {
 		var styles []string
 		styles = append(styles,
@@ -1852,15 +2508,21 @@ func renderImageShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 			}
 			styles = appendSortedCSSProps(styles, effectStyles)
 		}
+		styles = appendImagePhysicalPaintStyles(styles, imageVisual)
 		fmt.Fprintf(b,
 			"<div class=\"shape shape--image\" style=%q%s%s%s%s aria-label=%q></div>\n",
 			strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(shape.Name))
 	}
 }
 
-func renderMediaShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
-	effectStyles := effectStyleProps(shape)
+func renderMediaShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
+	media := item.Media
+	if media == nil {
+		return
+	}
+	x, y, w, h := physicalBoundsPercent(media.FrameBounds, slideW, slideH)
+	effectStyles := presentationEffectPlanStyles(media.Effects)
 	var styles []string
 	styles = append(styles,
 		"position:absolute",
@@ -1877,13 +2539,13 @@ func renderMediaShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 		styles = append(styles, "overflow:visible")
 	}
 	var transforms []string
-	if shape.RotationDeg != 0 {
-		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", shape.RotationDeg))
+	if media.Transform.RotationDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", media.Transform.RotationDeg))
 	}
-	if shape.FlipH {
+	if media.Transform.FlipH {
 		transforms = append(transforms, "scaleX(-1)")
 	}
-	if shape.FlipV {
+	if media.Transform.FlipV {
 		transforms = append(transforms, "scaleY(-1)")
 	}
 	transform, effectOrigin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
@@ -1917,11 +2579,13 @@ func renderMediaShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 			styles = append(styles, "background-image:url("+mediaPosterSource(ctx, shape)+")")
 			styles = append(styles, "background-size:cover", "background-position:center")
 		}
+		styles = appendMediaPhysicalPaintStyles(styles, media)
 		fmt.Fprintf(b, "<div class=\"shape shape--media shape--media-placeholder\" style=%q%s%s%s%s aria-label=%q>[%s]</div>\n",
 			strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(shape.Name), escapeHTML(mediaLabel(shape, label)))
 		return
 	}
 
+	styles = appendMediaPhysicalPaintStyles(styles, media)
 	fmt.Fprintf(b, "<div class=\"shape shape--media\" style=%q%s%s%s%s>", strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
 	src := mediaSource(ctx, shape)
 	switch mediaTagName(shape) {
@@ -1940,9 +2604,14 @@ func renderMediaShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH f
 	b.WriteString("</div>\n")
 }
 
-func renderOleObjectShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
-	effectStyles := effectStyleProps(shape)
+func renderOleObjectShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
+	ole := item.OLE
+	if ole == nil {
+		return
+	}
+	x, y, w, h := physicalBoundsPercent(ole.FrameBounds, slideW, slideH)
+	effectStyles := presentationEffectPlanStyles(ole.Effects)
 
 	baseStyles := []string{
 		"position:absolute",
@@ -1951,18 +2620,18 @@ func renderOleObjectShape(b *strings.Builder, shape *resolve.Shape, slideW, slid
 		fmt.Sprintf("width:%.4f%%", w),
 		fmt.Sprintf("height:%.4f%%", h),
 	}
-	if len(shape.OLEIconData) > 0 && browserRenderablePresentationImage(shape.OLEIconMIME) {
+	if len(ole.IconData) > 0 && browserRenderablePresentationImage(ole.IconMIME) {
 		if len(effectStyles) > 0 {
 			baseStyles = append(baseStyles, "overflow:visible")
 		}
 		var transforms []string
-		if shape.RotationDeg != 0 {
-			transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", shape.RotationDeg))
+		if ole.Transform.RotationDeg != 0 {
+			transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", ole.Transform.RotationDeg))
 		}
-		if shape.FlipH {
+		if ole.Transform.FlipH {
 			transforms = append(transforms, "scaleX(-1)")
 		}
-		if shape.FlipV {
+		if ole.Transform.FlipV {
 			transforms = append(transforms, "scaleY(-1)")
 		}
 		transform, effectOrigin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
@@ -1979,13 +2648,14 @@ func renderOleObjectShape(b *strings.Builder, shape *resolve.Shape, slideW, slid
 		if len(effectStyles) > 0 {
 			baseStyles = appendSortedCSSProps(baseStyles, effectStyles)
 		}
-		src := oleObjectIconSource(ctx, shape)
-		if shape.OLEObjectLinkURL != "" {
-			fmt.Fprintf(b, "<a class=\"ole-object-link\" href=%q target=\"_blank\" rel=\"noopener noreferrer\">", escapeAttr(shape.OLEObjectLinkURL))
+		baseStyles = appendOLEPhysicalPaintStyles(baseStyles, ole)
+		src := oleObjectIconSource(ctx, ole)
+		if ole.LinkURL != "" {
+			fmt.Fprintf(b, "<a class=\"ole-object-link\" href=%q target=\"_blank\" rel=\"noopener noreferrer\">", escapeAttr(ole.LinkURL))
 		}
 		fmt.Fprintf(b, "<img class=\"shape shape--ole-object\" style=%q src=%q alt=%q%s%s%s%s>\n",
 			strings.Join(baseStyles, ";"), src, escapeAttr(shape.Name), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
-		if shape.OLEObjectLinkURL != "" {
+		if ole.LinkURL != "" {
 			b.WriteString("</a>\n")
 		}
 		return
@@ -2003,15 +2673,29 @@ func renderOleObjectShape(b *strings.Builder, shape *resolve.Shape, slideW, slid
 		"text-align:center",
 		"padding:4px",
 	)
+	var transforms []string
+	if ole.Transform.RotationDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", ole.Transform.RotationDeg))
+	}
+	if ole.Transform.FlipH {
+		transforms = append(transforms, "scaleX(-1)")
+	}
+	if ole.Transform.FlipV {
+		transforms = append(transforms, "scaleY(-1)")
+	}
 	if len(effectStyles) > 0 {
 		styles = append(styles, "overflow:visible")
-		transform, origin := mergeEffectTransform("", effectStyles)
-		if transform != "" {
-			styles = append(styles, "transform:"+transform)
-		}
-		if origin != "" {
-			styles = append(styles, "transform-origin:"+origin)
-		}
+	}
+	transform, origin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
+	if transform != "" {
+		styles = append(styles, "transform:"+transform)
+	}
+	if origin != "" {
+		styles = append(styles, "transform-origin:"+origin)
+	} else if transform != "" {
+		styles = append(styles, "transform-origin:50% 50%")
+	}
+	if len(effectStyles) > 0 {
 		styles = appendSortedCSSProps(styles, effectStyles)
 	}
 	label := shape.OLEObjectName
@@ -2021,19 +2705,23 @@ func renderOleObjectShape(b *strings.Builder, shape *resolve.Shape, slideW, slid
 	if label == "" {
 		label = "Object"
 	}
-	if shape.OLEObjectLinkURL != "" {
-		fmt.Fprintf(b, "<a class=\"ole-object-link\" href=%q target=\"_blank\" rel=\"noopener noreferrer\">", escapeAttr(shape.OLEObjectLinkURL))
+	if ole.LinkURL != "" {
+		fmt.Fprintf(b, "<a class=\"ole-object-link\" href=%q target=\"_blank\" rel=\"noopener noreferrer\">", escapeAttr(ole.LinkURL))
 	}
+	styles = appendOLEPhysicalPaintStyles(styles, ole)
 	fmt.Fprintf(b,
 		"<div class=\"shape shape--ole-object\" style=%q%s%s%s%s aria-label=%q>[%s]</div>\n",
 		strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(shape.Name), escapeHTML(label))
-	if shape.OLEObjectLinkURL != "" {
+	if ole.LinkURL != "" {
 		b.WriteString("</a>\n")
 	}
 }
 
-func oleObjectIconSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
-	mime := shape.OLEIconMIME
+func oleObjectIconSource(ctx *htmlRenderContext, ole *playout.PhysicalOLEPlan) string {
+	if ole == nil || len(ole.IconData) == 0 {
+		return ""
+	}
+	mime := ole.IconMIME
 	if mime == "" {
 		mime = "image/jpeg"
 	}
@@ -2043,15 +2731,15 @@ func oleObjectIconSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
 		ctx.assets = append(ctx.assets, HTMLAsset{
 			Path:        assetPath,
 			ContentType: mime,
-			Data:        append([]byte(nil), shape.OLEIconData...),
+			Data:        append([]byte(nil), ole.IconData...),
 		})
 		return assetPath
 	}
-	encoded := base64.StdEncoding.EncodeToString(shape.OLEIconData)
+	encoded := base64.StdEncoding.EncodeToString(ole.IconData)
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded)
 }
 
-func imageSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
+func imageSource(ctx *htmlRenderContext, shape *ir.Shape) string {
 	mime := imageContentType(shape)
 	if ctx != nil && ctx.options.ImageMode == HTMLImageModeExternal {
 		return ctx.addImageAsset(shape, mime)
@@ -2060,7 +2748,7 @@ func imageSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded)
 }
 
-func mediaSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
+func mediaSource(ctx *htmlRenderContext, shape *ir.Shape) string {
 	if shape != nil && strings.TrimSpace(shape.MediaLinkURL) != "" {
 		return shape.MediaLinkURL
 	}
@@ -2072,7 +2760,7 @@ func mediaSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded)
 }
 
-func mediaPosterSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
+func mediaPosterSource(ctx *htmlRenderContext, shape *ir.Shape) string {
 	if shape == nil || len(shape.MediaPosterData) == 0 {
 		return ""
 	}
@@ -2083,21 +2771,21 @@ func mediaPosterSource(ctx *htmlRenderContext, shape *resolve.Shape) string {
 	return fmt.Sprintf("data:%s;base64,%s", mediaPosterContentType(shape), encoded)
 }
 
-func imageContentType(shape *resolve.Shape) string {
+func imageContentType(shape *ir.Shape) string {
 	if shape != nil && shape.ImageMIME != "" {
 		return shape.ImageMIME
 	}
 	return "image/jpeg"
 }
 
-func mediaContentType(shape *resolve.Shape) string {
+func mediaContentType(shape *ir.Shape) string {
 	if shape != nil && shape.MediaMIME != "" {
 		return shape.MediaMIME
 	}
 	return "application/octet-stream"
 }
 
-func mediaPosterContentType(shape *resolve.Shape) string {
+func mediaPosterContentType(shape *ir.Shape) string {
 	if shape != nil && shape.MediaPosterMIME != "" {
 		return shape.MediaPosterMIME
 	}
@@ -2124,7 +2812,7 @@ func browserRenderableMedia(contentType string) bool {
 	}
 }
 
-func (ctx *htmlRenderContext) addImageAsset(shape *resolve.Shape, mime string) string {
+func (ctx *htmlRenderContext) addImageAsset(shape *ir.Shape, mime string) string {
 	ctx.nextImageIndex++
 	assetPath := htmlasset.AssetPath(ctx.options.ExternalImageDir, "image", ctx.nextImageIndex, htmlasset.ImageFileExtension(mime))
 	ctx.assets = append(ctx.assets, HTMLAsset{
@@ -2135,7 +2823,7 @@ func (ctx *htmlRenderContext) addImageAsset(shape *resolve.Shape, mime string) s
 	return assetPath
 }
 
-func (ctx *htmlRenderContext) addMediaAsset(shape *resolve.Shape, mime string) string {
+func (ctx *htmlRenderContext) addMediaAsset(shape *ir.Shape, mime string) string {
 	ctx.nextMediaIndex++
 	assetPath := htmlasset.AssetPath(ctx.options.ExternalImageDir, "media", ctx.nextMediaIndex, htmlasset.MediaFileExtension(mime))
 	ctx.assets = append(ctx.assets, HTMLAsset{
@@ -2146,7 +2834,7 @@ func (ctx *htmlRenderContext) addMediaAsset(shape *resolve.Shape, mime string) s
 	return assetPath
 }
 
-func (ctx *htmlRenderContext) addMediaPosterAsset(shape *resolve.Shape, mime string) string {
+func (ctx *htmlRenderContext) addMediaPosterAsset(shape *ir.Shape, mime string) string {
 	ctx.nextImageIndex++
 	assetPath := htmlasset.AssetPath(ctx.options.ExternalImageDir, "image", ctx.nextImageIndex, htmlasset.ImageFileExtension(mime))
 	ctx.assets = append(ctx.assets, HTMLAsset{
@@ -2168,64 +2856,65 @@ func (ctx *htmlRenderContext) addFontAsset(src fontdata.Source) string {
 	return assetPath
 }
 
-func imageFrameStyles(shape *resolve.Shape) []string {
-	styles := []string{"position:absolute", "overflow:hidden"}
-	if shape == nil {
-		return append(styles, "inset:0")
+func imageClipStyles(visual playout.ImageVisualPlan) []string {
+	styles := []string{"position:absolute", "inset:0", "overflow:hidden"}
+	if visual.ClipPath != "" {
+		styles = append(styles, "clip-path:"+visual.ClipPath)
 	}
-	left, top := shape.ImageFillLeft, shape.ImageFillTop
-	right, bottom := shape.ImageFillRight, shape.ImageFillBottom
-	if left+right >= 1 || top+bottom >= 1 {
+	var inner []string
+	for _, shadow := range visual.Composition.Effects.Shadows {
+		if !shadow.Inner || shadow.Color == "" {
+			continue
+		}
+		inner = append(inner, fmt.Sprintf("inset %.3fpt %.3fpt %.3fpt %s", shadow.OffsetXPt, shadow.OffsetYPt, shadow.BlurPt, physicalEffectColor(shadow.Color, shadow.Alpha)))
+	}
+	if len(inner) > 0 {
+		styles = append(styles, "box-shadow:"+strings.Join(inner, ","))
+	}
+	return styles
+}
+
+func imageFrameStyles(visual playout.ImageVisualPlan) []string {
+	styles := []string{"position:absolute", "overflow:hidden"}
+	if visual.FrameHidden {
 		return append(styles, "display:none")
 	}
-	styles = append(styles,
-		fmt.Sprintf("left:%.4f%%", left*100),
-		fmt.Sprintf("top:%.4f%%", top*100),
-		fmt.Sprintf("right:%.4f%%", right*100),
-		fmt.Sprintf("bottom:%.4f%%", bottom*100),
+	return append(styles,
+		fmt.Sprintf("left:%.4f%%", visual.FrameLeft),
+		fmt.Sprintf("top:%.4f%%", visual.FrameTop),
+		fmt.Sprintf("right:%.4f%%", visual.FrameRight),
+		fmt.Sprintf("bottom:%.4f%%", visual.FrameBottom),
 	)
-	return styles
 }
 
-func imageElementStyles(shape *resolve.Shape) []string {
-	styles := []string{
-		"position:absolute",
-		"display:block",
-	}
-	if shape == nil {
-		return styles
-	}
-	visibleWidth := 1.0 - shape.ImageCropLeft - shape.ImageCropRight
-	visibleHeight := 1.0 - shape.ImageCropTop - shape.ImageCropBottom
-	if visibleWidth <= 0 || visibleHeight <= 0 {
+func imageElementStyles(visual playout.ImageVisualPlan) []string {
+	styles := []string{"position:absolute", "display:block"}
+	if visual.ImageHidden {
 		return append(styles, "visibility:hidden")
 	}
-	if visibleWidth > 1 {
-		visibleWidth = 1
-	}
-	if visibleHeight > 1 {
-		visibleHeight = 1
-	}
 	styles = append(styles,
-		fmt.Sprintf("width:%.4f%%", 100.0/visibleWidth),
-		fmt.Sprintf("height:%.4f%%", 100.0/visibleHeight),
-		fmt.Sprintf("left:%.4f%%", -100.0*shape.ImageCropLeft/visibleWidth),
-		fmt.Sprintf("top:%.4f%%", -100.0*shape.ImageCropTop/visibleHeight),
+		fmt.Sprintf("width:%.4f%%", visual.ImageWidth),
+		fmt.Sprintf("height:%.4f%%", visual.ImageHeight),
+		fmt.Sprintf("left:%.4f%%", visual.ImageLeft),
+		fmt.Sprintf("top:%.4f%%", visual.ImageTop),
 	)
-	if shape.ImageRotWithShapeSet && !shape.ImageRotWithShape && shape.RotationDeg != 0 {
-		styles = append(styles, fmt.Sprintf("transform:rotate(%.2fdeg)", -shape.RotationDeg), "transform-origin:50% 50%")
+	if visual.CounterRotationDeg != 0 {
+		styles = append(styles,
+			fmt.Sprintf("transform:rotate(%.2fdeg)", visual.CounterRotationDeg),
+			fmt.Sprintf("transform-origin:%.4f%% %.4f%%", visual.CounterRotationOriginX, visual.CounterRotationOriginY),
+		)
 	}
 	return styles
 }
 
-func mediaTagName(shape *resolve.Shape) string {
+func mediaTagName(shape *ir.Shape) string {
 	if shape != nil && shape.MediaKind == "audio" {
 		return "audio"
 	}
 	return "video"
 }
 
-func mediaLabel(shape *resolve.Shape, fallback string) string {
+func mediaLabel(shape *ir.Shape, fallback string) string {
 	if shape != nil && shape.MediaMIME != "" {
 		return shape.MediaMIME
 	}
@@ -2239,14 +2928,29 @@ func maxFloat(a, b float64) float64 {
 	return b
 }
 
+// Empty SmartArt picture placeholders are rendered from their authoritative
+// drawing geometry only. PowerPoint does not synthesize a generic image glyph
+// into the presentation scene; such editor-only placeholder chrome must not be
+// emitted into exported HTML.
+
 // renderSmartArtShape renders a SmartArt diagram shape as HTML.
-func renderSmartArtShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
+func renderSmartArtShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
 	if shape == nil {
 		return
 	}
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
-	textAutoGrow := shape.TextAutoGrow || shape.TextBodyProps.AutofitType == "spAutoFit"
-	textAllowOverflow := shape.TextAllowOverflow || shape.TextBodyProps.AutofitType == "noAutofit"
+	smartArt := item.SmartArt
+	if smartArt == nil {
+		return
+	}
+	x, y, w, h := physicalBoundsPercent(smartArt.FrameBounds, slideW, slideH)
+	textPlan := *item.Text
+	textFrame := textPlan.Frame
+	frameLayout := textPlan.Layout
+	textFlow := textPlan.Flow
+	textBox := textPlan.Box
+	textAutoGrow := textBox.ContentAutoHeight
+	textAllowOverflow := textBox.OverflowVisible
 
 	// Build CSS styles for positioning
 	var styles []string
@@ -2262,12 +2966,31 @@ func renderSmartArtShape(b *strings.Builder, shape *resolve.Shape, slideW, slide
 		styles = append(styles, fmt.Sprintf("height:%.4f%%", h))
 	}
 
-	effectStyles := effectStyleProps(shape)
-	if len(effectStyles) > 0 {
-		styles = appendSortedCSSProps(styles, effectStyles)
+	var transforms []string
+	if smartArt.Transform.RotationDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", smartArt.Transform.RotationDeg))
+	}
+	if smartArt.Transform.FlipH {
+		transforms = append(transforms, "scaleX(-1)")
+	}
+	if smartArt.Transform.FlipV {
+		transforms = append(transforms, "scaleY(-1)")
+	}
+	effectStyles := presentationEffectPlanStyles(smartArt.Effects)
+	transform, origin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
+	if transform != "" {
+		styles = append(styles, "transform:"+transform)
+	}
+	if origin != "" {
+		styles = append(styles, "transform-origin:"+origin)
+	}
+	styles = appendSortedCSSProps(styles, effectStyles)
+	if smartArt.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", smartArt.Paint.ZIndex))
 	}
 
-	useSVG := shape.GeometryData != nil || (shape.Geometry != "" && shape.Geometry != "rect")
+	visual := item.Drawing.Visual
+	useSVG := visual.UseVector
 	if useSVG {
 		if textAutoGrow || textAllowOverflow {
 			styles = append(styles, "overflow:visible")
@@ -2276,13 +2999,12 @@ func renderSmartArtShape(b *strings.Builder, shape *resolve.Shape, slideW, slide
 		}
 	} else {
 		// Add fill using shared DrawingML types.
-		styles = append(styles, cssBackgroundFillPropsForFill(shape.Fill, shape.FillColor)...)
+		styles = append(styles, cssBackgroundFillPropsForFill(visual.Fill.Fill, visual.Fill.FallbackColor)...)
 
 		// Add border/line styling.
-		if shape.LineStyle != nil && shape.LineStyle.Color != "" {
-			styles = append(styles, fmt.Sprintf("border:%.2fpt %s #%s", shape.LineStyle.Width, cssBorderStyleForLine(shape.LineStyle), shape.LineStyle.Color))
-		} else if shape.LineColor != "" && shape.LineWidthPt > 0 {
-			styles = append(styles, fmt.Sprintf("border:%.2fpt %s #%s", shape.LineWidthPt, cssBorderStyleForLine(shape.LineStyle), shape.LineColor))
+		stroke := visual.Stroke
+		if stroke.Color != "" && stroke.WidthPt > 0 {
+			styles = append(styles, fmt.Sprintf("border:%.2fpt %s #%s", stroke.WidthPt, stroke.CSSStyle, stroke.Color))
 		}
 		if textAutoGrow || textAllowOverflow {
 			styles = append(styles, "overflow:visible")
@@ -2290,17 +3012,22 @@ func renderSmartArtShape(b *strings.Builder, shape *resolve.Shape, slideW, slide
 	}
 
 	// Render as a div container
+	if smartArt.Paint.OverflowVisible {
+		styles = append(styles, "overflow:visible")
+	}
 	fmt.Fprintf(b, "<div class=\"shape shape--smartart\" style=%q%s>\n", strings.Join(styles, ";"), animationAttrs(shape, ctx))
 
 	// Render non-rectangular geometry as an inline SVG.
 	if useSVG {
-		renderSmartArtVectorShape(b, shape, nil)
+		renderSmartArtVectorShape(b, item, nil, ctx)
 	} else {
-		writeHTMLFillOverlays(b, shape.Effects)
+		writeHTMLFillOverlays(b, visual.Effects)
 	}
 
-	// Render text content if present
-	if len(shape.Paragraphs) > 0 {
+	// SmartArt text uses the same physical TextVisualPlan as ordinary shapes.
+	// The SmartArt plan remains the node-provenance gate, but paragraph wrapping,
+	// frame placement and overflow are never recomputed in the serializer.
+	if len(textPlan.Paragraphs) > 0 {
 		var textStyles []string
 		textStyles = append(textStyles,
 			"position:absolute",
@@ -2314,26 +3041,56 @@ func renderSmartArtShape(b *strings.Builder, shape *resolve.Shape, slideW, slide
 		} else {
 			textStyles = append(textStyles, "inset:0")
 		}
-		if textAutoGrow || textAllowOverflow {
-			textStyles = append(textStyles, "height:auto", "overflow:visible")
+		// The shared TextBoxVisualPlan owns growth and overflow independently.
+		// noAutofit may allow glyph overflow, but it never turns the authored
+		// SmartArt text frame into height:auto. Doing so changes vertical
+		// centering and makes text drift outside pre-rendered diagram nodes.
+		if textBox.ContentAutoHeight {
+			textStyles = append(textStyles, "height:auto")
 		} else {
-			textStyles = append(textStyles, "height:100%", "overflow:hidden")
+			textStyles = append(textStyles, "height:100%")
 		}
-		cssProps := drawingcss.TextBodyProps(shape.TextBodyProps)
-		textStyles = appendSortedCSSProps(textStyles, cssProps)
-		if _, hasJustifyContent := cssProps["justify-content"]; !hasJustifyContent {
-			textStyles = append(textStyles, "justify-content:center")
+		if textBox.OverflowVisible || frameLayout.Measured {
+			textStyles = append(textStyles, "overflow:visible")
+		} else if textBox.ClipContent {
+			textStyles = append(textStyles, "overflow:hidden")
 		}
-		if _, hasTextAlign := cssProps["text-align"]; !hasTextAlign {
-			textStyles = append(textStyles, "text-align:center")
+		// SmartArt drawing shapes commonly rotate their geometry (for example,
+		// a 180-degree homePlate to make a left-pointing banner) while the
+		// generated text body remains upright in slide coordinates. Because the
+		// HTML text is nested inside the transformed shape, cancel the node
+		// rotation before applying any authored text-flow rotation.
+		textRotation := textFlow.RotationDeg - smartArt.Transform.RotationDeg
+		if textRotation != 0 {
+			textStyles = append(textStyles, fmt.Sprintf("transform:rotate(%.2fdeg)", textRotation))
 		}
+		if textFlow.TransformOrigin != "" {
+			textStyles = append(textStyles, "transform-origin:"+textFlow.TransformOrigin)
+		}
+		if textFlow.NoWrap {
+			textStyles = append(textStyles, "white-space:nowrap")
+		}
+		if textFlow.WritingMode != "" {
+			textStyles = append(textStyles, "writing-mode:"+textFlow.WritingMode)
+		}
+		if textFlow.Columns > 1 {
+			textStyles = append(textStyles, fmt.Sprintf("column-count:%d", textFlow.Columns))
+			if textFlow.ColumnGapPt > 0 {
+				textStyles = append(textStyles, fmt.Sprintf("column-gap:%.2fpt", textFlow.ColumnGapPt))
+			}
+		}
+		// SmartArt and ordinary text consume the same physical placement plan.
+		// In particular, measured vertical anchoring is materialized exactly once
+		// as a physical-axis offset; the serializer must not invent a SmartArt-only
+		// center fallback or drop that offset.
+		textStyles = appendTextBoxPlacementStyles(textStyles, textFrame, frameLayout, textBox)
 		fmt.Fprintf(b, "<div style=%q>\n", strings.Join(textStyles, ";"))
 
-		autoCounters := map[string]int{}
-		fontScale := textAutofitFontScale(shape.TextBodyProps)
-		lineScale := textAutofitLineScale(shape.TextBodyProps)
-		for _, p := range shape.Paragraphs {
-			renderParagraph(b, p, autoCounters, fontScale, lineScale, ctx)
+		for i, p := range smartArt.Paragraphs {
+			if i >= len(textPlan.Paragraphs) {
+				break
+			}
+			renderParagraphWithPlan(b, p, textPlan.Paragraphs[i], textFrame.FontScale, ctx)
 		}
 		b.WriteString("</div>\n")
 	}
@@ -2341,270 +3098,75 @@ func renderSmartArtShape(b *strings.Builder, shape *resolve.Shape, slideW, slide
 	b.WriteString("</div>\n")
 }
 
+// appendTextBoxPlacementStyles serializes the layout-owned placement of a text
+// body. It is deliberately shared by ordinary shapes and SmartArt so anchoring,
+// effective geometry insets and physical-axis offsets cannot drift by renderer
+// branch.
+func appendTextBoxPlacementStyles(styles []string, frame playout.TextFrameMetrics, frameLayout playout.TextFrameLayout, box playout.TextBoxVisualPlan) []string {
+	justify := frame.VerticalJustify
+	if justify == "" {
+		justify = "flex-start"
+	}
+	if frameLayout.Measured && justify != "space-between" && justify != "space-around" {
+		justify = "flex-start"
+	}
+	styles = append(styles, "justify-content:"+justify)
+
+	top := box.InsetTopPt + math.Max(0, box.ContentTopPt)
+	right := box.InsetRightPt + math.Max(0, box.ContentRightPt)
+	bottom := box.InsetBottomPt + math.Max(0, box.ContentBottomPt)
+	left := box.InsetLeftPt + math.Max(0, box.ContentLeftPt)
+	if top > 0 || right > 0 || bottom > 0 || left > 0 {
+		styles = append(styles, fmt.Sprintf("padding:%.2fpt %.2fpt %.2fpt %.2fpt", top, right, bottom, left))
+	}
+	// Padding cannot represent a negative physical anchor. Overflowing centered
+	// and end-anchored text therefore carries its signed progression offset as a
+	// relative translation, while clipping remains owned by the outer text box.
+	if box.ContentTopPt < 0 {
+		styles = append(styles, fmt.Sprintf("position:relative;top:%.2fpt", box.ContentTopPt))
+	}
+	if box.ContentLeftPt < 0 {
+		styles = append(styles, fmt.Sprintf("position:relative;left:%.2fpt", box.ContentLeftPt))
+	}
+	if box.ContentRightPt < 0 {
+		styles = append(styles, fmt.Sprintf("position:relative;right:%.2fpt", box.ContentRightPt))
+	}
+	return styles
+}
+
 // renderSmartArtVectorShape renders a SmartArt node's geometry as an inline SVG.
 // It uses the shared preset-geometry primitive builder so any preset shape known
 // to pkg/ooxml/drawing can be rendered, including ones with gradient or picture
 // fills that need SVG definitions.
-func renderSmartArtVectorShape(b *strings.Builder, shape *resolve.Shape, effectStyles map[string]string) {
-	if b == nil || shape == nil {
+func renderSmartArtVectorShape(b *strings.Builder, item *playout.PhysicalVisual, effectStyles map[string]string, ctx *htmlRenderContext) {
+	if b == nil || item == nil || item.SourceShape == nil {
 		return
 	}
-	width := drawing.EMUToPoints(shape.Bounds.W)
-	height := drawing.EMUToPoints(shape.Bounds.H)
-	if width <= 0 || height <= 0 {
-		return
-	}
-
-	spec := drawing.ShapeGeometrySpec{
-		Geometry:    shape.GeometryData,
-		Preset:      &drawing.PresetGeometry{Name: shape.Geometry, Adjustments: shape.GeometryAdjustments},
-		Width:       width,
-		Height:      height,
-		Fill:        shape.Fill,
-		FillColor:   shape.FillColor,
-		Stroke:      shape.LineStyle,
-		StrokeColor: shape.LineColor,
-		StrokeWidth: shape.LineWidthPt,
-	}
-	primitives, err := drawing.BuildShapePrimitives(spec)
-	if err != nil || len(primitives) == 0 {
-		return
-	}
-
-	fillDefID := ""
-	fillDef := ""
-	if drawingcss.NeedsSVGDefinition(shape.Fill) {
-		fillDefID = "smartart-fill"
-		fillDef = svgDrawingFillDefinition(shape.Fill, fillDefID)
-	}
-	lightOverlays := drawingcss.ThreeDLightOverlays(extractShapeThreeD(shape.Effects))
-	overlayRenders := drawingcss.BuildSVGOverlays(lightOverlays, "smartart-fill-overlay")
-	fillOverlays := fillOverlayEffects(shape.Effects)
-	fillOverlayDefs := make([]string, len(fillOverlays))
-	fillOverlayDefIDs := make([]string, len(fillOverlays))
-	for i, overlay := range fillOverlays {
-		if overlay.Fill != nil && drawingcss.NeedsSVGDefinition(overlay.Fill) {
-			id := fmt.Sprintf("smartart-effect-fill-%d", i)
-			fillOverlayDefIDs[i] = id
-			fillOverlayDefs[i] = svgDrawingFillDefinition(overlay.Fill, id)
-		}
-	}
-	strokeDefs := collectStrokeFillDefs(primitives, "smartart")
-
-	fmt.Fprintf(b, "<svg class=\"shape__vector\" width=\"100%%\" height=\"100%%\" viewBox=\"0 0 %.4f %.4f\" preserveAspectRatio=\"none\"", width, height)
-	if len(effectStyles) > 0 {
-		var styles []string
-		styles = appendSortedCSSProps(styles, effectStyles)
-		fmt.Fprintf(b, " style=%q", strings.Join(styles, ";"))
-	}
-	b.WriteString(" xmlns=\"http://www.w3.org/2000/svg\">")
-	if fillDef != "" || len(strokeDefs) > 0 || len(overlayRenders) > 0 || len(fillOverlayDefs) > 0 {
-		b.WriteString("<defs>")
-		if fillDef != "" {
-			b.WriteString(fillDef)
-		}
-		for _, def := range strokeDefs {
-			b.WriteString(def)
-		}
-		for _, overlay := range overlayRenders {
-			if overlay.Def != "" {
-				b.WriteString(overlay.Def)
-			}
-		}
-		for _, def := range fillOverlayDefs {
-			if def != "" {
-				b.WriteString(def)
-			}
-		}
-		b.WriteString("</defs>")
-	}
-	writeThreeDExtrusionSVG(b, primitives, extractShapeThreeD(shape.Effects))
-	for _, primitive := range primitives {
-		writeSVGPrimitive(b, primitive, fillDefID)
-	}
-	for _, overlay := range overlayRenders {
-		if overlay.Fill == nil {
-			continue
-		}
-		if blendStyle := drawingcss.SVGOverlayBlendStyle(overlay.BlendMode); blendStyle != "" {
-			fmt.Fprintf(b, "<g style=%q>", blendStyle)
-		} else {
-			b.WriteString("<g>")
-		}
-		for _, primitive := range primitives {
-			writeSVGPrimitive(b, overlayShapePrimitiveFill(primitive, overlay.Fill), overlay.DefID)
-		}
-		b.WriteString("</g>")
-	}
-	for i, overlay := range fillOverlays {
-		if overlay.Fill == nil {
-			continue
-		}
-		style := ""
-		if mode := cssBlendMode(overlay.BlendMode); mode != "" && mode != "normal" {
-			style = "mix-blend-mode:" + mode
-		}
-		if style != "" {
-			fmt.Fprintf(b, "<g class=\"shape__effect-overlay\" style=%q>", style)
-		} else {
-			b.WriteString("<g class=\"shape__effect-overlay\">")
-		}
-		for _, primitive := range primitives {
-			writeSVGPrimitive(b, overlayShapePrimitiveFill(primitive, overlay.Fill), fillOverlayDefIDs[i])
-		}
-		b.WriteString("</g>")
-	}
-	b.WriteString("</svg>\n")
+	visual := item.Drawing.Visual
+	renderCanonicalShapeVector(b, visual, effectStyles, shapeVectorRenderOptions{
+		DefPrefix:          "smartart",
+		WidthHeightAttr:    true,
+		SVGOverflowVisible: item.Drawing.Paint.SVG.OverflowVisible,
+	})
 }
 
 // renderSmartArtConnector draws a connector line between two SmartArt nodes,
 // honoring line style, dash patterns, and arrowheads.
-func renderSmartArtConnector(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
+func renderSmartArtConnector(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
 	if shape == nil {
 		return
 	}
-	// When the resolver supplied a DrawingML connector preset and bounds, render
-	// it using the shared connector primitive builder so curved connectors are
-	// emitted as SVG paths.
-	if shape.ConnectorType != "" && shape.Bounds.W > 0 && shape.Bounds.H >= 0 {
-		renderSmartArtConnectorWithPreset(b, shape, slideW, slideH, ctx)
+	if item == nil {
 		return
 	}
-	if shape.ConnectorStart == nil || shape.ConnectorEnd == nil {
+	if item.Connector != nil {
+		renderPhysicalConnector(b, shape, slideW, slideH, ctx, *item.Connector)
 		return
 	}
-
-	color := shape.LineColor
-	if color == "" {
-		color = "999999"
+	if item.FreeConnector != nil {
+		renderPhysicalFreeConnector(b, shape, slideW, slideH, ctx, *item.FreeConnector)
 	}
-	width := shape.LineWidthPt
-	if width == 0 {
-		width = 1.0
-	}
-
-	// Build the connector path in points, remembering the original endpoints
-	// for arrowhead placement before any trimming.
-	pts := []drawing.Point{
-		{X: emuToPt(shape.ConnectorStart.X), Y: emuToPt(shape.ConnectorStart.Y)},
-	}
-	if len(shape.ConnectorPath) > 2 {
-		for _, p := range shape.ConnectorPath[1 : len(shape.ConnectorPath)-1] {
-			pts = append(pts, drawing.Point{X: emuToPt(p.X), Y: emuToPt(p.Y)})
-		}
-	}
-	pts = append(pts, drawing.Point{X: emuToPt(shape.ConnectorEnd.X), Y: emuToPt(shape.ConnectorEnd.Y)})
-
-	originalStart := pts[0]
-	originalEnd := pts[len(pts)-1]
-
-	// Trim the line so arrowheads don't extend past the connection points.
-	if shape.ArrowHead != "" && len(pts) >= 2 {
-		trim := drawing.ArrowTrimDistance(shape.ArrowHead, shape.ArrowHeadLength)
-		pts = trimSmartArtConnectorTip(pts, trim, false)
-	}
-	if shape.ArrowTail != "" && len(pts) >= 2 {
-		trim := drawing.ArrowTrimDistance(shape.ArrowTail, shape.ArrowTailLength)
-		pts = trimSmartArtConnectorTip(pts, trim, true)
-	}
-
-	fmt.Fprintf(b, "<svg class=\"shape\" style=\"position:absolute;left:0;top:0;width:100%%;height:100%%;overflow:visible;pointer-events:none\" viewBox=\"0 0 %.4f %.4f\" xmlns=\"http://www.w3.org/2000/svg\"%s>", slideW, slideH, animationAttrs(shape, ctx))
-	var curveStartTangent, curveEndTangent *drawing.Point
-	if (shape.ConnectorType == "curved" || shape.ConnectorType == "longCurve") && len(pts) == 2 {
-		cp1, cp2 := smartArtCurveControlPoints(pts[0], pts[1], shape.ConnectorType == "longCurve")
-		fmt.Fprintf(b, "<path d=\"M %.4f %.4f C %.4f %.4f %.4f %.4f %.4f %.4f\" fill=\"none\"", pts[0].X, pts[0].Y, cp1.X, cp1.Y, cp2.X, cp2.Y, pts[1].X, pts[1].Y)
-		writeSVGStrokeAttrs(b, shape.LineStyle, "", "#"+color, width)
-		b.WriteString("/>")
-		curveStartTangent, curveEndTangent = &cp1, &cp2
-	} else if len(pts) > 2 {
-		fmt.Fprintf(b, "<polyline points=%q fill=\"none\"", smartArtConnectorPointsString(pts))
-		writeSVGStrokeAttrs(b, shape.LineStyle, "", "#"+color, width)
-		b.WriteString("/>")
-	} else {
-		fmt.Fprintf(b, "<line x1=\"%.4f\" y1=\"%.4f\" x2=\"%.4f\" y2=\"%.4f\"", pts[0].X, pts[0].Y, pts[1].X, pts[1].Y)
-		writeSVGStrokeAttrs(b, shape.LineStyle, "", "#"+color, width)
-		b.WriteString("/>")
-	}
-
-	// Render arrowheads at the original endpoints. For curved synthetic
-	// connectors use the Bezier control points as tangent references.
-	if shape.ArrowHead != "" && len(pts) >= 2 {
-		ref := pts[len(pts)-2]
-		if curveEndTangent != nil {
-			ref = *curveEndTangent
-		}
-		ag := drawing.ComputeArrowGeometry(shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength, originalEnd, ref)
-		b.WriteString(smartArtArrowGeometrySVG(ag, color))
-	}
-	if shape.ArrowTail != "" && len(pts) >= 2 {
-		ref := pts[1]
-		if curveStartTangent != nil {
-			ref = *curveStartTangent
-		}
-		ag := drawing.ComputeArrowGeometry(shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength, originalStart, ref)
-		b.WriteString(smartArtArrowGeometrySVG(ag, color))
-	}
-	b.WriteString("</svg>\n")
-}
-
-// renderSmartArtConnectorWithPreset renders a pre-rendered SmartArt connector
-// using the shared DrawingML connector primitive builder. This handles curved
-// connectors as SVG paths and applies line styles, dashes, and arrowheads.
-func smartArtCurveControlPoints(start, end drawing.Point, long bool) (drawing.Point, drawing.Point) {
-	dx := end.X - start.X
-	dy := end.Y - start.Y
-	f1, f2 := 0.35, 0.65
-	if long {
-		f1, f2 = 0.18, 0.82
-	}
-	if math.Abs(dx) >= math.Abs(dy) {
-		return drawing.Point{X: start.X + dx*f1, Y: start.Y}, drawing.Point{X: start.X + dx*f2, Y: end.Y}
-	}
-	return drawing.Point{X: start.X, Y: start.Y + dy*f1}, drawing.Point{X: end.X, Y: start.Y + dy*f2}
-}
-
-func renderSmartArtConnectorWithPreset(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	bx := emuToPt(shape.Bounds.X)
-	by := emuToPt(shape.Bounds.Y)
-	bw := emuToPt(shape.Bounds.W)
-	bh := emuToPt(shape.Bounds.H)
-
-	fmt.Fprintf(b, "<svg class=\"shape\" style=\"position:absolute;left:0;top:0;width:100%%;height:100%%;overflow:visible;pointer-events:none\" viewBox=\"0 0 %.4f %.4f\" xmlns=\"http://www.w3.org/2000/svg\"%s>", slideW, slideH, animationAttrs(shape, ctx))
-
-	hasRotation := shape.RotationDeg != 0
-	if hasRotation {
-		cx := bx + bw/2
-		cy := by + bh/2
-		fmt.Fprintf(b, "<g transform=\"rotate(%.4f %.4f %.4f)\">", shape.RotationDeg, cx, cy)
-	}
-
-	primitives := drawing.BuildConnectorPrimitives(drawing.ConnectorSpec{
-		Type:            shape.ConnectorType,
-		BoundsX:         bx,
-		BoundsY:         by,
-		BoundsW:         bw,
-		BoundsH:         bh,
-		Adjustments:     shape.ConnectorAdjustments,
-		FlipH:           shape.ConnectorFlipH,
-		FlipV:           shape.ConnectorFlipV,
-		LineStyle:       shape.LineStyle,
-		LineColor:       shape.LineColor,
-		LineWidthPt:     shape.LineWidthPt,
-		ArrowHead:       shape.ArrowHead,
-		ArrowHeadWidth:  shape.ArrowHeadWidth,
-		ArrowHeadLength: shape.ArrowHeadLength,
-		ArrowTail:       shape.ArrowTail,
-		ArrowTailWidth:  shape.ArrowTailWidth,
-		ArrowTailLength: shape.ArrowTailLength,
-	})
-	for _, primitive := range primitives {
-		writeSVGPrimitive(b, primitive, "")
-	}
-
-	if hasRotation {
-		b.WriteString("</g>")
-	}
-	b.WriteString("</svg>\n")
 }
 
 func smartArtConnectorPointsString(pts []drawing.Point) string {
@@ -2616,31 +3178,6 @@ func smartArtConnectorPointsString(pts []drawing.Point) string {
 		fmt.Fprintf(&b, "%.4f,%.4f", p.X, p.Y)
 	}
 	return b.String()
-}
-
-func trimSmartArtConnectorTip(pts []drawing.Point, trim float64, tail bool) []drawing.Point {
-	if len(pts) < 2 || trim <= 0 {
-		return pts
-	}
-	var a, b drawing.Point
-	if tail {
-		a, b = pts[0], pts[1]
-	} else {
-		a, b = pts[len(pts)-1], pts[len(pts)-2]
-	}
-	dx, dy := b.X-a.X, b.Y-a.Y
-	mag := math.Hypot(dx, dy)
-	if mag == 0 {
-		return pts
-	}
-	d := math.Min(trim, mag)
-	np := drawing.Point{X: a.X + dx*d/mag, Y: a.Y + dy*d/mag}
-	if tail {
-		pts[0] = np
-	} else {
-		pts[len(pts)-1] = np
-	}
-	return pts
 }
 
 func smartArtArrowGeometrySVG(ag *drawing.ArrowGeometry, color string) string {
@@ -2660,79 +3197,150 @@ func smartArtArrowGeometrySVG(ag *drawing.ArrowGeometry, color string) string {
 }
 
 // renderChartShape renders a chart shape as an SVG image in HTML.
-func renderChartShape(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	if shape == nil || len(shape.ImageData) == 0 {
+func renderChartShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape // generic animation metadata only
+	chart := item.Chart
+	if chart == nil || len(chart.Data) == 0 {
 		return
 	}
-	x, y, w, h := boundsPercent(shape.Bounds, slideW, slideH)
-
-	// Build CSS styles for positioning
-	var styles []string
-	styles = append(styles,
-		"position:absolute",
-		fmt.Sprintf("left:%.4f%%", x),
-		fmt.Sprintf("top:%.4f%%", y),
-		fmt.Sprintf("width:%.4f%%", w),
-		fmt.Sprintf("height:%.4f%%", h),
-	)
-
-	// Create base64 encoded SVG data URI
-	svgBase64 := base64.StdEncoding.EncodeToString(shape.ImageData)
-	dataURI := fmt.Sprintf("data:%s;base64,%s", shape.ImageMIME, svgBase64)
-
-	// Render as an image container
-	fmt.Fprintf(b, "<div class=\"shape shape--chart\" style=%q%s>\n", strings.Join(styles, ";"), animationAttrs(shape, ctx))
-	fmt.Fprintf(b, "<img src=%q alt=%q style=\"width:100%%;height:100%%;object-fit:contain;\">\n", dataURI, escapeAttr(shape.Name))
+	x, y, w, h := physicalBoundsPercent(chart.FrameBounds, slideW, slideH)
+	styles := []string{"position:absolute", fmt.Sprintf("left:%.4f%%", x), fmt.Sprintf("top:%.4f%%", y), fmt.Sprintf("width:%.4f%%", w), fmt.Sprintf("height:%.4f%%", h)}
+	if chart.ClipContent {
+		styles = append(styles, "overflow:hidden")
+	}
+	var transforms []string
+	if chart.Transform.RotationDeg != 0 {
+		transforms = append(transforms, fmt.Sprintf("rotate(%.2fdeg)", chart.Transform.RotationDeg))
+	}
+	if chart.Transform.FlipH {
+		transforms = append(transforms, "scaleX(-1)")
+	}
+	if chart.Transform.FlipV {
+		transforms = append(transforms, "scaleY(-1)")
+	}
+	effectStyles := presentationEffectPlanStyles(chart.Effects)
+	if len(effectStyles) > 0 {
+		styles = append(styles, "overflow:visible")
+	}
+	transform, origin := mergeEffectTransform(strings.Join(transforms, " "), effectStyles)
+	if transform != "" {
+		styles = append(styles, "transform:"+transform)
+	}
+	if origin != "" {
+		styles = append(styles, "transform-origin:"+origin)
+	}
+	styles = appendSortedCSSProps(styles, effectStyles)
+	dataURI := fmt.Sprintf("data:%s;base64,%s", chart.MIME, base64.StdEncoding.EncodeToString(chart.Data))
+	if chart.Paint.ZIndex > 0 {
+		styles = append(styles, fmt.Sprintf("z-index:%d", chart.Paint.ZIndex))
+	}
+	if chart.Paint.OverflowVisible {
+		styles = append(styles, "overflow:visible")
+	}
+	anim := ""
+	if shape != nil {
+		anim = animationAttrs(shape, ctx)
+	}
+	fmt.Fprintf(b, "<div class=\"shape shape--chart\" style=%q%s>\n", strings.Join(styles, ";"), anim)
+	fit := chart.ObjectFit
+	if fit == "" {
+		fit = "fill"
+	}
+	fmt.Fprintf(b, "<img class=\"ppt-chart__artifact\" src=%q alt=%q style=%q>\n", dataURI, escapeAttr(chart.Alt), fmt.Sprintf("display:block;width:100%%;height:100%%;object-fit:%s", fit))
 	b.WriteString("</div>\n")
 }
 
-func renderConnector(b *strings.Builder, shape *resolve.Shape, slideW, slideH float64, ctx *htmlRenderContext) {
-	bx := emuToPt(shape.Bounds.X)
-	by := emuToPt(shape.Bounds.Y)
-	bw := emuToPt(shape.Bounds.W)
-	bh := emuToPt(shape.Bounds.H)
+func renderConnector(b *strings.Builder, item *playout.PhysicalVisual, slideW, slideH float64, ctx *htmlRenderContext) {
+	shape := item.SourceShape
+	if shape == nil {
+		return
+	}
+	// Layout deliberately chooses one of two physical connector contracts.
+	// Legacy PPT connectors normally carry resolved slide-space endpoints, so
+	// they materialize as FreeConnectorVisualPlan even when they also retain a
+	// preset connector type. Serializing them through ConnectorVisualPlan loses
+	// that plan and used to emit an empty full-slide SVG.
+	free := func() playout.FreeConnectorVisualPlan {
+		if item.FreeConnector != nil {
+			return *item.FreeConnector
+		}
+		return playout.FreeConnectorVisualPlan{}
+	}()
+	if len(free.Points) >= 2 {
+		renderPhysicalFreeConnector(b, shape, slideW, slideH, ctx, free)
+		return
+	}
+	connector := func() playout.ConnectorVisualPlan {
+		if item.Connector != nil {
+			return *item.Connector
+		}
+		return playout.ConnectorVisualPlan{}
+	}()
+	if len(connector.Primitives) > 0 {
+		renderPhysicalConnector(b, shape, slideW, slideH, ctx, connector)
+	}
+}
 
-	fmt.Fprintf(b, "<svg class=\"shape\" style=\"position:absolute;left:0;top:0;width:100%%;height:100%%;overflow:visible;pointer-events:none\" viewBox=\"0 0 %.4f %.4f\" xmlns=\"http://www.w3.org/2000/svg\"%s>", slideW, slideH, animationAttrs(shape, ctx))
+func renderPhysicalFreeConnector(b *strings.Builder, shape *ir.Shape, slideW, slideH float64, ctx *htmlRenderContext, visual playout.FreeConnectorVisualPlan) {
+	if len(visual.Points) < 2 {
+		return
+	}
+	color := visual.Stroke.Color
+	fmt.Fprintf(b, "<svg class=\"shape\" style=\"position:absolute;left:0;top:0;width:100%%;height:100%%;overflow:visible;pointer-events:none%s\" viewBox=\"0 0 %.4f %.4f\" xmlns=\"http://www.w3.org/2000/svg\"%s>", physicalPaintSVGStyle(visual.Composition.Paint), slideW, slideH, animationAttrs(shape, ctx))
+	if visual.Curved {
+		if len(visual.CurveSegments) > 0 {
+			first := visual.CurveSegments[0]
+			fmt.Fprintf(b, "<path d=\"M %.4f %.4f", first.Start.X, first.Start.Y)
+			for _, seg := range visual.CurveSegments {
+				fmt.Fprintf(b, " C %.4f %.4f %.4f %.4f %.4f %.4f", seg.Control1.X, seg.Control1.Y, seg.Control2.X, seg.Control2.Y, seg.End.X, seg.End.Y)
+			}
+			b.WriteString("\" fill=\"none\"")
+		} else {
+			p0, p1 := visual.Points[0], visual.Points[len(visual.Points)-1]
+			fmt.Fprintf(b, "<path d=\"M %.4f %.4f C %.4f %.4f %.4f %.4f %.4f %.4f\" fill=\"none\"", p0.X, p0.Y, visual.Control1.X, visual.Control1.Y, visual.Control2.X, visual.Control2.Y, p1.X, p1.Y)
+		}
+		writeSVGStrokePlan(b, visual.Stroke, "", "#"+color)
+		b.WriteString("/>")
+	} else if len(visual.Points) > 2 {
+		fmt.Fprintf(b, "<polyline points=%q fill=\"none\"", smartArtConnectorPointsString(visual.Points))
+		writeSVGStrokePlan(b, visual.Stroke, "", "#"+color)
+		b.WriteString("/>")
+	} else {
+		fmt.Fprintf(b, "<line x1=\"%.4f\" y1=\"%.4f\" x2=\"%.4f\" y2=\"%.4f\"", visual.Points[0].X, visual.Points[0].Y, visual.Points[1].X, visual.Points[1].Y)
+		writeSVGStrokePlan(b, visual.Stroke, "", "#"+color)
+		b.WriteString("/>")
+	}
+	b.WriteString(smartArtArrowGeometrySVG(visual.EndArrow, color))
+	b.WriteString(smartArtArrowGeometrySVG(visual.StartArrow, color))
+	b.WriteString("</svg>\n")
+}
 
-	// Open a group with a rotation transform when the connector has non-zero rotation.
-	// The pivot is the center of the bounding box (same convention as CSS transform-origin:50% 50%).
-	hasRotation := shape.RotationDeg != 0
-	if hasRotation {
-		cx := bx + bw/2
-		cy := by + bh/2
-		fmt.Fprintf(b, "<g transform=\"rotate(%.4f %.4f %.4f)\">", shape.RotationDeg, cx, cy)
+// renderPhysicalConnector serializes connector geometry already projected into
+// point-space by presentation/layout.
+func renderPhysicalConnector(b *strings.Builder, shape *ir.Shape, slideW, slideH float64, ctx *htmlRenderContext, visual playout.ConnectorVisualPlan) {
+	if shape == nil {
+		return
+	}
+	fmt.Fprintf(b, "<svg class=\"shape\" style=\"position:absolute;left:0;top:0;width:100%%;height:100%%;overflow:visible;pointer-events:none%s\" viewBox=\"0 0 %.4f %.4f\" xmlns=\"http://www.w3.org/2000/svg\"%s>", physicalPaintSVGStyle(visual.Composition.Paint), slideW, slideH, animationAttrs(shape, ctx))
+
+	if visual.Composition.Transform.RotationDeg != 0 {
+		cx := visual.BoundsXPt + visual.BoundsWPt/2
+		cy := visual.BoundsYPt + visual.BoundsHPt/2
+		fmt.Fprintf(b, "<g transform=\"rotate(%.4f %.4f %.4f)\">", visual.Composition.Transform.RotationDeg, cx, cy)
 	}
 
-	primitives := drawing.BuildConnectorPrimitives(drawing.ConnectorSpec{
-		Type:            shape.ConnectorType,
-		BoundsX:         bx,
-		BoundsY:         by,
-		BoundsW:         bw,
-		BoundsH:         bh,
-		Adjustments:     shape.ConnectorAdjustments,
-		FlipH:           shape.ConnectorFlipH,
-		FlipV:           shape.ConnectorFlipV,
-		LineStyle:       shape.LineStyle,
-		LineColor:       shape.LineColor,
-		LineWidthPt:     shape.LineWidthPt,
-		ArrowHead:       shape.ArrowHead,
-		ArrowHeadWidth:  shape.ArrowHeadWidth,
-		ArrowHeadLength: shape.ArrowHeadLength,
-		ArrowTail:       shape.ArrowTail,
-		ArrowTailWidth:  shape.ArrowTailWidth,
-		ArrowTailLength: shape.ArrowTailLength,
-	})
-	for _, primitive := range primitives {
-		writeSVGPrimitive(b, primitive, "")
+	for _, primitive := range visual.Primitives {
+		writeSVGPrimitivePlan(b, primitive, "")
 	}
 
-	if hasRotation {
+	if visual.Composition.Transform.RotationDeg != 0 {
 		b.WriteString("</g>")
 	}
 	b.WriteString("</svg>\n")
 }
 
-func writeSVGPrimitive(b *strings.Builder, primitive drawing.VectorPrimitive, fillDefID string) {
+func writeSVGPrimitivePlan(b *strings.Builder, plan playout.VectorPrimitivePlan, fillDefID string) {
+	primitive := plan.Primitive
 	if b == nil {
 		return
 	}
@@ -2744,7 +3352,7 @@ func writeSVGPrimitive(b *strings.Builder, primitive drawing.VectorPrimitive, fi
 		if primitive.Closed {
 			fmt.Fprintf(b, "<polygon points=%q fill=%q", drawingPointsString(primitive.Points), svgPrimitiveFillValue(primitive.Style, fillDefID))
 			if primitive.Style.StrokeColor != "" && primitive.Style.StrokeWidth > 0 {
-				writeSVGStrokeAttrs(b, primitive.Style.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor, primitive.Style.StrokeWidth)
+				writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 			}
 			b.WriteString("/>")
 			return
@@ -2753,12 +3361,12 @@ func writeSVGPrimitive(b *strings.Builder, primitive drawing.VectorPrimitive, fi
 			if len(primitive.Points) == 2 {
 				fmt.Fprintf(b, "<line x1=\"%.4f\" y1=\"%.4f\" x2=\"%.4f\" y2=\"%.4f\"",
 					primitive.Points[0].X, primitive.Points[0].Y, primitive.Points[1].X, primitive.Points[1].Y)
-				writeSVGStrokeAttrs(b, primitive.Style.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor, primitive.Style.StrokeWidth)
+				writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 				b.WriteString("/>")
 				return
 			}
 			fmt.Fprintf(b, "<polyline points=%q fill=\"none\"", drawingPointsString(primitive.Points))
-			writeSVGStrokeAttrs(b, primitive.Style.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor, primitive.Style.StrokeWidth)
+			writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 			b.WriteString("/>")
 		}
 	case drawing.PrimitiveEllipse:
@@ -2769,7 +3377,7 @@ func writeSVGPrimitive(b *strings.Builder, primitive drawing.VectorPrimitive, fi
 		fmt.Fprintf(b, "<ellipse cx=\"%.4f\" cy=\"%.4f\" rx=\"%.4f\" ry=\"%.4f\" fill=%q",
 			primitive.Ellipse.Center.X, primitive.Ellipse.Center.Y, primitive.Ellipse.RX, primitive.Ellipse.RY, fill)
 		if primitive.Style.StrokeColor != "" && primitive.Style.StrokeWidth > 0 {
-			writeSVGStrokeAttrs(b, primitive.Style.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor, primitive.Style.StrokeWidth)
+			writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 		}
 		b.WriteString("/>")
 	case drawing.PrimitivePath:
@@ -2778,9 +3386,9 @@ func writeSVGPrimitive(b *strings.Builder, primitive drawing.VectorPrimitive, fi
 		}
 		fmt.Fprintf(b, "<path d=%q fill=%q", svgPathData(*primitive.Path), svgPrimitiveFillValue(primitive.Style, fillDefID))
 		if primitive.Style.StrokeColor != "" && primitive.Style.StrokeWidth > 0 {
-			writeSVGStrokeAttrs(b, primitive.Style.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor, primitive.Style.StrokeWidth)
+			writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 		} else if primitive.Style.Stroke != nil {
-			writeSVGStrokeAttrs(b, primitive.Style.Stroke, primitive.Style.StrokeFillDefID, "none", 0)
+			writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "none")
 		}
 		if primitive.Path.FillRule != "" {
 			fmt.Fprintf(b, " fill-rule=%q", primitive.Path.FillRule)
@@ -2804,79 +3412,35 @@ func svgPrimitiveFillValue(style drawing.VectorStyle, fillDefID string) string {
 	return "none"
 }
 
-func writeSVGStrokeAttrs(b *strings.Builder, style *drawing.LineStyle, strokeDefID string, fallbackColor string, fallbackWidth float64) {
+func writeSVGStrokePlan(b *strings.Builder, plan playout.StrokeVisualPlan, strokeDefID string, fallbackColor string) {
 	if b == nil {
 		return
 	}
 	color := fallbackColor
+	if plan.Color != "" {
+		color = "#" + plan.Color
+	}
 	if strokeDefID != "" {
 		color = "url(#" + strokeDefID + ")"
 	}
-	width := fallbackWidth
-	cap := ""
-	join := ""
-	miterLimit := 0.0
-	dashArray := ""
-	if style != nil {
-		if style.Color != "" {
-			color = "#" + style.Color
-		}
-		if style.Width > 0 {
-			width = style.Width
-		}
-		switch style.Cap {
-		case drawing.LineCapRound:
-			cap = "round"
-		case drawing.LineCapSquare:
-			cap = "square"
-		default:
-			cap = "butt"
-		}
-		switch style.Join {
-		case drawing.LineJoinRound:
-			join = "round"
-		case drawing.LineJoinBevel:
-			join = "bevel"
-		default:
-			join = "miter"
-		}
-		miterLimit = style.MiterLimit
-		dashArray = svgDashArray(style.Dash)
-	}
-	if color == "" || (color == "none" && strokeDefID == "") || width <= 0 {
+	if color == "" || (color == "none" && strokeDefID == "") || plan.WidthPt <= 0 {
 		return
 	}
-	fmt.Fprintf(b, " stroke=%q stroke-width=\"%.2f\"", color, width)
-	if cap != "" {
-		fmt.Fprintf(b, " stroke-linecap=%q", cap)
+	fmt.Fprintf(b, " stroke=%q stroke-width=\"%.2f\"", color, plan.WidthPt)
+	if plan.SVGLineCap != "" {
+		fmt.Fprintf(b, " stroke-linecap=%q", plan.SVGLineCap)
 	}
-	if join != "" {
-		fmt.Fprintf(b, " stroke-linejoin=%q", join)
+	if plan.SVGLineJoin != "" {
+		fmt.Fprintf(b, " stroke-linejoin=%q", plan.SVGLineJoin)
 	}
-	if join == "miter" && miterLimit > 0 {
-		fmt.Fprintf(b, " stroke-miterlimit=\"%.2f\"", miterLimit)
+	if plan.SVGLineJoin == "miter" && plan.MiterLimit > 0 {
+		fmt.Fprintf(b, " stroke-miterlimit=\"%.2f\"", plan.MiterLimit)
 	}
-	if dashArray != "" {
-		fmt.Fprintf(b, " stroke-dasharray=%q", dashArray)
+	if plan.DashArray != "" {
+		fmt.Fprintf(b, " stroke-dasharray=%q", plan.DashArray)
 	}
-}
-
-func svgDashArray(dash drawing.DashPattern) string {
-	switch dash {
-	case drawing.DashPatternDash, drawing.DashPatternSystemDash:
-		return "3, 3"
-	case drawing.DashPatternDot, drawing.DashPatternSystemDot:
-		return "1, 3"
-	case drawing.DashPatternDashDot, drawing.DashPatternSystemDashDot:
-		return "3, 3, 1, 3"
-	case drawing.DashPatternLongDash:
-		return "5, 3"
-	case drawing.DashPatternLongDashDot:
-		return "5, 3, 1, 3"
-	case drawing.DashPatternLongDashDotDot, drawing.DashPatternSystemDashDotDot:
-		return "5, 3, 1, 3, 1, 3"
-	default:
-		return ""
+	if plan.AlphaSet && plan.Alpha >= 0 && plan.Alpha < 1 {
+		fmt.Fprintf(b, " stroke-opacity=\"%.4f\"", plan.Alpha)
 	}
 }
 
@@ -2891,204 +3455,191 @@ func drawingPointsString(points []drawing.Point) string {
 	return b.String()
 }
 
-func renderParagraph(b *strings.Builder, p *resolve.Paragraph, autoCounters map[string]int, fontScale, lineScale float64, ctx *htmlRenderContext) {
+func renderParagraphWithPlan(b *strings.Builder, p *ir.Paragraph, plan playout.ParagraphVisualPlan, fontScale float64, ctx *htmlRenderContext) {
+	paragraphMetrics := plan.Metrics
 	var pStyles []string
-	if p.Align != "" {
-		pStyles = append(pStyles, "text-align:"+mapAlign(p.Align))
+	if plan.Align != "" {
+		pStyles = append(pStyles, "text-align:"+mapAlign(plan.Align))
 	}
-	if p.TextDirection == "rtl" || p.TextDirection == "ltr" {
-		pStyles = append(pStyles, "direction:"+p.TextDirection)
+	if plan.TextDirection == "rtl" || plan.TextDirection == "ltr" {
+		pStyles = append(pStyles, "direction:"+plan.TextDirection)
 	}
-	if p.HasMarginLeft && p.MarginLeftEMU != 0 {
-		pStyles = append(pStyles, "margin-left:"+emuIntCSSPt(p.MarginLeftEMU))
+	if paragraphMetrics.HasMarginLeft && paragraphMetrics.MarginLeftPt != 0 {
+		pStyles = append(pStyles, fmt.Sprintf("margin-left:%.4fpt", paragraphMetrics.MarginLeftPt))
 	}
-	if p.HasMarginRight && p.MarginRightEMU != 0 {
-		pStyles = append(pStyles, "margin-right:"+emuIntCSSPt(p.MarginRightEMU))
+	if paragraphMetrics.HasMarginRight && paragraphMetrics.MarginRightPt != 0 {
+		pStyles = append(pStyles, fmt.Sprintf("margin-right:%.4fpt", paragraphMetrics.MarginRightPt))
 	}
-	if p.HasTextIndent && p.TextIndentEMU != 0 {
-		pStyles = append(pStyles, "text-indent:"+emuIntCSSPt(p.TextIndentEMU))
+	if paragraphMetrics.HasTextIndent && paragraphMetrics.TextIndentPt != 0 {
+		pStyles = append(pStyles, fmt.Sprintf("text-indent:%.4fpt", paragraphMetrics.TextIndentPt))
 	}
-	if p.FontAlign != "" {
-		switch p.FontAlign {
-		case "t":
-			pStyles = append(pStyles, "vertical-align:top")
-		case "ctr":
-			pStyles = append(pStyles, "vertical-align:middle")
-		case "base":
-			pStyles = append(pStyles, "vertical-align:baseline")
-		case "b":
-			pStyles = append(pStyles, "vertical-align:bottom")
-		}
+	switch plan.FontAlign {
+	case "t":
+		pStyles = append(pStyles, "vertical-align:top")
+	case "ctr":
+		pStyles = append(pStyles, "vertical-align:middle")
+	case "base":
+		pStyles = append(pStyles, "vertical-align:baseline")
+	case "b":
+		pStyles = append(pStyles, "vertical-align:bottom")
 	}
-	if p.HasSpaceBefore {
-		pStyles = append(pStyles, "margin-top:"+points100CSSPt(p.SpaceBefore))
-	} else if p.SpaceBeforePct > 0 {
-		pStyles = append(pStyles, fmt.Sprintf("margin-top:%.4fem", float64(p.SpaceBeforePct)/100000.0))
+	if paragraphMetrics.HasSpaceBefore {
+		pStyles = append(pStyles, fmt.Sprintf("margin-top:%.4fpt", paragraphMetrics.SpaceBeforePt))
 	}
-	if p.HasSpaceAfter {
-		pStyles = append(pStyles, "margin-bottom:"+points100CSSPt(p.SpaceAfter))
-	} else if p.SpaceAfterPct > 0 {
-		pStyles = append(pStyles, fmt.Sprintf("margin-bottom:%.4fem", float64(p.SpaceAfterPct)/100000.0))
+	if paragraphMetrics.HasSpaceAfter {
+		pStyles = append(pStyles, fmt.Sprintf("margin-bottom:%.4fpt", paragraphMetrics.SpaceAfterPt))
 	}
-	if p.HasLineSpacing && p.LineSpacingPct > 0 {
-		effectiveLineHeight := (float64(p.LineSpacingPct) / 100000.0) * lineScale
-		pStyles = append(pStyles, fmt.Sprintf("line-height:%.4f", effectiveLineHeight))
+	if plan.LinesMeasured {
+		// Physical lines own the complete line box. A paragraph-level line-height
+		// would create a browser strut in addition to the measured child line and
+		// can silently make the visual stack taller than TextFrameLayout. Zero the
+		// strut so mixed-font/absolute-spacing lines serialize at their exact
+		// physical heights.
+		pStyles = append(pStyles, "line-height:0")
+	} else if paragraphMetrics.LineHeightScale > 0 && plan.HasLineSpacing {
+		pStyles = append(pStyles, fmt.Sprintf("line-height:%.4f", paragraphMetrics.LineHeightScale))
 	}
-	indent := p.Level
-	if p.BulletChar != "" || p.AutoNum {
-		indent++
+	// Fallback list indentation is already materialized into Metrics.MarginLeftPt.
+	// Do not add an em-based serializer-only padding that would narrow the line a
+	// second time and disagree with physical wrapping.
+	if plan.HasTabs && plan.TabSizePt > 0 {
+		pStyles = append(pStyles, fmt.Sprintf("tab-size:%.1fpt", plan.TabSizePt))
 	}
-	if !p.HasMarginLeft && !p.HasTextIndent && indent > 0 {
-		pStyles = append(pStyles, fmt.Sprintf("padding-left:%dem", indent*2))
-	}
-
-	// Determine base font size for bullet percentage calculations.
-	baseFontSize := 0
-	for _, run := range p.Runs {
-		if run.FontSize > 0 {
-			baseFontSize = run.FontSize
-			break
-		}
-	}
-
-	// Tab handling: if the paragraph has tab stops or default tab size and
-	// contains tab characters, emit tab-size CSS.
-	hasTabs := false
-	for _, run := range p.Runs {
-		if strings.Contains(run.Text, "\t") {
-			hasTabs = true
-			break
-		}
-	}
-	if hasTabs {
-		if p.DefaultTabSizeEMU > 0 {
-			pStyles = append(pStyles, fmt.Sprintf("tab-size:%.1fpt", emuToPt(int64(p.DefaultTabSizeEMU))))
-		} else if len(p.TabStops) > 0 {
-			pStyles = append(pStyles, fmt.Sprintf("tab-size:%.1fpt", emuToPt(p.TabStops[0].Pos)))
-		}
-	}
-
 	styleAttr := ""
 	if len(pStyles) > 0 {
 		styleAttr = fmt.Sprintf(" style=%q", strings.Join(pStyles, ";"))
 	}
-
 	dataAttr := ""
-	if len(p.TabStops) > 0 {
-		dataAttr = fmt.Sprintf(" data-tab-stops=%q", encodeTabStops(p.TabStops))
+	if len(plan.TabStops) > 0 {
+		dataAttr = fmt.Sprintf(" data-tab-stops=%q", encodeTabStops(plan.TabStops))
 	}
-
-	if len(p.Runs) == 0 {
-		clear(autoCounters)
+	if len(p.Runs) == 0 && !plan.LinesMeasured {
 		fmt.Fprintf(b, "<p%s%s><br></p>\n", styleAttr, dataAttr)
 		return
 	}
-
 	fmt.Fprintf(b, "<p%s%s>", styleAttr, dataAttr)
-
-	switch {
-	case p.BulletChar != "":
-		clear(autoCounters)
-		renderMarker(b, p, escapeHTML(p.BulletChar), fontScale, baseFontSize, ctx)
-	case p.AutoNum:
-		key := fmt.Sprintf("%s-%d", p.AutoNumType, p.Level)
-		if autoCounters[key] == 0 {
-			start := p.AutoNumStart
-			if start <= 0 {
-				start = 1
-			}
-			autoCounters[key] = start
-		}
-		marker := formatAutoNum(p.AutoNumType, autoCounters[key])
-		autoCounters[key]++
-		renderMarker(b, p, marker, fontScale, baseFontSize, ctx)
-	default:
-		clear(autoCounters)
+	marker := plan.Marker
+	markerText := ""
+	switch marker.Kind {
+	case "bullet":
+		markerText = escapeHTML(marker.Text)
+	case "auto":
+		// Layout owns numbering state and materializes the exact marker text.
+		markerText = marker.Text
 	}
-
-	for _, run := range p.Runs {
-		renderRun(b, run, fontScale, ctx)
+	if !plan.LinesMeasured && markerText != "" {
+		renderPhysicalMarker(b, marker, markerText, ctx)
+	}
+	if plan.LinesMeasured {
+		for lineIndex, line := range plan.Lines {
+			// Physical layout owns baseline advance. Browser `normal` line-height is
+			// font/engine dependent and would make serialized placement disagree
+			// with the exact line boxes measured by TextFrameLayout.
+			// A measured line is a physical block, not another browser inline. Using
+			// inline-block here made paragraph justification treat each measured line
+			// as an inline item around forced <br>s, producing enormous inter-word
+			// gaps and allowing browser line construction to fight layout. A block
+			// preserves the measured line boundary while still inheriting left/right/
+			// center paragraph alignment. Physical wrapping is layout-owned; the browser must not add a second set of line breaks.
+			lineIndentPt := 0.0
+			if lineIndex == 0 && paragraphMetrics.HasTextIndent && markerText == "" {
+				// Marker paragraphs materialize their authored first-line origin on
+				// Marker.OffsetPt. Keeping text-indent as well would make marker
+				// placement depend on browser inheritance and can apply the hanging
+				// indent twice. Unmarked paragraphs still use the authored indent.
+				lineIndentPt = paragraphMetrics.TextIndentPt
+			}
+			if line.HeightPt > 0 {
+				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;width:auto;white-space:pre;text-indent:%.4fpt;line-height:%.4fpt;min-height:%.4fpt;overflow:visible;vertical-align:baseline\">", lineIndentPt, line.HeightPt, line.HeightPt)
+			} else {
+				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;width:100%%;white-space:pre;text-indent:%.4fpt\">", lineIndentPt)
+			}
+			// The marker is part of the first physical line box. Keeping it inside
+			// that box prevents the browser from creating a second independent
+			// baseline/height contribution beside layout's measured first line.
+			if lineIndex == 0 && markerText != "" && physicalLineHasVisibleText(line) {
+				renderPhysicalMarker(b, marker, markerText, ctx)
+			}
+			for _, fragment := range line.Fragments {
+				if fragment.Run == nil || fragment.Text == "" {
+					continue
+				}
+				if fragment.Text == "\t" {
+					fmt.Fprintf(b, "<span class=\"ppt-tab\" style=\"display:inline-block;width:%.4fpt\"></span>", fragment.WidthPt)
+					continue
+				}
+				run := *fragment.Run
+				run.Text = fragment.Text
+				if fragment.AscentPt > 0 || fragment.DescentPt > 0 {
+					// Layout owns the baseline box. Place each mixed-font fragment from
+					// the physical line top instead of asking the browser to synthesize
+					// a common baseline from font-specific inline metrics.
+					fmt.Fprintf(b, "<span class=\"ppt-physical-fragment\" style=\"display:inline-block;vertical-align:top;position:relative;top:%.4fpt;height:%.4fpt;line-height:%.4fpt\">", fragment.TopOffsetPt, fragment.AscentPt+fragment.DescentPt, fragment.AscentPt+fragment.DescentPt)
+					renderRunWithPlan(b, &run, fragment.Visual, ctx)
+					b.WriteString("</span>")
+				} else {
+					renderRunWithPlan(b, &run, fragment.Visual, ctx)
+				}
+			}
+			b.WriteString("</span>")
+		}
+	} else {
+		for _, run := range p.Runs {
+			if run != nil {
+				renderRun(b, run, fontScale, ctx)
+			}
+		}
 	}
 	b.WriteString("</p>\n")
 }
 
-func renderMarker(b *strings.Builder, p *resolve.Paragraph, marker string, fontScale float64, baseFontSize int, ctx *htmlRenderContext) {
-	var styles []string
-	if p.BulletSize > 0 {
-		styles = append(styles, fmt.Sprintf("font-size:%.1fpt", (float64(p.BulletSize)/100)*fontScale))
-	} else if p.BulletSizePct > 0 && baseFontSize > 0 {
-		size := (float64(baseFontSize) / 100.0) * (float64(p.BulletSizePct) / 100000.0) * fontScale
-		styles = append(styles, fmt.Sprintf("font-size:%.1fpt", size))
-	}
-	if p.BulletFontFamily != "" {
-		styles = append(styles, "font-family:"+cssFontFamilyValue(p.BulletFontFamily, !ctx.isEmbeddedFamily(p.BulletFontFamily)))
-	}
-	if p.BulletColor != "" {
-		styles = append(styles, "color:#"+p.BulletColor)
-	}
-	if len(styles) == 0 {
-		fmt.Fprintf(b, "<span class=\"bullet-marker\">%s</span> ", marker)
-		return
-	}
-	fmt.Fprintf(b, "<span class=\"bullet-marker\" style=%q>%s</span> ", strings.Join(styles, ";"), marker)
-}
-
-func textAutofitFontScale(props drawing.TextBodyProperties) float64 {
-	if props.AutofitType != "normAutofit" || props.AutofitFontScale <= 0 {
-		return 1
-	}
-	scale := float64(props.AutofitFontScale) / 100000.0
-	if scale <= 0 {
-		return 1
-	}
-	return scale
-}
-
-func textAutofitLineScale(props drawing.TextBodyProperties) float64 {
-	if props.AutofitType != "normAutofit" || props.AutofitLineSpaceReduction <= 0 {
-		return 1
-	}
-	scale := 1 - (float64(props.AutofitLineSpaceReduction) / 100000.0)
-	if scale <= 0 {
-		return 1
-	}
-	return scale
-}
-
-func formatAutoNum(numType string, n int) string {
-	switch numType {
-	case "arabicPeriod":
-		return fmt.Sprintf("%d.", n)
-	case "arabicParenR":
-		return fmt.Sprintf("%d)", n)
-	case "alphaLcPeriod":
-		return fmt.Sprintf("%c.", 'a'+n-1)
-	case "alphaUcPeriod":
-		return fmt.Sprintf("%c.", 'A'+n-1)
-	case "romanLcPeriod":
-		return fmt.Sprintf("%s.", romanLower(n))
-	case "romanUcPeriod":
-		return fmt.Sprintf("%s.", romanUpper(n))
-	default:
-		return fmt.Sprintf("%d.", n)
-	}
-}
-
-func romanLower(n int) string { return strings.ToLower(romanUpper(n)) }
-func romanUpper(n int) string {
-	vals := []int{1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1}
-	syms := []string{"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"}
-	var out strings.Builder
-	for i, v := range vals {
-		for n >= v {
-			out.WriteString(syms[i])
-			n -= v
+func physicalLineHasVisibleText(line playout.PhysicalTextLine) bool {
+	for _, fragment := range line.Fragments {
+		if strings.TrimSpace(fragment.Text) != "" {
+			return true
 		}
 	}
-	return out.String()
+	return false
 }
 
-func renderRun(b *strings.Builder, run *resolve.Run, fontScale float64, ctx *htmlRenderContext) {
+func renderPhysicalMarker(b *strings.Builder, marker playout.MarkerVisualPlan, text string, ctx *htmlRenderContext) {
+	var styles []string
+	if marker.FontSizePt > 0 {
+		styles = append(styles, fmt.Sprintf("font-size:%.1fpt", marker.FontSizePt))
+	}
+	if marker.FontFamily != "" {
+		styles = append(styles, "font-family:"+cssFontFamilyValue(marker.FontFamily, !ctx.isEmbeddedFamily(marker.FontFamily)))
+	}
+	if marker.Color != "" {
+		styles = append(styles, "color:#"+marker.Color)
+	}
+	if marker.AscentPt > 0 || marker.DescentPt > 0 {
+		styles = append(styles, "display:inline-block", "vertical-align:top", "position:relative")
+		styles = append(styles, fmt.Sprintf("top:%.4fpt", marker.TopOffsetPt))
+		styles = append(styles, fmt.Sprintf("height:%.4fpt", marker.AscentPt+marker.DescentPt))
+		styles = append(styles, fmt.Sprintf("line-height:%.4fpt", marker.AscentPt+marker.DescentPt))
+	}
+	if marker.OffsetPt != 0 {
+		styles = append(styles, fmt.Sprintf("margin-left:%.4fpt", marker.OffsetPt))
+	}
+	if marker.GapPt > 0 {
+		styles = append(styles, fmt.Sprintf("margin-right:%.4fpt", marker.GapPt))
+	}
+	if len(styles) == 0 {
+		fmt.Fprintf(b, "<span class=\"bullet-marker\">%s</span>", text)
+		return
+	}
+	fmt.Fprintf(b, "<span class=\"bullet-marker\" style=%q>%s</span>", strings.Join(styles, ";"), text)
+}
+
+func renderRun(b *strings.Builder, run *ir.Run, fontScale float64, ctx *htmlRenderContext) {
+	renderRunWithPlan(b, run, playout.ResolveRunVisualPlan(run, fontScale), ctx)
+}
+
+// renderRunWithPlan serializes a layout-owned physical run plan. Composed text
+// lines use this path so the renderer cannot independently resolve run paint
+// after line measurement has already used that run's font identity and scale.
+func renderRunWithPlan(b *strings.Builder, run *ir.Run, plan playout.RunVisualPlan, ctx *htmlRenderContext) {
 	// Math runs carry pre-converted MathML — emit verbatim, no styling.
 	if run.MathML != "" {
 		b.WriteString(run.MathML)
@@ -3106,58 +3657,74 @@ func renderRun(b *strings.Builder, run *resolve.Run, fontScale float64, ctx *htm
 			// Unknown fields fall through to display run.Text as-is.
 		}
 	}
-	if run.Bold {
+	if plan.Bold {
 		styles = append(styles, "font-weight:bold")
 	}
-	if run.Italic {
+	if plan.Italic {
 		styles = append(styles, "font-style:italic")
 	}
-	if run.SmallCaps {
+	if plan.SmallCaps {
 		styles = append(styles, "font-variant:small-caps")
 	}
 	var decorations []string
-	if run.Underline {
+	if plan.Underline {
 		decorations = append(decorations, "underline")
 	}
-	if run.Strike {
+	if plan.Strike {
 		decorations = append(decorations, "line-through")
 	}
 	if len(decorations) > 0 {
 		styles = append(styles, "text-decoration:"+strings.Join(decorations, " "))
 	}
-	if run.FontSize > 0 {
-		styles = append(styles, fmt.Sprintf("font-size:%.1fpt", (float64(run.FontSize)/100)*fontScale))
+	if plan.FontSizePt > 0 {
+		styles = append(styles, fmt.Sprintf("font-size:%.1fpt", plan.FontSizePt))
 	}
-	if run.FontFamily != "" {
-		styles = append(styles, "font-family:"+cssFontFamilyValue(run.FontFamily, !ctx.isEmbeddedFamily(run.FontFamily)))
+	if plan.CharSpacingPt != 0 {
+		styles = append(styles, fmt.Sprintf("letter-spacing:%.2fpt", plan.CharSpacingPt))
 	}
-	if run.Color != "" {
-		styles = append(styles, "color:#"+run.Color)
+	if plan.KerningSpecified {
+		if plan.KerningEnabled {
+			styles = append(styles, "font-kerning:normal")
+		} else {
+			styles = append(styles, "font-kerning:none")
+		}
+	}
+	if plan.FontFamily != "" {
+		styles = append(styles, "font-family:"+cssFontFamilyValue(plan.FontFamily, !ctx.isEmbeddedFamily(plan.FontFamily)))
+	}
+	if plan.Color != "" {
+		styles = append(styles, "color:#"+plan.Color)
 	} else if len(styles) > 0 {
 		// Always include an explicit color in styled spans so the output is
 		// self-contained and does not rely on CSS color inheritance.
 		styles = append(styles, "color:#"+ctx.defaultTextColor)
 	}
-	if run.Highlight != "" {
-		styles = append(styles, "background-color:#"+run.Highlight)
+	if plan.Highlight != "" {
+		styles = append(styles, "background-color:#"+plan.Highlight)
 	}
-	if len(run.Effects.Effects) > 0 {
-		styles = appendSortedCSSProps(styles, drawingcss.EffectList(run.Effects))
+	if plan.Effects.HasEffects {
+		styles = appendSortedCSSProps(styles, presentationTextEffectPlanStyles(plan.Effects))
 	}
 	rawText := run.Text
 	if fieldText != "" {
 		rawText = fieldText
 	}
-	if run.AllCaps {
+	if plan.AllCaps {
 		rawText = strings.ToUpper(rawText)
 	}
 	text := escapeHTML(rawText)
 	// DrawingML line breaks (a:br) are resolved as \n runs; emit HTML <br> tags.
 	text = strings.ReplaceAll(text, "\n", "<br>")
+	if plan.BaselineShiftPct != 0 {
+		// Preserve the authored baseline displacement without invoking the browser's
+		// <sup>/<sub> font-size heuristics. Layout already owns the run's font size
+		// and physical line box; relative positioning changes paint only.
+		styles = append(styles, fmt.Sprintf("position:relative;bottom:%.4fem", plan.BaselineShiftPct/100.0))
+	}
 	wrapTag := ""
-	if run.Superscript {
+	if plan.BaselineShiftPct == 0 && plan.Superscript {
 		wrapTag = "sup"
-	} else if run.Subscript {
+	} else if plan.BaselineShiftPct == 0 && plan.Subscript {
 		wrapTag = "sub"
 	}
 	if len(styles) == 0 {
@@ -3186,7 +3753,7 @@ func (ctx *htmlRenderContext) isEmbeddedFamily(family string) bool {
 	return ok
 }
 
-func renderEmbeddedFontCSS(b *strings.Builder, pres *resolve.Presentation, ctx *htmlRenderContext) {
+func renderEmbeddedFontCSS(b *strings.Builder, pres *ir.Presentation, ctx *htmlRenderContext) {
 	if pres == nil {
 		return
 	}
@@ -3267,20 +3834,16 @@ func cssFontFamilyValue(family string, includeFallbacks bool) string {
 }
 
 func bestEffortFontFallbacks(family string) []string {
-	switch strings.ToLower(strings.TrimSpace(family)) {
-	case "source code pro":
+	switch playout.ResolveFontFallbackClass(family) {
+	case playout.FontFallbackMono:
 		return []string{"Consolas", "Courier New", "monospace"}
-	case "oswald":
+	case playout.FontFallbackSerif:
+		return []string{"Times New Roman", "serif"}
+	case playout.FontFallbackCondensed:
 		return []string{"Arial Narrow", "Arial", "sans-serif"}
+	default:
+		return []string{"Arial", "sans-serif"}
 	}
-	lower := strings.ToLower(family)
-	if strings.Contains(lower, "code") || strings.Contains(lower, "mono") {
-		return []string{"Consolas", "Courier New", "monospace"}
-	}
-	if strings.Contains(lower, "display") || strings.Contains(lower, "condensed") {
-		return []string{"Arial Narrow", "Arial", "sans-serif"}
-	}
-	return []string{"Arial", "sans-serif"}
 }
 
 func normalizeFontFamily(family string) string {
@@ -3307,19 +3870,6 @@ func quoteCSSFontFamilyName(family string) string {
 	return family
 }
 
-func placeholderClass(kind resolve.PlaceholderKind) string {
-	switch kind {
-	case resolve.PlaceholderTitle:
-		return "ph-title"
-	case resolve.PlaceholderBody:
-		return "ph-body"
-	case resolve.PlaceholderSubtitle:
-		return "ph-subtitle"
-	default:
-		return "ph-other"
-	}
-}
-
 func mapAlign(a string) string {
 	switch a {
 	case "ctr":
@@ -3333,8 +3883,18 @@ func mapAlign(a string) string {
 	}
 }
 
+// physicalBoundsPercent serializes layout-owned point bounds into slide percentages.
+// It deliberately accepts no canonical IR geometry.
+func physicalBoundsPercent(r playout.PhysicalPaintBoundsPlan, slideWPt, slideHPt float64) (x, y, w, h float64) {
+	x = r.LeftPt / slideWPt * 100
+	y = r.TopPt / slideHPt * 100
+	w = r.WidthPt / slideWPt * 100
+	h = r.HeightPt / slideHPt * 100
+	return
+}
+
 // boundsPercent converts EMU rect to percentage coordinates within the slide canvas.
-func boundsPercent(r resolve.Rect, slideWPt, slideHPt float64) (x, y, w, h float64) {
+func boundsPercent(r ir.Rect, slideWPt, slideHPt float64) (x, y, w, h float64) {
 	xPt := drawing.EMUToPoints(r.X)
 	yPt := drawing.EMUToPoints(r.Y)
 	wPt := drawing.EMUToPoints(r.W)
@@ -3346,30 +3906,7 @@ func boundsPercent(r resolve.Rect, slideWPt, slideHPt float64) (x, y, w, h float
 	return
 }
 
-func emuCSSPt(emu int64) string {
-	return fmt.Sprintf("%.2fpt", drawing.EMUToPoints(emu))
-}
-
-func emuIntCSSPt(emu int) string {
-	return fmt.Sprintf("%.2fpt", drawing.EMUToPoints(int64(emu)))
-}
-
-func points100CSSPt(value int) string {
-	return fmt.Sprintf("%.2fpt", float64(value)/100.0)
-}
-
-func textAnchorJustify(anchor string) string {
-	switch anchor {
-	case "ctr":
-		return "center"
-	case "b":
-		return "flex-end"
-	default:
-		return "flex-start"
-	}
-}
-
-func encodeTabStops(stops []resolve.TabStop) string {
+func encodeTabStops(stops []ir.TabStop) string {
 	var parts []string
 	for _, s := range stops {
 		parts = append(parts, fmt.Sprintf("%d:%s", s.Pos, s.Algn))
@@ -3391,7 +3928,7 @@ func escapeAttr(s string) string {
 }
 
 // animationAttrs returns the playback metadata for a rendered shape.
-func animationAttrs(shape *resolve.Shape, ctx *htmlRenderContext) string {
+func animationAttrs(shape *ir.Shape, ctx *htmlRenderContext) string {
 	if shape == nil {
 		return ""
 	}
@@ -3406,7 +3943,7 @@ func animationAttrs(shape *resolve.Shape, ctx *htmlRenderContext) string {
 	return attrs.String()
 }
 
-func shapeHasTimelineTarget(shape *resolve.Shape, ctx *htmlRenderContext) bool {
+func shapeHasTimelineTarget(shape *ir.Shape, ctx *htmlRenderContext) bool {
 	if shape == nil || shape.ID <= 0 || ctx == nil || len(ctx.animShapeIDs) == 0 {
 		return false
 	}
@@ -3414,30 +3951,14 @@ func shapeHasTimelineTarget(shape *resolve.Shape, ctx *htmlRenderContext) bool {
 	return ok
 }
 
-func animationTargetShapeIDs(slide *resolve.Slide) map[int]struct{} {
-	if slide == nil || len(slide.AnimationTimeline) == 0 {
-		return nil
-	}
-	ids := make(map[int]struct{}, len(slide.AnimationTimeline))
-	for _, event := range slide.AnimationTimeline {
-		if event.ShapeID > 0 {
-			ids[event.ShapeID] = struct{}{}
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	return ids
-}
-
-func emphasisEffectsAttr(shape *resolve.Shape) string {
+func emphasisEffectsAttr(shape *ir.Shape) string {
 	if shape == nil || len(shape.EmphasisEffects) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(" data-anim-emphasis=\"%s\"", strings.Join(shape.EmphasisEffects, " "))
 }
 
-func motionPathAttr(shape *resolve.Shape) string {
+func motionPathAttr(shape *ir.Shape) string {
 	if shape == nil || shape.MotionPath == nil || shape.MotionPath.Path == "" {
 		return ""
 	}
@@ -3453,77 +3974,35 @@ func motionPathAttr(shape *resolve.Shape) string {
 	return fmt.Sprintf(" data-anim-motion=\"%s\"", strings.Join(parts, " "))
 }
 
-func triggerAttr(shape *resolve.Shape) string {
+func triggerAttr(shape *ir.Shape) string {
 	if shape == nil || len(shape.AnimationTriggers) == 0 {
 		return ""
 	}
 	return fmt.Sprintf(" data-anim-trigger=\"%s\"", strings.Join(shape.AnimationTriggers, " "))
 }
 
-func presentationNeedsPlayback(pres *resolve.Presentation) bool {
-	if pres == nil {
-		return false
-	}
-	for _, slide := range pres.Slides {
-		if slide == nil {
-			continue
-		}
-		if slide.Transition != nil || slideMaxAnimStep(slide) > 0 {
-			return true
-		}
-		if len(slide.AnimationTimeline) > 0 {
-			return true
-		}
-		if slideHasInteractiveAnimations(slide) {
+// presentationNeedsBehaviorRuntime reports whether static HTML still needs the
+// presentation behavior runtime. Transitions alone do not opt a document into
+// slideshow playback, but animation steps/timelines, triggers, motion paths and
+// action links need the runtime in order for their authored behavior to work.
+func physicalPresentationNeedsBehaviorRuntime(slides []playout.PhysicalSlidePlan) bool {
+	for i := range slides {
+		playback := slides[i].Playback
+		if playback.MaxAnimationStep > 0 || playback.HasAnimationTimeline() || playback.HasInteractiveBehavior {
 			return true
 		}
 	}
 	return false
 }
 
-func slideHasInteractiveAnimations(slide *resolve.Slide) bool {
-	if slide == nil {
-		return false
-	}
-	return shapesHaveInteractiveAnimations(slide.Shapes)
-}
-
-func shapesHaveInteractiveAnimations(shapes []*resolve.Shape) bool {
-	for _, shape := range shapes {
-		if shape == nil {
-			continue
-		}
-		if len(shape.EmphasisEffects) > 0 || shape.MotionPath != nil || len(shape.AnimationTriggers) > 0 || shape.ActionLink != "" {
-			return true
-		}
-		if shapesHaveInteractiveAnimations(shape.Children) {
+func physicalPresentationNeedsPlayback(slides []playout.PhysicalSlidePlan) bool {
+	for i := range slides {
+		playback := slides[i].Playback
+		if playback.TransitionType != "" || playback.MaxAnimationStep > 0 || playback.HasAnimationTimeline() || playback.HasInteractiveBehavior {
 			return true
 		}
 	}
 	return false
-}
-
-func slideMaxAnimStep(slide *resolve.Slide) int {
-	if slide == nil {
-		return 0
-	}
-	return maxAnimStep(slide.Shapes)
-}
-
-func maxAnimStep(shapes []*resolve.Shape) int {
-	maxStep := 0
-	for _, shape := range shapes {
-		if shape == nil {
-			continue
-		}
-		if shape.AnimStep > maxStep {
-			maxStep = shape.AnimStep
-		}
-		if childMax := maxAnimStep(shape.Children); childMax > maxStep {
-			maxStep = childMax
-		}
-	}
-	return maxStep
 }
 
 func renderDiagnostics(b *strings.Builder, diagnostics []diag.Diagnostic) {
@@ -3554,7 +4033,20 @@ func renderDiagnostics(b *strings.Builder, diagnostics []diag.Diagnostic) {
 	b.WriteString("</details>\n")
 }
 
-// slideCSS is a format string receiving (slideWidthPt, slideHeightPt, aspectRatio).
+func cssBorderStyleForLine(style *drawing.LineStyle) string {
+	if style == nil {
+		return "solid"
+	}
+	if style.Compound || (style.CompoundType != "" && style.CompoundType != "sng") {
+		return "double"
+	}
+	if style.Dash != "" && style.Dash != drawing.DashPatternSolid {
+		return "dashed"
+	}
+	return "solid"
+}
+
+// slideCSS is a format string receiving (slideWidthPt, slideHeightPt, aspectRatio, printWidthPt, printHeightPt).
 const slideCSS = `
 html { box-sizing: border-box; }
 *, *::before, *::after { box-sizing: inherit; }
@@ -3586,8 +4078,8 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #888; }
   width: 100%%;
   height: 100%%;
 }
-.bullet-marker { margin-right: 0.35em; }
-.shape--image { background: #e8e8e8; border: 1px dashed #bbb; }
+.bullet-marker { margin-right: 0; }
+.shape--image-placeholder { background: #e8e8e8; border: 1px dashed #bbb; }
 .notes {
   margin-top: 1rem;
   padding: 1rem;
@@ -3644,9 +4136,26 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #888; }
 .comment-dt { font-style: italic; }
 .comment-text { margin: 0; }
 .shape--table { position: absolute; overflow: hidden; }
-.ppt-table { width: 100%%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.ppt-table td { font-size: 12px; overflow-wrap: anywhere; }
+.ppt-table { width: 100%%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.ppt-table td { overflow-wrap: normal; }
 .shape-link { display: contents; text-decoration: none; color: inherit; }
+.shape-ancestor-clip .shape, .shape-ancestor-clip .shape-link { pointer-events: auto; }
+.slide-number { display: contents; }
+
+@page { size: %.2fpt %.2fpt; margin: 0; }
+@media print {
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { margin: 0; max-width: none; break-after: page; page-break-after: always; }
+  .slide:last-of-type { break-after: auto; page-break-after: auto; }
+  .slide-num,
+  .notes,
+  .headers-footers,
+  .comments,
+  .diagnostics { display: none !important; }
+  .slide-scroll { overflow: visible; }
+  .canvas { box-shadow: none; }
+}
 `
 
 const playbackCSS = `
@@ -3796,6 +4305,17 @@ document.addEventListener("DOMContentLoaded", function () {
       slide.querySelector("[data-anim-motion],[data-anim-trigger],[data-ppt-action]") !== null;
   });
   if (!interactive) {
+    return;
+  }
+
+  // Generated HTML is a document by default: all slides remain visible and
+  // scrollable even when the presentation contains transitions/animations.
+  // Playback is opt-in so one animated slide cannot silently turn a multi-slide
+  // export into a single-slide player. Use ?play=1 (or ?mode=player) to enter
+  // presentation playback mode.
+  var params = new URLSearchParams(window.location.search);
+  var playbackRequested = params.get("play") === "1" || params.get("mode") === "player";
+  if (!playbackRequested) {
     return;
   }
 
@@ -4137,7 +4657,3 @@ const diagnosticsCSS = `
 .diagnostic-warning { color: #8a6d3b; }
 .diagnostic-info { color: #31708f; }
 `
-
-func emuToPt(emu int64) float64 {
-	return float64(emu) / 12700 // 914400 EMU/inch ÷ 72 pt/inch
-}

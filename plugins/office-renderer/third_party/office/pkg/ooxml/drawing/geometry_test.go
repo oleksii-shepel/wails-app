@@ -2,6 +2,7 @@ package drawing
 
 import (
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -305,21 +306,21 @@ func TestPresetGeometryEdgeAdjustments(t *testing.T) {
 		name string
 		adj  []float64
 	}{
-		{"can", []float64{0.01}},         // clamp lower to 0.05
-		{"donut", []float64{0.01}},        // clamp lower to 0.1
-		{"frame", []float64{0.01}},        // clamp lower
-		{"snip1Rect", []float64{0.6}},          // large snip
-		{"snip2SameRect", []float64{0.6}},      // large snip
-		{"snip2DiagRect", []float64{0.6}},      // large snip
-		{"snipRoundRect", []float64{0.6}},      // large snip
-		{"round1Rect", []float64{0.6}},         // large radius
-		{"round2SameRect", []float64{0.6}},     // large radius
-		{"round2DiagRect", []float64{0.6}},     // large radius
-		{"notch", []float64{0.6}},              // large notch
-		{"homePlate", []float64{0.6}},          // large adjustment
-		{"foldedCorner", []float64{0.6}},       // large fold
-		{"bevel", []float64{0.6}},              // large bevel
-		{"roundRect", []float64{0.01}},    // small radius
+		{"can", []float64{0.01}},           // clamp lower to 0.05
+		{"donut", []float64{0.01}},         // clamp lower to 0.1
+		{"frame", []float64{0.01}},         // clamp lower
+		{"snip1Rect", []float64{0.6}},      // large snip
+		{"snip2SameRect", []float64{0.6}},  // large snip
+		{"snip2DiagRect", []float64{0.6}},  // large snip
+		{"snipRoundRect", []float64{0.6}},  // large snip
+		{"round1Rect", []float64{0.6}},     // large radius
+		{"round2SameRect", []float64{0.6}}, // large radius
+		{"round2DiagRect", []float64{0.6}}, // large radius
+		{"notch", []float64{0.6}},          // large notch
+		{"homePlate", []float64{0.6}},      // large adjustment
+		{"foldedCorner", []float64{0.6}},   // large fold
+		{"bevel", []float64{0.6}},          // large bevel
+		{"roundRect", []float64{0.01}},     // small radius
 	}
 	for _, tt := range tests {
 		pg := PresetGeometry{Name: tt.name, Adjustments: tt.adj}
@@ -339,10 +340,10 @@ func TestPresetGeometryUpperClampAdjustments(t *testing.T) {
 		name string
 		adj  []float64
 	}{
-		{"can", []float64{0.6}},         // clamp upper to 0.5
-		{"donut", []float64{0.95}},      // clamp upper to 0.9
-		{"frame", []float64{0.6}},       // clamp upper
-		{"roundRect", []float64{0.8}},   // clamp upper
+		{"can", []float64{0.6}},       // clamp upper to 0.5
+		{"donut", []float64{0.95}},    // clamp upper to 0.9
+		{"frame", []float64{0.6}},     // clamp upper
+		{"roundRect", []float64{0.8}}, // clamp upper
 	}
 	for _, tt := range tests {
 		pg := PresetGeometry{Name: tt.name, Adjustments: tt.adj}
@@ -484,5 +485,191 @@ func TestBoundingBox(t *testing.T) {
 	rect := pg.BoundingBox(100, 50)
 	if rect.X != 0 || rect.Y != 0 || rect.Width != 100 || rect.Height != 50 {
 		t.Errorf("BoundingBox = %+v", rect)
+	}
+}
+
+func TestHomePlateDefaultTipUsesHalfShortSide(t *testing.T) {
+	pg := PresetGeometry{Name: "homePlate"}
+	path, err := pg.GetPath(600, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(path.Commands) < 4 {
+		t.Fatalf("commands = %d", len(path.Commands))
+	}
+	// Default DrawingML adj=50000 => dx = 50% of ss (100), so the
+	// shoulder is x=550. A width-relative implementation would incorrectly
+	// put it near x=420 and produce a shallow SmartArt banner wedge.
+	if got := path.Commands[1].Points[0].X; math.Abs(got-550) > 0.001 {
+		t.Fatalf("homePlate shoulder x = %v, want 550", got)
+	}
+	if got := path.Commands[2].Points[0].X; math.Abs(got-600) > 0.001 {
+		t.Fatalf("homePlate tip x = %v, want 600", got)
+	}
+}
+
+func TestBlockArcPreservesAuthoredStartEndAndThickness(t *testing.T) {
+	pg := PresetGeometry{Name: "blockArc", Adjustments: []float64{0.25, 0.75, 0.20}}
+	path, err := pg.GetPath(200, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(path.Commands) != 5 {
+		t.Fatalf("commands = %d, want 5", len(path.Commands))
+	}
+	start := path.Commands[0].Points[0]
+	// 0.25 turn is the bottom centre in the renderer's clockwise coordinate system.
+	if math.Abs(start.X-100) > 1e-6 || math.Abs(start.Y-100) > 1e-6 {
+		t.Fatalf("outer start = (%v,%v), want (100,100)", start.X, start.Y)
+	}
+	end := path.Commands[1].Points[0]
+	if math.Abs(end.X-100) > 1e-6 || math.Abs(end.Y-0) > 1e-6 {
+		t.Fatalf("outer end = (%v,%v), want (100,0)", end.X, end.Y)
+	}
+	innerEnd := path.Commands[2].Points[0]
+	// 20%% radial thickness leaves an 80%% inner ellipse.
+	if math.Abs(innerEnd.X-100) > 1e-6 || math.Abs(innerEnd.Y-10) > 1e-6 {
+		t.Fatalf("inner end = (%v,%v), want (100,10)", innerEnd.X, innerEnd.Y)
+	}
+}
+
+func TestBlockArcWrapsAngularHandlesWithoutClamping(t *testing.T) {
+	pg := PresetGeometry{Name: "blockArc", Adjustments: []float64{0.75, 0.25, 0.25}}
+	path, err := pg.GetPath(100, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arc := path.Commands[1]
+	if len(arc.Args) < 5 {
+		t.Fatalf("outer arc args = %#v", arc.Args)
+	}
+	if arc.Args[3] != 0 {
+		t.Fatalf("large-arc = %v, want 0 for half turn", arc.Args[3])
+	}
+	start := path.Commands[0].Points[0]
+	end := arc.Points[0]
+	if math.Abs(start.X-50) > 1e-6 || math.Abs(start.Y-0) > 1e-6 {
+		t.Fatalf("start = (%v,%v), want (50,0)", start.X, start.Y)
+	}
+	if math.Abs(end.X-50) > 1e-6 || math.Abs(end.Y-100) > 1e-6 {
+		t.Fatalf("end = (%v,%v), want (50,100)", end.X, end.Y)
+	}
+}
+
+func TestClass13NumberedCalloutsOwnLeaderGeometry(t *testing.T) {
+	for _, name := range []string{"callout1", "callout2", "callout3", "borderCallout1", "accentCallout1", "accentBorderCallout3"} {
+		path, err := (&PresetGeometry{Name: name}).GetPath(216, 108)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(path.Commands) < 7 {
+			t.Fatalf("%s: commands=%d, want rectangular body plus leader", name, len(path.Commands))
+		}
+		first := path.Commands[0]
+		if first.Type != "M" || len(first.Points) != 1 || first.Points[0] != (Point{X: 0, Y: 0}) {
+			t.Fatalf("%s: first command=%+v, numbered callout must retain rectangular body", name, first)
+		}
+		if path.Commands[4].Type != "Z" {
+			t.Fatalf("%s: body is not closed before leader: %+v", name, path.Commands)
+		}
+	}
+}
+
+func TestClass13NumberedCalloutLeaderDepthIsDistinct(t *testing.T) {
+	counts := map[string]int{}
+	for _, name := range []string{"callout1", "callout2", "callout3"} {
+		path, err := (&PresetGeometry{Name: name}).GetPath(160, 90)
+		if err != nil {
+			t.Fatal(err)
+		}
+		counts[name] = len(path.Commands)
+	}
+	if !(counts["callout1"] < counts["callout2"] && counts["callout2"] < counts["callout3"]) {
+		t.Fatalf("leader topology collapsed: %#v", counts)
+	}
+}
+
+func TestClass13AccentCalloutAddsAccentBar(t *testing.T) {
+	plain, _ := (&PresetGeometry{Name: "callout2"}).GetPath(180, 100)
+	accent, _ := (&PresetGeometry{Name: "accentCallout2"}).GetPath(180, 100)
+	if len(accent.Commands) != len(plain.Commands)+2 {
+		t.Fatalf("accent commands=%d plain=%d, want dedicated accent subpath", len(accent.Commands), len(plain.Commands))
+	}
+}
+
+func TestClass13NumberedCalloutsRespectAdjustmentsAndNonSquareBounds(t *testing.T) {
+	base, _ := (&PresetGeometry{Name: "callout3"}).GetPath(240, 80)
+	adjusted, _ := (&PresetGeometry{Name: "callout3", Adjustments: []float64{0.8, 0.2, 0.7, 0.3, 0.6, 0.4}}).GetPath(240, 80)
+	if reflect.DeepEqual(base.Commands, adjusted.Commands) {
+		t.Fatal("callout3 adjustments did not change leader geometry")
+	}
+	portrait, _ := (&PresetGeometry{Name: "accentBorderCallout3"}).GetPath(80, 240)
+	if len(portrait.Commands) == 0 {
+		t.Fatal("portrait callout geometry is empty")
+	}
+	body := portrait.Commands[:5]
+	if body[1].Points[0].X != 80 || body[2].Points[0].Y != 240 {
+		t.Fatalf("portrait body did not normalize to host bounds: %+v", body)
+	}
+}
+
+func TestClass13WedgeCalloutHostsAreDistinct(t *testing.T) {
+	names := []string{"wedgeRectCallout", "wedgeRoundRectCallout", "wedgeEllipseCallout"}
+	paths := make(map[string]Path, len(names))
+	for _, name := range names {
+		p, err := (&PresetGeometry{Name: name}).GetPath(200, 100)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		paths[name] = p
+	}
+	if reflect.DeepEqual(paths[names[0]].Commands, paths[names[1]].Commands) ||
+		reflect.DeepEqual(paths[names[1]].Commands, paths[names[2]].Commands) ||
+		reflect.DeepEqual(paths[names[0]].Commands, paths[names[2]].Commands) {
+		t.Fatal("wedge callout host geometries collapsed to a shared approximation")
+	}
+	if paths["wedgeEllipseCallout"].Commands[0].Type == "M" && len(paths["wedgeEllipseCallout"].Commands) <= 6 {
+		t.Fatal("wedgeEllipseCallout appears to have fallen back to rectangle geometry")
+	}
+}
+
+func TestClass13RemainingDistinctPresetsDoNotFallBackToRectangle(t *testing.T) {
+	names := []string{"teardrop", "swooshArrow", "leftCircularArrow", "leftRightCircularArrow", "corner", "diagStripe"}
+	rect, _ := (&PresetGeometry{Name: "rect"}).GetPath(21600, 10800)
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			got, err := (&PresetGeometry{Name: name}).GetPath(21600, 10800)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reflect.DeepEqual(got, rect) {
+				t.Fatalf("%s still falls back to rectangle", name)
+			}
+			if len(got.Commands) < 4 {
+				t.Fatalf("%s geometry too small: %d commands", name, len(got.Commands))
+			}
+		})
+	}
+}
+
+func TestClass13RemainingDistinctPresetsSurvivePortraitBounds(t *testing.T) {
+	for _, name := range []string{"teardrop", "swooshArrow", "leftCircularArrow", "leftRightCircularArrow", "corner", "diagStripe"} {
+		p, err := (&PresetGeometry{Name: name}).GetPath(10800, 21600)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(p.Commands) == 0 {
+			t.Fatalf("%s returned empty portrait geometry", name)
+		}
+	}
+}
+
+func TestClass13RemainingPresetAdjustmentsAffectGeometry(t *testing.T) {
+	for _, name := range []string{"teardrop", "swooshArrow", "leftCircularArrow", "corner", "diagStripe"} {
+		a, _ := (&PresetGeometry{Name: name, Adjustments: []float64{.12}}).GetPath(21600, 10800)
+		b, _ := (&PresetGeometry{Name: name, Adjustments: []float64{.38}}).GetPath(21600, 10800)
+		if reflect.DeepEqual(a, b) {
+			t.Fatalf("%s ignores its primary adjustment", name)
+		}
 	}
 }

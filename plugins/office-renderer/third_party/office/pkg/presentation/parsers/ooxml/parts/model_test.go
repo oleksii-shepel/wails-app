@@ -1028,6 +1028,35 @@ func TestBlipFillPreservesDPIAndExplicitRotationFlag(t *testing.T) {
 	}
 }
 
+func TestBlipAlphaModFixWithoutAmountPreservesPictureOpacity(t *testing.T) {
+	const src = `<a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:alphaModFix/></a:blip>`
+	var blip parts.Blip
+	if err := xml.Unmarshal([]byte(src), &blip); err != nil {
+		t.Fatal(err)
+	}
+	effects := blip.DrawingEffects(nil)
+	if len(effects) != 1 {
+		t.Fatalf("effects = %d, want 1: %#v", len(effects), effects)
+	}
+	alpha, ok := effects[0].(drawing.AlphaModFix)
+	if !ok || alpha.Amount != 100000 {
+		t.Fatalf("alphaModFix = %#v, want 100000 (opaque no-op)", effects[0])
+	}
+}
+
+func TestBlipAlphaModFixPreservesExplicitZero(t *testing.T) {
+	const src = `<a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:alphaModFix amt="0"/></a:blip>`
+	var blip parts.Blip
+	if err := xml.Unmarshal([]byte(src), &blip); err != nil {
+		t.Fatal(err)
+	}
+	effects := blip.DrawingEffects(nil)
+	alpha, ok := effects[0].(drawing.AlphaModFix)
+	if !ok || alpha.Amount != 0 {
+		t.Fatalf("alphaModFix = %#v, want authored zero", effects[0])
+	}
+}
+
 func TestBlipParsesExtendedAlphaAndColorChangeEffects(t *testing.T) {
 	const src = `<blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" embed="rId1"><a:alphaBiLevel thresh="40000"/><a:alphaOutset rad="12700"/><a:alphaInv/><a:alphaCeiling/><a:alphaFloor/><a:clrChange useA="1"><a:clrFrom><a:srgbClr val="FF0000"><a:alpha val="50000"/></a:srgbClr></a:clrFrom><a:clrTo><a:srgbClr val="00FF00"><a:alpha val="75000"/></a:srgbClr></a:clrTo></a:clrChange></blip>`
 	var b parts.Blip
@@ -1108,5 +1137,19 @@ func TestShapePropertiesThreeDRoundTripPreservesCameraLightAndBevelMetadata(t *t
 	}
 	if got.Shape3D == nil || got.Shape3D.BevelT == nil || got.Shape3D.BevelT.Prst != "softRound" || got.Shape3D.BevelB == nil || got.Shape3D.BevelB.Prst != "angle" {
 		t.Fatalf("shape 3D did not round-trip: %#v", got.Shape3D)
+	}
+}
+
+func TestPresentationParsesDefaultTextStyle(t *testing.T) {
+	const src = `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:defaultTextStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:defaultTextStyle></p:presentation>`
+	var pres parts.Presentation
+	if err := xml.Unmarshal([]byte(src), &pres); err != nil {
+		t.Fatalf("unmarshal presentation: %v", err)
+	}
+	if pres.DefaultTextStyle == nil || pres.DefaultTextStyle.Lvl1PPr == nil || pres.DefaultTextStyle.Lvl1PPr.DefRPr == nil {
+		t.Fatalf("default text style = %#v, want lvl1 defRPr", pres.DefaultTextStyle)
+	}
+	if got := pres.DefaultTextStyle.Lvl1PPr.DefRPr.FontSize; got != 1800 {
+		t.Fatalf("default font size = %d, want 1800", got)
 	}
 }

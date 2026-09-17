@@ -1316,6 +1316,66 @@ type SpreadsheetDrawing struct {
 	AbsoluteAnchors []XDRAbsoluteAnchor `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing absoluteAnchor"`
 }
 
+// UnmarshalXML preserves the interleaved document order of DrawingML anchors.
+// Excel uses anchor element order as drawing stacking order; decoding each anchor
+// kind into a separate slice otherwise loses that information.
+func (d *SpreadsheetDrawing) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error {
+	d.XMLName = start.Name
+	order := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Space != nsXDR {
+				if err := dec.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch t.Name.Local {
+			case "oneCellAnchor":
+				var a XDROneCellAnchor
+				if err := dec.DecodeElement(&a, &t); err != nil {
+					return err
+				}
+				a.DocumentOrder = order
+				order++
+				d.OneCellAnchors = append(d.OneCellAnchors, a)
+			case "twoCellAnchor":
+				var a XDRTwoCellAnchor
+				if err := dec.DecodeElement(&a, &t); err != nil {
+					return err
+				}
+				a.DocumentOrder = order
+				order++
+				d.TwoCellAnchors = append(d.TwoCellAnchors, a)
+			case "absoluteAnchor":
+				var a XDRAbsoluteAnchor
+				if err := dec.DecodeElement(&a, &t); err != nil {
+					return err
+				}
+				a.DocumentOrder = order
+				order++
+				d.AbsoluteAnchors = append(d.AbsoluteAnchors, a)
+			default:
+				if err := dec.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if t.Name == start.Name {
+				return nil
+			}
+		}
+	}
+}
+
 // XDRMarker is xdr:from / xdr:to — a cell-based anchor point.
 type XDRMarker struct {
 	Col    int   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing col"`
@@ -1343,36 +1403,39 @@ type XDRClientData struct {
 }
 
 type XDROneCellAnchor struct {
-	From         XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing from"`
-	Ext          XDRExtent        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing ext"`
-	Pic          *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
-	GraphicFrame *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
-	Shape        *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
-	GroupShape   *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
-	ClientData   *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
+	DocumentOrder int              `xml:"-"`
+	From          XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing from"`
+	Ext           XDRExtent        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing ext"`
+	Pic           *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
+	GraphicFrame  *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
+	Shape         *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
+	GroupShape    *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
+	ClientData    *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
 }
 
 // XDRTwoCellAnchor is xdr:twoCellAnchor.
 type XDRTwoCellAnchor struct {
-	EditAs       string           `xml:"editAs,attr,omitempty"`
-	From         XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing from"`
-	To           XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing to"`
-	Pic          *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
-	GraphicFrame *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
-	Shape        *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
-	GroupShape   *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
-	ClientData   *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
+	DocumentOrder int              `xml:"-"`
+	EditAs        string           `xml:"editAs,attr,omitempty"`
+	From          XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing from"`
+	To            XDRMarker        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing to"`
+	Pic           *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
+	GraphicFrame  *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
+	Shape         *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
+	GroupShape    *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
+	ClientData    *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
 }
 
 // XDRAbsoluteAnchor is xdr:absoluteAnchor.
 type XDRAbsoluteAnchor struct {
-	Pos          XDRPos           `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pos"`
-	Ext          XDRExtent        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing ext"`
-	Pic          *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
-	GraphicFrame *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
-	Shape        *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
-	GroupShape   *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
-	ClientData   *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
+	DocumentOrder int              `xml:"-"`
+	Pos           XDRPos           `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pos"`
+	Ext           XDRExtent        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing ext"`
+	Pic           *XDRPic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing pic"`
+	GraphicFrame  *XDRGraphicFrame `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing graphicFrame"`
+	Shape         *XDRShape        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing sp"`
+	GroupShape    *XDRGroupShape   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing grpSp"`
+	ClientData    *XDRClientData   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing clientData"`
 }
 
 // XDRCNvPr is xdr:cNvPr — common non-visual drawing properties.

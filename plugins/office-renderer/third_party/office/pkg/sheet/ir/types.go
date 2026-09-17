@@ -503,6 +503,8 @@ func (m *MergedCell) ColSpan() int {
 
 // Drawing represents a drawing element (shape, image, chart, etc.) on a worksheet.
 type Drawing struct {
+	// ZOrder preserves DrawingML document order; larger values paint above smaller values.
+	ZOrder int
 	// OfficeArt is the canonical cross-format drawing representation.
 	OfficeArt *officeartir.Shape
 	// Name is the drawing element name.
@@ -599,6 +601,10 @@ type DrawingImage struct {
 	// Crop values are thousandths of a percent (0..100000) removed from
 	// the corresponding source-image edge.
 	CropLeft, CropTop, CropRight, CropBottom int
+	// RotationDeg and flips preserve the picture transform from xdr:spPr/a:xfrm.
+	// Rotation is stored in degrees; flips operate around the picture frame.
+	RotationDeg  float64
+	FlipH, FlipV bool
 }
 
 // DrawingShape contains shape-specific data.
@@ -782,6 +788,10 @@ type Cell struct {
 	NumValue float64
 	// Formula holds the cell formula text, if present.
 	Formula string
+	// HasCachedValue reports whether the source document supplied a cached
+	// formula result. Renderers should preserve that authored result for fidelity
+	// and evaluate locally only when no cached result was supplied.
+	HasCachedValue bool
 	// ArrayFormulaRange holds the array-formula range this cell belongs to.
 	ArrayFormulaRange string
 	// ArrayFormulaAnchor holds the anchor cell ref for the array-formula group.

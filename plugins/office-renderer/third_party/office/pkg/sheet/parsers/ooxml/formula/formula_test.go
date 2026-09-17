@@ -5011,3 +5011,23 @@ func TestEngineEvaluateArbitraryExpression(t *testing.T) {
 		t.Fatalf("Evaluate = %#v, want 10", got)
 	}
 }
+
+func TestCompatibilityUDFFallsThroughIFErrorToEmptyString(t *testing.T) {
+	result, err := Evaluate(`IFERROR(__xludf.dummyfunction("unique(Income!A:A)"),"")`)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if !result.IsText() || result.Text != "" {
+		t.Fatalf("result = %#v, want empty text fallback", result)
+	}
+}
+
+func TestExcelEscapedQuotesInsideCompatibilityUDFString(t *testing.T) {
+	result, err := Evaluate(`IFERROR(__xludf.dummyfunction("""COMPUTED_VALUE"""),"Children")`)
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if !result.IsText() || result.Text != "Children" {
+		t.Fatalf("result = %#v, want Children fallback", result)
+	}
+}

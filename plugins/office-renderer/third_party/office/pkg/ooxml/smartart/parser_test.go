@@ -1021,6 +1021,7 @@ func TestParseDiagramWithOptionsBullets(t *testing.T) {
 					<a:p>
 						<a:pPr>
 							<a:buAutoNum type="arabicPeriod" startAt="2"/>
+							<a:buFontTx/>
 							<a:buSzPct val="75000"/>
 						</a:pPr>
 						<a:r><a:t>Second</a:t></a:r>
@@ -1052,7 +1053,7 @@ func TestParseDiagramWithOptionsBullets(t *testing.T) {
 	}
 
 	p1 := pars[1]
-	if !p1.AutoNum || p1.AutoNumType != "arabicPeriod" || p1.AutoNumStart != 2 || p1.BulletSizePct != 75000 {
+	if !p1.AutoNum || p1.AutoNumType != "arabicPeriod" || p1.AutoNumStart != 2 || !p1.BulletFontTx || p1.BulletSizePct != 75000 {
 		t.Errorf("paragraph 1 = %+v", p1)
 	}
 

@@ -188,14 +188,14 @@ func TestArrowTrimDistance(t *testing.T) {
 	if got := ArrowTrimDistance("triangle", "med"); got != 8.0 {
 		t.Errorf("triangle med = %v, want 8.0", got)
 	}
-	if got := ArrowTrimDistance("diamond", "med"); got != 2.0 {
-		t.Errorf("diamond med = %v, want 2.0", got)
+	if got := ArrowTrimDistance("diamond", "med"); got != 8.0 {
+		t.Errorf("diamond med = %v, want 8.0", got)
 	}
-	if got := ArrowTrimDistance("oval", "med"); got != 4.0 {
-		t.Errorf("oval med = %v, want 4.0", got)
+	if got := ArrowTrimDistance("oval", "med"); got != 8.0 {
+		t.Errorf("oval med = %v, want 8.0", got)
 	}
-	if got := ArrowTrimDistance("arrow", "med"); got != 5.6 {
-		t.Errorf("arrow med = %v, want 5.6", got)
+	if got := ArrowTrimDistance("arrow", "med"); got != 0 {
+		t.Errorf("arrow med = %v, want 0", got)
 	}
 }
 
@@ -347,8 +347,19 @@ func TestComputeArrowGeometryLargeAngle(t *testing.T) {
 }
 
 func TestArrowTrimDistanceUnknown(t *testing.T) {
-	if got := ArrowTrimDistance("unknown", "med"); got != 8.0 {
-		t.Errorf("unknown arrow type = %v, want 8.0", got)
+	if got := ArrowTrimDistance("unknown", "med"); got != 0 {
+		t.Errorf("unknown arrow type = %v, want 0 because no marker geometry can be materialized", got)
+	}
+}
+
+func TestUnsupportedArrowMarkerDoesNotTrimOrMaterialize(t *testing.T) {
+	for _, typ := range []string{"", "none", "unknown", "extensionArrow"} {
+		if got := ArrowTrimDistanceForStroke(typ, "lg", 4); got != 0 {
+			t.Fatalf("%q trim = %v, want 0", typ, got)
+		}
+		if got := ComputeArrowGeometryForStroke(typ, "lg", "lg", 4, Point{X: 100}, Point{}); got != nil {
+			t.Fatalf("%q geometry = %#v, want nil", typ, got)
+		}
 	}
 }
 
@@ -386,5 +397,69 @@ func TestArrowDimensionsOalWithDefaults(t *testing.T) {
 	}
 	if widthPt != 5.5 {
 		t.Errorf("default width = %v, want 5.5", widthPt)
+	}
+}
+
+func TestArrowTrimDistanceMatchesMaterializedMarkerExtent(t *testing.T) {
+	if got := ArrowTrimDistance("arrow", "med"); got != 0 {
+		t.Fatalf("open arrow trim = %v, want 0 so the shaft reaches the wing vertex", got)
+	}
+	if got, want := ArrowTrimDistance("triangle", "med"), 8.0; got != want {
+		t.Fatalf("triangle trim = %v, want %v", got, want)
+	}
+	if got, want := ArrowTrimDistance("oval", "med"), 8.0; got != want {
+		t.Fatalf("oval trim = %v, want %v", got, want)
+	}
+	// ArrowDimensions intentionally represents a diamond by its tip-to-center
+	// half-length. The materialized marker extends twice that far to its back vertex.
+	if got, want := ArrowTrimDistance("diamond", "med"), 8.0; got != want {
+		t.Fatalf("diamond trim = %v, want %v", got, want)
+	}
+}
+
+func TestArrowDimensionsForStrokeScaleWithEffectiveLineWidth(t *testing.T) {
+	thinL, thinW := ArrowDimensionsForStroke("triangle", "med", "med", 0.5)
+	thickL, thickW := ArrowDimensionsForStroke("triangle", "med", "med", 3)
+	if thinL != 4 || thinW != 2.75 {
+		t.Fatalf("0.5pt medium arrow = %.2fx%.2f, want 4x2.75", thinL, thinW)
+	}
+	if thickL != 24 || thickW != 16.5 {
+		t.Fatalf("3pt medium arrow = %.2fx%.2f, want 24x16.5", thickL, thickW)
+	}
+	if thickL/thinL != 6 || thickW/thinW != 6 {
+		t.Fatalf("arrow dimensions must scale with stroke: thin %.2fx%.2f thick %.2fx%.2f", thinL, thinW, thickL, thickW)
+	}
+}
+
+func TestOpenArrowStrokeTracksConnectorStroke(t *testing.T) {
+	ag := ComputeArrowGeometryForStroke("arrow", "med", "med", 4, Point{X: 100}, Point{})
+	if ag == nil || ag.StrokeWidth != 6 {
+		t.Fatalf("open arrow stroke = %#v, want 6pt for 4pt connector", ag)
+	}
+}
+
+func TestArrowMarkerTypeAndSizeMatrixMaterializesFiniteGeometry(t *testing.T) {
+	for _, typ := range []string{"triangle", "stealth", "arrow", "diamond", "oval"} {
+		for _, w := range []string{"sm", "med", "lg"} {
+			for _, l := range []string{"sm", "med", "lg"} {
+				name := typ + "/" + w + "/" + l
+				t.Run(name, func(t *testing.T) {
+					ag := ComputeArrowGeometryForStroke(typ, w, l, 2.5, Point{X: 100, Y: 40}, Point{X: 75, Y: 25})
+					if ag == nil || ag.LengthPt <= 0 || ag.WidthPt <= 0 || math.IsNaN(ag.LengthPt) || math.IsNaN(ag.WidthPt) {
+						t.Fatalf("invalid marker geometry: %#v", ag)
+					}
+					trim := ArrowTrimDistanceForStroke(typ, l, 2.5)
+					if trim < 0 || math.IsNaN(trim) || math.IsInf(trim, 0) {
+						t.Fatalf("invalid trim %v", trim)
+					}
+					if typ == "arrow" && trim != 0 {
+						t.Fatalf("open arrow trim=%v, want 0", trim)
+					}
+					if typ != "arrow" && trim <= 0 {
+						t.Fatalf("filled marker trim=%v, want >0", trim)
+					}
+				})
+			}
+		}
 	}
 }

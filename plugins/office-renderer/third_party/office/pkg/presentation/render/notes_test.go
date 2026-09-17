@@ -21,7 +21,7 @@ func TestHTMLRendersNotesBackgroundColor(t *testing.T) {
 		}},
 	}
 
-	html, err := render.HTML(pres)
+	html, _, err := render.HTMLWithOptions(pres, render.HTMLOptions{IncludeNotes: true})
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
@@ -30,5 +30,15 @@ func TestHTMLRendersNotesBackgroundColor(t *testing.T) {
 	}
 	if !strings.Contains(html, "Speaker note") {
 		t.Fatalf("expected notes content in output: %s", html)
+	}
+}
+func TestHTMLDoesNotRenderNotesAsPresentationSectionsByDefault(t *testing.T) {
+	pres := &resolve.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000, Slides: []*resolve.Slide{{Index: 0, Notes: &resolve.NotesSlide{Shapes: []*resolve.Shape{{Kind: resolve.ShapeText, Bounds: resolve.Rect{W: 1000, H: 1000}, Paragraphs: []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Speaker note"}}}}}}}}}}
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Contains(html, `<div class="notes"`) || strings.Contains(html, "Speaker note") {
+		t.Fatalf("normal presentation output leaked speaker notes: %s", html)
 	}
 }

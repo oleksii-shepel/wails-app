@@ -12,7 +12,8 @@ import (
 	"office/pkg/diag"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/opc"
-	"office/pkg/presentation/parsers/ooxml/parts"
+	"office/pkg/presentation/edit"
+	ir "office/pkg/presentation/ir"
 	"office/pkg/presentation/parsers/ooxml/resolve"
 	"office/pkg/presentation/render"
 )
@@ -207,7 +208,7 @@ func TestHTMLRendersSlideSectionAttribute(t *testing.T) {
 	}
 }
 
-func TestHTMLRendersLineBreaksAsNewlines(t *testing.T) {
+func TestHTMLRendersLineBreaksAsPhysicalLines(t *testing.T) {
 	pres := &resolve.Presentation{
 		SlideWidthEMU:  9144000,
 		SlideHeightEMU: 6858000,
@@ -231,9 +232,18 @@ func TestHTMLRendersLineBreaksAsNewlines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// The break should be rendered as an HTML <br> tag between the text fragments.
-	if !strings.Contains(html, "Line1<span style=\"font-weight:bold;color:#000000\"><br></span>Line2") {
-		t.Fatalf("expected <br> between Line1 and Line2 in html: %s", html)
+
+	if !strings.Contains(html, "Line1") {
+		t.Fatalf("expected first physical line in html: %s", html)
+	}
+	if !strings.Contains(html, "Line2") {
+		t.Fatalf("expected second physical line in html: %s", html)
+	}
+
+	line1 := strings.Index(html, "Line1")
+	line2 := strings.Index(html, "Line2")
+	if line1 < 0 || line2 <= line1 {
+		t.Fatalf("expected Line1 before Line2 in html: %s", html)
 	}
 }
 
@@ -358,7 +368,7 @@ func TestHTMLRendersTableShape(t *testing.T) {
 		`background:linear-gradient(`,
 		`background:#CCE5FF`,
 		`background:#E2F0D9`,
-		`box-shadow:`,
+		`drop-shadow(`,
 		`font-weight:bold`,
 		`color:#FFFFFF`,
 		`Top`,
@@ -817,8 +827,8 @@ func TestHTMLRendersMarkerStyle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<span class="bullet-marker" style="font-size:24.0pt;font-family:Arial,sans-serif;color:#111111">1.</span>`) {
-		t.Fatalf("expected marker style in html: %s", html)
+	if !strings.Contains(html, `<span class="bullet-marker" style="font-size:24.0pt;font-family:Arial,sans-serif;color:#111111;margin-right:`) || !strings.Contains(html, `pt">1.</span>`) {
+		t.Fatalf("expected marker style and physical marker gap in html: %s", html)
 	}
 }
 
@@ -860,10 +870,16 @@ func TestHTMLRendersTextBodyAndParagraphStyles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `justify-content:center`) || !strings.Contains(html, `padding:7.20pt 7.20pt 7.20pt 7.20pt`) {
+
+	if !strings.Contains(html, `justify-content:center`) ||
+		!strings.Contains(html, `padding:7.20pt 7.20pt 7.20pt 7.20pt`) {
 		t.Fatalf("expected text body styles in html: %s", html)
 	}
-	if !strings.Contains(html, `<p style="text-align:center;margin-top:0.00pt;margin-bottom:0.00pt;line-height:1.0000">`) {
+
+	if !strings.Contains(
+		html,
+		`<p style="text-align:center;margin-top:0.0000pt;margin-bottom:0.0000pt;line-height:1.0000">`,
+	) {
 		t.Fatalf("expected paragraph styles in html: %s", html)
 	}
 }
@@ -887,8 +903,86 @@ func TestHTMLRendersNoAutofitTextOverflowVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<div class="shape shape--text" style="left:0.0000%;top:0.0000%;width:100.0000%;height:100.0000%;overflow:visible">`) {
+	if !strings.Contains(html, `class="shape shape--text"`) ||
+		!strings.Contains(html, `width:100.0000%;height:100.0000%;overflow:visible`) {
 		t.Fatalf("expected no-autofit text shape to allow overflow: %s", html)
+	}
+	if !strings.Contains(html, `height:100%;overflow:visible`) {
+		t.Fatalf("no-autofit content must preserve authored frame height while allowing overflow: %s", html)
+	}
+	if strings.Contains(html, `height:auto;overflow:visible`) {
+		t.Fatalf("no-autofit must not turn the authored text frame into an auto-height box: %s", html)
+	}
+}
+
+func TestHTMLMeasuredTextContentAvoidsInnerClipping(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU:  9144000,
+		SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{
+			Index: 0,
+			Shapes: []*resolve.Shape{{
+				Kind:   resolve.ShapeText,
+				Bounds: resolve.Rect{W: 2743200, H: 457200},
+				Paragraphs: []*resolve.Paragraph{{
+					Runs: []*resolve.Run{{Text: "Measured text", FontSize: 2400}},
+				}},
+			}},
+		}},
+	}
+
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(html, `height:100%;overflow:visible;justify-content:flex-start`) {
+		t.Fatalf("measured text content should preserve authored height but avoid inner clipping: %s", html)
+	}
+}
+
+func TestHTMLMeasuredWrappedLinesOwnHangingIndent(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU:  9144000,
+		SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{
+			Index: 0,
+			Shapes: []*resolve.Shape{{
+				Kind:   resolve.ShapeText,
+				Bounds: resolve.Rect{W: 1828800, H: 1371600},
+				Paragraphs: []*resolve.Paragraph{{
+					MarginLeftEMU: 514350,
+					TextIndentEMU: -514350,
+					HasMarginLeft: true,
+					HasTextIndent: true,
+					AutoNum:       true,
+					AutoNumStart:  1,
+					Runs: []*resolve.Run{{
+						Text:     "Things that equal the same thing also equal one another.",
+						FontSize: 2800,
+					}},
+				}},
+			}},
+		}},
+	}
+
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if strings.Count(html, `class="ppt-physical-line"`) < 2 {
+		t.Fatalf("expected measured wrapping: %s", html)
+	}
+	if !strings.Contains(html, `margin-left:-40.5000pt`) {
+		t.Fatalf("marker should own the authored hanging-indent origin: %s", html)
+	}
+	if strings.Contains(html, `white-space:pre;text-indent:-40.5000pt`) {
+		t.Fatalf("marker paragraph must not apply hanging indent twice: %s", html)
+	}
+	if !strings.Contains(html, `white-space:pre;text-indent:0.0000pt`) {
+		t.Fatalf("continuation physical lines should reset hanging indent: %s", html)
+	}
+	if strings.Contains(html, `white-space:pre-wrap`) {
+		t.Fatalf("measured physical lines must not wrap again in the browser: %s", html)
 	}
 }
 
@@ -933,8 +1027,14 @@ func TestHTMLAppliesNormAutofitFontAndLineScaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `line-height:0.8200`) {
-		t.Fatalf("expected normAutofit line spacing reduction in html: %s", html)
+	// Measured paragraphs no longer expose normAutofit as a paragraph-level
+	// CSS multiplier. Layout owns the reduced physical line box: 24pt * 0.92
+	// font scale * 1.117 Arial leading * 0.82 line-space scale = 20.2240pt.
+	if !strings.Contains(html, `line-height:20.2240pt;min-height:20.2240pt`) {
+		t.Fatalf("expected normAutofit line spacing reduction in physical line box: %s", html)
+	}
+	if !strings.Contains(html, `line-height:0`) {
+		t.Fatalf("expected measured paragraph browser strut to be disabled: %s", html)
 	}
 	if !strings.Contains(html, `font-size:22.1pt`) {
 		t.Fatalf("expected normAutofit font scaling in html: %s", html)
@@ -1001,11 +1101,11 @@ func TestHTMLNoAutofitInnerDivAllowsOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `height:auto`) {
-		t.Fatalf("expected height:auto on noAutofit shape content div: %s", html)
+	if !strings.Contains(html, `height:100%;overflow:visible`) {
+		t.Fatalf("expected authored-height noAutofit content with visible overflow: %s", html)
 	}
-	if !strings.Contains(html, `overflow:visible`) {
-		t.Fatalf("expected overflow:visible on noAutofit shape content div: %s", html)
+	if strings.Contains(html, `height:auto`) {
+		t.Fatalf("noAutofit content must not auto-grow beyond its authored frame: %s", html)
 	}
 }
 
@@ -1067,7 +1167,7 @@ func TestHTMLRendersParagraphMarginAndIndent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `margin-left:36.00pt`) || !strings.Contains(html, `text-indent:-18.00pt`) {
+	if !strings.Contains(html, `margin-left:36.0000pt`) || !strings.Contains(html, `text-indent:-18.0000pt`) {
 		t.Fatalf("expected paragraph margin and indent styles in html: %s", html)
 	}
 }
@@ -1082,9 +1182,9 @@ func TestHTMLAppliesPercentageSpacingBeforeAfter(t *testing.T) {
 				Kind:   resolve.ShapeText,
 				Bounds: resolve.Rect{W: 4572000, H: 2286000},
 				Paragraphs: []*resolve.Paragraph{{
-					SpaceBeforePct: 100000, // 100% = 1em before
-					SpaceAfterPct:  50000,  // 50% = 0.5em after
-					Runs:           []*resolve.Run{{Text: "Spaced paragraph"}},
+					SpaceBeforePct: 100000, // 100% of the physical first-line box
+					SpaceAfterPct:  50000,  // 50% of the physical last-line box
+					Runs:           []*resolve.Run{{Text: "Spaced paragraph", FontSize: 1200}},
 				}},
 			}},
 		}},
@@ -1094,11 +1194,11 @@ func TestHTMLAppliesPercentageSpacingBeforeAfter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `margin-top:1.0000em`) {
-		t.Fatalf("expected margin-top:1.0000em for 100%% spacing before: %s", html)
+	if !strings.Contains(html, `margin-top:13.4040pt`) {
+		t.Fatalf("expected 100%% spacing before to use the physical line height: %s", html)
 	}
-	if !strings.Contains(html, `margin-bottom:0.5000em`) {
-		t.Fatalf("expected margin-bottom:0.5000em for 50%% spacing after: %s", html)
+	if !strings.Contains(html, `margin-bottom:6.7020pt`) {
+		t.Fatalf("expected 50%% spacing after to use half the physical line height: %s", html)
 	}
 }
 
@@ -1335,11 +1435,16 @@ func TestHTMLUsesSharedEffectsForSVGShapes(t *testing.T) {
 	if !strings.Contains(html, `overflow:visible`) {
 		t.Fatalf("expected effect shapes to allow overflow in html: %s", html)
 	}
-	if !strings.Contains(html, `filter:drop-shadow(`) {
-		t.Fatalf("expected shared effect filter in html: %s", html)
+	if shapeStart := strings.Index(html, `class="shape shape--text" style="`); shapeStart >= 0 {
+		if shapeEnd := strings.Index(html[shapeStart:], `>`); shapeEnd >= 0 && strings.Contains(html[shapeStart:shapeStart+shapeEnd], `box-shadow:`) {
+			t.Fatalf("text shape outer frame must not use rectangular box-shadow: %s", html)
+		}
 	}
-	if !strings.Contains(html, `box-shadow:`) {
-		t.Fatalf("expected shared reflection box-shadow in html: %s", html)
+	if !strings.Contains(html, `drop-shadow(`) {
+		t.Fatalf("expected physical text-shape shadow to use geometry-aware drop-shadow: %s", html)
+	}
+	if !strings.Contains(html, `-webkit-box-reflect:`) {
+		t.Fatalf("expected physical reflection in html: %s", html)
 	}
 }
 
@@ -1403,11 +1508,11 @@ func TestHTMLRendersConnectorTailArrowGeometry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="276.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
-		t.Fatalf("expected line trimmed to the tail arrow base: %s", html)
+	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="252.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
+		t.Fatalf("expected line trim to scale with effective stroke width: %s", html)
 	}
-	if !strings.Contains(html, `<polygon points="288.0000,54.0000 276.0000,58.0000 276.0000,50.0000" fill="#595959"/>`) {
-		t.Fatalf("expected acute tail arrow polygon in html: %s", html)
+	if !strings.Contains(html, `<polygon points="288.0000,54.0000 252.0000,66.0000 252.0000,42.0000" fill="#595959"/>`) {
+		t.Fatalf("expected tail arrow geometry to scale with effective stroke width: %s", html)
 	}
 }
 
@@ -1442,7 +1547,7 @@ func TestHTMLRendersConnectorSharedLineStyle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `stroke-linecap="round"`) || !strings.Contains(html, `stroke-linejoin="bevel"`) || !strings.Contains(html, `stroke-dasharray="3, 3, 1, 3"`) {
+	if !strings.Contains(html, `stroke-linecap="round"`) || !strings.Contains(html, `stroke-linejoin="bevel"`) || !strings.Contains(html, `stroke-dasharray="9, 9, 3, 9"`) {
 		t.Fatalf("expected shared line-style attrs in html: %s", html)
 	}
 }
@@ -1484,16 +1589,16 @@ func TestHTMLAppliesArrowSizePresets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="282.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
-		t.Fatalf("expected small arrow length to trim the line by 6pt: %s", html)
+	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="270.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
+		t.Fatalf("expected small arrow length to scale with the 3pt stroke: %s", html)
 	}
-	if !strings.Contains(html, `<polygon points="288.0000,54.0000 282.0000,56.2500 282.0000,51.7500" fill="#595959"/>`) {
+	if !strings.Contains(html, `<polygon points="288.0000,54.0000 270.0000,60.7500 270.0000,47.2500" fill="#595959"/>`) {
 		t.Fatalf("expected small arrow width to render narrower triangle: %s", html)
 	}
-	if !strings.Contains(html, `<line x1="144.0000" y1="108.0000" x2="276.0000" y2="108.0000" stroke="#595959" stroke-width="3.00"/>`) {
-		t.Fatalf("expected large arrow length to trim the line by 12pt: %s", html)
+	if !strings.Contains(html, `<line x1="144.0000" y1="108.0000" x2="252.0000" y2="108.0000" stroke="#595959" stroke-width="3.00"/>`) {
+		t.Fatalf("expected large arrow length to scale with the 3pt stroke: %s", html)
 	}
-	if !strings.Contains(html, `<polygon points="288.0000,108.0000 276.0000,112.0000 276.0000,104.0000" fill="#595959"/>`) {
+	if !strings.Contains(html, `<polygon points="288.0000,108.0000 252.0000,120.0000 252.0000,96.0000" fill="#595959"/>`) {
 		t.Fatalf("expected large arrow width to render wider triangle: %s", html)
 	}
 }
@@ -1650,14 +1755,86 @@ func TestHTMLRendersThreeDShapeEffects(t *testing.T) {
 	if !strings.Contains(html, `--ppt-3d-material:metal`) || !strings.Contains(html, `--ppt-3d-light-rig:threePt`) {
 		t.Fatalf("expected 3D material/light metadata in html: %s", html)
 	}
-	if !strings.Contains(html, `drop-shadow(`) {
-		t.Fatalf("expected 3D drop shadow in html: %s", html)
-	}
 	if !strings.Contains(html, `mix-blend-mode:screen`) || !strings.Contains(html, `mix-blend-mode:multiply`) {
 		t.Fatalf("expected 3D scene-light overlays in html: %s", html)
 	}
 	if !strings.Contains(html, `shape-fill-overlay-0`) || !strings.Contains(html, `shape-fill-overlay-1`) {
 		t.Fatalf("expected SVG defs for 3D light gradients in html: %s", html)
+	}
+}
+
+func TestHTMLRendersThreeDAndAuthoredShadowTogether(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU:  9144000,
+		SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{
+			Index: 0,
+			Shapes: []*resolve.Shape{{
+				Kind:       resolve.ShapeText,
+				Bounds:     resolve.Rect{W: 1828800, H: 914400},
+				Geometry:   "ellipse",
+				FillColor:  "FF7043",
+				Paragraphs: []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: ""}}}},
+				Effects: drawing.EffectList{Effects: []drawing.Effect{
+					drawing.Shadow{Color: "000000", Alpha: 0.35, Blur: 3, Distance: 5, Angle: 45},
+					drawing.ThreeD{
+						CameraPreset: "legacyPerspectiveTopLeft", CameraFOV: 45, CameraZoom: 1.1,
+						LightRig: "threePt", LightDirection: "tl", RotationX: -15, RotationY: -10,
+						ExtrusionDepth: 6, Material: "metal", ExtrusionColor: "595959",
+					},
+				}},
+			}},
+		}},
+	}
+
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if shapeStart := strings.Index(html, `class="shape shape--text" style="`); shapeStart >= 0 {
+		if shapeEnd := strings.Index(html[shapeStart:], `>`); shapeEnd >= 0 && strings.Contains(html[shapeStart:shapeStart+shapeEnd], `box-shadow:`) {
+			t.Fatalf("text shape outer frame must not use rectangular box-shadow: %s", html)
+		}
+	}
+	if !strings.Contains(html, `drop-shadow(`) {
+		t.Fatalf("expected authored shadow to survive physical 3D composition as drop-shadow: %s", html)
+	}
+	if !strings.Contains(html, `perspective(`) || !strings.Contains(html, `shape__3d-extrusion`) {
+		t.Fatalf("expected 3D composition to survive alongside authored shadow: %s", html)
+	}
+}
+
+func TestHTMLPresentationOuterShadowNeverUsesShapeBoxShadow(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU:  9144000,
+		SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{
+			Shapes: []*resolve.Shape{{
+				Kind:      resolve.ShapeText,
+				Bounds:    resolve.Rect{W: 3000000, H: 1500000},
+				Geometry:  "triangle",
+				FillColor: "2DA2BF",
+				Effects: drawing.EffectList{Effects: []drawing.Effect{
+					drawing.Shadow{Color: "000000", Alpha: 1, Blur: 4, Distance: 3, Angle: 270},
+				}},
+			}},
+		}},
+	}
+
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(html, `filter:drop-shadow(`) {
+		t.Fatalf("expected authored outer shadow to follow painted geometry: %s", html)
+	}
+	for _, marker := range []string{`class="shape shape--text" style="`, `class="shape shape--smartart" style="`, `class="shape shape--chart" style="`} {
+		if at := strings.Index(html, marker); at >= 0 {
+			end := strings.Index(html[at:], `">`)
+			if end >= 0 && strings.Contains(html[at:at+end], `box-shadow:`) {
+				t.Fatalf("presentation positioning wrapper must not own box-shadow: %s", html[at:at+end])
+			}
+		}
 	}
 }
 
@@ -1689,14 +1866,15 @@ func TestPptxCorpusRender(t *testing.T) {
 			if pkg.PackageType() != opc.PackageTypePresentation {
 				t.Skipf("fixture package type = %q, want %q", pkg.PackageType(), opc.PackageTypePresentation)
 			}
-			pptPkg, err := parts.LoadPackage(pkg)
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatalf("read: %v", readErr)
+			}
+			edited, err := edit.LoadFromPPTXBytes(data)
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
-			pres, err := resolve.ResolvePackage(pptPkg)
-			if err != nil {
-				t.Fatalf("resolve: %v", err)
-			}
+			pres := edited.IR
 			// Count only warnings and errors; info diagnostics (e.g. no-theme) are expected.
 			for _, d := range pres.Diagnostics {
 				if d.Severity != "info" {
@@ -1958,11 +2136,13 @@ func TestHTMLRendersParagraphRightMargin(t *testing.T) {
 			}},
 		}},
 	}
+
 	html, err := render.HTML(pres)
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, "margin-right:36.00pt") {
+
+	if !strings.Contains(html, "margin-right:36.0000pt") {
 		t.Fatalf("expected margin-right style in html: %s", html)
 	}
 }
@@ -2179,8 +2359,11 @@ func TestHTMLRendersBodyPrAnchorCtr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, "text-align:center") {
-		t.Fatalf("expected text-align:center CSS, got:\n%s", out)
+	if strings.Contains(out, "text-align:center") {
+		t.Fatalf("anchorCtr must not override paragraph alignment, got:\n%s", out)
+	}
+	if !strings.Contains(out, "transform-origin:center center") {
+		t.Fatalf("expected centered text anchor transform origin, got:\n%s", out)
 	}
 }
 
@@ -2265,11 +2448,17 @@ func TestHTMLRendersSmartArtBodyPr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, "justify-content:flex-end") {
-		t.Errorf("expected bottom anchor justify-content, got: %s", out)
+	// Physical text layout owns the bottom-anchor displacement. Once measured,
+	// the renderer must not apply flex-end a second time; the displacement is
+	// serialized on the physical progression edge instead.
+	if !strings.Contains(out, "justify-content:flex-start") {
+		t.Errorf("expected measured placement to neutralize semantic flex anchoring, got: %s", out)
 	}
-	if !strings.Contains(out, "text-align:center") {
-		t.Errorf("expected anchorCtr text-align, got: %s", out)
+	if strings.Contains(out, "text-align:center") {
+		t.Errorf("anchorCtr must not override paragraph alignment, got: %s", out)
+	}
+	if !strings.Contains(out, "transform-origin:center center") {
+		t.Errorf("expected anchorCtr transform origin, got: %s", out)
 	}
 	if !strings.Contains(out, "rotate(15.00deg)") {
 		t.Errorf("expected bodyPr rotation, got: %s", out)
@@ -2280,8 +2469,10 @@ func TestHTMLRendersSmartArtBodyPr(t *testing.T) {
 	if !strings.Contains(out, "writing-mode:vertical-rl") {
 		t.Errorf("expected vertical text, got: %s", out)
 	}
-	if !strings.Contains(out, "padding:7.87pt 31.50pt 15.75pt 23.62pt") {
-		t.Errorf("expected bodyPr insets as padding, got: %s", out)
+	// vertical-rl progresses from the right edge. The authored right inset is
+	// therefore combined with the measured bottom-anchor offset on that edge.
+	if !strings.Contains(out, "padding:7.87pt 106.97pt 15.75pt 23.62pt") {
+		t.Errorf("expected bodyPr insets plus physical progression offset as padding, got: %s", out)
 	}
 }
 
@@ -2310,7 +2501,10 @@ func TestHTMLRendersSmartArtSpAutoFit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `<div class="shape shape--smartart" style="position:absolute;left:10.0000%;top:10.0000%;width:20.0000%;min-height:20.0000%;overflow:visible">`) {
+	if !strings.Contains(out, `class="shape shape--smartart"`) ||
+		!strings.Contains(out, `width:20.0000%`) ||
+		!strings.Contains(out, `min-height:20.0000%`) ||
+		!strings.Contains(out, `overflow:visible`) {
 		t.Fatalf("expected spAutoFit SmartArt outer div to use min-height and visible overflow, got: %s", out)
 	}
 	if !strings.Contains(out, `left:0;top:0;right:0;height:auto;overflow:visible`) {
@@ -2343,10 +2537,12 @@ func TestHTMLRendersSmartArtNoAutofitOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `height:20.0000%;overflow:visible`) {
+	if !strings.Contains(out, `class="shape shape--smartart"`) ||
+		!strings.Contains(out, `height:20.0000%`) ||
+		!strings.Contains(out, `overflow:visible`) {
 		t.Fatalf("expected noAutofit SmartArt outer div to preserve height but allow overflow, got: %s", out)
 	}
-	if !strings.Contains(out, `inset:0;height:auto;overflow:visible`) {
+	if !strings.Contains(out, `inset:0;height:100%;overflow:visible`) {
 		t.Fatalf("expected noAutofit SmartArt text div to allow overflow, got: %s", out)
 	}
 }
@@ -2384,8 +2580,14 @@ func TestHTMLRendersSmartArtNormAutofitScaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `line-height:0.8200`) {
-		t.Fatalf("expected SmartArt normAutofit line reduction, got: %s", out)
+	// SmartArt uses the same physical text composition boundary as ordinary
+	// text. The normAutofit reduction therefore belongs to the measured line
+	// box, not to a paragraph-level browser line-height multiplier.
+	if !strings.Contains(out, `line-height:20.2240pt;min-height:20.2240pt`) {
+		t.Fatalf("expected SmartArt normAutofit reduction in physical line box, got: %s", out)
+	}
+	if !strings.Contains(out, `line-height:0`) {
+		t.Fatalf("expected SmartArt measured paragraph browser strut to be disabled: %s", out)
 	}
 	if !strings.Contains(out, `font-size:22.1pt`) {
 		t.Fatalf("expected SmartArt normAutofit font scaling, got: %s", out)
@@ -2962,7 +3164,7 @@ func TestHTMLRendersExtendedImageTransparencyEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`<feComponentTransfer`, `operator="dilate"`, `mode="difference"`, `flood-color="rgb(0,255,0)"`, `flood-opacity="0.750000"`} {
+	for _, want := range []string{`<feComponentTransfer`, `operator="dilate"`, `mode="difference"`, `flood-color="rgb(0,255,0)"`, `flood-opacity="0.750000"`, `x="-2.7778%"`, `y="-3.7037%"`, `width="105.5556%"`, `height="107.4074%"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %s", want, out)
 		}
@@ -3064,5 +3266,223 @@ func TestHTMLRendersLinkedLegacyVideoMedia(t *testing.T) {
 	}
 	if !strings.Contains(out, `<video`) || !strings.Contains(out, `src="https://example.test/movie.mp4"`) {
 		t.Fatalf("linked video not rendered from URL:\n%s", out)
+	}
+}
+
+func TestHTMLKeepsMeasuredMarkerInsideFirstPhysicalLineBox(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeText, Bounds: resolve.Rect{W: 914400, H: 685800},
+			Paragraphs: []*resolve.Paragraph{{
+				AutoNum: true, AutoNumType: "arabicPeriod", BulletSize: 2400,
+				BulletFontFamily: "Arial", Runs: []*resolve.Run{{Text: "Measured marker", FontSize: 1200}},
+			}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	line := strings.Index(out, `<span class="ppt-physical-line"`)
+	marker := strings.Index(out, `<span class="bullet-marker"`)
+	lineEnd := strings.Index(out[line:], `</span>`)
+	if line < 0 || marker < 0 || marker < line || lineEnd < 0 || marker >= line+lineEnd {
+		t.Fatalf("measured marker must be serialized inside the first physical line box: %s", out)
+	}
+}
+
+func TestHTMLCounterRotatedCroppedPictureUsesPhysicalPictureCenterPivot(t *testing.T) {
+	pres := &resolve.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000, Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+		Kind: resolve.ShapeImage, ID: 141, Name: "Cropped counter rotation", Bounds: resolve.Rect{W: 914400, H: 914400}, RotationDeg: 30,
+		ImageData: []byte{0x89, 0x50, 0x4e, 0x47}, ImageMIME: "image/png",
+		ImageCropLeft: .10, ImageCropTop: .20, ImageCropRight: .25, ImageCropBottom: .05,
+		ImageFillLeft: .05, ImageFillTop: .10, ImageFillRight: .20, ImageFillBottom: .15,
+		ImageRotWithShapeSet: true, ImageRotWithShape: false,
+	}}}}}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "transform:rotate(-30.00deg)") || !strings.Contains(out, "transform-origin:49.0000% 60.0000%") {
+		t.Fatalf("expected physical picture-center counter-rotation pivot: %s", out)
+	}
+}
+
+func TestHTMLPictureEffectsRespectGeometryMaskPaintOrder(t *testing.T) {
+	pres := &resolve.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000, Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+		Kind: resolve.ShapeImage, ID: 991, Bounds: resolve.Rect{W: 914400, H: 685800}, Geometry: "ellipse",
+		ImageData: []byte{0x89, 0x50, 0x4e, 0x47}, ImageMIME: "image/png",
+		Effects: drawing.EffectList{Effects: []drawing.Effect{
+			drawing.Shadow{Color: "112233", Alpha: .5, Blur: 3, Distance: 4},
+			drawing.InnerShadow{Color: "445566", Alpha: .75, Blur: 2, Distance: 1},
+			drawing.Glow{Color: "778899", Alpha: .4, Radius: 5},
+		}},
+	}}}}}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "filter:drop-shadow(") {
+		t.Fatalf("outer picture effect must use alpha-aware drop-shadow: %s", out)
+	}
+	if strings.Contains(out, "box-shadow:2.828") {
+		t.Fatalf("outer picture shadow must not be rectangular box-shadow: %s", out)
+	}
+	if !strings.Contains(out, "shape__image-clip") || !strings.Contains(out, "clip-path:ellipse(") || !strings.Contains(out, "box-shadow:inset ") {
+		t.Fatalf("inner picture effect must be serialized on geometry clip surface: %s", out)
+	}
+}
+
+func TestHTMLKeepsSmartArtTextUprightInsideRotatedNode(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeSmartArt, Bounds: resolve.Rect{X: 914400, Y: 685800, W: 1828800, H: 1371600},
+			RotationDeg: 180,
+			Paragraphs:  []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Upright SmartArt", FontSize: 2400}}}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, "transform:rotate(180.00deg)") {
+		t.Fatalf("expected rotated SmartArt geometry, got: %s", out)
+	}
+	if !strings.Contains(out, "transform:rotate(-180.00deg)") {
+		t.Fatalf("expected nested SmartArt text to counter-rotate, got: %s", out)
+	}
+}
+
+func TestHTMLSmartArtNoAutofitPreservesAuthoredTextFrameHeight(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeSmartArt, Bounds: resolve.Rect{X: 914400, Y: 685800, W: 3657600, H: 914400},
+			RotationDeg:   180,
+			TextBodyProps: drawing.TextBodyProperties{AutofitType: "noAutofit", Anchor: "ctr"},
+			Paragraphs:    []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Text remains centered in the authored SmartArt frame", FontSize: 2400}}}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `class="shape shape--smartart"`) {
+		t.Fatalf("expected SmartArt output: %s", out)
+	}
+	if !strings.Contains(out, "height:100%;overflow:visible") {
+		t.Fatalf("noAutofit must preserve authored SmartArt text height while allowing overflow: %s", out)
+	}
+	if strings.Contains(out, "height:auto;overflow:visible") {
+		t.Fatalf("noAutofit must not convert SmartArt text to auto-height: %s", out)
+	}
+}
+
+func TestHTMLRendersExactBaselineShiftWithoutBrowserSupSizing(t *testing.T) {
+	pres := &resolve.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000, Slides: []*resolve.Slide{{Index: 0, Shapes: []*resolve.Shape{{Kind: resolve.ShapeText, Bounds: resolve.Rect{W: 914400, H: 914400}, Paragraphs: []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "x2", FontSize: 2400, Superscript: true, BaselineShiftPct: 30}}}}}}}}}
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(html, `position:relative;bottom:0.3000em`) {
+		t.Fatalf("expected exact baseline shift: %s", html)
+	}
+	if strings.Contains(html, `<sup>`) {
+		t.Fatalf("exact baseline shift must not invoke browser sup sizing: %s", html)
+	}
+}
+
+func TestHTMLMaterializesHangingMarkerOriginWithoutPhysicalLineTextIndent(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeText, Bounds: resolve.Rect{W: 1828800, H: 685800},
+			Paragraphs: []*resolve.Paragraph{{
+				HasMarginLeft: true, MarginLeftEMU: 457200,
+				HasTextIndent: true, TextIndentEMU: -381000,
+				BulletChar: "•", BulletSize: 1200, BulletFontFamily: "Arial",
+				Runs: []*resolve.Run{{Text: "Hanging item", FontSize: 1200, FontFamily: "Arial"}},
+			}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	markerStart := strings.Index(out, `class="bullet-marker"`)
+	if markerStart < 0 {
+		t.Fatalf("missing physical marker: %s", out)
+	}
+	markerEnd := strings.Index(out[markerStart:], `>`)
+	if markerEnd < 0 {
+		t.Fatalf("malformed physical marker: %s", out)
+	}
+	markerTag := out[markerStart : markerStart+markerEnd]
+	if !strings.Contains(markerTag, `font-size:12.0pt`) || !strings.Contains(markerTag, `font-family:Arial,sans-serif`) || !strings.Contains(markerTag, `margin-left:-30.0000pt`) {
+		t.Fatalf("hanging marker origin was not materialized on marker: %s", markerTag)
+	}
+	line := strings.Index(out, `class="ppt-physical-line"`)
+	if line < 0 {
+		t.Fatalf("missing physical line: %s", out)
+	}
+	end := strings.Index(out[line:], `>`)
+	if end < 0 {
+		t.Fatalf("malformed physical line: %s", out)
+	}
+	lineTag := out[line : line+end]
+	if strings.Contains(lineTag, `text-indent:-30.0000pt`) {
+		t.Fatalf("marker paragraph must not also apply hanging indent to physical line: %s", lineTag)
+	}
+}
+
+func TestHTMLUsesLayoutOwnedMarkerBaselinePlacement(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeText, Bounds: resolve.Rect{W: 3657600, H: 685800},
+			Paragraphs: []*resolve.Paragraph{{
+				BulletChar: "•", BulletSize: 1800, BulletFontFamily: "Times New Roman",
+				Runs: []*resolve.Run{{Text: "Large text", FontSize: 2800, FontFamily: "Arial"}},
+			}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	start := strings.Index(out, `class="bullet-marker"`)
+	if start < 0 {
+		t.Fatalf("missing marker: %s", out)
+	}
+	end := strings.Index(out[start:], `>`)
+	if end < 0 {
+		t.Fatalf("malformed marker: %s", out)
+	}
+	tag := out[start : start+end]
+	if !strings.Contains(tag, `display:inline-block`) || !strings.Contains(tag, `vertical-align:top`) || !strings.Contains(tag, `position:relative`) {
+		t.Fatalf("marker baseline placement is browser-owned: %s", tag)
+	}
+	if strings.Contains(tag, `top:0.0000pt`) {
+		t.Fatalf("smaller marker was not positioned on the taller text baseline: %s", tag)
+	}
+}
+
+
+func TestClass17SlideNumberWrapperDoesNotEscapePhysicalPaintOrder(t *testing.T) {
+	before := &ir.Shape{Kind: ir.ShapeText, Name: "before", Bounds: ir.Rect{W: 914400, H: 914400},
+		Paragraphs: []*ir.Paragraph{{Runs: []*ir.Run{{Text: "BEFORE"}}}}}
+	number := &ir.Shape{Kind: ir.ShapeText, Name: "number", Bounds: ir.Rect{W: 914400, H: 914400},
+		Paragraphs: []*ir.Paragraph{{Runs: []*ir.Run{{Text: "NUMBER"}}}}}
+	pres := &ir.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*ir.Slide{{Index: 1, Shapes: []*ir.Shape{before}, SlideNumber: number}}}
+	got, _, err := render.HTMLWithOptions(pres, render.HTMLOptions{})
+	if err != nil { t.Fatal(err) }
+	beforeAt := strings.Index(got, "BEFORE")
+	wrapperAt := strings.Index(got, `class="slide-number"`)
+	numberAt := strings.Index(got, "NUMBER")
+	if beforeAt < 0 || wrapperAt < 0 || numberAt < 0 || !(beforeAt < wrapperAt && wrapperAt < numberAt) {
+		t.Fatalf("slide-number wrapper escaped physical order: before=%d wrapper=%d number=%d", beforeAt, wrapperAt, numberAt)
 	}
 }

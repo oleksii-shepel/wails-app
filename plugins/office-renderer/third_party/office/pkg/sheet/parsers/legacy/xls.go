@@ -3254,7 +3254,7 @@ func parseLegacyWorkbookDrawingStore(group []byte) map[uint32]*sheetir.DrawingIm
 }
 
 func parseLegacyWorksheetImageDrawings(payload []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row, drawingStore map[uint32]*sheetir.DrawingImage) []*sheetir.Drawing {
-	if len(payload) == 0 || sheet == nil || len(drawingStore) == 0 {
+	if len(payload) == 0 || sheet == nil {
 		return nil
 	}
 	var drawings []*sheetir.Drawing
@@ -3266,12 +3266,18 @@ func parseLegacyWorksheetImageDrawings(payload []byte, sheet *sheetir.Sheet, row
 		if !ok {
 			return
 		}
-		img, ok := drawingStore[shape.blipRef]
-		if !ok || img == nil || len(img.Data) == 0 {
-			return
+		var copyImg sheetir.DrawingImage
+		if img, ok := drawingStore[shape.blipRef]; ok && img != nil {
+			copyImg = *img
+			copyImg.Data = append([]byte(nil), img.Data...)
 		}
-		copyImg := *img
-		copyImg.Data = append([]byte(nil), img.Data...)
+		copyImg.CropLeft = shape.cropLeft
+		copyImg.CropTop = shape.cropTop
+		copyImg.CropRight = shape.cropRight
+		copyImg.CropBottom = shape.cropBottom
+		copyImg.RotationDeg = shape.rotationDeg
+		copyImg.FlipH = shape.flipH
+		copyImg.FlipV = shape.flipV
 		drawings = append(drawings, &sheetir.Drawing{
 			Name:     fmt.Sprintf("%s Image %d", sheet.Name, len(drawings)+1),
 			Type:     sheetir.DrawingTypeImage,
@@ -3302,16 +3308,21 @@ type legacyWorksheetShape struct {
 	drawingType sheetir.DrawingType
 }
 
-func parseLegacyWorksheetNonPictureShapes(payload []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row) []legacyWorksheetShape {
+func parseLegacyWorksheetNonPictureShapes(payload []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row, catalogs ...legacyStyleCatalog) []legacyWorksheetShape {
 	if len(payload) == 0 || sheet == nil {
 		return nil
 	}
 	var shapes []legacyWorksheetShape
+	var catalog legacyStyleCatalog
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	}
+	resolveColor := legacyXLSOfficeArtColorResolver(catalog)
 	walkLegacyOfficeArtRecords(payload, func(recType, _, _ uint16, body []byte) {
 		if recType != legacyOfficeArtSpContainer {
 			return
 		}
-		shape, ok := parseLegacyNonPictureShapeContainer(body, sheet, rows)
+		shape, ok := parseLegacyNonPictureShapeContainer(body, sheet, rows, resolveColor)
 		if !ok {
 			return
 		}
@@ -3330,8 +3341,11 @@ func parseLegacyWorksheetNonPictureAnchors(payload []byte, sheet *sheetir.Sheet,
 }
 
 type legacyPictureShape struct {
-	blipRef  uint32
-	position sheetir.DrawingPosition
+	blipRef                                  uint32
+	position                                 sheetir.DrawingPosition
+	cropLeft, cropTop, cropRight, cropBottom int
+	rotationDeg                              float64
+	flipH, flipV                             bool
 }
 
 func parseLegacyPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row) (legacyPictureShape, bool) {
@@ -3347,10 +3361,21 @@ func parseLegacyPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows ma
 	if !ok {
 		return legacyPictureShape{}, false
 	}
-	return legacyPictureShape{blipRef: blipRef, position: position}, true
+	visual := officeartlegacy.DecodeVisualProperties(node.Properties, nil)
+	return legacyPictureShape{
+		blipRef:     blipRef,
+		position:    position,
+		cropLeft:    int(visual.Crop.Left * 100000),
+		cropTop:     int(visual.Crop.Top * 100000),
+		cropRight:   int(visual.Crop.Right * 100000),
+		cropBottom:  int(visual.Crop.Bottom * 100000),
+		rotationDeg: visual.RotationDeg,
+		flipH:       node.Flags&0x40 != 0,
+		flipV:       node.Flags&0x80 != 0,
+	}, true
 }
 
-func parseLegacyNonPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row) (legacyWorksheetShape, bool) {
+func parseLegacyNonPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row, resolveColor ...officeartlegacy.ColorResolver) (legacyWorksheetShape, bool) {
 	node, err := officeartescher.ParseShapeContainerPayload(data)
 	if err != nil || node == nil || len(node.ClientAnchor) == 0 {
 		return legacyWorksheetShape{}, false
@@ -3368,7 +3393,7 @@ func parseLegacyNonPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows
 	shape.shapeType = node.ShapeType
 	shape.flipH = node.Flags&0x40 != 0
 	shape.flipV = node.Flags&0x80 != 0
-	parseLegacyWorksheetShapePropertiesParsed(node.Properties, &shape)
+	parseLegacyWorksheetShapePropertiesParsed(node.Properties, &shape, resolveColor...)
 	if shape.isPicture {
 		return legacyWorksheetShape{}, false
 	}
@@ -3395,7 +3420,7 @@ func parseLegacyWorksheetShapeProperties(body []byte, propCount int, shape *lega
 	parseLegacyWorksheetShapePropertiesParsed(props, shape)
 }
 
-func parseLegacyWorksheetShapePropertiesParsed(props []officeartescher.Property, shape *legacyWorksheetShape) {
+func parseLegacyWorksheetShapePropertiesParsed(props []officeartescher.Property, shape *legacyWorksheetShape, resolveColor ...officeartlegacy.ColorResolver) {
 	if shape == nil {
 		return
 	}
@@ -3403,7 +3428,11 @@ func parseLegacyWorksheetShapePropertiesParsed(props []officeartescher.Property,
 		shape.isPicture = true
 	}
 
-	visual := officeartlegacy.DecodeVisualProperties(props, nil)
+	var resolve officeartlegacy.ColorResolver
+	if len(resolveColor) > 0 {
+		resolve = resolveColor[0]
+	}
+	visual := officeartlegacy.DecodeVisualProperties(props, resolve)
 	if visual.HasRotation {
 		shape.rotationDeg = visual.RotationDeg
 	}
@@ -3662,6 +3691,33 @@ func legacyOfficeArtApplyArrowSize(arrow *drawing.Arrowhead, raw uint32, length 
 
 func legacyOfficeArtColorRefToHex(raw uint32) string {
 	return officeartlegacy.ColorRefToHex(raw)
+}
+
+func legacyXLSOfficeArtColorResolver(catalogs ...legacyStyleCatalog) officeartlegacy.ColorResolver {
+	palette := defaultBIFFPalette
+	if len(catalogs) > 0 {
+		if p := catalogs[0].Palette; p != ([56]string{}) {
+			palette = p
+		}
+	}
+	return func(raw uint32) string {
+		flags := raw & 0xFF000000
+		switch flags {
+		case 0x01000000:
+			idx := int(raw & 0xFF)
+			if idx >= 0x08 && idx <= 0x3F {
+				return palette[idx-0x08]
+			}
+			return ""
+		case 0x02000000:
+			r := byte(raw)
+			g := byte(raw >> 8)
+			b := byte(raw >> 16)
+			return fmt.Sprintf("%02X%02X%02X", r, g, b)
+		default:
+			return officeartlegacy.ColorRefToHex(raw)
+		}
+	}
 }
 
 func parseLegacyPictureBlipRef(body []byte, propCount int) (uint32, bool) {
@@ -4676,6 +4732,7 @@ type legacyWorksheetParseState struct {
 	pivotViews                   []*legacyPivotView
 	currentPivotView             *legacyPivotView
 	tableFeaturesByID            map[uint32]*legacyTableFeature
+	styleCatalog                 legacyStyleCatalog
 }
 
 func newLegacyWorksheetParseState() *legacyWorksheetParseState {
@@ -4959,6 +5016,7 @@ func (state *legacyWorksheetParseState) consumeCellRecord(
 				if ok {
 					state.pendingFormula.Kind = sheetir.CellString
 					state.pendingFormula.StrValue = text
+					state.pendingFormula.HasCachedValue = true
 					addSheetCell(rows, state.pendingFormula)
 				}
 			} else {
@@ -4967,6 +5025,7 @@ func (state *legacyWorksheetParseState) consumeCellRecord(
 				if ok {
 					state.pendingFormula.Kind = sheetir.CellString
 					state.pendingFormula.StrValue = strings.TrimSpace(text)
+					state.pendingFormula.HasCachedValue = true
 					addSheetCell(rows, state.pendingFormula)
 				}
 				state.pendingFormula = nil
@@ -5425,7 +5484,7 @@ func (state *legacyWorksheetParseState) finalizeWorksheet(
 		sheet.Drawings = append(sheet.Drawings, parseLegacyWorksheetImageDrawings(state.officeArtPayload, sheet, rows, drawingStore)...)
 	}
 	if len(state.officeArtPayload) > 0 {
-		nonPictureShapes := parseLegacyWorksheetNonPictureShapes(state.officeArtPayload, sheet, rows)
+		nonPictureShapes := parseLegacyWorksheetNonPictureShapes(state.officeArtPayload, sheet, rows, state.styleCatalog)
 		shapeIndex := 0
 		shapeCount := 0
 		appendLegacyShape := func(shape legacyWorksheetShape, objID int) {
@@ -5584,6 +5643,9 @@ func parseBIFFWorksheet(data []byte, meta boundSheet, sst []legacySharedString, 
 		CollapsedCols: map[int]bool{},
 	}
 	state := newLegacyWorksheetParseState()
+	if len(textCtx) > 0 {
+		state.styleCatalog = textCtx[0]
+	}
 
 	for pos+4 <= len(data) {
 		id, payload, nextPos, ok := readBiffRecord(data, pos)
@@ -6578,6 +6640,7 @@ func applyBIFFFormulaCachedValue(cell *sheetir.Cell, result []byte, date1904 boo
 	if !allowSpecial || binary.LittleEndian.Uint16(result[6:8]) != 0xFFFF {
 		cell.Kind = sheetir.CellNumber
 		cell.NumValue = math.Float64frombits(binary.LittleEndian.Uint64(result))
+		cell.HasCachedValue = true
 		canonicalizeBIFFNumericCell(cell, date1904)
 		return
 	}
@@ -6589,14 +6652,22 @@ func applyBIFFFormulaCachedValue(cell *sheetir.Cell, result []byte, date1904 boo
 	case 0x01:
 		cell.Kind = sheetir.CellBool
 		cell.NumValue = float64(result[2])
+		cell.HasCachedValue = true
 	case 0x02:
 		cell.Kind = sheetir.CellError
 		cell.NumValue = 0
 		cell.StrValue = biffErrorString(result[2])
-	default: // 0x00 string, 0x03 empty, and unknown special values
+		cell.HasCachedValue = true
+	case 0x00: // string result is completed by the following STRING record
 		cell.Kind = sheetir.CellEmpty
 		cell.NumValue = 0
 		cell.StrValue = ""
+		cell.HasCachedValue = true
+	default: // 0x03 empty/uncalculated and unknown special values have no usable cache
+		cell.Kind = sheetir.CellEmpty
+		cell.NumValue = 0
+		cell.StrValue = ""
+		cell.HasCachedValue = false
 	}
 }
 

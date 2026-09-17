@@ -999,6 +999,8 @@ func (c *converter) ensureDefaultMasters(pres *presentationir.Presentation) {
 
 // convertSlideMasters turns IR slide masters and layouts into parts entries.
 func (c *converter) convertSlideMasters(masters []*presentationir.SlideMaster) {
+	c.masterParts = make(map[*presentationir.SlideMaster]*presparts.SlideMasterEntry)
+	c.layoutParts = make(map[*presentationir.SlideLayout]*presparts.SlideLayout)
 	for mi, master := range masters {
 		if master == nil {
 			continue
@@ -1009,6 +1011,7 @@ func (c *converter) convertSlideMasters(masters []*presentationir.SlideMaster) {
 			Master:     &presparts.SlideMaster{},
 			MediaParts: make(map[string]media.Part),
 		}
+		c.masterParts[master] = entry
 		if master.Name != "" {
 			entry.Master.CSld.Name = master.Name
 		}
@@ -1031,6 +1034,7 @@ func (c *converter) convertSlideMasters(masters []*presentationir.SlideMaster) {
 			for _, shape := range layout.Shapes {
 				c.addShapeToTree(&partsLayout.CSld.SpTree, shape)
 			}
+			c.layoutParts[layout] = partsLayout
 			entry.Layouts = append(entry.Layouts, partsLayout)
 		}
 
@@ -1038,36 +1042,40 @@ func (c *converter) convertSlideMasters(masters []*presentationir.SlideMaster) {
 	}
 }
 
-// layoutForSlide returns the parts layout that should be used for a slide.
-// It prefers the slide's explicit Layout, then a layout whose Type matches
-// LayoutType, and finally the first layout of the first master.
+// layoutForSlide returns the parts layout structurally owned by a slide.
+// Pointer identity is authoritative for converted IR.  Type matching is only
+// allowed inside the slide's explicitly assigned master; package order is never
+// used to invent a layout/master association.
 func (c *converter) layoutForSlide(slide *presentationir.Slide) *presparts.SlideLayout {
-	if slide == nil || len(c.pkg.SlideMasters) == 0 {
+	if slide == nil {
 		return nil
 	}
 	if slide.Layout != nil {
-		for _, entry := range c.pkg.SlideMasters {
-			for _, layout := range entry.Layouts {
-				if layout != nil && layout.Type == slide.Layout.Type {
-					return layout
-				}
-			}
+		if layout := c.layoutParts[slide.Layout]; layout != nil {
+			return layout
 		}
 	}
+
+	master := slide.Master
+	if master == nil && slide.Layout != nil {
+		master = slide.Layout.Master
+	}
+	entry := c.masterParts[master]
+	if entry == nil {
+		return nil
+	}
+
 	wantType := strings.ToLower(strings.TrimSpace(slide.LayoutType))
+	if wantType == "" && slide.Layout != nil {
+		wantType = strings.ToLower(strings.TrimSpace(slide.Layout.Type))
+	}
 	if wantType == "" {
-		wantType = "blank"
+		return nil
 	}
-	for _, entry := range c.pkg.SlideMasters {
-		for _, layout := range entry.Layouts {
-			if layout != nil && strings.ToLower(strings.TrimSpace(layout.Type)) == wantType {
-				return layout
-			}
+	for _, layout := range entry.Layouts {
+		if layout != nil && strings.ToLower(strings.TrimSpace(layout.Type)) == wantType {
+			return layout
 		}
-	}
-	// Final fallback: first layout of first master.
-	if len(c.pkg.SlideMasters[0].Layouts) > 0 {
-		return c.pkg.SlideMasters[0].Layouts[0]
 	}
 	return nil
 }

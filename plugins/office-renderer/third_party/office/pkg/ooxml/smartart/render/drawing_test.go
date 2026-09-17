@@ -80,6 +80,17 @@ func TestProcessDiagramWithDrawingPositions(t *testing.T) {
 	if child.Type != "rect" {
 		t.Errorf("child geometry = %q, want rect", child.Type)
 	}
+	// Pre-rendered drawing coordinates are EMU, but SmartArtShape coordinates
+	// are points. This exact assertion prevents a regression where the EMU
+	// drawing envelope was divided into a point frame without unit conversion,
+	// collapsing nodes to ~1/12700 of their authored size.
+	if math.Abs(root.X-180) > 0.01 || math.Abs(root.Y-144) > 0.01 ||
+		math.Abs(root.Width-72) > 0.01 || math.Abs(root.Height-72) > 0.01 {
+		t.Fatalf("root fitted geometry = (%.3f, %.3f, %.3f, %.3f), want (180, 144, 72, 72)", root.X, root.Y, root.Width, root.Height)
+	}
+	if math.Abs(child.X-324) > 0.01 || math.Abs(child.Y-360) > 0.01 {
+		t.Fatalf("child fitted origin = (%.3f, %.3f), want (324, 360)", child.X, child.Y)
+	}
 }
 
 func TestProcessDiagramWithDrawingNoFrame(t *testing.T) {

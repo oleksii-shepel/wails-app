@@ -10,41 +10,41 @@ import (
 // stream adapter can map them into the semantic Word IR without coupling SAX
 // to pkg/word/ir.
 type ParagraphProperties struct {
-	StyleID         string
-	Alignment       string
-	IndentLeft      *int
-	IndentRight     *int
-	IndentFirstLine *int
-	IndentHanging   *int
-	SpacingBefore   *int
-	SpacingAfter    *int
-	LineSpacing     *int
-	LineRule        string
-	KeepNext        bool
-	KeepLines       bool
-	PageBreakBefore bool
-	WidowControl    *bool
-	SnapToGrid      *bool
+	StyleID           string
+	Alignment         string
+	IndentLeft        *int
+	IndentRight       *int
+	IndentFirstLine   *int
+	IndentHanging     *int
+	SpacingBefore     *int
+	SpacingAfter      *int
+	LineSpacing       *int
+	LineRule          string
+	KeepNext          bool
+	KeepLines         bool
+	PageBreakBefore   bool
+	WidowControl      *bool
+	SnapToGrid        *bool
 	ContextualSpacing bool
-	NumberingID     *int
-	NumberingLevel  *int
+	NumberingID       *int
+	NumberingLevel    *int
 }
 
 // RunProperties is the layout-critical subset of w:rPr promoted by the SAX
 // stream. FontSizeHalfPoints is w:sz/@w:val and therefore uses half-points.
 type RunProperties struct {
-	StyleID            string
-	Bold               *bool
-	Italic             *bool
-	Strike             *bool
-	Underline          string
-	Color              string
-	FontFamily         string
-	FontSizeHalfPoints *int
+	StyleID              string
+	Bold                 *bool
+	Italic               *bool
+	Strike               *bool
+	Underline            string
+	Color                string
+	FontFamily           string
+	FontSizeHalfPoints   *int
 	FontSizeCSHalfPoints *int
-	BoldCS             *bool
-	CharacterSpacing   *int
-	KerningHalfPoints  *int
+	BoldCS               *bool
+	CharacterSpacing     *int
+	KerningHalfPoints    *int
 }
 
 // HeaderFooterReference is a format-neutral section story reference. ID is the
@@ -58,20 +58,23 @@ type HeaderFooterReference struct {
 // pagination. All dimensions remain in twips. Header/footer references stay as
 // relationship IDs until the DOCX stream adapter resolves their package parts.
 type SectionProperties struct {
-	Type         string
-	PageWidth    *int
-	PageHeight   *int
-	MarginTop    *int
-	MarginRight  *int
-	MarginBottom *int
-	MarginLeft   *int
-	MarginHeader *int
-	MarginFooter *int
-	Columns      *int
-	ColumnSpace  *int
-	TitlePage    bool
-	Headers      []HeaderFooterReference
-	Footers      []HeaderFooterReference
+	Type             string
+	PageWidth        *int
+	PageHeight       *int
+	MarginTop        *int
+	MarginRight      *int
+	MarginBottom     *int
+	MarginLeft       *int
+	MarginHeader     *int
+	MarginFooter     *int
+	Columns          *int
+	ColumnSpace      *int
+	TitlePage        bool
+	DocGridType      string
+	DocGridLinePitch *int
+	DocGridCharSpace *int
+	Headers          []HeaderFooterReference
+	Footers          []HeaderFooterReference
 }
 
 func parseParagraphPropertiesRich(dec *xml.Decoder, start xml.StartElement) (ParagraphProperties, error) {
@@ -136,7 +139,6 @@ func parseParagraphPropertiesRich(dec *xml.Decoder, start xml.StartElement) (Par
 		}
 	}
 }
-
 
 func parseParagraphNumberingProperties(dec *xml.Decoder, start xml.StartElement) (*int, *int, error) {
 	var id, level *int
@@ -257,6 +259,10 @@ func parseSectionProperties(dec *xml.Decoder, start xml.StartElement, onHeader f
 			case "cols":
 				out.Columns = intAttr(t, "num")
 				out.ColumnSpace = intAttr(t, "space")
+			case "docGrid":
+				out.DocGridType = attrValue(t, "type")
+				out.DocGridLinePitch = intAttr(t, "linePitch")
+				out.DocGridCharSpace = intAttr(t, "charSpace")
 			case "titlePg":
 				out.TitlePage = onOffElement(t, true)
 			}

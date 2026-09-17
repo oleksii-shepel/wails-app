@@ -119,6 +119,29 @@ func TestSlideTransitionPlaybackBootstrap(t *testing.T) {
 	}
 }
 
+func TestHTMLDoesNotEnterPlaybackModeImplicitly(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{
+			{Index: 0, Transition: &resolve.SlideTransition{Type: "fade", AdvClick: true}},
+			{Index: 1},
+		},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `data-transition="fade"`) {
+		t.Fatal("static HTML must preserve transition metadata")
+	}
+	if strings.Contains(out, `body.ppt-player-ready`) || strings.Contains(out, `document.body.classList.add("ppt-player-ready")`) {
+		t.Fatal("static HTML must not install slideshow playback implicitly")
+	}
+	if strings.Count(out, `<div class="slide"`) != 2 {
+		t.Fatalf("static HTML must render both slides, got %d", strings.Count(out, `<div class="slide"`))
+	}
+}
+
 func TestSlideNoTransitionEmitsNoDataAttrs(t *testing.T) {
 	pres := &resolve.Presentation{
 		SlideWidthEMU:  9144000,

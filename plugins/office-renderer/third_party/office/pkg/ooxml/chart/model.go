@@ -12,6 +12,9 @@ type Chart struct {
 	// Title is the chart title, if any.
 	Title string
 
+	// TitleStyle preserves authored chart-title text formatting.
+	TitleStyle *TextProperties
+
 	// ChartType identifies the kind of chart (bar, column, line, pie, etc.).
 	ChartType ChartType
 
@@ -258,6 +261,10 @@ type Axis struct {
 	// Title is the axis title.
 	Title string
 
+	// TitleStyle and LabelStyle preserve authored chart text formatting.
+	TitleStyle *TextProperties
+	LabelStyle *TextProperties
+
 	// Min and Max define the axis range (0 means auto).
 	Min float64
 	Max float64
@@ -309,6 +316,9 @@ type Axis struct {
 
 // Legend represents chart legend configuration.
 type Legend struct {
+	// TextStyle preserves authored legend text formatting.
+	TextStyle *TextProperties
+
 	// Position: "bottom", "top", "left", "right", "none".
 	Position string
 
@@ -449,6 +459,7 @@ type TextElement struct {
 	NestedStrRef *StrRefData    `xml:"tx>strRef"`
 	V            string         `xml:"v"`
 	Layout       *LayoutElement `xml:"layout"`
+	TxPr         *TxPrElement   `xml:"txPr"`
 }
 
 // PlainText returns rich-text content when present.
@@ -782,6 +793,7 @@ type LegendElement struct {
 	LegendPos     *LegendPos           `xml:"legendPos"`
 	Layout        *LayoutElement       `xml:"layout"`
 	LegendEntries []LegendEntryElement `xml:"legendEntry"`
+	TxPr          *TxPrElement         `xml:"txPr"`
 }
 
 // LegendEntryElement represents c:legendEntry in chart XML.
@@ -860,6 +872,7 @@ type AxisElement struct {
 	MajorUnit      *NumericValue   `xml:"majorUnit"`
 	MinorUnit      *NumericValue   `xml:"minorUnit"`
 	NumFmt         *NumFmtElement  `xml:"numFmt"`
+	TxPr           *TxPrElement    `xml:"txPr"`
 }
 
 // MajorGridlines holds gridline formatting.

@@ -16,6 +16,8 @@ package legacy
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
+	"unicode"
 
 	presentationir "office/pkg/presentation/ir"
 )
@@ -24,16 +26,20 @@ import (
 // formatting.  All pointer fields are nil when the corresponding property is
 // absent (inherited from a default/master style).
 type stpaCFRun struct {
-	CharCount   int
-	Bold        *bool
-	Italic      *bool
-	Underline   *bool
-	Strike      *bool
-	FontSize    int    // hundredths of a point; 0 = inherited
-	FontFamily  string // resolved font family; "" = inherited / unknown
-	Color       string // sRGB hex (e.g. "FF0000"); "" = inherited
-	Superscript bool   // baseline offset > 0 in TextCFException
-	Subscript   bool   // baseline offset < 0
+	CharCount        int
+	Bold             *bool
+	Italic           *bool
+	Underline        *bool
+	Strike           *bool
+	FontSize         int     // hundredths of a point; 0 = inherited
+	FontFamily       string  // generic/typeface font family; "" = inherited / unknown
+	AnsiFontFamily   string  // ANSI/Latin-specific font family when authored
+	EAFontFamily     string  // East-Asian-specific font family when authored
+	SymbolFontFamily string  // symbol-specific font family when authored
+	Color            string  // sRGB hex (e.g. "FF0000"); "" = inherited
+	Superscript      bool    // baseline offset > 0 in TextCFException
+	Subscript        bool    // baseline offset < 0
+	BaselineShiftPct float64 // authored TextCFException baseline displacement
 }
 
 // stpaPFEntry holds the resolved paragraph formatting extracted from one
@@ -42,14 +48,15 @@ type stpaPFEntry struct {
 	CharCount     int
 	Align         string // "l", "ctr", "r", "just", or "" (inherited)
 	TextDirection string // "ltr", "rtl", or "" (inherited)
-	HasBullet     bool
-	BulletChar    rune // explicit bullet character; 0 = none / not set
+	HasBullet          bool
+	HasBulletSpecified bool // PFMasks.hasBullet: fHasBullet is authoritative, including explicit false
+	BulletChar         rune // explicit bullet character; 0 = none / not set
 	AutoNum       bool
 	AutoNumType   string
 	AutoNumStart  int
 	BulletColor   string // explicit bullet color as hex RGB (e.g. "FF0000"); "" = inherited
 	BulletSize    int    // bullet font size in hundredths of a point (positive); 0 = not set
-	BulletSizePct int    // bullet size as % of run when negative bullet-size sentinel was set
+	BulletSizePct int    // canonical percentage units: 100000 = 100% of first run font size
 	BulletFont    string // resolved bullet font family from fontTable; "" = inherited
 	// Right margin and default tab size are STPA paragraph properties at TextPFException
 	// mask bits 9 / 15 (MS-PPT §2.9.20). Master units → EMU = value * 127.
@@ -64,16 +71,17 @@ type stpaPFEntry struct {
 	// 4 bytes: position (int16, master units) + type (uint16) where type maps to
 	// the OOXML alignment vocabulary.
 	TabStops []presentationir.TabStop
-	// Paragraph spacing.  Positive values are in master units (1 master unit = 0.01 pt,
-	// i.e. 1 hundredth of a point).  Negative values are percentages converted below.
+	// Paragraph spacing follows MS-PPT ParaSpacing: non-negative values are percentages
+	// of text line height; negative values are absolute master units (1 master unit = 0.01 pt).
 	SpaceBefore    int // hundredths of a point; valid when HasSpaceBefore
 	HasSpaceBefore bool
-	SpaceBeforePct int // thousandths of percent; non-zero when spBefore was negative
+	SpaceBeforePct int // thousandths of percent; non-zero when spBefore was positive
 	SpaceAfter     int // hundredths of a point; valid when HasSpaceAfter
 	HasSpaceAfter  bool
-	SpaceAfterPct  int // thousandths of percent; non-zero when spAfter was negative
-	// Line spacing.  Only the percentage case (negative lnSpc) is mapped to the IR.
-	LineSpacingPct int // thousandths of percent; valid when HasLineSpacing
+	SpaceAfterPct  int // thousandths of percent; non-zero when spAfter was positive
+	// Line spacing follows the same ParaSpacing encoding.
+	LineSpacingPct int // thousandths of percent when percentage-based
+	LineSpacingPt  int // hundredths of a point when absolute
 	HasLineSpacing bool
 	// Paragraph indent / margin in EMU.  1 master unit = 127 EMU.
 	MarginLeftEMU int // valid when HasMarginLeft
@@ -97,10 +105,94 @@ func parseStyleTextPropAtomWithFonts(rawText string, stpa []byte, fontTable map[
 }
 
 func parseStyleTextPropAtomWithTheme(rawText string, stpa []byte, fontTable map[uint16]string, colorScheme map[uint8]string) []*presentationir.Paragraph {
-	if paragraphs := parseStyleTextPropAtomSpecWithTheme(rawText, stpa, fontTable, colorScheme); paragraphs != nil {
-		return paragraphs
+	// A StyleTextPropAtom has existed in more than one on-disk representation.
+	// Some compatibility payloads are byte-compatible enough with the newer
+	// grammar that a bounds-only parse succeeds while reading CF/PF words at the
+	// wrong offsets.  Do not let parser order decide the format: decode both
+	// candidates and choose the one whose resulting text semantics are valid.
+	spec := parseStyleTextPropAtomSpecWithTheme(rawText, stpa, fontTable, colorScheme)
+	legacy := parseStyleTextPropAtomLegacyWithTheme(rawText, stpa, fontTable, colorScheme)
+	return chooseStyleTextPropCandidateForText(rawText, spec, legacy)
+}
+
+// chooseStyleTextPropCandidate resolves the only intentionally ambiguous part
+// of STPA parsing.  It does not sanitize or clamp output.  A candidate that
+// decodes values outside the representable PowerPoint text domain is evidence
+// that the payload was interpreted with the wrong record grammar, so the other
+// complete candidate wins.
+func chooseStyleTextPropCandidate(spec, legacy []*presentationir.Paragraph) []*presentationir.Paragraph {
+	return chooseStyleTextPropCandidateForText("", spec, legacy)
+}
+
+// chooseStyleTextPropCandidateForText selects between the two historical STPA
+// encodings using semantic invariants that are independent of a particular
+// presentation. A bounds-valid decode is not sufficient: interpreting mask
+// words as values can yield technically parseable but impossible text state.
+func chooseStyleTextPropCandidateForText(rawText string, spec, legacy []*presentationir.Paragraph) []*presentationir.Paragraph {
+	if spec == nil {
+		return legacy
 	}
-	return parseStyleTextPropAtomLegacyWithTheme(rawText, stpa, fontTable, colorScheme)
+	if legacy == nil {
+		return spec
+	}
+	specPenalty := styleTextPropCandidatePenaltyForText(rawText, spec)
+	legacyPenalty := styleTextPropCandidatePenaltyForText(rawText, legacy)
+	if legacyPenalty < specPenalty {
+		return legacy
+	}
+	return spec
+}
+
+func styleTextPropCandidatePenalty(paragraphs []*presentationir.Paragraph) int {
+	return styleTextPropCandidatePenaltyForText("", paragraphs)
+}
+
+func styleTextPropCandidatePenaltyForText(rawText string, paragraphs []*presentationir.Paragraph) int {
+	penalty := 0
+	hasLatinText := false
+	for _, r := range rawText {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			hasLatinText = true
+			break
+		}
+	}
+	for _, para := range paragraphs {
+		if para == nil {
+			continue
+		}
+		if para.BulletChar != "" {
+			r := []rune(para.BulletChar)
+			if len(r) == 1 && ((r[0] < 0x20 && r[0] != '\t') || r[0] == 0xFEFF || r[0] == 0xFFFE) {
+				// BOM/non-character values are text-stream artefacts, never authored bullet glyphs.
+				penalty += 64
+			}
+		}
+		for _, run := range para.Runs {
+			if run == nil {
+				continue
+			}
+			// PowerPoint's authored font-size domain tops out at 400 pt. Values
+			// above that are not "large text" here: they are a signature of a
+			// CF mask/value word being consumed by the wrong STPA grammar.
+			if run.FontSize > 40000 {
+				penalty += 32
+			}
+			// A compatibility misread commonly turns the same grpf word into all
+			// four decorations. Penalize the combination, not any individual
+			// authored property.
+			if run.BoldSet && run.Bold && run.ItalicSet && run.Italic &&
+				run.UnderlineSet && run.Underline && run.StrikeSet && run.Strike {
+				penalty += 32
+			}
+			if hasLatinText && (run.FontFamily == "Symbol" || run.FontFamily == "Wingdings") {
+				// Symbol fonts are valid for glyph runs, but applying one to an entire ordinary
+				// Latin text body is a strong signature that a font-ref word was read at the
+				// wrong compatibility offset. Keep this weaker than structural invalidity.
+				penalty += 8
+			}
+		}
+	}
+	return penalty
 }
 
 func parseStyleTextPropAtomSpecWithTheme(rawText string, stpa []byte, fontTable map[uint16]string, colorScheme map[uint8]string) []*presentationir.Paragraph {
@@ -190,7 +282,7 @@ func parseStyleTextPropAtomSpecWithTheme(rawText string, stpa []byte, fontTable 
 			displayRunes = displayRunes[:len(displayRunes)-1]
 		}
 
-		paraText := string(displayRunes)
+		paraText := normalizePptSoftLineBreaks(string(displayRunes))
 		paraLen := len(pr) // includes the trailing CR for char-position accounting
 
 		runs := buildRunsFromCF(paraText, cfRuns, globalPos, globalPos+paraLen)
@@ -202,6 +294,10 @@ func parseStyleTextPropAtomSpecWithTheme(rawText string, stpa []byte, fontTable 
 			TextDirection: pf.TextDirection,
 			BulletChar:    bulletCharString(pf.BulletChar),
 			Runs:          runs,
+		}
+		if pf.HasBulletSpecified && !pf.HasBullet {
+			para.BulletNone = true
+			para.BulletChar = ""
 		}
 		if pf.AutoNum {
 			para.AutoNum = true
@@ -230,6 +326,7 @@ func parseStyleTextPropAtomSpecWithTheme(rawText string, stpa []byte, fontTable 
 		}
 		if pf.HasLineSpacing {
 			para.LineSpacingPct = pf.LineSpacingPct
+			para.LineSpacingPt = pf.LineSpacingPt
 			para.HasLineSpacing = true
 		}
 		if pf.HasMarginLeft {
@@ -336,11 +433,15 @@ func parseStyleTextPropAtomLegacyWithTheme(rawText string, stpa []byte, fontTabl
 		if len(displayRunes) > 0 && displayRunes[len(displayRunes)-1] == '\r' {
 			displayRunes = displayRunes[:len(displayRunes)-1]
 		}
-		paraText := string(displayRunes)
+		paraText := normalizePptSoftLineBreaks(string(displayRunes))
 		paraLen := len(pr)
 		runs := buildRunsFromCF(paraText, cfRuns, globalPos, globalPos+paraLen)
 		globalPos += paraLen
 		para := &presentationir.Paragraph{Align: pf.Align, TextDirection: pf.TextDirection, BulletChar: bulletCharString(pf.BulletChar), Runs: runs}
+		if pf.HasBulletSpecified && !pf.HasBullet {
+			para.BulletNone = true
+			para.BulletChar = ""
+		}
 		if pf.BulletColor != "" {
 			para.BulletColor = pf.BulletColor
 		}
@@ -363,6 +464,7 @@ func parseStyleTextPropAtomLegacyWithTheme(rawText string, stpa []byte, fontTabl
 		}
 		if pf.HasLineSpacing {
 			para.LineSpacingPct = pf.LineSpacingPct
+			para.LineSpacingPt = pf.LineSpacingPt
 			para.HasLineSpacing = true
 		}
 		if pf.HasMarginLeft {
@@ -410,6 +512,15 @@ type textPFRun struct {
 	count int
 	level int
 	entry stpaPFEntry
+}
+
+// normalizePptSoftLineBreaks preserves PowerPoint soft line breaks inside a
+// paragraph. VT/FF are line breaks, not paragraph marks; canonical layout uses
+// \n inside an IR run to distinguish them from physical wrapping.
+func normalizePptSoftLineBreaks(text string) string {
+	text = strings.ReplaceAll(text, "\u000B", "\n")
+	text = strings.ReplaceAll(text, "\u000C", "\n")
+	return text
 }
 
 func splitPptStyleParagraphRunes(rawText string) [][]rune {
@@ -490,42 +601,53 @@ func buildRunsFromCF(paraText string, cfRuns []stpaCFRun, start, end int) []*pre
 
 	runs := make([]*presentationir.Run, 0, len(parts))
 	for _, p := range parts {
-		irRun := &presentationir.Run{Text: p.text}
+		segments := []legacyPptCFFontSegment{{Text: p.text}}
 		if p.cfIdx >= 0 && p.cfIdx < len(cfRuns) {
-			cf := cfRuns[p.cfIdx]
-			if cf.Bold != nil {
-				irRun.Bold = *cf.Bold
-				irRun.BoldSet = true
-			}
-			if cf.Italic != nil {
-				irRun.Italic = *cf.Italic
-				irRun.ItalicSet = true
-			}
-			if cf.Underline != nil {
-				irRun.Underline = *cf.Underline
-				irRun.UnderlineSet = true
-			}
-			if cf.Strike != nil {
-				irRun.Strike = *cf.Strike
-				irRun.StrikeSet = true
-			}
-			if cf.FontSize > 0 {
-				irRun.FontSize = cf.FontSize
-			}
-			if cf.FontFamily != "" {
-				irRun.FontFamily = cf.FontFamily
-			}
-			if cf.Color != "" {
-				irRun.Color = cf.Color
-			}
-			if cf.Superscript {
-				irRun.Superscript = true
-			}
-			if cf.Subscript {
-				irRun.Subscript = true
-			}
+			segments = legacyPptSplitCFRunByTypeface(cfRuns[p.cfIdx], p.text)
 		}
-		runs = append(runs, irRun)
+		for _, segment := range segments {
+			irRun := &presentationir.Run{Text: segment.Text}
+			if p.cfIdx >= 0 && p.cfIdx < len(cfRuns) {
+				cf := cfRuns[p.cfIdx]
+				if cf.Bold != nil {
+					irRun.Bold = *cf.Bold
+					irRun.BoldSet = true
+				}
+				if cf.Italic != nil {
+					irRun.Italic = *cf.Italic
+					irRun.ItalicSet = true
+				}
+				if cf.Underline != nil {
+					irRun.Underline = *cf.Underline
+					irRun.UnderlineSet = true
+				}
+				if cf.Strike != nil {
+					irRun.Strike = *cf.Strike
+					irRun.StrikeSet = true
+				}
+				if cf.FontSize > 0 {
+					irRun.FontSize = cf.FontSize
+				}
+				if segment.FontFamily != "" {
+					irRun.FontFamily = segment.FontFamily
+				} else if family := legacyPptCFRunFontFamily(cf, segment.Text); family != "" {
+					irRun.FontFamily = family
+				}
+				if cf.Color != "" {
+					irRun.Color = cf.Color
+				}
+				if cf.Superscript {
+					irRun.Superscript = true
+				}
+				if cf.Subscript {
+					irRun.Subscript = true
+				}
+				if cf.BaselineShiftPct != 0 {
+					irRun.BaselineShiftPct = cf.BaselineShiftPct
+				}
+			}
+			runs = append(runs, irRun)
+		}
 	}
 	return runs
 }
@@ -574,60 +696,30 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 
 	var entry stpaPFEntry
 
-	// pf1 bits 0-3: bullet-related boolean flags → 2-byte bulletFlags word.
+	// PFMasks bits 0-3 determine which BulletFlags bits are valid.  The
+	// BulletFlags word can therefore exist without fHasBullet itself being
+	// authoritative (for example, when only bulletHasFont is present).
+	var bulletFlags uint16
 	if masks&0x0F != 0 {
 		if pos+2 > len(stpa) {
 			return entry, pos, false
 		}
-		bulletFlags := binary.LittleEndian.Uint16(stpa[pos : pos+2])
+		bulletFlags = binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
-		entry.HasBullet = (bulletFlags & 0x01) != 0
-	}
-
-	// bit 4: bulletFontRef -> uint16 font index into the document FontCollection.
-	if masks&(1<<4) != 0 {
-		if pos+2 > len(stpa) {
-			return entry, pos, false
-		}
-		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
-		pos += 2
-		if fontTable != nil {
-			if name, ok := fontTable[fontRef]; ok {
-				entry.BulletFont = name
-			}
+		if masks&(1<<0) != 0 {
+			entry.HasBulletSpecified = true
+			entry.HasBullet = (bulletFlags & 0x01) != 0
 		}
 	}
+	bulletFontValid := masks&(1<<1) != 0 && bulletFlags&(1<<1) != 0
+	bulletColorValid := masks&(1<<2) != 0 && bulletFlags&(1<<2) != 0
+	bulletSizeValid := masks&(1<<3) != 0 && bulletFlags&(1<<3) != 0
 
-	// bit 5: bulletColor -> 4 bytes (R, G, B, extra)
-	if masks&(1<<5) != 0 {
-		if pos+4 > len(stpa) {
-			return entry, pos, false
-		}
-		r, g, b, extra := stpa[pos], stpa[pos+1], stpa[pos+2], stpa[pos+3]
-		pos += 4
-		if color := resolveLegacyPptColorRef(r, g, b, extra, colorScheme); color != "" {
-			entry.BulletColor = color
-		}
-	}
-
-	// bit 6: bulletSize -> int16.
-	// Positive values are percentages of the run font size (1..400 typically);
-	// negative values are absolute point sizes encoded as -hps.
-	if masks&(1<<6) != 0 {
-		if pos+2 > len(stpa) {
-			return entry, pos, false
-		}
-		sz := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
-		pos += 2
-		if sz > 0 {
-			entry.BulletSizePct = int(sz)
-		} else if sz < 0 {
-			entry.BulletSize = int(-sz) * 100
-		}
-	}
-
-	// bit 7: bulletChar -> uint16
-	if masks&(1<<7) != 0 {
+	// MS-PPT 2.9.20 stores the optional bullet payload in structure order,
+	// not PFMasks bit order: bulletChar, bulletFontRef, bulletSize, bulletColor.
+	// The masks only say which fields exist. Keeping this order is essential when
+	// more than one bullet property is present in the same TextPFException.
+	if masks&(1<<7) != 0 { // bulletChar
 		if pos+2 > len(stpa) {
 			return entry, pos, false
 		}
@@ -635,6 +727,47 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 		pos += 2
 		if ch > 0 {
 			entry.BulletChar = rune(ch)
+		}
+	}
+
+	if masks&(1<<4) != 0 { // bulletFontRef
+		if pos+2 > len(stpa) {
+			return entry, pos, false
+		}
+		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
+		pos += 2
+				if bulletFontValid && fontTable != nil {
+			if name, ok := fontTable[fontRef]; ok {
+				entry.BulletFont = name
+			}
+		}
+	}
+
+	if masks&(1<<6) != 0 { // bulletSize
+		if pos+2 > len(stpa) {
+			return entry, pos, false
+		}
+		sz := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
+		pos += 2
+		if bulletSizeValid {
+			if sz > 0 {
+				entry.BulletSizePct = int(sz) * 1000
+			} else if sz < 0 {
+				entry.BulletSize = int(-sz) * 100
+			}
+		}
+	}
+
+	if masks&(1<<5) != 0 { // bulletColor
+		if pos+4 > len(stpa) {
+			return entry, pos, false
+		}
+		r, g, b, extra := stpa[pos], stpa[pos+1], stpa[pos+2], stpa[pos+3]
+		pos += 4
+		if bulletColorValid {
+			if color := resolveLegacyPptColorRef(r, g, b, extra, colorScheme); color != "" {
+				entry.BulletColor = color
+			}
 		}
 	}
 
@@ -681,7 +814,7 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 			entry.LineSpacingPct = int(v) * 1000
 			entry.HasLineSpacing = true
 		} else if v < 0 {
-			entry.LineSpacingPct = int(-v) * 1000
+			entry.LineSpacingPt = int(-v)
 			entry.HasLineSpacing = true
 		}
 	}
@@ -694,10 +827,10 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 		v := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
 		if v > 0 {
-			entry.SpaceBefore = int(v)
-			entry.HasSpaceBefore = true
+			entry.SpaceBeforePct = int(v) * 1000
 		} else if v < 0 {
-			entry.SpaceBeforePct = int(-v) * 1000
+			entry.SpaceBefore = int(-v)
+			entry.HasSpaceBefore = true
 		}
 	}
 
@@ -709,10 +842,10 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 		v := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
 		if v > 0 {
-			entry.SpaceAfter = int(v)
-			entry.HasSpaceAfter = true
+			entry.SpaceAfterPct = int(v) * 1000
 		} else if v < 0 {
-			entry.SpaceAfterPct = int(-v) * 1000
+			entry.SpaceAfter = int(-v)
+			entry.HasSpaceAfter = true
 		}
 	}
 
@@ -723,9 +856,9 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 		}
 		v := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
+		entry.HasDefaultTabSize = true
 		if v > 0 {
 			entry.DefaultTabSizeEMU = int(v) * 127
-			entry.HasDefaultTabSize = true
 		}
 	}
 
@@ -838,8 +971,14 @@ func parsePFExceptionLegacyWithTheme(stpa []byte, pos int, colorScheme map[uint8
 		}
 		sz := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
+		// BulletSize has the same signed contract in the legacy fallback:
+		// positive values are percentages of the first run font size, while
+		// negative values are absolute point sizes. Normalize percentages to
+		// the canonical DrawingML-style units used by presentation IR.
 		if sz > 0 {
-			entry.BulletSize = int(sz)
+			entry.BulletSizePct = int(sz) * 1000
+		} else if sz < 0 {
+			entry.BulletSize = int(-sz) * 100
 		}
 	}
 	if masks&(1<<7) != 0 {
@@ -906,8 +1045,11 @@ func parsePFExceptionLegacyWithTheme(stpa []byte, pos int, colorScheme map[uint8
 		}
 		v := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
-		if v < 0 {
-			entry.LineSpacingPct = int(-v) * 1000
+		if v > 0 {
+			entry.LineSpacingPct = int(v) * 1000
+			entry.HasLineSpacing = true
+		} else if v < 0 {
+			entry.LineSpacingPt = int(-v)
 			entry.HasLineSpacing = true
 		}
 	}
@@ -927,10 +1069,10 @@ func parsePFExceptionLegacyWithTheme(stpa []byte, pos int, colorScheme map[uint8
 		v := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
 		if v > 0 {
-			entry.SpaceBefore = int(v)
-			entry.HasSpaceBefore = true
+			entry.SpaceBeforePct = int(v) * 1000
 		} else if v < 0 {
-			entry.SpaceBeforePct = int(-v) * 1000
+			entry.SpaceBefore = int(-v)
+			entry.HasSpaceBefore = true
 		}
 	}
 
@@ -941,10 +1083,10 @@ func parsePFExceptionLegacyWithTheme(stpa []byte, pos int, colorScheme map[uint8
 		v := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
 		if v > 0 {
-			entry.SpaceAfter = int(v)
-			entry.HasSpaceAfter = true
+			entry.SpaceAfterPct = int(v) * 1000
 		} else if v < 0 {
-			entry.SpaceAfterPct = int(-v) * 1000
+			entry.SpaceAfter = int(-v)
+			entry.HasSpaceAfter = true
 		}
 	}
 
@@ -1087,6 +1229,7 @@ func parseCFExceptionSpecWithTheme(stpa []byte, pos int, fontTable map[uint16]st
 		}
 		baseline := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
+		run.BaselineShiftPct = float64(baseline)
 		if baseline > 0 {
 			run.Superscript = true
 		} else if baseline < 0 {
@@ -1109,9 +1252,9 @@ func parseCFExceptionSpecWithTheme(stpa []byte, pos int, fontTable map[uint16]st
 		}
 		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
-		if run.FontFamily == "" && fontTable != nil {
+		if fontTable != nil {
 			if family, ok := fontTable[fontRef]; ok {
-				run.FontFamily = family
+				run.EAFontFamily = family
 			}
 		}
 	}
@@ -1123,9 +1266,9 @@ func parseCFExceptionSpecWithTheme(stpa []byte, pos int, fontTable map[uint16]st
 		}
 		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
-		if run.FontFamily == "" && fontTable != nil {
+		if fontTable != nil {
 			if family, ok := fontTable[fontRef]; ok {
-				run.FontFamily = family
+				run.AnsiFontFamily = family
 			}
 		}
 	}
@@ -1137,9 +1280,9 @@ func parseCFExceptionSpecWithTheme(stpa []byte, pos int, fontTable map[uint16]st
 		}
 		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
-		if run.FontFamily == "" && fontTable != nil {
+		if fontTable != nil {
 			if family, ok := fontTable[fontRef]; ok {
-				run.FontFamily = family
+				run.SymbolFontFamily = family
 			}
 		}
 	}
@@ -1236,6 +1379,7 @@ func parseCFExceptionLegacyWithTheme(stpa []byte, pos int, fontTable map[uint16]
 		}
 		baseline := int16(binary.LittleEndian.Uint16(stpa[pos : pos+2]))
 		pos += 2
+		run.BaselineShiftPct = float64(baseline)
 		if baseline > 0 {
 			run.Superscript = true
 		} else if baseline < 0 {
@@ -1252,47 +1396,184 @@ func parseCFExceptionLegacyWithTheme(stpa []byte, pos int, fontTable map[uint16]
 		if pos+2 > len(stpa) {
 			return run, pos, false
 		}
+		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
+		if fontTable != nil {
+			run.EAFontFamily = fontTable[fontRef]
+		}
 	}
 	if masks&(1<<15) != 0 {
 		if pos+2 > len(stpa) {
 			return run, pos, false
 		}
+		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
+		if fontTable != nil {
+			run.AnsiFontFamily = fontTable[fontRef]
+		}
 	}
 	if masks&(1<<16) != 0 {
 		if pos+2 > len(stpa) {
 			return run, pos, false
 		}
+		fontRef := binary.LittleEndian.Uint16(stpa[pos : pos+2])
 		pos += 2
+		if fontTable != nil {
+			run.SymbolFontFamily = fontTable[fontRef]
+		}
 	}
 
 	return run, pos, true
 }
 
-func resolveLegacyPptColorRef(r, g, b, extra byte, colorScheme map[uint8]string) string {
-	if extra != 0xFE {
-		return fmt.Sprintf("%02X%02X%02X", r, g, b)
+type legacyPptCFFontSegment struct {
+	Text       string
+	FontFamily string
+}
+
+// legacyPptSplitCFRunByTypeface materializes script-specific font ownership
+// inside one TextCFRun. A TextCFException can carry ANSI, East-Asian and symbol
+// typefaces simultaneously, so one binary CF run is not necessarily one
+// physical font-metric run. Neutral characters stay with the surrounding
+// strong-script segment and therefore do not create artificial metric breaks.
+func legacyPptSplitCFRunByTypeface(run stpaCFRun, text string) []legacyPptCFFontSegment {
+	if text == "" {
+		return []legacyPptCFFontSegment{{Text: "", FontFamily: legacyPptCFRunFontFamily(run, "")}}
 	}
-	if len(colorScheme) == 0 {
+	runes := []rune(text)
+	strong := make([]string, len(runes))
+	for i, r := range runes {
+		strong[i] = legacyPptCFRuneFontFamily(run, r)
+	}
+	// Leading neutrals belong to the first strong script; later neutrals keep
+	// the preceding script. This mirrors shaping ownership without changing text.
+	first := ""
+	for _, family := range strong {
+		if family != "" {
+			first = family
+			break
+		}
+	}
+	current := first
+	if current == "" {
+		current = legacyPptCFRunFontFamily(run, text)
+	}
+	segments := make([]legacyPptCFFontSegment, 0, 2)
+	for i, r := range runes {
+		family := strong[i]
+		if family == "" {
+			family = current
+		} else {
+			current = family
+		}
+		if len(segments) == 0 || segments[len(segments)-1].FontFamily != family {
+			segments = append(segments, legacyPptCFFontSegment{Text: string(r), FontFamily: family})
+		} else {
+			segments[len(segments)-1].Text += string(r)
+		}
+	}
+	return segments
+}
+
+func legacyPptCFRuneFontFamily(run stpaCFRun, r rune) string {
+	if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsDigit(r) {
 		return ""
 	}
-	if r != 0 || (g == 0 && b == 0) {
-		if color, ok := colorScheme[r]; ok {
-			return color
+	switch {
+	case unicode.In(r, unicode.Han, unicode.Hangul, unicode.Hiragana, unicode.Katakana, unicode.Bopomofo):
+		if run.EAFontFamily != "" {
+			return run.EAFontFamily
+		}
+	case unicode.In(r, unicode.Sm, unicode.Sc, unicode.Sk, unicode.So) || (r >= 0xE000 && r <= 0xF8FF):
+		if run.SymbolFontFamily != "" {
+			return run.SymbolFontFamily
+		}
+	default:
+		if run.AnsiFontFamily != "" {
+			return run.AnsiFontFamily
 		}
 	}
-	if g != 0 {
-		if color, ok := colorScheme[g]; ok {
-			return color
+	return run.FontFamily
+}
+
+// legacyPptCFRunFontFamily selects the script-specific typeface carried by
+// TextCFException before falling back to the generic typeface. MS-PPT stores
+// ANSI, East-Asian and symbol references independently; collapsing them while
+// decoding changes measured text metrics even when the visible characters are
+// otherwise correct.
+func legacyPptCFRunFontFamily(run stpaCFRun, text string) string {
+	class := 0 // 0 unknown/mixed, 1 ANSI, 2 East Asian, 3 symbol
+	for _, r := range text {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsDigit(r) {
+			continue
+		}
+		c := 1
+		switch {
+		case unicode.In(r, unicode.Han, unicode.Hangul, unicode.Hiragana, unicode.Katakana, unicode.Bopomofo):
+			c = 2
+		case unicode.In(r, unicode.Sm, unicode.Sc, unicode.Sk, unicode.So) || (r >= 0xE000 && r <= 0xF8FF):
+			c = 3
+		}
+		if class != 0 && class != c {
+			class = 0
+			break
+		}
+		class = c
+	}
+	switch class {
+	case 1:
+		if run.AnsiFontFamily != "" {
+			return run.AnsiFontFamily
+		}
+	case 2:
+		if run.EAFontFamily != "" {
+			return run.EAFontFamily
+		}
+	case 3:
+		if run.SymbolFontFamily != "" {
+			return run.SymbolFontFamily
 		}
 	}
-	if b != 0 {
-		if color, ok := colorScheme[b]; ok {
-			return color
-		}
+	if run.FontFamily != "" {
+		return run.FontFamily
+	}
+	if run.AnsiFontFamily != "" {
+		return run.AnsiFontFamily
+	}
+	if run.EAFontFamily != "" {
+		return run.EAFontFamily
+	}
+	return run.SymbolFontFamily
+}
+
+func resolveLegacyPptOfficeArtColorRef(raw uint32, colorScheme map[uint8]string) string {
+	r, g, b, flags := byte(raw), byte(raw>>8), byte(raw>>16), byte(raw>>24)
+	// OfficeArtCOLORREF uses bit 3 of the high byte as fSchemeIndex. In that
+	// form red is the scheme-table index and green/blue are zero.
+	if flags&0x08 != 0 && g == 0 && b == 0 {
+		return colorScheme[r]
+	}
+	if flags == 0 {
+		return fmt.Sprintf("%02X%02X%02X", r, g, b)
 	}
 	return ""
+}
+
+func resolveLegacyPptColorRef(r, g, b, index byte, colorScheme map[uint8]string) string {
+	// MS-PPT ColorIndexStruct: index 0xFE means the preceding RGB bytes are
+	// the authored sRGB color. Values 0x00..0x07 are scheme indexes; 0xFF is
+	// undefined. Do not infer the scheme index from an RGB component.
+	switch index {
+	case 0xFE:
+		return fmt.Sprintf("%02X%02X%02X", r, g, b)
+	case 0xFF:
+		return ""
+	default:
+		if len(colorScheme) == 0 {
+			return ""
+		}
+		return colorScheme[index]
+	}
 }
 
 // splitPptRawParagraphRunes splits rawText (with '\r' paragraph separators)
@@ -1343,50 +1624,55 @@ func bulletCharString(r rune) string {
 // AutoNumberingScheme enum from POI: maps native IDs to IR string values.
 // Per TextPFException9.getAutoNumberScheme() in POI HSLF.
 func autoNumberSchemeString(nativeID uint16) string {
-	// POI AutoNumberingScheme native IDs (from POI Apache source)
+	// [MS-PPT] 2.13.28 TextAutoNumberSchemeEnum. Keep this mapping at the
+	// binary boundary; downstream layout uses DrawingML-compatible names.
 	switch nativeID {
-	case 1:
-		return "arabicPeriod"      // 1., 2., 3., ...
-	case 2:
-		return "arabicParenR"      // 1), 2), 3), ...
-	case 3:
-		return "arabicParenBoth"   // (1), (2), (3), ...
-	case 4:
-		return "arabicPlain"       // 1, 2, 3, ...
-	case 5:
-		return "romanUcPeriod"     // I., II., III., ...
-	case 6:
-		return "romanLcPeriod"     // i., ii., iii., ...
-	case 7:
-		return "romanUcParenR"     // I), II), III), ...
-	case 8:
-		return "romanLcParenR"     // i), ii), iii), ...
-	case 9:
-		return "romanUcParenBoth"  // (I), (II), (III), ...
-	case 10:
-		return "romanLcParenBoth"  // (i), (ii), (iii), ...
-	case 11:
-		return "alphaUcPeriod"     // A., B., C., ...
-	case 12:
-		return "alphaLcPeriod"     // a., b., c., ...
-	case 13:
-		return "alphaUcParenR"     // A), B), C), ...
-	case 14:
-		return "alphaLcParenR"     // a), b), c), ...
-	case 15:
-		return "alphaUcParenBoth"  // (A), (B), (C), ...
-	case 16:
-		return "alphaLcParenBoth"  // (a), (b), (c), ...
+	case 0x0000:
+		return "alphaLcPeriod"
+	case 0x0001:
+		return "alphaUcPeriod"
+	case 0x0002:
+		return "arabicParenR"
+	case 0x0003:
+		return "arabicPeriod"
+	case 0x0004:
+		return "romanLcParenBoth"
+	case 0x0005:
+		return "romanLcParenR"
+	case 0x0006:
+		return "romanLcPeriod"
+	case 0x0007:
+		return "romanUcPeriod"
+	case 0x0008:
+		return "alphaLcParenBoth"
+	case 0x0009:
+		return "alphaLcParenR"
+	case 0x000A:
+		return "alphaUcParenBoth"
+	case 0x000B:
+		return "alphaUcParenR"
+	case 0x000C:
+		return "arabicParenBoth"
+	case 0x000D:
+		return "arabicPlain"
+	case 0x000E:
+		return "romanUcParenBoth"
+	case 0x000F:
+		return "romanUcParenR"
 	default:
-		return "" // unknown scheme
+		// The remaining MS-PPT schemes (CJK/Thai/Hindi/etc.) are preserved
+		// as unknown here until canonical marker generation supports them;
+		// never reinterpret them as a different Latin numbering scheme.
+		return ""
 	}
 }
 
 // TextPFException9 holds per-level auto-numbering data from StyleTextProp9Atom.
 type textPFException9 struct {
-	hasBulletAutoNumber bool
-	autoNumberScheme    string // IR AutoNumType value (empty if no auto-numbering)
-	autoNumberStart     int    // start number (1-based); valid when autoNumberScheme != ""
+	hasBulletAutoNumberSpecified bool // masks.bulletHasScheme: explicit true/false is authoritative
+	hasBulletAutoNumber          bool
+	autoNumberScheme             string // IR AutoNumType value (empty if absent/unsupported)
+	autoNumberStart              int    // start number (1-based); valid when scheme is present
 }
 
 // parseStyleTextProp9Atom parses a StyleTextProp9Atom (0x0FAC) payload,
@@ -1427,6 +1713,7 @@ func parseStyleTextProp9Atom(payload []byte) map[int]textPFException9 {
 				break
 			}
 			hasAutoNum := binary.LittleEndian.Uint16(payload[pos : pos+2])
+			entry.hasBulletAutoNumberSpecified = true
 			entry.hasBulletAutoNumber = (hasAutoNum == 1)
 			pos += 2
 		}
@@ -1440,19 +1727,12 @@ func parseStyleTextProp9Atom(payload []byte) map[int]textPFException9 {
 			startNum := int(binary.LittleEndian.Uint16(payload[pos+2 : pos+4]))
 			pos += 4
 
-			// Only set scheme if we have auto-numbering enabled
-			if entry.hasBulletAutoNumber {
-				if scheme := autoNumberSchemeString(schemeID); scheme != "" {
-					entry.autoNumberScheme = scheme
+			if scheme := autoNumberSchemeString(schemeID); scheme != "" {
+				entry.autoNumberScheme = scheme
+				if startNum >= 1 {
 					entry.autoNumberStart = startNum
 				}
 			}
-		}
-
-		// Default auto-numbering scheme when hasBulletAutoNumber=true but scheme not specified
-		if entry.hasBulletAutoNumber && entry.autoNumberScheme == "" {
-			entry.autoNumberScheme = "arabicPeriod"
-			entry.autoNumberStart = 1
 		}
 
 		result[level] = entry
@@ -1469,9 +1749,19 @@ func applyTextPFException9ToEntry(entry *stpaPFEntry, level int, pp9Data map[int
 		return
 	}
 
-	if pp9, ok := pp9Data[level]; ok && pp9.autoNumberScheme != "" {
-		entry.AutoNum = true
-		entry.AutoNumType = pp9.autoNumberScheme
-		entry.AutoNumStart = pp9.autoNumberStart
+	if pp9, ok := pp9Data[level]; ok {
+		if pp9.hasBulletAutoNumberSpecified {
+			entry.AutoNum = pp9.hasBulletAutoNumber
+			if !pp9.hasBulletAutoNumber {
+				entry.AutoNumType = ""
+				entry.AutoNumStart = 0
+				return
+			}
+		}
+		if pp9.hasBulletAutoNumber && pp9.autoNumberScheme != "" {
+			entry.AutoNum = true
+			entry.AutoNumType = pp9.autoNumberScheme
+			entry.AutoNumStart = pp9.autoNumberStart
+		}
 	}
 }

@@ -9,9 +9,8 @@ import (
 	"strings"
 
 	"office/pkg/ooxml/opc"
+	pptopen "office/pkg/presentation"
 	pptlegacy "office/pkg/presentation/parsers/legacy"
-	pptparts "office/pkg/presentation/parsers/ooxml/parts"
-	pptresolve "office/pkg/presentation/parsers/ooxml/resolve"
 	pptrender "office/pkg/presentation/render"
 	sheetlegacy "office/pkg/sheet/parsers/legacy"
 	sheetparts "office/pkg/sheet/parsers/ooxml/parts"
@@ -145,15 +144,7 @@ func render(path string) (string, error) {
 		}
 		return sheetrender.HTML(book)
 	case "pptx":
-		pkg, err := opc.Open(path)
-		if err != nil {
-			return "", err
-		}
-		parts, err := pptparts.LoadPackage(pkg)
-		if err != nil {
-			return "", err
-		}
-		presentation, err := pptresolve.ResolvePackage(parts)
+		presentation, err := pptopen.Open(path)
 		if err != nil {
 			return "", err
 		}

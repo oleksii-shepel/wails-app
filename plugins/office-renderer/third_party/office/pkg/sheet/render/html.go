@@ -445,6 +445,7 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 	afActiveSet := buildAFActiveSet(sheet.FilterColumns)
 	// Evaluate formula cells that have no cached display value.
 	computedValues := buildComputedValues(sheet, arrayFormulaCells, formulaEngine)
+	formulaSparklines := buildFormulaSparklines(sheet, formulaEngine)
 	computedHyperlinks := buildComputedHyperlinks(sheet, arrayFormulaCells, formulaEngine)
 	// Build data-validation state map: cell ref → current pass/fail state.
 	dvStateMap := buildDVStateMap(r.wb, sheetIndex, sheet.DataValidations)
@@ -491,6 +492,8 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 		var rowStyles []string
 		if row.HeightPt > 0 {
 			rowStyles = append(rowStyles, fmt.Sprintf("height:%.2fpt", row.HeightPt))
+		} else if sheet.DefaultRowHeightPt > 0 {
+			rowStyles = append(rowStyles, fmt.Sprintf("height:%.2fpt", sheet.DefaultRowHeightPt))
 		}
 		if row.Hidden {
 			rowStyles = append(rowStyles, "display:none")
@@ -556,7 +559,10 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 			isAFHeader := ri == afHeaderRow && ci >= afColMin && ci <= afColMax
 			isAFActive := isAFHeader && afActiveSet[ci-afColMin]
 			tf := tableFlags[ref]
-			renderCell(b, cell, ci, sheet.OutlineCols[ci], isFrozenCol, mergeLayout.anchorAt(ri, ci), r.embeddedFamilies, sheet.HiddenCols[ci], hasCF, cf, cfVisualMap[ref], dv, dvStateMap[ref], comment, isAFHeader, isAFActive, computedValues[ref], computedHyperlinks[ref], tf)
+			merged := mergeLayout.anchorAt(ri, ci)
+			display := buildCellDisplayGeometry(sheet, cellMap, ci, merged)
+			computedValue, hasComputedValue := computedValues[ref]
+			renderCell(b, cell, ci, sheet.OutlineCols[ci], isFrozenCol, merged, r.embeddedFamilies, sheet.HiddenCols[ci], hasCF, cf, cfVisualMap[ref], dv, dvStateMap[ref], comment, isAFHeader, isAFActive, computedValue, hasComputedValue, computedHyperlinks[ref], formulaSparklines[ref], tf, display)
 		}
 		b.WriteString("</tr>\n")
 	}
@@ -584,20 +590,83 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 		renderSheetHeaderFooter(b, sheet.HeaderFooter.OddFooter, "footer", sheet.Name, sheet.HeaderFooter.Images)
 	}
 
-	// Render pivot table metadata blocks.
-	for _, pt := range sheet.PivotTables {
-		renderPivotTable(b, pt)
-	}
-
-	// Render structured table metadata blocks.
-	for _, tbl := range sheet.Tables {
-		renderTable(b, tbl)
-	}
-
 	b.WriteString("</section>\n")
 }
 
-func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineColLevel int, frozen bool, merged *resolve.MergedCell, embeddedFamilies map[string]struct{}, hiddenCol bool, hasCF bool, cfStyle resolve.DxfStyle, cfVisual cfVisualData, dv *resolve.DataValidation, dvState dataValidationState, commentText string, isAFHeader bool, isAFActive bool, computedValue string, computedHyperlink string, tf tableCellFlags) {
+type cellDisplayGeometry struct {
+	widthPx             int
+	hasExplicitGeometry bool
+	nextCellOccupied    bool
+	merged              bool
+}
+
+// buildCellDisplayGeometry is the single worksheet-cell box calculation used by
+// display decisions. Merged anchors own the sum of all visible columns in the
+// merged range; hidden columns contribute no visual width.
+func buildCellDisplayGeometry(sheet *resolve.Sheet, rowCells map[int]*resolve.Cell, col int, merged *resolve.MergedCell) cellDisplayGeometry {
+	if sheet == nil || col <= 0 {
+		return cellDisplayGeometry{}
+	}
+	defaultWidth := defaultColPx
+	if sheet.DefaultColWidthChars > 0 {
+		defaultWidth = worksheetColumnWidthPx(sheet.DefaultColWidthChars)
+	}
+	right := col
+	if merged != nil && merged.RightCol >= col {
+		right = merged.RightCol
+	}
+	width := 0
+	for c := col; c <= right; c++ {
+		width += worksheetColumnVisualWidthPx(sheet, c, defaultWidth)
+	}
+	_, nextOccupied := rowCells[right+1]
+	return cellDisplayGeometry{
+		widthPx:             width,
+		hasExplicitGeometry: hasGridColumnLayout(sheet),
+		nextCellOccupied:    nextOccupied,
+		merged:              right > col,
+	}
+}
+
+func shouldRenderNumericOverflowHashes(cell *resolve.Cell, text string, display cellDisplayGeometry) bool {
+	if cell == nil || cell.Kind != resolve.CellNumber || text == "" || !display.hasExplicitGeometry || display.widthPx <= 0 {
+		return false
+	}
+	if cell.Style.WrapText || cell.Style.ShrinkToFit {
+		return false
+	}
+	// Approximate Excel's glyph measurement from the resolved font size. The
+	// threshold is deliberately conservative: hashes are emitted only when the
+	// formatted value clearly cannot fit the authored visual box.
+	fontPt := cell.Style.FontSizePt
+	if fontPt <= 0 {
+		fontPt = 11
+	}
+	avgGlyphPx := fontPt * 4.0 / 3.0 * 0.52
+	contentPx := float64(display.widthPx - 8) // renderer cell horizontal padding
+	return contentPx > 0 && float64(len([]rune(text)))*avgGlyphPx > contentPx+avgGlyphPx
+}
+
+func numericOverflowHashes(widthPx int) string {
+	n := (widthPx - 8) / 7
+	if n < 1 {
+		n = 1
+	}
+	return strings.Repeat("#", n)
+}
+
+func shouldAllowTextOverflow(cell *resolve.Cell, text string, display cellDisplayGeometry) bool {
+	if cell == nil || cell.Kind != resolve.CellString || text == "" || !display.hasExplicitGeometry || display.merged {
+		return false
+	}
+	if cell.Style.WrapText || cell.Style.ShrinkToFit || display.nextCellOccupied {
+		return false
+	}
+	align := cell.Style.HAlign
+	return align == "" || align == "general" || align == "left"
+}
+
+func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineColLevel int, frozen bool, merged *resolve.MergedCell, embeddedFamilies map[string]struct{}, hiddenCol bool, hasCF bool, cfStyle resolve.DxfStyle, cfVisual cfVisualData, dv *resolve.DataValidation, dvState dataValidationState, commentText string, isAFHeader bool, isAFActive bool, computedValue string, hasComputedValue bool, computedHyperlink string, formulaSparkline string, tf tableCellFlags, display cellDisplayGeometry) {
 	if hiddenCol {
 		var attrs []string
 		attrs = append(attrs, "style=\"visibility:collapse\"", "data-base-hidden=\"true\"")
@@ -626,6 +695,9 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 	}
 	if cell != nil && cell.Formula != "" {
 		class += " cell--formula"
+	}
+	if formulaSparkline != "" {
+		class += " cell--sparkline"
 	}
 	if cell != nil && cell.ArrayFormulaRange != "" {
 		class += " cell--array-formula"
@@ -715,8 +787,14 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 
 		text = formatCellValue(cell)
 		// Prefer formula-engine output when it differs from a stale cached display.
-		if computedValue != "" {
+		if hasComputedValue {
 			text = computedValue
+		}
+		if shouldRenderNumericOverflowHashes(cell, text, display) {
+			text = numericOverflowHashes(display.widthPx)
+		}
+		if shouldAllowTextOverflow(cell, text, display) {
+			class += " cell--text-overflow"
 		}
 	}
 	hyperlinkURL := ""
@@ -858,6 +936,14 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 	iconPrefix := renderIconSet(cfVisual.IconSet, cfVisual.IconSetThresholds, cellNumVal)
 	dataBarSuffix := renderDataBar(cfVisual.DataBar, cfVisual.DataBarThresholds, cellNumVal)
 	cellSuffix := dataBarSuffix + afSuffix + commentSuffix
+
+	if formulaSparkline != "" {
+		b.WriteString(openTag)
+		b.WriteString(formulaSparkline)
+		b.WriteString(cellSuffix)
+		b.WriteString(closeTag)
+		return
+	}
 
 	// Rich-text runs: render styled spans instead of plain text.
 	if cell != nil && len(cell.RichTextRuns) > 0 {
@@ -2676,9 +2762,226 @@ func configureWorkbookFormulaResolvers(ctx *validationWorkbookContext) {
 	}
 }
 
-// buildComputedValues evaluates formula cells that have no cached display value
-// and returns a map from upper-case cell reference to computed text. Cells with
-// cached values are left to formatCellValue so number formatting is preserved.
+type formulaSparklineSpec struct {
+	chartType string
+	color     string
+	values    []float64
+	max       float64
+}
+
+// buildFormulaSparklines recognizes the compatibility encoding used when
+// Google Sheets SPARKLINE formulas are stored in XLSX as __xludf.DUMMYFUNCTION.
+// They are a visual cell primitive, so fidelity rendering emits the visual
+// instead of exposing the evaluator's #VALUE! for the unsupported UDF.
+func buildFormulaSparklines(sheet *resolve.Sheet, eng *formula.Engine) map[string]string {
+	result := make(map[string]string)
+	if sheet == nil || eng == nil {
+		return result
+	}
+	for _, row := range sheet.Rows {
+		if row == nil {
+			continue
+		}
+		for _, cell := range row.Cells {
+			if cell == nil || cell.Ref == "" || cell.Formula == "" {
+				continue
+			}
+			spec, ok := parseFormulaSparkline(cell.Formula, eng)
+			if !ok {
+				continue
+			}
+			result[strings.ToUpper(cell.Ref)] = renderFormulaSparklineSVG(spec)
+		}
+	}
+	return result
+}
+
+func parseFormulaSparkline(expr string, eng *formula.Engine) (formulaSparklineSpec, bool) {
+	normalized := strings.ReplaceAll(expr, `""`, `"`)
+	upper := strings.ToUpper(normalized)
+	start := strings.Index(upper, "SPARKLINE(")
+	if start < 0 {
+		return formulaSparklineSpec{}, false
+	}
+	body := normalized[start+len("SPARKLINE("):]
+	arg, rest, ok := splitFormulaArgument(body)
+	if !ok {
+		return formulaSparklineSpec{}, false
+	}
+	values := evaluateSparklineValues(strings.TrimSpace(arg), eng)
+	if len(values) == 0 {
+		return formulaSparklineSpec{}, false
+	}
+	spec := formulaSparklineSpec{chartType: "line", color: "#4a5568", values: values}
+	options := strings.ToLower(rest)
+	if v := sparklineQuotedOption(rest, options, "charttype"); v != "" {
+		spec.chartType = strings.ToLower(v)
+	}
+	for _, key := range []string{"color1", "firstcolor", "color"} {
+		if v := sparklineQuotedOption(rest, options, key); v != "" {
+			spec.color = v
+			break
+		}
+	}
+	for _, key := range []string{"max", "ymax"} {
+		if raw := sparklineOptionExpression(rest, options, key); raw != "" {
+			if v, err := eng.Evaluate(raw); err == nil && v.IsNumber() {
+				spec.max = v.Num
+				break
+			}
+		}
+	}
+	return spec, true
+}
+
+func splitFormulaArgument(body string) (string, string, bool) {
+	depth := 0
+	inString := false
+	for i, r := range body {
+		switch r {
+		case '"':
+			inString = !inString
+		case '(':
+			if !inString {
+				depth++
+			}
+		case ')':
+			if !inString && depth > 0 {
+				depth--
+			}
+		case ',':
+			if !inString && depth == 0 {
+				return body[:i], body[i+1:], true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func evaluateSparklineValues(expr string, eng *formula.Engine) []float64 {
+	expr = strings.ReplaceAll(strings.TrimSpace(expr), "$", "")
+	if parts := strings.Split(expr, ":"); len(parts) == 2 {
+		vals := eng.GetRange(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		out := make([]float64, 0, len(vals))
+		for _, v := range vals {
+			if v.IsNumber() {
+				out = append(out, v.Num)
+			}
+		}
+		return out
+	}
+	v, err := eng.Evaluate(expr)
+	if err == nil && v.IsNumber() {
+		return []float64{v.Num}
+	}
+	return nil
+}
+
+func sparklineQuotedOption(original, lower, key string) string {
+	needle := `"` + strings.ToLower(key) + `"`
+	i := strings.Index(lower, needle)
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(original[i+len(needle):])
+	if len(rest) == 0 || rest[0] != ',' {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[1:])
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	if end := strings.Index(rest[1:], `"`); end >= 0 {
+		return rest[1 : 1+end]
+	}
+	return ""
+}
+
+func sparklineOptionExpression(original, lower, key string) string {
+	needle := `"` + strings.ToLower(key) + `"`
+	i := strings.Index(lower, needle)
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(original[i+len(needle):])
+	if len(rest) == 0 || rest[0] != ',' {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[1:])
+	depth := 0
+	for i, r := range rest {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ';', '}':
+			if depth == 0 {
+				return strings.TrimSpace(rest[:i])
+			}
+		}
+	}
+	return strings.TrimSpace(rest)
+}
+
+func renderFormulaSparklineSVG(spec formulaSparklineSpec) string {
+	if len(spec.values) == 0 {
+		return ""
+	}
+	const w, h = 100.0, 24.0
+	maxV := spec.max
+	if maxV <= 0 {
+		for _, v := range spec.values {
+			if v > maxV {
+				maxV = v
+			}
+		}
+	}
+	if maxV <= 0 {
+		maxV = 1
+	}
+	color := spec.color
+	if color == "" {
+		color = "#4a5568"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="formula-sparkline" viewBox="0 0 %.0f %.0f" preserveAspectRatio="none" aria-hidden="true">`, w, h)
+	switch spec.chartType {
+	case "column":
+		bw := w / float64(len(spec.values))
+		for i, v := range spec.values {
+			bh := math.Max(0, math.Min(h, h*v/maxV))
+			fmt.Fprintf(&b, `<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s"/>`, float64(i)*bw+bw*.12, h-bh, bw*.76, bh, escapeHTMLAttr(color))
+		}
+	case "bar":
+		v := spec.values[0]
+		bw := math.Max(0, math.Min(w, w*v/maxV))
+		fmt.Fprintf(&b, `<rect x="0" y="5" width="%.2f" height="14" fill="%s"/>`, bw, escapeHTMLAttr(color))
+	default:
+		if len(spec.values) == 1 {
+			y := h - h*spec.values[0]/maxV
+			fmt.Fprintf(&b, `<circle cx="50" cy="%.2f" r="2" fill="%s"/>`, y, escapeHTMLAttr(color))
+		} else {
+			pts := make([]string, 0, len(spec.values))
+			for i, v := range spec.values {
+				x := float64(i) * w / float64(len(spec.values)-1)
+				y := h - h*v/maxV
+				pts = append(pts, fmt.Sprintf("%.2f,%.2f", x, y))
+			}
+			fmt.Fprintf(&b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`, strings.Join(pts, " "), escapeHTMLAttr(color))
+		}
+	}
+	b.WriteString(`</svg>`)
+	return b.String()
+}
+
+// buildComputedValues evaluates formula cells that have no authoritative cached
+// display value and returns a map from upper-case cell reference to computed text.
+// Successful source caches remain authoritative for fidelity. Cached formula errors
+// are recoverable: when the shared evaluator can produce a successful value, use it
+// instead of preserving a stale/error cache from another spreadsheet engine.
 func buildComputedValues(sheet *resolve.Sheet, arrayFormulaCells map[string]*resolve.Cell, eng *formula.Engine) map[string]string {
 	var rows []*resolve.Row
 	if sheet != nil {
@@ -2693,7 +2996,7 @@ func buildComputedValues(sheet *resolve.Sheet, arrayFormulaCells map[string]*res
 			continue
 		}
 		for _, cell := range row.Cells {
-			if cell == nil || cell.Formula == "" || cell.Ref == "" {
+			if cell == nil || cell.Formula == "" || cell.Ref == "" || (cell.HasCachedValue && !cachedFormulaError(cell)) {
 				continue
 			}
 			ref := strings.ToUpper(cell.Ref)
@@ -2701,24 +3004,35 @@ func buildComputedValues(sheet *resolve.Sheet, arrayFormulaCells map[string]*res
 			if val.IsEmpty() {
 				continue
 			}
-			if s := formatComputedFormulaValue(cell, val); s != "" && s != formatCellValue(cell) {
+			if s := formatComputedFormulaValue(cell, val); s != formatCellValue(cell) {
 				result[ref] = s
 			}
 		}
 	}
 	for ref, cell := range arrayFormulaCells {
-		if cell == nil || cell.Formula == "" || ref == "" {
+		if cell == nil || cell.Formula == "" || ref == "" || (cell.HasCachedValue && !cachedFormulaError(cell)) {
 			continue
 		}
 		val := eng.GetCell(ref)
 		if val.IsEmpty() {
 			continue
 		}
-		if s := formatComputedFormulaValue(cell, val); s != "" && s != formatCellValue(cell) {
+		if s := formatComputedFormulaValue(cell, val); s != formatCellValue(cell) {
 			result[ref] = s
 		}
 	}
 	return result
+}
+
+func cachedFormulaError(cell *resolve.Cell) bool {
+	if cell == nil || !cell.HasCachedValue || cell.Formula == "" {
+		return false
+	}
+	if cell.Kind == resolve.CellError {
+		return true
+	}
+	text := strings.TrimSpace(formatCellValue(cell))
+	return strings.HasPrefix(text, "#")
 }
 
 func formatComputedFormulaValue(cell *resolve.Cell, value formula.Value) string {
@@ -4226,7 +4540,7 @@ func (r *htmlRenderer) renderDrawing(b *strings.Builder, d *resolve.Drawing, dl 
 		h = 1
 	}
 
-	posStyle := fmt.Sprintf("left:%dpx;top:%dpx;width:%dpx;height:%dpx", x, y, w, h)
+	posStyle := fmt.Sprintf("left:%dpx;top:%dpx;width:%dpx;height:%dpx;z-index:%d", x, y, w, h, d.ZOrder+1)
 	r.renderDrawingAt(b, d, posStyle, w, h)
 }
 
@@ -4407,8 +4721,7 @@ func (r *htmlRenderer) renderDrawingChart(b *strings.Builder, d *resolve.Drawing
 		if parsed, ok := d.Chart.Chart.(*chart.Chart); ok && parsed != nil {
 			svgContent = parsed.SVG(widthPx, heightPx)
 		} else if svgContent != "" {
-			svgContent = strings.Replace(svgContent, `width="600"`, fmt.Sprintf(`width="%d"`, widthPx), 1)
-			svgContent = strings.Replace(svgContent, `height="400"`, fmt.Sprintf(`height="%d"`, heightPx), 1)
+			svgContent = normalizeDrawingSVGSize(svgContent, widthPx, heightPx)
 		}
 		if svgContent != "" {
 			fmt.Fprintf(b, "<div class=\"drawing drawing--chart\" style=%q title=%q>\n%s\n</div>\n",
@@ -4418,6 +4731,37 @@ func (r *htmlRenderer) renderDrawingChart(b *strings.Builder, d *resolve.Drawing
 	}
 	fmt.Fprintf(b, "<div class=\"drawing drawing--chart\" style=%q title=%q>chart</div>\n",
 		posStyle, escapeHTML(d.Name))
+}
+
+func normalizeDrawingSVGSize(svg string, widthPx, heightPx int) string {
+	start := strings.Index(svg, "<svg")
+	if start < 0 {
+		return svg
+	}
+	endRel := strings.IndexByte(svg[start:], '>')
+	if endRel < 0 {
+		return svg
+	}
+	end := start + endRel
+	tag := svg[start:end]
+	tag = replaceSVGDimensionAttribute(tag, "width", widthPx)
+	tag = replaceSVGDimensionAttribute(tag, "height", heightPx)
+	return svg[:start] + tag + svg[end:]
+}
+
+func replaceSVGDimensionAttribute(tag, name string, value int) string {
+	needle := name + "=\""
+	start := strings.Index(tag, needle)
+	if start < 0 {
+		return tag + fmt.Sprintf(" %s=\"%d\"", name, value)
+	}
+	valueStart := start + len(needle)
+	valueEndRel := strings.IndexByte(tag[valueStart:], '"')
+	if valueEndRel < 0 {
+		return tag
+	}
+	valueEnd := valueStart + valueEndRel
+	return tag[:valueStart] + strconv.Itoa(value) + tag[valueEnd:]
 }
 
 func (r *htmlRenderer) renderDrawingGroup(b *strings.Builder, d *resolve.Drawing, posStyle string, widthPx, heightPx int) {
@@ -4501,6 +4845,9 @@ func renderDrawingConnector(b *strings.Builder, d *resolve.Drawing, posStyle str
 }
 
 func (r *htmlRenderer) renderDrawingImage(b *strings.Builder, d *resolve.Drawing, posStyle string) {
+	if d.Image != nil {
+		posStyle += drawingImageTransformStyle(d.Image)
+	}
 	if d.Image == nil || len(d.Image.Data) == 0 {
 		fmt.Fprintf(b, "<div class=\"drawing drawing--image\" style=%q title=%q></div>\n",
 			posStyle, escapeHTML(d.Name))
@@ -4527,6 +4874,23 @@ func (r *htmlRenderer) renderDrawingImage(b *strings.Builder, d *resolve.Drawing
 	}
 	fmt.Fprintf(b, "<img class=\"drawing drawing--image\" style=%q title=%q alt=%q src=%q>\n",
 		posStyle, escapeHTML(d.Name), escapeHTML(alt), src)
+}
+
+func drawingImageTransformStyle(img *resolve.DrawingImage) string {
+	if img == nil || (img.RotationDeg == 0 && !img.FlipH && !img.FlipV) {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if img.RotationDeg != 0 {
+		parts = append(parts, fmt.Sprintf("rotate(%.4fdeg)", img.RotationDeg))
+	}
+	if img.FlipH {
+		parts = append(parts, "scaleX(-1)")
+	}
+	if img.FlipV {
+		parts = append(parts, "scaleY(-1)")
+	}
+	return ";transform-origin:center center;transform:" + strings.Join(parts, " ")
 }
 
 func drawingImageHasCrop(img *resolve.DrawingImage) bool {
@@ -6322,14 +6686,16 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; }
 .grid-wrap { overflow: auto; max-height: 80vh; border: 1px solid #ddd; background: #fff; position: relative; }
 .drawings-layer { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 10; }
 .drawing { position: absolute; box-sizing: border-box; font-size: 11px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.drawing--image { object-fit: contain; }
+.drawing--image { object-fit: fill; }
 .drawing--image-placeholder { background: rgba(245, 239, 222, 0.92); border: 1px solid #9a8855; color: #6b5c34; font-size: 10px; padding: 2px 4px; text-align: center; }
 .drawing--shape { color: #333; }
-.drawing--chart { background: rgba(255, 240, 240, 0.6); border: 1px solid #a66; color: #a66; font-size: 10px; }
+.drawing--chart { background: transparent; border: 0; color: inherit; font-size: 10px; }
+.drawing--chart > svg { display: block; width: 100%; height: 100%; }
 .grid { border-collapse: collapse; font-size: 12px; }
 .grid--fixed { table-layout: fixed; }
 .cell { border: 1px solid #e0e0e0; padding: 2px 4px; white-space: nowrap; min-width: 40px; }
 .grid--fixed .cell { min-width: 0; overflow: hidden; }
+.grid--fixed .cell--text-overflow { overflow: visible; position: relative; z-index: 2; }
 .row--frozen .cell { background: #fafafa; }
 .cell--frozen-col { position: sticky; left: 0; background: #fafafa; z-index: 1; }
 .diagnostics { margin: 1rem 0; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
@@ -6360,6 +6726,8 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; }
 .cell--has-comment { position: relative; padding-right: 12px; }
 .comment-mark { position: absolute; top: 1px; right: 2px; font-size: 8px; line-height: 1; color: #c0392b; }
 .cell--formula { box-shadow: inset 0 0 0 1px rgba(31, 111, 235, 0.18); }
+.cell--sparkline { padding: 0; overflow: hidden; }
+.cell--sparkline svg { display: block; width: 100%; height: 100%; min-height: 12px; }
 .cell--table-header { background: #e7e6e6; font-weight: 600; }
 .cell--table-total { background: #f2f2f2; font-weight: 600; border-top: 2px solid #bdbdbd; }
 .cell--table-banded-row { background: #f8f9fa; }

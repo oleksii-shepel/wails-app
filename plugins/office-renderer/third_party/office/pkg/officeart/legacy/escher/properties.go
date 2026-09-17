@@ -23,10 +23,12 @@ const (
 	PropGTextFont     uint16 = 0x00C5
 	PropGTextBooleans uint16 = 0x00FF
 
-	PropCropTop    uint16 = 0x0102
-	PropCropBottom uint16 = 0x0103
-	PropCropLeft   uint16 = 0x0104
-	PropCropRight  uint16 = 0x0105
+	// OfficeArt Blip crop properties (MS-ODRAW 2.3.23.1-2.3.23.4).
+	// Keep these numeric IDs exact: 0x0104 is pib, not a crop edge.
+	PropCropTop    uint16 = 0x0100
+	PropCropBottom uint16 = 0x0101
+	PropCropLeft   uint16 = 0x0102
+	PropCropRight  uint16 = 0x0103
 
 	PropPictureContrast   uint16 = 0x0108
 	PropPictureBrightness uint16 = 0x0109
@@ -54,7 +56,14 @@ const (
 	PropFillColor    uint16 = 0x0181
 	PropFillBooleans uint16 = 0x01BF
 
-	PropFillBackColor uint16 = 0x0183
+	PropFillBackColor   uint16 = 0x0183
+	PropFillAngle       uint16 = 0x018B
+	PropFillFocus       uint16 = 0x018C
+	PropFillToLeft      uint16 = 0x018D
+	PropFillToTop       uint16 = 0x018E
+	PropFillToRight     uint16 = 0x018F
+	PropFillToBottom    uint16 = 0x0190
+	PropFillShadeColors uint16 = 0x0197
 
 	PropLineColor            uint16 = 0x01C0
 	PropLineOpacity          uint16 = 0x01C7
@@ -74,4 +83,5 @@ const (
 	PropShadowOffsetX  uint16 = 0x0205
 	PropShadowOffsetY  uint16 = 0x0206
 	PropShadowSoftness uint16 = 0x021C
+	PropShadowBooleans uint16 = 0x023F
 )

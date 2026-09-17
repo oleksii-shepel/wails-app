@@ -8,6 +8,63 @@ import (
 	"office/pkg/ooxml/drawing"
 )
 
+func (c *Chart) defaultChartRect(width, height int) (x, y, w, h int) {
+	left, right := 12, 12
+	top, bottom := 12, 12
+
+	if c.Title != "" {
+		top = 42
+	}
+	if c.Legend.Show {
+		switch c.Legend.Position {
+		case "l", "left":
+			left += minInt(80, maxInt(40, width/4))
+		case "r", "right":
+			right += minInt(80, maxInt(40, width/4))
+		case "t", "top":
+			top += minInt(32, maxInt(18, height/6))
+		default:
+			bottom += minInt(32, maxInt(18, height/6))
+		}
+	}
+
+	// Keep enough room for the actual plot renderer even on compact dashboard
+	// charts. These are fallback guards only; authored manual layout may replace
+	// this rectangle below.
+	if left+right > width-80 {
+		left, right = 8, 8
+	}
+	if top+bottom > height-60 {
+		top, bottom = 8, 8
+		if c.Title != "" && height >= 90 {
+			top = 30
+		}
+	}
+
+	x, y = left, top
+	w, h = width-left-right, height-top-bottom
+	if w < 80 {
+		w = 80
+	}
+	if h < 60 {
+		h = 60
+	}
+	return
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // SVG renders the chart as an SVG string.
 func (c *Chart) SVG(width, height int) string {
 	if width == 0 {
@@ -30,44 +87,11 @@ func (c *Chart) SVG(width, height int) string {
 	}
 	fmt.Fprintf(&b, `<rect width="%d" height="%d" fill="%s"/>`, width, height, bg)
 
-	// Chart area — scale margins down for small charts so the plot
-	// area doesn't disappear, and only reserve legend space when needed.
-	marginX := 60
-	if marginX > width/4 {
-		marginX = width / 4
-	}
-	if marginX < 10 {
-		marginX = 10
-	}
-	marginY := 60
-	if c.Title != "" {
-		marginY = 80
-	}
-	if marginY > height/4 {
-		marginY = height / 4
-	}
-	if marginY < 10 {
-		marginY = 10
-	}
-	legendSpaceX := 0
-	legendSpaceY := 0
-	if c.Legend.Show {
-		switch c.Legend.Position {
-		case "r", "right", "l", "left":
-			legendSpaceX = 80
-		case "t", "top":
-			legendSpaceY = 40
-		default:
-			legendSpaceY = 30
-		}
-	}
-	chartX := marginX
-	chartY := marginY
-	if c.Legend.Show && (c.Legend.Position == "t" || c.Legend.Position == "top") {
-		chartY += 25
-	}
-	chartW := width - 2*marginX - legendSpaceX
-	chartH := height - 2*marginY - legendSpaceY
+	// Allocate the outer chart frame by visible components instead of applying
+	// large symmetric margins. Individual chart renderers already reserve space
+	// for axes and labels; reserving it again here made short/wide dashboard
+	// charts collapse to a very shallow plot area.
+	chartX, chartY, chartW, chartH := c.defaultChartRect(width, height)
 
 	defaultChartX := chartX
 	defaultChartY := chartY
@@ -102,8 +126,9 @@ func (c *Chart) SVG(width, height int) string {
 				titleY = height
 			}
 		}
-		fmt.Fprintf(&b, `<text x="%d" y="%d" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">%s</text>`,
-			titleX, titleY, escapeSVG(c.Title))
+		style := chartTextSVGStyle(c.TitleStyle, 16, true, "333333")
+		fmt.Fprintf(&b, `<text x="%d" y="%d" text-anchor="middle" %s>%s</text>`,
+			titleX, titleY, style, escapeSVG(c.Title))
 	}
 	if c.ManualLayout != nil {
 		baseX, baseY, baseW, baseH := 0, 0, width, height
@@ -440,19 +465,34 @@ func (c *Chart) renderLineChart(b *strings.Builder, x, y, w, h int) {
 		return
 	}
 
-	maxVal := c.axisMax()
-	if maxVal == 0 {
-		maxVal = 1
+	minVal, maxVal := c.axisRange()
+	if maxVal <= minVal {
+		maxVal = minVal + 1
 	}
 
-	// Draw axes
+	// Draw axes before the series. The series themselves are clipped to the
+	// physical plot rectangle so out-of-range authored points cannot leak into
+	// labels, legends, or neighbouring worksheet content.
 	c.renderAxes(b, x, y, w, h, false)
+	plotX, plotY := x+50, y
+	plotW, plotH := w-60, h-40
+	if plotW < 0 {
+		plotW = 0
+	}
+	if plotH < 0 {
+		plotH = 0
+	}
+	clipID := fmt.Sprintf("chart-plot-%d-%d-%d-%d", plotX, plotY, plotW, plotH)
+	fmt.Fprintf(b, `<defs><clipPath id="%s"><rect x="%d" y="%d" width="%d" height="%d"/></clipPath></defs>`, clipID, plotX, plotY, plotW, plotH)
+	fmt.Fprintf(b, `<g clip-path="url(#%s)">`, clipID)
 
-	// Draw lines for each series
 	points := len(c.Series[0].Values)
 	xStep := 0.0
 	if points > 1 {
-		xStep = float64(w-60) / float64(points-1)
+		xStep = float64(plotW) / float64(points-1)
+	}
+	projectY := func(val float64) int {
+		return plotY + plotH - int(((val-minVal)/(maxVal-minVal))*float64(plotH))
 	}
 
 	for seriesIdx, series := range c.Series {
@@ -466,66 +506,59 @@ func (c *Chart) renderLineChart(b *strings.Builder, x, y, w, h int) {
 		}
 
 		var path strings.Builder
-		path.WriteString("M")
-
 		coords := make([][2]int, len(series.Values))
 		for i, val := range series.Values {
-			px := x + 50 + int(float64(i)*xStep)
-			py := y + h - 40 - int((val/maxVal)*float64(h-40))
+			px := plotX + int(float64(i)*xStep)
+			py := projectY(val)
 			coords[i] = [2]int{px, py}
-
-			if i > 0 {
+			if i == 0 {
+				path.WriteString("M")
+			} else {
 				path.WriteString(" L")
 			}
 			fmt.Fprintf(&path, "%d,%d", px, py)
 		}
 
-		// Draw line (smooth or straight)
 		if series.Smooth && len(coords) > 2 {
-			smooth := smoothPath(coords)
-			fmt.Fprintf(b, `<path d="%s" fill="none" stroke="#%s" stroke-width="%d" stroke-linecap="round" stroke-linejoin="round"%s/>`,
-				smooth, color, strokeWidth, strokeDashAttr(series.LinePattern))
+			fmt.Fprintf(b, `<path d="%s" fill="none" stroke="#%s" stroke-width="%d" stroke-linecap="round" stroke-linejoin="round"%s/>`, smoothPath(coords), color, strokeWidth, strokeDashAttr(series.LinePattern))
 		} else {
-			fmt.Fprintf(b, `<path d="%s" fill="none" stroke="#%s" stroke-width="%d" stroke-linecap="round" stroke-linejoin="round"%s/>`,
-				path.String(), color, strokeWidth, strokeDashAttr(series.LinePattern))
+			fmt.Fprintf(b, `<path d="%s" fill="none" stroke="#%s" stroke-width="%d" stroke-linecap="round" stroke-linejoin="round"%s/>`, path.String(), color, strokeWidth, strokeDashAttr(series.LinePattern))
 		}
 
-		// Data point markers
 		markerColor := c.seriesMarkerColor(seriesIdx)
 		markerSize := c.seriesMarkerSize(seriesIdx)
 		for i := range series.Values {
-			px := coords[i][0]
-			py := coords[i][1]
+			px, py := coords[i][0], coords[i][1]
 			c.renderMarker(b, px, py, series.MarkerShape, markerColor, markerSize)
-
-			// Value label
 			if series.ShowDataLabels || series.ShowPercent || series.ShowCatName || series.ShowSerName || series.ShowBubbleSize {
 				labelText := buildDataLabel(&series, i, series.Values[i], 0, c.Categories)
 				style := dataLabelStyleAttrs(effectiveLabelStyle(&series, i), 9, "#333")
 				if series.ShowLeaderLines {
 					renderDataLabelLeaderLine(b, px, py, px, py-6)
 				}
-				fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s>%s</text>`,
-					px, py-8, style, escapeSVG(labelText))
+				fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s>%s</text>`, px, py-8, style, escapeSVG(labelText))
 			}
 		}
 	}
+	b.WriteString(`</g>`)
 
-	// Error bars
-	for _, series := range c.Series {
-		if series.ErrorBars == nil {
-			continue
+	// Keep existing error-bar/trendline behaviour for non-negative charts. Those
+	// helpers currently use a zero-based value domain and need their own signed
+	// range model before they can be projected safely on a mixed-sign axis.
+	if minVal >= 0 {
+		for _, series := range c.Series {
+			if series.ErrorBars == nil {
+				continue
+			}
+			for i, val := range series.Values {
+				px := plotX + int(float64(i)*xStep)
+				py := projectY(val)
+				c.drawErrorBar(b, series.ErrorBars, px, py, val, maxVal, plotH, maxVal, plotW, series.Values, i)
+			}
 		}
-		for i, val := range series.Values {
-			px := x + 50 + int(float64(i)*xStep)
-			py := y + h - 40 - int((val/maxVal)*float64(h-40))
-			c.drawErrorBar(b, series.ErrorBars, px, py, val, maxVal, h-40, maxVal, w-60, series.Values, i)
+		for _, series := range c.Series {
+			c.renderTrendline(b, series, plotX, plotY, plotW, plotH, 0, float64(points-1), maxVal, false)
 		}
-	}
-
-	// Trendlines
-	for _, series := range c.Series {
-		c.renderTrendline(b, series, x+50, y, w-60, h-40, 0, float64(points-1), maxVal, false)
 	}
 
 	c.renderCategoryLabels(b, x, y, w, h, points)
@@ -1961,17 +1994,26 @@ func (c *Chart) renderAxes(b *strings.Builder, x, y, w, h int, horizontal bool) 
 	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
 		x+50, y, x+50, y+h-40, axisColor)
 
-	// X axis
+	// X axis. Cross at zero for a mixed-sign value domain; otherwise use the
+	// nearest plot edge.
+	axisMin, axisMax := c.axisRange()
+	xAxisY := plotY + plotH
+	if axisMin < 0 && axisMax > 0 {
+		xAxisY = plotY + plotH - int(((0-axisMin)/(axisMax-axisMin))*float64(plotH))
+	} else if axisMax <= 0 {
+		xAxisY = plotY
+	}
 	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-		x+50, y+h-40, x+w-10, y+h-40, axisColor)
+		plotX, xAxisY, plotX+plotW, xAxisY, axisColor)
 
 	// Grid lines and Y labels
-	maxVal := c.axisMax()
-	tick := c.axisTickStep(maxVal)
-	if maxVal > 0 && tick > 0 {
-		for val := 0.0; val <= maxVal+0.001; val += tick {
-			yPos := y + h - 40 - int((val/maxVal)*float64(h-40))
-			if c.YAxis.ShowGridlines && val > 0 {
+	minVal, maxVal := c.axisRange()
+	tick := axisTickStep(maxVal-minVal, c.YAxis.MajorUnit)
+	if maxVal > minVal && tick > 0 {
+		startTick := math.Ceil(minVal/tick) * tick
+		for val := startTick; val <= maxVal+0.001; val += tick {
+			yPos := plotY + plotH - int(((val-minVal)/(maxVal-minVal))*float64(plotH))
+			if c.YAxis.ShowGridlines && math.Abs(val) > 1e-9 {
 				gridColor := "#ccc"
 				if resolved := c.resolveSolidFill(c.YAxis.gridlineRef); resolved != "" {
 					gridColor = "#" + resolved
@@ -1983,24 +2025,20 @@ func (c *Chart) renderAxes(b *strings.Builder, x, y, w, h int, horizontal bool) 
 			}
 			fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
 				x+46, yPos, x+50, yPos, axisColor)
-			if c.PercentStacked {
-				fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="end" font-size="9" fill="#000">%.0f%%</text>`,
-					x+40, yPos+3, val)
-			} else {
-				fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="end" font-size="9" fill="#000">%.0f</text>`,
-					x+40, yPos+3, val)
-			}
+			label := formatAxisValue(val, c.YAxis.NumFmt, c.PercentStacked)
+			fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="end" %s>%s</text>`,
+				x+40, yPos+3, chartTextSVGStyle(c.YAxis.LabelStyle, 9, false, "000000"), escapeSVG(label))
 		}
 	}
 
 	// Axis titles
 	if c.YAxis.Title != "" {
-		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#333" transform="rotate(-90 %d %d)">%s</text>`,
-			x+15, y+h/2, x+15, y+h/2, escapeSVG(c.YAxis.Title))
+		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s transform="rotate(-90 %d %d)">%s</text>`,
+			x+15, y+h/2, chartTextSVGStyle(c.YAxis.TitleStyle, 11, false, "333333"), x+15, y+h/2, escapeSVG(c.YAxis.Title))
 	}
 	if c.XAxis.Title != "" {
-		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#333">%s</text>`,
-			x+w/2+25, y+h-5, escapeSVG(c.XAxis.Title))
+		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s>%s</text>`,
+			x+w/2+25, y+h-5, chartTextSVGStyle(c.XAxis.TitleStyle, 11, false, "333333"), escapeSVG(c.XAxis.Title))
 	}
 }
 
@@ -2607,6 +2645,66 @@ func scatterRenderOptions(series Series) (drawLine, smooth, drawMarker bool) {
 	}
 }
 
+
+func (c *Chart) chartValueRange() (float64, float64, bool) {
+	minVal, maxVal := 0.0, 0.0
+	haveValues := false
+	for _, series := range c.Series {
+		for _, value := range series.Values {
+			if !haveValues {
+				minVal, maxVal = value, value
+				haveValues = true
+				continue
+			}
+			if value < minVal {
+				minVal = value
+			}
+			if value > maxVal {
+				maxVal = value
+			}
+		}
+	}
+	return minVal, maxVal, haveValues
+}
+
+func (c *Chart) axisRange() (float64, float64) {
+	minVal, maxVal, haveValues := c.chartValueRange()
+	if !haveValues {
+		// Charts with authored series metadata but no cached/resolved points are
+		// valid during OOXML resolution. Keep a stable automatic domain instead
+		// of calling MinValue(), which assumes Series[0].Values[0] exists.
+		minVal, maxVal = 0, 0
+	}
+	// Axis.Min/Max use zero as the legacy "auto" sentinel in the canonical
+	// model, so only non-zero authored bounds override the data-derived range.
+	if c.YAxis.Min != 0 {
+		minVal = c.YAxis.Min
+	}
+	if c.YAxis.Max != 0 {
+		maxVal = c.YAxis.Max
+	}
+	if c.YAxis.Min == 0 && minVal > 0 {
+		minVal = 0
+	}
+	if c.YAxis.Max == 0 && maxVal < 0 {
+		maxVal = 0
+	}
+	span := maxVal - minVal
+	if span <= 0 {
+		return minVal, maxVal
+	}
+	step := axisTickStep(span, c.YAxis.MajorUnit)
+	if step > 0 {
+		if c.YAxis.Min == 0 && minVal < 0 {
+			minVal = math.Floor(minVal/step) * step
+		}
+		if c.YAxis.Max == 0 && maxVal > 0 {
+			maxVal = math.Ceil(maxVal/step) * step
+		}
+	}
+	return minVal, maxVal
+}
+
 func (c *Chart) axisMax() float64 {
 	return c.axisMaxForValueRange(c.MaxValue(), c.YAxis)
 }
@@ -2682,12 +2780,13 @@ func (c *Chart) renderSecondaryYAxis(b *strings.Builder, x, y, w, h int, maxVal 
 		yPos := y + h - 40 - int((val/maxVal)*float64(h-40))
 		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
 			rightX, yPos, rightX+4, yPos, axisColor)
-		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="start" font-size="9" fill="#000">%.0f</text>`,
-			rightX+8, yPos+3, val)
+		label := formatAxisValue(val, c.YAxis2.NumFmt, false)
+		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="start" %s>%s</text>`,
+			rightX+8, yPos+3, chartTextSVGStyle(c.YAxis2.LabelStyle, 9, false, "000000"), escapeSVG(label))
 	}
 	if c.YAxis2.Title != "" {
-		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#333" transform="rotate(90 %d %d)">%s</text>`,
-			rightX+24, y+h/2, rightX+24, y+h/2, escapeSVG(c.YAxis2.Title))
+		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s transform="rotate(90 %d %d)">%s</text>`,
+			rightX+24, y+h/2, chartTextSVGStyle(c.YAxis2.TitleStyle, 11, false, "333333"), rightX+24, y+h/2, escapeSVG(c.YAxis2.Title))
 	}
 }
 
@@ -2799,8 +2898,8 @@ func (c *Chart) renderLegend(b *strings.Builder, width, height, chartX, chartY, 
 			color := c.seriesFillColor(i)
 			fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="#%s"/>`,
 				legendX, y, color)
-			fmt.Fprintf(b, `<text x="%d" y="%d" font-size="11" fill="#333">%s</text>`,
-				legendX+16, y+10, escapeSVG(c.Series[i].Name))
+			fmt.Fprintf(b, `<text x="%d" y="%d" %s>%s</text>`,
+				legendX+16, y+10, chartTextSVGStyle(c.Legend.TextStyle, 11, false, "333333"), escapeSVG(c.Series[i].Name))
 		}
 	case "l", "left":
 		itemHeight := 20
@@ -2817,8 +2916,8 @@ func (c *Chart) renderLegend(b *strings.Builder, width, height, chartX, chartY, 
 			color := c.seriesFillColor(i)
 			fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="#%s"/>`,
 				legendX, y, color)
-			fmt.Fprintf(b, `<text x="%d" y="%d" font-size="11" fill="#333">%s</text>`,
-				legendX+16, y+10, escapeSVG(c.Series[i].Name))
+			fmt.Fprintf(b, `<text x="%d" y="%d" %s>%s</text>`,
+				legendX+16, y+10, chartTextSVGStyle(c.Legend.TextStyle, 11, false, "333333"), escapeSVG(c.Series[i].Name))
 		}
 	case "t", "top":
 		itemWidth := 100
@@ -2835,8 +2934,8 @@ func (c *Chart) renderLegend(b *strings.Builder, width, height, chartX, chartY, 
 			color := c.seriesFillColor(i)
 			fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="#%s"/>`,
 				lx, ly, color)
-			fmt.Fprintf(b, `<text x="%d" y="%d" font-size="11" fill="#333">%s</text>`,
-				lx+16, ly+10, escapeSVG(c.Series[i].Name))
+			fmt.Fprintf(b, `<text x="%d" y="%d" %s>%s</text>`,
+				lx+16, ly+10, chartTextSVGStyle(c.Legend.TextStyle, 11, false, "333333"), escapeSVG(c.Series[i].Name))
 		}
 	default:
 		// bottom
@@ -2851,8 +2950,8 @@ func (c *Chart) renderLegend(b *strings.Builder, width, height, chartX, chartY, 
 			color := c.seriesFillColor(i)
 			fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="#%s"/>`,
 				x, y, color)
-			fmt.Fprintf(b, `<text x="%d" y="%d" font-size="11" fill="#333">%s</text>`,
-				x+16, y+10, escapeSVG(c.Series[i].Name))
+			fmt.Fprintf(b, `<text x="%d" y="%d" %s>%s</text>`,
+				x+16, y+10, chartTextSVGStyle(c.Legend.TextStyle, 11, false, "333333"), escapeSVG(c.Series[i].Name))
 		}
 	}
 }
@@ -2890,8 +2989,8 @@ func (c *Chart) renderLegendBox(b *strings.Builder, vis []int, x, y, w, h int) {
 			color := c.seriesFillColor(i)
 			fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="#%s"/>`,
 				innerX, y, color)
-			fmt.Fprintf(b, `<text x="%d" y="%d" font-size="11" fill="#333">%s</text>`,
-				innerX+16, y+10, escapeSVG(c.Series[i].Name))
+			fmt.Fprintf(b, `<text x="%d" y="%d" %s>%s</text>`,
+				innerX+16, y+10, chartTextSVGStyle(c.Legend.TextStyle, 11, false, "333333"), escapeSVG(c.Series[i].Name))
 		}
 		return
 	}
@@ -2904,10 +3003,46 @@ func (c *Chart) renderLegendBox(b *strings.Builder, vis []int, x, y, w, h int) {
 		color := c.seriesFillColor(i)
 		fmt.Fprintf(b, `<rect x="%d" y="%d" width="12" height="12" fill="#%s"/>`,
 			currentX, innerY, color)
-		fmt.Fprintf(b, `<text x="%d" y="%d" font-size="11" fill="#333">%s</text>`,
-			currentX+16, innerY+10, escapeSVG(c.Series[i].Name))
+		fmt.Fprintf(b, `<text x="%d" y="%d" %s>%s</text>`,
+			currentX+16, innerY+10, chartTextSVGStyle(c.Legend.TextStyle, 11, false, "333333"), escapeSVG(c.Series[i].Name))
 		currentX += itemWidth
 	}
+}
+
+func chartTextSVGStyle(style *TextProperties, defaultSize int, defaultBold bool, defaultColor string) string {
+	size := float64(defaultSize)
+	bold := defaultBold
+	italic := false
+	color := defaultColor
+	if style != nil {
+		if style.FontSize > 0 {
+			size = float64(style.FontSize) / 100.0
+		}
+		bold = style.Bold
+		italic = style.Italic
+		if style.Color != "" {
+			color = style.Color
+		}
+	}
+	weight := "normal"
+	if bold {
+		weight = "bold"
+	}
+	fontStyle := "normal"
+	if italic {
+		fontStyle = "italic"
+	}
+	return fmt.Sprintf(`font-size="%.2f" font-weight="%s" font-style="%s" fill="#%s"`, size, weight, fontStyle, color)
+}
+
+func formatAxisValue(val float64, numFmt string, percentStacked bool) string {
+	if percentStacked {
+		if numFmt == "" || numFmt == "General" {
+			return fmt.Sprintf("%.0f%%", val)
+		}
+		return formatDataLabelValue(val, numFmt, true)
+	}
+	return formatDataLabelValue(val, numFmt, false)
 }
 
 // escapeSVG escapes special characters for SVG text content using XML entities.

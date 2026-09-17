@@ -301,15 +301,25 @@ func applyDrawingToDiagram(drawingXML, dataModelXML []byte, frame *FrameBounds, 
 		}
 
 		if frame != nil && frameW > 0 && frameH > 0 {
-			// Uniform scale to preserve aspect ratio, centered in the frame.
-			scale := frameW / drawingW
-			if frameH/drawingH < scale {
-				scale = frameH / drawingH
+			// DrawingBounds is expressed in EMU while the layout engine and frame
+			// are expressed in points. Convert the drawing envelope exactly once
+			// before deriving the fit scale. Mixing the two units made pre-rendered
+			// SmartArt nodes roughly 12,700x too small. Also normalize every node
+			// against the drawing envelope origin: diagram drawings are not required
+			// to start at (0,0).
+			drawingWPt := emuToPt(drawingW)
+			drawingHPt := emuToPt(drawingH)
+			if drawingWPt <= 0 || drawingHPt <= 0 {
+				continue
 			}
-			offsetX := frameX + (frameW-drawingW*scale)/2
-			offsetY := frameY + (frameH-drawingH*scale)/2
-			node.Position.X = emuToPt(s.X)*scale + offsetX
-			node.Position.Y = emuToPt(s.Y)*scale + offsetY
+			scale := frameW / drawingWPt
+			if frameH/drawingHPt < scale {
+				scale = frameH / drawingHPt
+			}
+			offsetX := frameX + (frameW-drawingWPt*scale)/2
+			offsetY := frameY + (frameH-drawingHPt*scale)/2
+			node.Position.X = emuToPt(s.X-minX)*scale + offsetX
+			node.Position.Y = emuToPt(s.Y-minY)*scale + offsetY
 			node.Position.Width = emuToPt(s.W) * scale
 			node.Position.Height = emuToPt(s.H) * scale
 		} else {

@@ -200,37 +200,57 @@ func TestOpenXLSXExistingChartMutationRoundTrip(t *testing.T) {
 	}
 }
 
-func TestOpenXLSXExistingChartRemovalRoundTrip(t *testing.T) {
-	wb := openFixtureWorkbook(t, "sample-2.xlsx")
-	sheet, beforeCount := findSheetWithChartCount(t, wb, "Chart")
+func TestExistingChartRemovalRoundTrip(t *testing.T) {
+	// Removal semantics must not depend on a mutable external corpus fixture.
+	// Build two same-named charts through the public edit API, round-trip once,
+	// then reopen that authored workbook and remove exactly one chart.
+	wb := newWorkbookWithSheet(t)
+	sheet, err := wb.Sheet(0)
+	if err != nil {
+		t.Fatalf("Sheet(0): %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		chart := edit.NewChart(chartmodel.ChartLine, "Chart")
+		chart.Categories = []string{"Jan", "Feb"}
+		chart.Series = []chartmodel.Series{{Name: "Series", Values: []float64{float64(i + 1), float64(i + 2)}}}
+		if _, err := sheet.AddChartOneCell("Chart", chart, 2+i*12, 2, 3600000, 2400000); err != nil {
+			t.Fatalf("AddChartOneCell(%d): %v", i, err)
+		}
+	}
+
+	var authored bytes.Buffer
+	if err := wb.SaveAsXLSX(&authored); err != nil {
+		t.Fatalf("SaveAsXLSX authored fixture: %v", err)
+	}
+	reopened, err := edit.OpenXLSX(bytes.NewReader(authored.Bytes()), int64(authored.Len()))
+	if err != nil {
+		t.Fatalf("OpenXLSX authored fixture: %v", err)
+	}
+	reopenedSheet, beforeCount := findSheetWithChartCount(t, reopened, "Chart")
 	if beforeCount != 2 {
 		t.Fatalf("existing chart count = %d, want 2", beforeCount)
 	}
-	if !sheet.RemoveChart("Chart") {
+	if !reopenedSheet.RemoveChart("Chart") {
 		t.Fatal("RemoveChart returned false")
 	}
 
 	var buf bytes.Buffer
-	if err := wb.SaveAsXLSX(&buf); err != nil {
+	if err := reopened.SaveAsXLSX(&buf); err != nil {
 		t.Fatalf("SaveAsXLSX: %v", err)
 	}
 
 	roundTrip := resolveWorkbook(t, buf.Bytes())
+	remaining := 0
 	for _, rtSheet := range roundTrip.Sheets {
-		count := 0
 		for _, drawing := range rtSheet.Drawings {
 			if drawing != nil && drawing.Type == sheetir.DrawingTypeChart && drawing.Name == "Chart" {
-				count++
+				remaining++
 			}
-		}
-		if count > 0 {
-			if count != 1 {
-				t.Fatalf("chart count after removal = %d, want 1", count)
-			}
-			return
 		}
 	}
-	t.Fatal("expected one remaining existing chart after removal")
+	if remaining != 1 {
+		t.Fatalf("chart count after removal = %d, want 1", remaining)
+	}
 }
 
 func TestSheetChartAdvancedMutationRoundTrip(t *testing.T) {

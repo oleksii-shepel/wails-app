@@ -293,8 +293,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.settings.open.ctrlComma', commandId:COMMAND.openSettings, contextId:CONTEXT_ID, source:'default', description:'Open Settings', category:'Settings', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:',', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.switchPane.tab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
   { id:'reassembly.manager.switchPane.shiftTab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane backward', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['shift']}]}}},
-  { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
-  { id:'reassembly.manager.cursorDown.arrowDown', commandId:COMMAND.cursorDown, contextId:CONTEXT_ID, source:'default', description:'Move cursor down', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
+  { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', preventDefault:true, stopPropagation:true, trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
+  { id:'reassembly.manager.cursorDown.arrowDown', commandId:COMMAND.cursorDown, contextId:CONTEXT_ID, source:'default', description:'Move cursor down', category:'Navigation', when:'!typing', preventDefault:true, stopPropagation:true, trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
   { id:'reassembly.manager.open.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open selected item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
   { id:'reassembly.manager.up.backspace', commandId:COMMAND.up, contextId:CONTEXT_ID, source:'default', description:'Parent directory', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'backspace'}]}}},
   { id:'reassembly.manager.back.altLeft', commandId:COMMAND.back, contextId:CONTEXT_ID, source:'default', description:'Back', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft', modifiers:['alt']}]}}},
@@ -353,8 +353,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},
-  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing && !viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
-  { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing && !viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
+  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Move cursor left or collapse tree node', category:'Navigation', when:'!typing && !viewerSurface', preventDefault:true, stopPropagation:true, trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
+  { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Move cursor right or expand tree node', category:'Navigation', when:'!typing && !viewerSurface', preventDefault:true, stopPropagation:true, trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
   { id:'reassembly.compare.toggle.altShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['alt','shift']}]}}},
   { id:'reassembly.compare.recursive.ctrlShiftAltC', commandId:COMMAND.recursiveComparePanes, contextId:CONTEXT_ID, source:'default', description:'Recursive pane compare', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift','alt']}]}}},
 
@@ -6183,17 +6183,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     );
     descriptor(
       COMMAND.treeLeft,
-      'Tree Collapse or Parent',
+      'Move Cursor Left / Collapse Tree Node',
       'Navigation',
       () => this.activePane?.commands?.treeLeft(),
-      () => this.activePane?.contextState.viewMode === 'tree',
+      () => ['tree', 'grid'].includes(this.activePane?.contextState.viewMode ?? ''),
     );
     descriptor(
       COMMAND.treeRight,
-      'Tree Expand or Child',
+      'Move Cursor Right / Expand Tree Node',
       'Navigation',
       () => this.activePane?.commands?.treeRight(),
-      () => this.activePane?.contextState.viewMode === 'tree',
+      () => ['tree', 'grid'].includes(this.activePane?.contextState.viewMode ?? ''),
     );
     descriptor(
       COMMAND.comparePanes,

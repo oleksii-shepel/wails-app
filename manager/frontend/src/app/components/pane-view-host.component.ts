@@ -126,6 +126,7 @@ export interface PaneViewHostBrowserConfig {
           [colorizeByMime]="colorizeByMime"
           [paneActive]="paneActive"
           [selectedFiles]="selectedFiles"
+          [cursorPath]="cursorPath"
           [loading]="loading"
           [emptyMessage]="treeEmptyMessage"
           (selectionChange)="onTreeSelectionChange($event)"

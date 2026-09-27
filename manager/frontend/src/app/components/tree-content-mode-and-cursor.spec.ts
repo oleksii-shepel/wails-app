@@ -29,4 +29,19 @@ describe('Tree content modes and cursor parity', () => {
     expect(paneTree).toContain('border-radius: 3px;');
     expect(paneTree).toContain('inset 3px 0 0 var(--vsc-accent-blue');
   });
+
+  it('binds the tree focus cursor to the pane program cursor', () => {
+    expect(container).toContain('[cursorPath]="cursorPath"');
+    expect(paneTree).toContain('@Input() cursorPath: string | null = null;');
+    expect(paneTree).toContain('this.syncFocusedNodeToCursor();');
+    expect(paneTree).toContain("if (changes['cursorPath'] && this.cursorPath)");
+    expect(paneTree).toContain('if (cursorNode) this.ensureVisible(cursorNode);');
+  });
+
+  it('moves tree selection with keyboard focus instead of changing a private cursor only', () => {
+    expect(paneTree).toContain('this.selectNode(next);');
+    expect(paneTree).toContain('this.selectNode(previous);');
+    expect(paneTree).not.toContain('this.focusedNodePath = visible[currentIdx + 1].path;');
+    expect(paneTree).not.toContain('this.focusedNodePath = visible[currentIdx - 1].path;');
+  });
 });

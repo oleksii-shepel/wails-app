@@ -343,6 +343,7 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
     prefetchGuardRatio: 0.20,
   });
   private scrollRAF: number | null = null;
+  private cursorFollowRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
   private cachedVirtualEntries: FileInfo[] = [];
@@ -419,6 +420,7 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.setupScrollListener();
     this.refreshDerivedEntries();
     requestAnimationFrame(() => this.measureHeights());
+    this.scheduleCursorFollow();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -433,6 +435,9 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
       }
       this.refreshDerivedEntries();
       queueMicrotask(() => requestAnimationFrame(() => this.measureHeights()));
+      if (changes['cursorPath']) {
+        this.scheduleCursorFollow();
+      }
       this.cdr.markForCheck();
       return;
     }
@@ -443,6 +448,9 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
       changes['cursorPath']
     ) {
       this.rebuildVisibleRowVms();
+      if (changes['cursorPath']) {
+        this.scheduleCursorFollow();
+      }
       this.cdr.markForCheck();
     }
   }
@@ -462,6 +470,9 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.cleanupScrollListener();
     if (this.scrollRAF) {
       cancelAnimationFrame(this.scrollRAF);
+    }
+    if (this.cursorFollowRAF) {
+      cancelAnimationFrame(this.cursorFollowRAF);
     }
   }
 
@@ -830,11 +841,33 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
     });
   }
 
+  private scheduleCursorFollow(): void {
+    const path = this.cursorPath;
+    if (!path) return;
+    if (this.cursorFollowRAF) {
+      cancelAnimationFrame(this.cursorFollowRAF);
+    }
+    this.cursorFollowRAF = requestAnimationFrame(() => {
+      this.cursorFollowRAF = null;
+      if (this.cursorPath === path) {
+        this.scrollToPath(path);
+      }
+    });
+  }
+
   /** Scroll the list to bring the given path into view. */
   scrollToPath(path: string): void {
-    if (!path || path === PARENT_ENTRY_PATH) return;
+    if (!path) return;
     const host = this.paneContentRef?.nativeElement;
     if (!host) return;
+    if (path === PARENT_ENTRY_PATH) {
+      host.scrollTop = 0;
+      if (this.virtualEnabled) {
+        this.updateVirtualWindow();
+        this.cdr.markForCheck();
+      }
+      return;
+    }
     if (this.virtualEnabled) {
       const idx = this.pathToVirtualIndex.get(path);
       if (idx !== undefined) {

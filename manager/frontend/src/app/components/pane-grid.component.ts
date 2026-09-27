@@ -456,6 +456,7 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private readonly overscanRows = 16;
   private readonly windowGuardRows = 6;
   private scrollRAF: number | null = null;
+  private cursorFollowRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
 
@@ -568,9 +569,23 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     return rows * Math.max(1, this.cachedVirtualColumns);
   }
 
+  private scheduleCursorFollow(): void {
+    const path = this.cursorPath;
+    if (!path) return;
+    if (this.cursorFollowRAF) {
+      cancelAnimationFrame(this.cursorFollowRAF);
+    }
+    this.cursorFollowRAF = requestAnimationFrame(() => {
+      this.cursorFollowRAF = null;
+      if (this.cursorPath === path) {
+        this.scrollToPath(path);
+      }
+    });
+  }
+
   /** Scroll the grid to bring the given path into view. */
   scrollToPath(path: string): void {
-    if (!path || path === PARENT_ENTRY_PATH) return;
+    if (!path) return;
     const host = this.gridContainerRef?.nativeElement;
     if (!host) return;
     const idx = this.pathToEntryIndex.get(path) ?? -1;
@@ -717,6 +732,7 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.beginThumbnailGeneration();
     this.updateVirtualWindow(true);
     this.refreshThumbnailPriorities(true);
+    this.scheduleCursorFollow();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -739,8 +755,14 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       this.rebuildDerivedEntries();
       this.updateVirtualWindow(true);
       this.refreshThumbnailPriorities(true);
+      if (changes['cursorPath']) {
+        this.scheduleCursorFollow();
+      }
       this.cdr.markForCheck();
     } else if (changes['pendingDirectorySizePaths'] || changes['selectedFiles'] || changes['cursorPath']) {
+      if (changes['cursorPath']) {
+        this.scheduleCursorFollow();
+      }
       this.cdr.markForCheck();
     }
   }
@@ -759,6 +781,9 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.cleanupScrollListener();
     if (this.scrollRAF) {
       cancelAnimationFrame(this.scrollRAF);
+    }
+    if (this.cursorFollowRAF) {
+      cancelAnimationFrame(this.cursorFollowRAF);
     }
     if (this.reflowRaf) {
       cancelAnimationFrame(this.reflowRaf);

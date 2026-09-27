@@ -4441,6 +4441,10 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   async treeLeft(): Promise<void> {
+    if (this.viewMode === 'grid') {
+      this.moveGridCursorHorizontal(-1);
+      return;
+    }
     if (this.isBinLocation && this.binDetailsMode === 'grouped') {
       const visible = this.visibleEntries;
       const cursor = visible.find(item => item.path === this.cursorPath);
@@ -4489,6 +4493,10 @@ export class BinPaneComponent implements OnInit, OnDestroy {
   }
 
   async treeRight(): Promise<void> {
+    if (this.viewMode === 'grid') {
+      this.moveGridCursorHorizontal(1);
+      return;
+    }
     if (this.isBinLocation && this.binDetailsMode === 'grouped') {
       const visible = this.visibleEntries;
       const cursor = visible.find(item => item.path === this.cursorPath);
@@ -4528,6 +4536,27 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       this.ensureCursorVisible();
       this.cdr.markForCheck();
     }
+  }
+
+  private moveGridCursorHorizontal(delta: -1 | 1): void {
+    const visible = this.selectableEntries();
+    if (!this.isDirectoryTab || visible.length === 0) return;
+
+    this.markUserInteraction();
+    const currentIndex = this.cursorPath
+      ? visible.findIndex(entry => entry.path === this.cursorPath)
+      : -1;
+    const nextIndex = currentIndex < 0
+      ? (delta < 0 ? visible.length - 1 : 0)
+      : Math.max(0, Math.min(visible.length - 1, currentIndex + delta));
+    const entry = visible[nextIndex];
+    if (!entry) return;
+
+    this.setSingleSelection(entry);
+    this.lastAction = delta < 0 ? 'cursor left' : 'cursor right';
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
   }
 
   focusFilter(): void {
@@ -5415,9 +5444,12 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       this.anchorPath = entries[index]?.path ?? null;
     }
 
+    const cursorStep = this.viewMode === 'grid'
+      ? this.estimatedGridColumns()
+      : 1;
     const nextIndex = Math.max(
       0,
-      Math.min(entries.length - 1, index + delta),
+      Math.min(entries.length - 1, index + delta * cursorStep),
     );
     const next = entries[nextIndex];
     if (!next) return;
@@ -9712,9 +9744,12 @@ export class BinPaneComponent implements OnInit, OnDestroy {
       ? visible.findIndex(entry => entry.path === this.cursorPath)
       : -1;
 
+    const cursorStep = this.viewMode === 'grid'
+      ? this.estimatedGridColumns()
+      : 1;
     const nextIndex = currentIndex < 0
       ? 0
-      : Math.max(0, Math.min(visible.length - 1, currentIndex + delta));
+      : Math.max(0, Math.min(visible.length - 1, currentIndex + delta * cursorStep));
 
     const entry = visible[nextIndex];
     this.setSingleSelection(entry);

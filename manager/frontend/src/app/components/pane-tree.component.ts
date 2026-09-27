@@ -455,6 +455,7 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() paneActive = true;
   @Input() colorizeByMime = false;
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() cursorPath: string | null = null;
   @Input() loading = false;
   @Input() emptyMessage = 'No items';
 
@@ -594,6 +595,11 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       this.suppressNextAutoExpand = false;
     }
     this.refreshVisibleNodes();
+    this.syncFocusedNodeToCursor();
+    if (changes['cursorPath'] && this.cursorPath) {
+      const cursorNode = this.findNodeByPath(this.nodes, this.cursorPath);
+      if (cursorNode) this.ensureVisible(cursorNode);
+    }
     this.updateVirtualWindow(true);
     this.cdr.markForCheck();
   }
@@ -803,7 +809,7 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   getFocusedNodePath(): string | null {
-    return this.focusedNodePath;
+    return this.cursorPath ?? this.focusedNodePath;
   }
 
   isNodeExpanded(path: string): boolean {
@@ -892,7 +898,13 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   isFocusedNode(node: TreeNode): boolean {
-    return this.focusedNodePath === node.path;
+    return (this.cursorPath ?? this.focusedNodePath) === node.path;
+  }
+
+  private syncFocusedNodeToCursor(): void {
+    if (!this.cursorPath) return;
+    if (!this.visibleNodeIndex.has(this.cursorPath)) return;
+    this.focusedNodePath = this.cursorPath;
   }
 
   private selectNodeAndAdvance(node: TreeNode, visible: TreeNode[]): void {
@@ -955,8 +967,9 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   onFocus(): void {
     this.isFocused = true;
-    if (!this.focusedNodePath && this.nodes.length > 0) {
-      this.focusedNodePath = this.nodes[0].path;
+    this.syncFocusedNodeToCursor();
+    if (!this.focusedNodePath && this.flatVisibleNodes.length > 0) {
+      this.focusedNodePath = this.flatVisibleNodes[0].path;
     }
     this.cdr.markForCheck();
   }
@@ -1576,11 +1589,12 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       case 'ArrowDown':
         event.preventDefault();
         if (currentIdx < visible.length - 1) {
-          this.focusedNodePath = visible[currentIdx + 1].path;
+          const next = visible[currentIdx + 1];
           if (event.shiftKey && this.anchorNodePath) {
-            this.selectNode(visible[currentIdx + 1], false, true);
+            this.selectNode(next, false, true);
           } else {
-            this.ensureVisible(visible[currentIdx + 1]);
+            this.selectNode(next);
+            this.ensureVisible(next);
           }
         }
         break;
@@ -1588,11 +1602,12 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       case 'ArrowUp':
         event.preventDefault();
         if (currentIdx > 0) {
-          this.focusedNodePath = visible[currentIdx - 1].path;
+          const previous = visible[currentIdx - 1];
           if (event.shiftKey && this.anchorNodePath) {
-            this.selectNode(visible[currentIdx - 1], false, true);
+            this.selectNode(previous, false, true);
           } else {
-            this.ensureVisible(visible[currentIdx - 1]);
+            this.selectNode(previous);
+            this.ensureVisible(previous);
           }
         }
         break;
@@ -1605,7 +1620,8 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
           } else {
             const child = visible[currentIdx + 1];
             if (child && child.parent === current) {
-              this.focusedNodePath = child.path;
+              this.selectNode(child);
+              this.ensureVisible(child);
             }
           }
         }
@@ -1617,7 +1633,7 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
           if (current.expandable && this.isExpanded(current)) {
             this.toggleNode(current);
           } else if (current.parent) {
-            this.focusedNodePath = current.parent.path;
+            this.selectNode(current.parent);
             this.ensureVisible(current.parent);
           }
         }
@@ -1668,13 +1684,13 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
       case 'Home':
         event.preventDefault();
-        this.focusedNodePath = visible[0].path;
+        this.selectNode(visible[0]);
         this.ensureVisible(visible[0]);
         break;
 
       case 'End':
         event.preventDefault();
-        this.focusedNodePath = visible[visible.length - 1].path;
+        this.selectNode(visible[visible.length - 1]);
         this.ensureVisible(visible[visible.length - 1]);
         break;
 

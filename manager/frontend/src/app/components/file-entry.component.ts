@@ -234,6 +234,12 @@ function truncateFileName(name: string, maxLength: number): string {
         border-left-color: transparent !important;
 
         &.selected { background: transparent; color: inherit; }
+
+        /* Parent is still a real program-cursor position. */
+        &.cursor {
+          background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
+          border-left-color: var(--vsc-accent-blue) !important;
+        }
         .file-name { font-style: italic; letter-spacing: 0.02em; }
         .file-details { visibility: hidden; }
         .file-icon { opacity: calc(1 / 0.65); }
@@ -495,6 +501,12 @@ function truncateFileName(name: string, maxLength: number): string {
     }
 
     /* ── Grid variant ───────────────────────────────────────── */
+    :host(.variant-grid) {
+      display: block;
+      width: 100%;
+      min-width: 0;
+    }
+
     :host(.variant-grid) .file-entry {
       min-height: auto;
       padding: 0;
@@ -525,13 +537,16 @@ function truncateFileName(name: string, maxLength: number): string {
     }
 
     :host(.variant-grid) .file-name {
-      display: inline-flex;
-      flex-wrap: wrap;
+      display: -webkit-box;
+      width: 100%;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
       font-size: var(--vsc-font-size-small);
       line-height: 1.3;
-      justify-content: center;
       text-align: center;
       white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     :host(.variant-grid) .entry-chip {

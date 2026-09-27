@@ -16,10 +16,10 @@ describe('pane virtual scroll hot path', () => {
     expect(list).toContain('this.cachedVirtualEntries.slice(window.start, window.end)');
   });
 
-  it('materializes visible rows from the resident VirtualCollection window', () => {
+  it('keeps rendered windows bounded without making VirtualCollection a second Grid source of truth', () => {
     expect(details).toContain('Array.from(this.virtualCollection.renderedItems())');
-    expect(grid).toContain('Array.from(this.virtualCollection.renderedItems())');
     expect(list).toContain('Array.from(this.virtualCollection.renderedItems())');
+    expect(grid).toContain('this.entries.slice(this.virtualStart, this.virtualEnd)');
   });
 
   it('does not eagerly build full-directory cursor indexes in list/details/grid', () => {

@@ -39,6 +39,7 @@ import {
       #gridContainer
       class="file-grid"
       [class.virtual]="virtualEnabled"
+      [style.--grid-row-pitch]="rowHeight + 'px'"
       [class.drop-target-bg]="isBackgroundDropTarget"
       [class.dragging]="draggingPaths.size > 0"
       (mousedown)="onGridMouseDown($event)"
@@ -197,10 +198,21 @@ import {
       top: var(--vsc-padding-md);
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
+      /* Keep DOM row geometry identical to the virtual scroll model.
+         --grid-row-pitch is the full row pitch, including the grid gap. */
+      --grid-row-gap: var(--vsc-padding-md);
+      grid-auto-rows: calc(var(--grid-row-pitch) - var(--grid-row-gap));
       align-content: start;
-      gap: var(--vsc-padding-md);
+      gap: var(--grid-row-gap);
       padding: 0 var(--vsc-padding-md);
       will-change: transform;
+    }
+
+    .grid-window.virtual-window .grid-item {
+      box-sizing: border-box;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .selection-rect {
@@ -385,10 +397,15 @@ import {
     }
 
     :host-context(.compact-mode) {
-      .file-grid,
-      .grid-window.virtual-window {
+      .file-grid {
         grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
         gap: var(--vsc-padding-sm);
+      }
+
+      .grid-window.virtual-window {
+        --grid-row-gap: var(--vsc-padding-sm);
+        grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
+        gap: var(--grid-row-gap);
       }
       
       .grid-icon {
@@ -452,7 +469,7 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   
   // OPTIMIZED: Lower threshold for earlier virtualization activation
   private readonly VIRTUAL_THRESHOLD = 200;
-  private readonly rowHeight = 124;
+  readonly rowHeight = 124;
   private readonly overscanRows = 16;
   private readonly windowGuardRows = 6;
   private scrollRAF: number | null = null;
@@ -1218,8 +1235,11 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   private rebuildVisibleEntries(): void {
+    // Render directly from the logical source window. VirtualCollection keeps
+    // only the same resident slice for identity lookups, but must not become a
+    // second source of truth for Grid ordering/layout.
     this.visibleEntriesCache = this.virtualEnabled
-      ? Array.from(this.virtualCollection.renderedItems())
+      ? this.entries.slice(this.virtualStart, this.virtualEnd)
       : this.entries;
   }
 

@@ -30,6 +30,7 @@ func LayoutTextFrame(shape *ir.Shape, frame TextFrameMetrics) TextFrameLayout {
 	frameHeightPt := drawing.EMUToPoints(shape.Bounds.H)
 	availableHeight := math.Max(0, frameHeightPt-frame.InsetTopPt-frame.InsetBottomPt)
 	out := TextFrameLayout{AvailableHeightPt: availableHeight}
+	measuredAny := false
 
 	for _, p := range shape.Paragraphs {
 		if p == nil {
@@ -37,6 +38,10 @@ func LayoutTextFrame(shape *ir.Shape, frame TextFrameMetrics) TextFrameLayout {
 		}
 		baseFontPt := paragraphBaseFontPt(p, frame.FontScale)
 		pm := ResolveParagraphMetrics(p, frameWidthPt, baseFontPt, frame.LineScale)
+		if !measuredAny {
+			SuppressLeadingSpaceBefore(&pm)
+		}
+		measuredAny = true
 		if !CanLayoutParagraphLines(p, pm, frame.FontScale) {
 			return TextFrameLayout{AvailableHeightPt: availableHeight}
 		}

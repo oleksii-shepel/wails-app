@@ -2,6 +2,7 @@ package legacytoooxml
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"office/pkg/ooxml/drawing"
@@ -513,6 +514,8 @@ func (c *converter) convertImageShape(shape *presentationir.Shape) presparts.Pic
 		}
 	}
 
+	blipFill := convertImageBlipFill(shape, relID)
+
 	return presparts.Picture{
 		NvPicPr: presparts.NonVisualPicProps{
 			CNvPr: presparts.CnvPr{
@@ -521,9 +524,7 @@ func (c *converter) convertImageShape(shape *presentationir.Shape) presparts.Pic
 				HlinkClick: c.convertHlinkClick(shape.HyperlinkURL, shape.ActionLink),
 			},
 		},
-		BlipFill: presparts.BlipFill{
-			Blip: &presparts.Blip{Embed: relID},
-		},
+		BlipFill: blipFill,
 		SpPr: presparts.ShapeProperties{
 			Xfrm: &presparts.Transform2D{
 				Off: presparts.Offset{X: shape.Bounds.X, Y: shape.Bounds.Y},
@@ -531,6 +532,62 @@ func (c *converter) convertImageShape(shape *presentationir.Shape) presparts.Pic
 			},
 		},
 	}
+}
+
+func convertImageBlipFill(shape *presentationir.Shape, relID string) presparts.BlipFill {
+	fill := presparts.BlipFill{Blip: &presparts.Blip{Embed: relID}, Stretch: &drawingxml.Stretch{}}
+	if shape == nil {
+		return fill
+	}
+	if shape.ImageCropLeft != 0 || shape.ImageCropTop != 0 || shape.ImageCropRight != 0 || shape.ImageCropBottom != 0 {
+		fill.SrcRect = &presparts.SrcRect{
+			L: int(math.Round(shape.ImageCropLeft * 100000)),
+			T: int(math.Round(shape.ImageCropTop * 100000)),
+			R: int(math.Round(shape.ImageCropRight * 100000)),
+			B: int(math.Round(shape.ImageCropBottom * 100000)),
+		}
+	}
+	if shape.ImageFillLeft != 0 || shape.ImageFillTop != 0 || shape.ImageFillRight != 0 || shape.ImageFillBottom != 0 {
+		fill.Stretch.FillRect = &drawingxml.FillRect{
+			L: int(math.Round(shape.ImageFillLeft * 100000)),
+			T: int(math.Round(shape.ImageFillTop * 100000)),
+			R: int(math.Round(shape.ImageFillRight * 100000)),
+			B: int(math.Round(shape.ImageFillBottom * 100000)),
+		}
+	}
+	if shape.ImageDPI != 0 {
+		fill.Dpi = shape.ImageDPI
+	}
+	if shape.ImageRotWithShapeSet {
+		v := shape.ImageRotWithShape
+		fill.RotWithShape = &v
+	}
+	for _, effect := range shape.ImageEffects {
+		cc, ok := effect.(drawing.ClrChange)
+		if !ok {
+			if ptr, ptrOK := effect.(*drawing.ClrChange); ptrOK && ptr != nil {
+				cc, ok = *ptr, true
+			}
+		}
+		if !ok || cc.From == "" || cc.To == "" {
+			continue
+		}
+		from := &presparts.EffectColorRef{Val: strings.TrimPrefix(cc.From, "#")}
+		to := &presparts.EffectColorRef{Val: strings.TrimPrefix(cc.To, "#")}
+		if cc.FromAlpha >= 0 && cc.FromAlpha <= 1 && cc.FromAlpha != 0 {
+			from.Alpha = &presparts.EffectAlpha{Val: int(math.Round(cc.FromAlpha * 100000))}
+		}
+		if cc.UseAlpha {
+			to.Alpha = &presparts.EffectAlpha{Val: int(math.Round(cc.ToAlpha * 100000))}
+		}
+		useAlpha := cc.UseAlpha
+		fill.Blip.ClrChange = &presparts.BlipColorChange{
+			UseAlpha: &useAlpha,
+			From:     presparts.BlipColorChoice{SrgbClr: from},
+			To:       presparts.BlipColorChoice{SrgbClr: to},
+		}
+	}
+	return fill
 }
 
 // ── Group Shapes ─────────────────────────────────────────────────────────────

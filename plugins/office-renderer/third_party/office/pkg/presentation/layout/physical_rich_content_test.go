@@ -1,6 +1,9 @@
 package layout
 
 import (
+	"strings"
+
+	chartpkg "office/pkg/ooxml/chart"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/presentation/ir"
 	"testing"
@@ -39,6 +42,83 @@ func TestPhysicalChartPlanOwnsEmbeddedChartArtifact(t *testing.T) {
 	shape.ImageData[0] = 'X'
 	if string(plan.Data) != "<svg/>" {
 		t.Fatal("physical chart plan aliases canonical image bytes")
+	}
+}
+
+func TestPhysicalChartPlanPrefersSemanticChartDataOverPreview(t *testing.T) {
+	semantic := &chartpkg.Chart{
+		ChartType:  chartpkg.ChartLine,
+		Categories: []string{"1987", "1990", "1993"},
+		Series: []chartpkg.Series{{
+			Name:   "Personal",
+			Values: []float64{1100, 1600, 2100},
+		}},
+	}
+	data, err := chartpkg.MarshalChart(semantic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shape := &ir.Shape{
+		Kind:      ir.ShapeChart,
+		Name:      "Microsoft Graph 2000 Chart",
+		Bounds:    ir.Rect{W: 4572000, H: 2743200},
+		ChartData: data,
+		ImageMIME: "image/png",
+		ImageData: []byte("stale-preview"),
+	}
+	plan := ResolvePhysicalChartPlan(shape)
+	if plan == nil {
+		t.Fatal("chart plan = nil")
+	}
+	if plan.MIME != "image/svg+xml" {
+		t.Fatalf("chart MIME = %q, want semantic SVG", plan.MIME)
+	}
+	svg := string(plan.Data)
+	if !strings.Contains(svg, "<svg") || !strings.Contains(svg, "1987") || !strings.Contains(svg, "stroke=\"#4472C4\"") {
+		t.Fatalf("semantic chart SVG was not materialized: %q", svg)
+	}
+	if strings.Contains(svg, "stale-preview") {
+		t.Fatal("semantic chart unexpectedly used preview payload")
+	}
+}
+
+func TestPhysicalChartPlanRendersSemanticChartWithoutPreview(t *testing.T) {
+	semantic := &chartpkg.Chart{
+		ChartType:  chartpkg.ChartLine,
+		Categories: []string{"A", "B"},
+		Series:     []chartpkg.Series{{Name: "Series 1", Values: []float64{1, 2}}},
+	}
+	data, err := chartpkg.MarshalChart(semantic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shape := &ir.Shape{
+		Kind:      ir.ShapeChart,
+		Name:      "Semantic chart without cached preview",
+		Bounds:    ir.Rect{W: 4572000, H: 2743200},
+		ChartData: data,
+	}
+	plan := ResolvePhysicalChartPlan(shape)
+	if plan == nil {
+		t.Fatal("chart plan = nil")
+	}
+	if plan.MIME != "image/svg+xml" || !strings.Contains(string(plan.Data), "<svg") {
+		t.Fatalf("semantic-only chart plan = %#v", plan)
+	}
+}
+
+func TestPhysicalChartPlanFallsBackToPreviewWhenChartDataIsInvalid(t *testing.T) {
+	shape := &ir.Shape{
+		Kind:      ir.ShapeChart,
+		Name:      "Chart",
+		Bounds:    ir.Rect{W: 1270000, H: 635000},
+		ChartData: []byte("not-chart-xml"),
+		ImageMIME: "image/svg+xml",
+		ImageData: []byte("<svg id=\"preview\"/>"),
+	}
+	plan := ResolvePhysicalChartPlan(shape)
+	if plan == nil || plan.MIME != "image/svg+xml" || string(plan.Data) != "<svg id=\"preview\"/>" {
+		t.Fatalf("preview fallback = %#v", plan)
 	}
 }
 

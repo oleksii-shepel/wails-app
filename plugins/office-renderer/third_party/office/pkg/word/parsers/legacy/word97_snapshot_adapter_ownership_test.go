@@ -18,7 +18,7 @@ func TestWord97ProjectionBuildsDocumentDirectlyFromCanonicalSnapshot(t *testing.
 		"canonicalRuns := word97.MaterializeRunRange(",
 		"buildBinaryWordDocument(filename, input)",
 		"adaptCanonicalWord97Runs(canonicalRuns)",
-		"input := word97BinaryDocumentInput(snapshot, visible)",
+		"input := word97BinaryDocumentInput(snapshot, runs)",
 		"word97.ApplySnapshotDocumentState(doc, snapshot)",
 		"word97.ApplyDocumentPostProjection(doc, opened.Metadata.BookmarkStarts)",
 	} {

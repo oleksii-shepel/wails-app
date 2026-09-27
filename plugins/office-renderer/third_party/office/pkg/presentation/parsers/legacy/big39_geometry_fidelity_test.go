@@ -94,3 +94,59 @@ func TestLegacyArcFamilyAngularAdjustmentsUseFixedPointDegrees(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyRightArrowAdjustmentsMapOfficeArtHandlesToDrawingMLSemantics(t *testing.T) {
+	shape := &ir.Shape{Bounds: ir.Rect{W: 288000, H: 288000}}
+	applyLegacyPptOfficeArtGeometry(shape, &officeartir.Shape{Geometry: officeartir.Geometry{
+		Kind:              officeartir.GeometryPreset,
+		Preset:            "rightArrow",
+		Adjustments:       []float64{8775, 6225},
+		AdjustmentPresent: []bool{true, true},
+	}})
+	want := []float64{0.42361111111111116, 0.59375}
+	for i := range want {
+		if diff := shape.GeometryAdjustments[i] - want[i]; diff < -1e-12 || diff > 1e-12 {
+			t.Fatalf("adjustment[%d] = %.12f, want %.12f", i, shape.GeometryAdjustments[i], want[i])
+		}
+	}
+}
+
+func TestLegacyRightArrowUsesOfficeArtDefaultForMissingHeadStartSlot(t *testing.T) {
+	shape := &ir.Shape{Bounds: ir.Rect{W: 685800, H: 457200}}
+	applyLegacyPptOfficeArtGeometry(shape, &officeartir.Shape{Geometry: officeartir.Geometry{
+		Kind:              officeartir.GeometryPreset,
+		Preset:            "rightArrow",
+		Adjustments:       []float64{0, 6675},
+		AdjustmentPresent: []bool{false, true},
+	}})
+	want := []float64{0.3819444444444444, 0.375}
+	for i := range want {
+		if diff := shape.GeometryAdjustments[i] - want[i]; diff < -1e-12 || diff > 1e-12 {
+			t.Fatalf("adjustment[%d] = %.12f, want %.12f", i, shape.GeometryAdjustments[i], want[i])
+		}
+	}
+}
+
+func TestLegacyRightArrowDistinguishesAuthoredZeroFromMissingAdjustment(t *testing.T) {
+	bounds := ir.Rect{W: 685800, H: 457200}
+	missing := normalizeLegacyPptRightArrowAdjustments([]float64{0, 5400}, []bool{false, true}, bounds)
+	authoredZero := normalizeLegacyPptRightArrowAdjustments([]float64{0, 5400}, []bool{true, true}, bounds)
+	if missing[1] != 0.375 {
+		t.Fatalf("missing head-start slot = %v, want OfficeArt default mapped to 0.375", missing[1])
+	}
+	if authoredZero[1] != 1.5 {
+		t.Fatalf("authored zero head-start slot = %v, want full-width head mapped to 1.5", authoredZero[1])
+	}
+}
+
+func TestLegacyRightArrowMaterializesEffectiveDefaultsForAspectRatio(t *testing.T) {
+	shape := &ir.Shape{Bounds: ir.Rect{W: 685800, H: 457200}}
+	applyLegacyPptOfficeArtGeometry(shape, &officeartir.Shape{Geometry: officeartir.Geometry{
+		Kind:   officeartir.GeometryPreset,
+		Preset: "rightArrow",
+	}})
+	want := []float64{0.5, 0.375}
+	if len(shape.GeometryAdjustments) != 2 || shape.GeometryAdjustments[0] != want[0] || shape.GeometryAdjustments[1] != want[1] {
+		t.Fatalf("default right-arrow adjustments = %#v, want %#v", shape.GeometryAdjustments, want)
+	}
+}

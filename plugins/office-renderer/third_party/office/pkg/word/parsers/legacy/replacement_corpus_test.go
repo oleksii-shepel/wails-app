@@ -106,14 +106,17 @@ func TestReplacementLegacyDOCCorpusCarriesExpectedStructures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			count := 0
 			for _, p := range doc.Paragraphs {
 				for _, r := range p.Runs {
 					if r.Image != nil && r.Image.Floating {
-						return
+						count++
 					}
 				}
 			}
-			t.Fatal("expected at least one floating image")
+			if count != 3 {
+				t.Fatalf("floating images = %d, want 3 picture-frame instances", count)
+			}
 		}},
 		{"legacy-header-footer-fields.doc", func(t *testing.T, path string) {
 			doc, err := ParseDoc(path)

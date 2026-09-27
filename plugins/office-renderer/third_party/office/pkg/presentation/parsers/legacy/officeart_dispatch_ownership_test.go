@@ -34,7 +34,10 @@ func TestLegacyProductionVisualPassCollectsOfficeArtOnce(t *testing.T) {
 			t.Fatalf("production visual pass retained independent traversal %q", forbidden)
 		}
 	}
-	if !strings.Contains(body, "scene.project(") {
-		t.Fatal("production groups must be built from the shared OfficeArt event sequence")
+	if !strings.Contains(body, "scene.completeProjection(") {
+		t.Fatal("production visuals must be built by the authoritative complete projection")
+	}
+	if strings.Contains(body, "scene.project(") {
+		t.Fatal("production visual pass retained compatibility project facade")
 	}
 }

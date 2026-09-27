@@ -50,3 +50,25 @@ func TestIRBuilderDirectLineOverridesThemeLineStyleRef(t *testing.T) {
 		t.Fatalf("direct line overwritten: color=%q width=%v", s.LineColor, s.LineWidthPt)
 	}
 }
+
+func TestIRBuilderCanonicalizesRawOOXMLRoundLineCapToken(t *testing.T) {
+	b := newIRBuilder()
+	must := func(ev Event) {
+		if err := b.HandleEvent(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(Event{Type: EventStartSlide, SlideIndex: 0})
+	must(Event{Type: EventStartShape, ShapeID: 11, ShapeKind: "shape"})
+	must(Event{Type: EventLine, ShapeID: 11, Line: LineProperties{WidthEMU: 38100, Cap: "rnd", Join: "round", Color: VisualColor{Kind: "srgbClr", Value: "000000"}}})
+	s := b.currentShape()
+	if s == nil || s.LineStyle == nil {
+		t.Fatal("direct OOXML line was not materialized")
+	}
+	if s.LineStyle.Cap != drawing.LineCapRound {
+		t.Fatalf("line cap = %q, want %q", s.LineStyle.Cap, drawing.LineCapRound)
+	}
+	if s.LineStyle.Join != drawing.LineJoinRound {
+		t.Fatalf("line join = %q, want %q", s.LineStyle.Join, drawing.LineJoinRound)
+	}
+}

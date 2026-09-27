@@ -283,6 +283,9 @@ type Shape struct {
 	// AnimStep is the 1-based click-step at which this shape enters via animation.
 	// 0 means the shape is always visible (no entrance animation in the source file).
 	AnimStep int
+	// AnimationOnly marks legacy paint-state overlays that exist only to materialize
+	// an animation step. Static/document rendering suppresses them; playback may use them.
+	AnimationOnly bool
 	// EmphasisEffects holds emphasis animation effect names (e.g. "spin", "growShrink")
 	// extracted from p:timing nodeType="emphEffect" nodes.
 	EmphasisEffects []string
@@ -304,6 +307,11 @@ type Shape struct {
 
 	// OLEObjectData holds the raw embedded OLE object or package payload.
 	OLEObjectData []byte
+	// OLEMathML is semantic MathML recovered from a native MathType OLE stream.
+	OLEMathML string
+	// OLEMathColor is the authored foreground/recolor applied to the OLE preview.
+	// Legacy PPT commonly stores MathType equation color as OfficeArt pictureRecolor.
+	OLEMathColor string
 	// OLEObjectMIME is the content type of the embedded OLE object payload.
 	OLEObjectMIME string
 	// OLEObjectName is the display name of the OLE object (p:oleObj/@name).
@@ -450,6 +458,9 @@ type Paragraph struct {
 	FontAlign string // "t", "ctr", "base", "b", ""
 	// BulletChar is the explicit bullet character (e.g. "●"), or "" if none.
 	BulletChar string
+	// BulletSpecified records that the source explicitly set bullet enablement even when the bullet glyph itself is inherited.
+	// This is needed by legacy PPT, where fHasBullet=true may omit bulletChar and therefore inherit the marker glyph.
+	BulletSpecified bool `json:"bulletSpecified,omitempty"`
 	// BulletNone records an explicit no-bullet setting so inherited bullets do not leak back in.
 	BulletNone bool
 	// AutoNum is true when the paragraph uses automatic numbering (1. 2. 3. etc.).
@@ -460,11 +471,20 @@ type Paragraph struct {
 	AutoNumStart int
 	// BulletColor is the resolved list marker color.
 	BulletColor string
+	// BulletColorExplicit records that the marker color was authored independently
+	// of the paragraph text color. Legacy PPT needs this provenance to distinguish
+	// a real bullet color from the default "follow text" behavior.
+	BulletColorExplicit bool
 	// BulletFontFamily is the resolved list marker font family.
 	BulletFontFamily string
 	// BulletFontTx means a:buFontTx: the marker must use the effective paragraph text font,
 	// overriding any bullet font inherited from layout/master.
 	BulletFontTx bool
+	// BulletImageData/MIME carry an OOXML a:buBlip image marker after relationship resolution.
+	BulletImageData []byte
+	BulletImageMIME string
+	// BulletImageRelID is parser-transient OOXML provenance until the relationship payload is materialized.
+	BulletImageRelID string `json:"-"`
 	// BulletSize is the resolved list marker size in hundredths of a point.
 	BulletSize int
 	// BulletSizePct is the resolved list marker size as a percentage in

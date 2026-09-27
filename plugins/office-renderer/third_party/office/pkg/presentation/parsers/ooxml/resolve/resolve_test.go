@@ -1713,8 +1713,8 @@ func TestResolveFixturePackageKeepsShapeRotation(t *testing.T) {
 	if shape.Geometry != "triangle" {
 		t.Fatalf("geometry = %q, want triangle", shape.Geometry)
 	}
-	if shape.RotationDeg != 180 {
-		t.Fatalf("rotation = %.2f, want 180", shape.RotationDeg)
+	if shape.RotationDeg != -180 {
+		t.Fatalf("rotation = %.2f, want canonical -180", shape.RotationDeg)
 	}
 	if shape.Fill == nil {
 		t.Fatal("Fill = nil, want shared fill preserved")
@@ -3145,12 +3145,24 @@ func TestResolveFixturePackageEndParaRPrInheritsWhenEmpty(t *testing.T) {
 		t.Fatalf("expected 1 slide, got %d", len(pres.Slides))
 	}
 	para := pres.Slides[0].Shapes[0].Paragraphs[0]
-	if para.Runs != nil && len(para.Runs) > 0 {
-		t.Fatalf("expected no runs, got %d", len(para.Runs))
+	if len(para.Runs) != 1 {
+		t.Fatalf("empty paragraph runs = %d, want one paragraph-mark run", len(para.Runs))
 	}
-	// The empty paragraph should still carry endParaRPr info for potential rendering
-	if para.Runs == nil {
-		t.Logf("Empty paragraph preserved (no runs)")
+	if para.Runs[0].Text != "" {
+		t.Fatalf("paragraph-mark text = %q, want empty", para.Runs[0].Text)
+	}
+	if para.Runs[0].FontSize != 3200 {
+		t.Fatalf("paragraph-mark font size = %d, want endParaRPr size 3200", para.Runs[0].FontSize)
+	}
+}
+
+func TestResolveParagraphEmptyUsesEffectiveDefaultRun(t *testing.T) {
+	para := resolveParagraph(&parts.DMLParagraph{}, textDefaults{FontSize: 1800}, nil, nil, nil)
+	if para == nil || len(para.Runs) != 1 || para.Runs[0] == nil {
+		t.Fatalf("empty paragraph = %#v, want one paragraph-mark run", para)
+	}
+	if para.Runs[0].Text != "" || para.Runs[0].FontSize != 1800 {
+		t.Fatalf("paragraph-mark run = %#v, want empty text at inherited 18pt", para.Runs[0])
 	}
 }
 

@@ -15,13 +15,19 @@ func ConnectorWaypoints(connType string, boundsX, boundsY, boundsW, boundsH floa
 		}
 		return 0
 	}
+	adjOrDefault := func(idx, fallback int) int {
+		if idx < len(adjustments) {
+			return adjustments[idx]
+		}
+		return fallback
+	}
 	switch connType {
 	case "straightConnector1":
 		return straightConnectorEndpoints(boundsX, boundsY, boundsW, boundsH, flipH, flipV)
 	case "bentConnector2":
 		return bentConnector2Waypoints(boundsX, boundsY, boundsW, boundsH, adj(0), flipH, flipV)
 	case "bentConnector3":
-		return bentConnector3Waypoints(boundsX, boundsY, boundsW, boundsH, adj(0), flipH, flipV)
+		return bentConnector3Waypoints(boundsX, boundsY, boundsW, boundsH, adjOrDefault(0, 50000), flipH, flipV)
 	case "bentConnector4":
 		return bentConnector4Waypoints(boundsX, boundsY, boundsW, boundsH, adj(0), adj(1), flipH, flipV)
 	case "bentConnector5":
@@ -358,6 +364,81 @@ func ShortenWaypointsForArrows(pts []Point, headTrim, tailTrim float64) []Point 
 	return out
 }
 
+// ShortenPolylineWaypointsForArrows trims marker depth along the actual
+// polyline rather than clamping the trim to the first/last segment. Bent
+// connectors often have a very short terminal dogleg; large marker sizes can
+// consume that segment completely. In that case the trim continues across the
+// previous segment so the shaft never doubles back underneath a filled marker.
+func ShortenPolylineWaypointsForArrows(pts []Point, headTrim, tailTrim float64) []Point {
+	out := append([]Point(nil), pts...)
+	if len(out) < 2 {
+		return out
+	}
+	if headTrim > 0 {
+		out = trimPolylineDistance(out, headTrim, true)
+	}
+	if tailTrim > 0 && len(out) >= 2 {
+		out = trimPolylineDistance(out, tailTrim, false)
+	}
+	return out
+}
+
+func trimPolylineDistance(pts []Point, distance float64, fromStart bool) []Point {
+	if len(pts) < 2 || distance <= 0 {
+		return append([]Point(nil), pts...)
+	}
+	out := append([]Point(nil), pts...)
+	if !fromStart {
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	remaining := distance
+	for len(out) >= 2 {
+		seg := math.Hypot(out[1].X-out[0].X, out[1].Y-out[0].Y)
+		if seg <= 1e-12 {
+			out = out[1:]
+			continue
+		}
+		if remaining < seg {
+			out[0] = moveTowardPt(out[0], out[1], remaining)
+			remaining = 0
+			break
+		}
+		remaining -= seg
+		out = out[1:]
+	}
+	if len(out) == 1 {
+		// A marker deeper than the entire connector collapses the visible shaft
+		// to the opposite endpoint; keep two coincident points so downstream
+		// serializers retain a valid line/polyline contract.
+		out = []Point{out[0], out[0]}
+	}
+	if !fromStart {
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	return compactWaypointsKeepTwo(out)
+}
+
+func compactWaypointsKeepTwo(pts []Point) []Point {
+	if len(pts) <= 1 {
+		return pts
+	}
+	out := make([]Point, 0, len(pts))
+	for _, point := range pts {
+		if len(out) > 0 && out[len(out)-1] == point {
+			continue
+		}
+		out = append(out, point)
+	}
+	if len(out) == 1 {
+		out = append(out, out[0])
+	}
+	return out
+}
+
 func moveTowardPt(from, to Point, dist float64) Point {
 	dx := to.X - from.X
 	dy := to.Y - from.Y
@@ -379,14 +460,18 @@ func ArrowDimensions(arrowType, widthSize, lengthSize string) (lengthPt, widthPt
 	return ArrowDimensionsForStroke(arrowType, widthSize, lengthSize, 1)
 }
 
+const minEffectiveArrowStrokePt = 1.5
+
 // ArrowDimensionsForStroke resolves Office arrow size enums against the
 // effective line width. Endpoint sizes are relative to the owning stroke;
-// treating sm/med/lg as absolute point sizes makes thin lines grow giant
-// markers and thick lines grow undersized markers.
+// treating sm/med/lg as absolute point sizes makes thick lines grow
+// undersized markers, while letting the scale fall with every hairline
+// stroke collapses medium PPT connector arrows into nearly invisible tips.
 func ArrowDimensionsForStroke(arrowType, widthSize, lengthSize string, strokeWidthPt float64) (lengthPt, widthPt float64) {
 	if strokeWidthPt <= 0 {
 		strokeWidthPt = 1
 	}
+	strokeWidthPt = math.Max(strokeWidthPt, minEffectiveArrowStrokePt)
 	lengthPt = mapArrowLengthPt(lengthSize) * strokeWidthPt
 	widthPt = mapArrowWidthPt(widthSize) * strokeWidthPt
 	switch arrowType {
@@ -398,24 +483,30 @@ func ArrowDimensionsForStroke(arrowType, widthSize, lengthSize string, strokeWid
 }
 
 func mapArrowLengthPt(size string) float64 {
+	// Office line-end sizes are relative to the owning stroke, but the
+	// previous 6/8/12 factors doubled PowerPoint's effective marker depth.
+	// A 3pt large triangle in PowerPoint is about 18pt deep (not 36pt),
+	// and a 2.75pt medium stealth marker is about 11pt deep. Keep the
+	// canonical sm/med/lg ratios while resolving them to those effective
+	// dimensions.
 	switch size {
 	case "sm":
-		return 6
+		return 3
 	case "lg":
-		return 12
+		return 6
 	default:
-		return 8
+		return 4
 	}
 }
 
 func mapArrowWidthPt(size string) float64 {
 	switch size {
 	case "sm":
-		return 4.5
+		return 2.25
 	case "lg":
-		return 8
+		return 4
 	default:
-		return 5.5
+		return 2.75
 	}
 }
 
@@ -451,6 +542,11 @@ func ArrowTrimDistanceForStroke(arrowType, lengthSize string, strokeWidthPt floa
 		return length
 	case "arrow":
 		return 0
+	case "stealth":
+		// A stealth marker is concave: its shaft joins the marker at the
+		// center notch, not at the wider rear corners. Keep the shaft under
+		// the filled wings up to the authored notch so there is no visible gap.
+		return length * 0.55
 	default:
 		return length
 	}
@@ -522,7 +618,7 @@ func ComputeArrowGeometryForStroke(arrowType, widthSize, lengthSize string, stro
 		ag.PolyPts = []Point{tip, left, notch, right}
 	case "arrow":
 		ag.Left, ag.Right = left, right
-		ag.StrokeWidth = math.Max(1.5*strokeWidthPt, 0.5)
+		ag.StrokeWidth = math.Max(strokeWidthPt, 0.5)
 	case "diamond":
 		back := Point{X: tip.X - ux*(length*2), Y: tip.Y - uy*(length*2)}
 		ag.PolyPts = []Point{tip, left, back, right}

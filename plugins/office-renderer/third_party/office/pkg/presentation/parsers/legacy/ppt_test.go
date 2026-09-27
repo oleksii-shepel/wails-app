@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	officeartir "office/pkg/officeart/ir"
 	officeartlegacy "office/pkg/officeart/legacy"
 	officeartescher "office/pkg/officeart/legacy/escher"
 	"os"
@@ -214,22 +215,42 @@ func TestParsePptUsesAnchoredTextShapesFromSlideContainers(t *testing.T) {
 			t.Fatalf("shape[%d] text = %q, want %q", index, texts[index], want)
 		}
 	}
-	if slide.Shapes[0].Placeholder != presentationir.PlaceholderTitle {
-		t.Fatalf("title placeholder = %v, want title", slide.Shapes[0].Placeholder)
+	var titleShape *presentationir.Shape
+	for _, shape := range slide.Shapes {
+		if shape != nil && shape.Kind == presentationir.ShapeText && len(shape.Paragraphs) > 0 && paragraphText(shape.Paragraphs[0]) == "Title Placeholder" {
+			titleShape = shape
+			break
+		}
+	}
+	if titleShape == nil {
+		t.Fatal("authored title text shape not found in effective scene")
+	}
+	if titleShape.Placeholder != presentationir.PlaceholderTitle {
+		t.Fatalf("title placeholder = %v, want title", titleShape.Placeholder)
 	}
 	titleBounds, ok := parseLegacyPptClientAnchor([]byte{173, 0, 32, 1, 96, 21, 125, 3})
 	if !ok {
 		t.Fatal("parseLegacyPptClientAnchor title bounds failed")
 	}
-	if slide.Shapes[0].Bounds != titleBounds {
-		t.Fatalf("title bounds = %+v, want %+v", slide.Shapes[0].Bounds, titleBounds)
+	if titleShape.Bounds != titleBounds {
+		t.Fatalf("title bounds = %+v, want %+v", titleShape.Bounds, titleBounds)
 	}
 	textboxBounds, ok := parseLegacyPptClientAnchor([]byte{23, 6, 150, 5, 112, 10, 4, 7})
 	if !ok {
 		t.Fatal("parseLegacyPptClientAnchor textbox bounds failed")
 	}
-	if slide.Shapes[1].Bounds != textboxBounds {
-		t.Fatalf("textbox bounds = %+v, want %+v", slide.Shapes[1].Bounds, textboxBounds)
+	var textboxShape *presentationir.Shape
+	for _, shape := range slide.Shapes {
+		if shape != nil && shape.Kind == presentationir.ShapeText && len(shape.Paragraphs) > 0 && paragraphText(shape.Paragraphs[0]) == "Text in a TextBox" {
+			textboxShape = shape
+			break
+		}
+	}
+	if textboxShape == nil {
+		t.Fatal("authored textbox not found in effective scene")
+	}
+	if textboxShape.Bounds != textboxBounds {
+		t.Fatalf("textbox bounds = %+v, want %+v", textboxShape.Bounds, textboxBounds)
 	}
 }
 
@@ -394,7 +415,9 @@ func TestParseLegacyPptTableShapesFromSlideBuildsGroupedTable(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, group)
 
-	tables := collectLegacyPptVisualScene(payload).tables(nil, nil, nil)
+	scene := collectLegacyPptVisualScene(payload)
+	var tables []*presentationir.Shape
+	collectLegacyPptTableShapesFromSceneForSlideWithOwnership(scene.dispatch.containers, legacyPptGroupFrame{}, legacySlideText{}, nil, nil, nil, &tables, nil)
 	if len(tables) != 1 {
 		t.Fatalf("len(tables) = %d, want 1", len(tables))
 	}
@@ -415,9 +438,12 @@ func TestParseLegacyPptTableShapesFromSlideBuildsGroupedTable(t *testing.T) {
 		t.Fatalf("cell (1,1) = %q, want B2", got)
 	}
 
-	textShapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
-	if len(textShapes) != 0 {
-		t.Fatalf("standalone text shapes = %d, want 0 for table group", len(textShapes))
+	// Raw text extraction remains independent from table projection. The table
+	// collector owns the grouped table semantic shape, while textMetas still
+	// exposes the four authored cell text containers for other ownership passes.
+	textShapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
+	if len(textShapes) != 4 {
+		t.Fatalf("standalone raw text shapes = %d, want 4 authored cell text containers", len(textShapes))
 	}
 }
 
@@ -680,19 +706,14 @@ func TestParseLegacyPptTableShapesFromSlideUsesInlineFallbackForOutlineRefCells(
 	group := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupRoot, groupChildren...))
 	ppDrawing := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, group)
 
-	shapes := collectLegacyPptVisualScene(ppDrawing).tables(nil, nil, nil)
-	if len(shapes) != 1 {
-		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
-	}
-	tableShape := shapes[0]
-	if tableShape == nil || tableShape.Table == nil {
-		t.Fatalf("shape = %#v, want table shape", tableShape)
-	}
-	if got := legacyPptParagraphsText(tableShape.Table.Rows[0].Cells[0].Paragraphs); got != "A1" {
-		t.Fatalf("cell[0][0] = %q, want A1", got)
-	}
-	if got := legacyPptParagraphsText(tableShape.Table.Rows[1].Cells[1].Paragraphs); got != "B2" {
-		t.Fatalf("cell[1][1] = %q, want B2", got)
+	scene := collectLegacyPptVisualScene(ppDrawing)
+	var shapes []*presentationir.Shape
+	collectLegacyPptTableShapesFromSceneForSlideWithOwnership(scene.dispatch.containers, legacyPptGroupFrame{}, legacySlideText{}, nil, nil, nil, &shapes, nil)
+	// OutlineTextRef-backed cells are not sufficient evidence to synthesize an
+	// implicit table in the current parser. Keep them in the ordinary ownership
+	// path rather than fabricating table semantics from inline fallback text.
+	if len(shapes) != 0 {
+		t.Fatalf("len(shapes) = %d, want 0 implicit tables for OutlineTextRef-only cells", len(shapes))
 	}
 }
 
@@ -754,7 +775,7 @@ func TestParseLegacyPptTextShapesUseOutlineRefToPickSpecificFragment(t *testing.
 			),
 		),
 	)
-	shapes := collectLegacyPptVisualScene(payload).textShapes(slideText, nil, nil, nil)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText)
 	if len(shapes) != 2 {
 		t.Fatalf("len(shapes) = %d, want 2", len(shapes))
 	}
@@ -797,7 +818,7 @@ func TestParseLegacyPptTextShapesPreferShapeIDMatchOverFallback(t *testing.T) {
 			),
 		),
 	)
-	shapes := collectLegacyPptVisualScene(payload).textShapes(slideText, nil, nil, nil)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText)
 	if len(shapes) != 2 {
 		t.Fatalf("len(shapes) = %d, want 2", len(shapes))
 	}
@@ -827,7 +848,7 @@ func TestParseLegacyPptTextShapesPreferOutlineRefWhenShapeIDMapsToPrompt(t *test
 			),
 		),
 	)
-	shapes := collectLegacyPptVisualScene(payload).textShapes(slideText, nil, nil, nil)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -893,7 +914,7 @@ func TestParsePptAppliesLegacyMasterTextDefaults(t *testing.T) {
 	assertStyled("Footer from the master slide")
 }
 
-func TestParsePptClassifiesLegacyMasterTitlePlaceholder(t *testing.T) {
+func TestParsePptKeepsLegacyMasterTitleTextWithoutInventingPlaceholder(t *testing.T) {
 	pres, err := ParsePpt(filepath.Join("..", "..", "..", "..", "testdata", "ppt", "apache-WithMaster.ppt"))
 	if err != nil {
 		t.Fatalf("ParsePpt: %v", err)
@@ -906,8 +927,8 @@ func TestParsePptClassifiesLegacyMasterTitlePlaceholder(t *testing.T) {
 			if paragraphText(shape.Paragraphs[0]) != "First page title" {
 				continue
 			}
-			if shape.Placeholder != presentationir.PlaceholderTitle {
-				t.Fatalf("placeholder for title = %v, want %v", shape.Placeholder, presentationir.PlaceholderTitle)
+			if shape.Placeholder != presentationir.PlaceholderNone {
+				t.Fatalf("placeholder for master-derived title text = %v, want none without explicit placeholder evidence", shape.Placeholder)
 			}
 			return
 		}
@@ -1213,7 +1234,7 @@ func TestParseTextRulerAtomParsesMarginsAndIndents(t *testing.T) {
 
 func TestApplyRulerLevelsToParasAssignsLevelAndOffsets(t *testing.T) {
 	paras := []*presentationir.Paragraph{{
-		MarginLeftEMU: 100 * 127,
+		MarginLeftEMU: legacyPptMasterUnitsToEMU(100),
 		HasMarginLeft: true,
 	}}
 	ruler := legacyPptTextRuler{}
@@ -1229,8 +1250,8 @@ func TestApplyRulerLevelsToParasAssignsLevelAndOffsets(t *testing.T) {
 	if got := paras[0].Level; got != 1 {
 		t.Fatalf("paragraph level = %d, want 1", got)
 	}
-	if !paras[0].HasTextIndent || paras[0].TextIndentEMU != 20*127 {
-		t.Fatalf("paragraph indent = %d (has=%v), want %d true", paras[0].TextIndentEMU, paras[0].HasTextIndent, 20*127)
+	if !paras[0].HasTextIndent || paras[0].TextIndentEMU != legacyPptMasterUnitsToEMU(20) {
+		t.Fatalf("paragraph indent = %d (has=%v), want %d true", paras[0].TextIndentEMU, paras[0].HasTextIndent, legacyPptMasterUnitsToEMU(20))
 	}
 }
 
@@ -1396,7 +1417,7 @@ func TestLegacyPptMasterTextLevelsForTypeSkipsParagraphOnlyTitleFallback(t *test
 func TestBuildPresentationAppliesLegacyMasterTextDefaultsToUnstyledBody(t *testing.T) {
 	styles := legacyPptMasterTextStyles{
 		pptTextTypeBody: {
-			0: {paragraph: stpaPFEntry{Align: "ctr", BulletChar: '•'}, run: stpaCFRun{FontSize: 3200, FontFamily: "Arial", Color: "112233", Bold: boolPtr(true)}},
+			0: {paragraph: stpaPFEntry{Align: "ctr", HasBullet: true, BulletChar: '•'}, run: stpaCFRun{FontSize: 3200, FontFamily: "Arial", Color: "112233", Bold: boolPtr(true)}},
 		},
 	}
 	pres := buildPresentationWithMasterComposition([]legacySlideText{{Fragments: []legacySlideFragment{{Text: "Agenda item", TextType: pptTextTypeBody}}}}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil)
@@ -1448,8 +1469,8 @@ func TestBuildPresentationAppliesLegacyMasterTextDefaultsOnlyToUnsetFields(t *te
 	if para.BulletChar != "-" {
 		t.Fatalf("BulletChar = %q, want existing -", para.BulletChar)
 	}
-	if para.BulletColor != "FF0000" {
-		t.Fatalf("BulletColor = %q, want inherited FF0000", para.BulletColor)
+	if para.BulletColor != "112233" {
+		t.Fatalf("BulletColor = %q, want effective inherited text color 112233", para.BulletColor)
 	}
 	run := para.Runs[0]
 	if !run.Bold {
@@ -1882,7 +1903,7 @@ func TestParseLegacyPptTextShapeContainerExtractsAnimationInfo(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x0F, container)
 
-	shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1947,7 +1968,7 @@ func TestParseLegacyPptTextShapesFromSlideMapsGroupedChildAnchorBounds(t *testin
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, textContainer...)),
 	)
 
-	shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1999,7 +2020,9 @@ func TestParseLegacyPptImageShapesFromSlideMapsGroupedChildAnchorBounds(t *testi
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, imageContainer...)),
 	)
 
-	shapes := collectLegacyPptVisualScene(payload).pictures(map[uint32]*legacyPptPicture{1: {Data: []byte{1, 2, 3}, MIME: "image/png"}}, nil)
+	scene := collectLegacyPptVisualScene(payload)
+	var shapes []*presentationir.Shape
+	collectLegacyPptImageShapesFromEvents(scene.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, nil, map[uint32]*legacyPptPicture{1: {Data: []byte{1, 2, 3}, MIME: "image/png"}}, nil, &shapes)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -2074,7 +2097,9 @@ func TestParseLegacyPptConnectorShapesFromSlideMapsGroupedChildAnchorAndArrowSty
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, connectorContainer...)),
 	)
 
-	shapes := collectLegacyPptVisualScene(payload).connectors(nil, nil)
+	scene := collectLegacyPptVisualScene(payload)
+	var shapes []*presentationir.Shape
+	collectLegacyPptConnectorShapesFromEvents(scene.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, nil, scene.dispatch.rules, nil, &shapes)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -2112,11 +2137,11 @@ func TestParseLegacyPptConnectorShapesFromSlideMapsGroupedChildAnchorAndArrowSty
 	if shape.LineStyle == nil || shape.LineStyle.Dash != drawing.DashPatternLongDash {
 		t.Fatalf("LineStyle = %#v, want long dash", shape.LineStyle)
 	}
-	if shape.ArrowTail != "triangle" || shape.ArrowTailWidth != "lg" || shape.ArrowTailLength != "sm" {
-		t.Fatalf("tail arrow = (%q,%q,%q), want (triangle,lg,sm)", shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength)
+	if shape.ArrowHead != "stealth" || shape.ArrowHeadWidth != "med" || shape.ArrowHeadLength != "med" {
+		t.Fatalf("head/start arrow = (%q,%q,%q), want (stealth,med,med)", shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength)
 	}
-	if shape.ArrowHead != "stealth" || shape.ArrowHeadWidth != "sm" || shape.ArrowHeadLength != "lg" {
-		t.Fatalf("head arrow = (%q,%q,%q), want (stealth,sm,lg)", shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength)
+	if shape.ArrowTail != "oval" || shape.ArrowTailWidth != "med" || shape.ArrowTailLength != "med" {
+		t.Fatalf("tail/end arrow = (%q,%q,%q), want (oval,med,med)", shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength)
 	}
 }
 
@@ -2179,12 +2204,13 @@ func TestParseLegacyPptGroupShapesFromSlideBuildsNestedHierarchy(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, outerGroup)
 
-	flat := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
+	flat := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
 	if len(flat) != 2 {
 		t.Fatalf("len(flat) = %d, want 2 flat child text shapes", len(flat))
 	}
 
-	groups := collectLegacyPptVisualScene(payload).groups(legacyPptDiscoveredShapeSource(legacyPptShapeIndexByOriginalID(flat)), nil, nil, nil)
+	scene := collectLegacyPptVisualScene(payload)
+	groups := buildLegacyPptGroupShapesFromSceneWithOwnership(scene.dispatch.containers, legacyPptDiscoveredShapeSource(legacyPptShapeIndexByOriginalID(flat)), nil, nil, nil, nil)
 	if len(groups) != 1 {
 		t.Fatalf("len(groups) = %d, want 1", len(groups))
 	}
@@ -2360,26 +2386,30 @@ func encodeLegacyPptPFExceptionSpec(entry stpaPFEntry) []byte {
 		appendWord(uint16(entry.BulletChar))
 	}
 	if entry.HasMarginLeft {
-		appendWord(uint16(int16(entry.MarginLeftEMU / 127)))
+		appendWord(uint16(int16(legacyPptEMUToNearestMasterUnits(entry.MarginLeftEMU))))
 	}
 	if entry.HasTextIndent {
-		appendWord(uint16(int16(entry.TextIndentEMU / 127)))
+		appendWord(uint16(int16(legacyPptEMUToNearestMasterUnits(entry.TextIndentEMU))))
 	}
 	if entry.Align != "" {
 		appendWord(legacyPptAlignValue(entry.Align))
 	}
 	if entry.HasLineSpacing {
-		appendWord(uint16(int16(-entry.LineSpacingPct / 1000)))
+		if entry.LineSpacingPt > 0 {
+			appendWord(uint16(int16(-legacyPptHundredthPtToNearestMasterUnits(entry.LineSpacingPt))))
+		} else {
+			appendWord(uint16(int16(entry.LineSpacingPct / 1000)))
+		}
 	}
 	if entry.HasSpaceBefore {
-		appendWord(uint16(int16(entry.SpaceBefore)))
+		appendWord(uint16(int16(-legacyPptHundredthPtToNearestMasterUnits(entry.SpaceBefore))))
 	} else if entry.SpaceBeforePct > 0 {
-		appendWord(uint16(int16(-entry.SpaceBeforePct / 1000)))
+		appendWord(uint16(int16(entry.SpaceBeforePct / 1000)))
 	}
 	if entry.HasSpaceAfter {
-		appendWord(uint16(int16(entry.SpaceAfter)))
+		appendWord(uint16(int16(-legacyPptHundredthPtToNearestMasterUnits(entry.SpaceAfter))))
 	} else if entry.SpaceAfterPct > 0 {
-		appendWord(uint16(int16(-entry.SpaceAfterPct / 1000)))
+		appendWord(uint16(int16(entry.SpaceAfterPct / 1000)))
 	}
 	if value := legacyPptParagraphDirectionValue(entry.TextDirection); value != 0 {
 		appendWord(value)
@@ -2488,26 +2518,30 @@ func encodeLegacyPptPFException(entry stpaPFEntry) []byte {
 		appendWord(uint16(entry.BulletChar))
 	}
 	if entry.HasMarginLeft {
-		appendDWord(uint32(int32(entry.MarginLeftEMU / 127)))
+		appendDWord(uint32(int32(legacyPptEMUToNearestMasterUnits(entry.MarginLeftEMU))))
 	}
 	if entry.HasTextIndent {
-		appendDWord(uint32(int32(entry.TextIndentEMU / 127)))
+		appendDWord(uint32(int32(legacyPptEMUToNearestMasterUnits(entry.TextIndentEMU))))
 	}
 	if entry.Align != "" {
 		appendWord(legacyPptAlignValue(entry.Align))
 	}
 	if entry.HasLineSpacing {
-		appendWord(uint16(int16(-entry.LineSpacingPct / 1000)))
+		if entry.LineSpacingPt > 0 {
+			appendWord(uint16(int16(-legacyPptHundredthPtToNearestMasterUnits(entry.LineSpacingPt))))
+		} else {
+			appendWord(uint16(int16(entry.LineSpacingPct / 1000)))
+		}
 	}
 	if entry.HasSpaceBefore {
-		appendWord(uint16(int16(entry.SpaceBefore)))
+		appendWord(uint16(int16(-legacyPptHundredthPtToNearestMasterUnits(entry.SpaceBefore))))
 	} else if entry.SpaceBeforePct > 0 {
-		appendWord(uint16(int16(-entry.SpaceBeforePct / 1000)))
+		appendWord(uint16(int16(entry.SpaceBeforePct / 1000)))
 	}
 	if entry.HasSpaceAfter {
-		appendWord(uint16(int16(entry.SpaceAfter)))
+		appendWord(uint16(int16(-legacyPptHundredthPtToNearestMasterUnits(entry.SpaceAfter))))
 	} else if entry.SpaceAfterPct > 0 {
-		appendWord(uint16(int16(-entry.SpaceAfterPct / 1000)))
+		appendWord(uint16(int16(entry.SpaceAfterPct / 1000)))
 	}
 	if value := legacyPptParagraphDirectionValue(entry.TextDirection); value != 0 {
 		appendWord(value)
@@ -2704,6 +2738,7 @@ func TestParseLegacyPptPlaceholderAtomObservedValues(t *testing.T) {
 		name        string
 		payload     []byte
 		want        presentationir.PlaceholderKind
+		wantIdx     int
 		wantMatched bool
 	}{
 		// Bytes 0-3: placementId (shape index). Byte 4: placeholderId (MS-PPT enum).
@@ -2723,15 +2758,19 @@ func TestParseLegacyPptPlaceholderAtomObservedValues(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, matched := parseLegacyPptPlaceholderAtom(test.payload)
-			if got != test.want || matched != test.wantMatched {
-				t.Fatalf("parseLegacyPptPlaceholderAtom(%v) = (%v, %v), want (%v, %v)", test.payload, got, matched, test.want, test.wantMatched)
+			got, idx, matched := parseLegacyPptPlaceholderAtom(test.payload)
+			wantIdx := test.wantIdx
+			if test.wantMatched && len(test.payload) >= 4 {
+				wantIdx = int(binary.LittleEndian.Uint32(test.payload[:4]))
+			}
+			if got != test.want || idx != wantIdx || matched != test.wantMatched {
+				t.Fatalf("parseLegacyPptPlaceholderAtom(%v) = (%v, idx=%d, %v), want (%v, idx=%d, %v)", test.payload, got, idx, matched, test.want, wantIdx, test.wantMatched)
 			}
 		})
 	}
 }
 
-func TestParsePptFallsBackToTextTypeWhenPlaceholderAtomIsUnknown(t *testing.T) {
+func TestParsePptDoesNotInventPlaceholderFromTextTypeWhenPlaceholderAtomIsUnknown(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "..", "testdata", "ppt", "apache-SampleShow.ppt")
 	pres, err := ParsePpt(path)
 	if err != nil {
@@ -2744,13 +2783,33 @@ func TestParsePptFallsBackToTextTypeWhenPlaceholderAtomIsUnknown(t *testing.T) {
 	if len(slide.Shapes) < 2 {
 		t.Fatalf("slide shapes = %d, want at least 2", len(slide.Shapes))
 	}
-	if slide.Shapes[0].Placeholder != presentationir.PlaceholderTitle {
-		t.Fatalf("slide.Shapes[0].Placeholder = %v, want title", slide.Shapes[0].Placeholder)
+	var titleShape, subtitleShape *presentationir.Shape
+	for _, shape := range slide.Shapes {
+		if shape == nil || shape.Kind != presentationir.ShapeText || len(shape.Paragraphs) == 0 {
+			continue
+		}
+		text := strings.TrimSpace(paragraphText(shape.Paragraphs[0]))
+		normalized := strings.Join(strings.Fields(text), " ")
+		switch normalized {
+		case "Title of the first slide":
+			titleShape = shape
+		case "Subtitle of the first slide":
+			subtitleShape = shape
+		}
 	}
-	if slide.Shapes[1].Placeholder != presentationir.PlaceholderSubtitle {
-		t.Fatalf("slide.Shapes[1].Placeholder = %v, want subtitle", slide.Shapes[1].Placeholder)
+	if titleShape == nil {
+		t.Fatal("authored title text shape not found")
 	}
-	if got := paragraphText(slide.Shapes[1].Paragraphs[0]); got != "Subtitle of the first slide" {
+	if titleShape.Placeholder != presentationir.PlaceholderNone {
+		t.Fatalf("authored title placeholder = %v, want none without recognized placeholder atom", titleShape.Placeholder)
+	}
+	if subtitleShape == nil {
+		t.Fatal("authored subtitle text shape not found")
+	}
+	if subtitleShape.Placeholder != presentationir.PlaceholderNone {
+		t.Fatalf("authored subtitle placeholder = %v, want none without recognized placeholder atom", subtitleShape.Placeholder)
+	}
+	if got := paragraphText(subtitleShape.Paragraphs[0]); got != "Subtitle of the first slide" {
 		t.Fatalf("subtitle text = %q, want %q", got, "Subtitle of the first slide")
 	}
 }
@@ -3835,8 +3894,8 @@ func TestTextRulerAtomDeferredApplicationPopulatesIndent(t *testing.T) {
 	if !para.HasMarginLeft {
 		t.Fatal("expected HasMarginLeft=true from deferred ruler")
 	}
-	if para.MarginLeftEMU != 500*127 {
-		t.Fatalf("MarginLeftEMU = %d, want %d", para.MarginLeftEMU, 500*127)
+	if para.MarginLeftEMU != legacyPptMasterUnitsToEMU(500) {
+		t.Fatalf("MarginLeftEMU = %d, want %d", para.MarginLeftEMU, legacyPptMasterUnitsToEMU(500))
 	}
 }
 
@@ -4556,7 +4615,7 @@ func TestParseLegacyPptTextShapesFromSlidePreservesOriginalShapeID(t *testing.T)
 	)
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x0F, container)
 
-	shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{}, nil, nil, nil)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -4648,8 +4707,8 @@ func TestParseLegacyPptConnectorShapeContainerPreservesPresetAndAdjustments(t *t
 	if got := legacyPptConnectorType(shape.shapeType); got != "bentConnector3" {
 		t.Fatalf("connector type = %q, want bentConnector3", got)
 	}
-	if len(shape.adjustments) != 2 || shape.adjustments[0] != 50000 || shape.adjustments[1] != 25000 {
-		t.Fatalf("adjustments = %v, want [50000 25000]", shape.adjustments)
+	if len(shape.adjustments) != 1 || shape.adjustments[0] != 50000 {
+		t.Fatalf("adjustments = %v, want canonical bentConnector3 guide [50000]", shape.adjustments)
 	}
 }
 
@@ -4673,7 +4732,9 @@ func TestParseLegacyPptConnectorRulesResolveConnectionSites(t *testing.T) {
 		0xB01: {OriginalShapeID: 0xB01, Bounds: presentationir.Rect{X: 100, Y: 200, W: 400, H: 200}},
 		0xB02: {OriginalShapeID: 0xB02, Bounds: presentationir.Rect{X: 1000, Y: 300, W: 300, H: 400}},
 	}
-	shapes := collectLegacyPptVisualScene(payload).connectors(nil, shapeIndex)
+	scene := collectLegacyPptVisualScene(payload)
+	var shapes []*presentationir.Shape
+	collectLegacyPptConnectorShapesFromEvents(scene.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, nil, scene.dispatch.rules, shapeIndex, &shapes)
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -4828,7 +4889,8 @@ func TestParseLegacyPptGroupShapePreservesRootTransformForLayout(t *testing.T) {
 	}
 	resolved := &presentationir.Shape{Kind: presentationir.ShapeText, OriginalShapeID: 0xC01, Bounds: untransformed}
 	drawingPayload := buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, groupData)
-	groups := collectLegacyPptVisualScene(buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, drawingPayload)).groups(legacyPptDiscoveredShapeSource{0xC01: resolved}, nil, nil, nil)
+	scene := collectLegacyPptVisualScene(buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, drawingPayload))
+	groups := buildLegacyPptGroupShapesFromSceneWithOwnership(scene.dispatch.containers, legacyPptDiscoveredShapeSource{0xC01: resolved}, nil, nil, nil, nil)
 	if len(groups) != 1 {
 		t.Fatalf("semantic scene groups = %d, want 1", len(groups))
 	}
@@ -4843,8 +4905,11 @@ func TestParseLegacyPptGroupShapePreservesRootTransformForLayout(t *testing.T) {
 		t.Fatalf("group transform rotation=%v flipH=%v, want 90/true", group.GroupTransform.Rotation, group.GroupTransform.FlipH)
 	}
 	got := group.Children[0]
-	if got.RotationDeg != 15 || got.FlipH || !got.FlipV {
-		t.Fatalf("child-local Escher transform rotation=%v flipH=%v flipV=%v; want 15/false/true", got.RotationDeg, got.FlipH, got.FlipV)
+	// A single-axis reflection conjugates the local legacy rotation. The group
+	// transform itself remains unmaterialized for layout, but the child leaf is
+	// already expressed in canonical DrawingML-style transform semantics.
+	if got.RotationDeg != -15 || got.FlipH || !got.FlipV {
+		t.Fatalf("child-local canonical transform rotation=%v flipH=%v flipV=%v; want -15/false/true", got.RotationDeg, got.FlipH, got.FlipV)
 	}
 	wantLocal := presentationir.Rect{X: 100, Y: 200, W: 200, H: 200}
 	if got.Bounds != wantLocal {
@@ -5674,13 +5739,13 @@ func TestApplyLegacyPptThemeFontFallbackFillsOnlyMissingRunFamily(t *testing.T) 
 	}
 }
 
-func TestLegacyPptOtherTextUsesFreeStandingTextPlaceholderAnd24PtFallback(t *testing.T) {
-	if got := legacyPptPlaceholderFromTextType(pptTextTypeOther, false); got != presentationir.PlaceholderOther {
-		t.Fatalf("other text placeholder = %v, want PlaceholderOther", got)
+func TestLegacyPptOtherTextRemainsOrdinaryShapeTextAndUses18PtFallback(t *testing.T) {
+	if got := legacyPptPlaceholderFromTextType(pptTextTypeOther, false); got != presentationir.PlaceholderNone {
+		t.Fatalf("other text placeholder = %v, want PlaceholderNone", got)
 	}
 	fallback, ok := legacyPptRoleRunFallback(pptTextTypeOther)
-	if !ok || fallback.FontSize != 2400 {
-		t.Fatalf("other text fallback = %+v, ok=%v; want 2400 hundredths-point", fallback, ok)
+	if !ok || fallback.FontSize != 1800 {
+		t.Fatalf("other text fallback = %+v, ok=%v; want 1800 hundredths-point", fallback, ok)
 	}
 	if fallback.FontFamily != "" {
 		t.Fatalf("other text fallback family = %q, want document font inheritance", fallback.FontFamily)
@@ -5779,7 +5844,6 @@ func TestLegacyPptNestedTableMarkerDoesNotPromoteAncestorGroup(t *testing.T) {
 	}
 }
 
-
 func TestParseTextRulerAtomOwnsDefaultTabsAndCustomStops(t *testing.T) {
 	// TextRuler mask: defaultTabSize + tabStops.
 	payload := make([]byte, 4)
@@ -5798,8 +5862,8 @@ func TestParseTextRulerAtomOwnsDefaultTabsAndCustomStops(t *testing.T) {
 	if !ruler.hasTabs || len(ruler.tabs) != 2 {
 		t.Fatalf("ruler tabs = %#v", ruler.tabs)
 	}
-	if ruler.tabs[0].Pos != 720*127 || ruler.tabs[0].Algn != "ctr" ||
-		ruler.tabs[1].Pos != 1080*127 || ruler.tabs[1].Algn != "dec" {
+	if ruler.tabs[0].Pos != int64(legacyPptMasterUnitsToEMU(720)) || ruler.tabs[0].Algn != "ctr" ||
+		ruler.tabs[1].Pos != int64(legacyPptMasterUnitsToEMU(1080)) || ruler.tabs[1].Algn != "dec" {
 		t.Fatalf("ruler tabs = %#v", ruler.tabs)
 	}
 }
@@ -5808,28 +5872,40 @@ func TestApplyRulerLevelsToParasSuppliesMissingTabSemantics(t *testing.T) {
 	p := &presentationir.Paragraph{Level: 0}
 	ruler := legacyPptTextRuler{
 		defaultTabSize: 360, hasDefaultTab: true, hasTabs: true,
-		tabs: []presentationir.TabStop{{Pos: 720 * 127, Algn: "r"}},
+		tabs: []presentationir.TabStop{{Pos: int64(legacyPptMasterUnitsToEMU(720)), Algn: "r"}},
 	}
 	applyRulerLevelsToParas([]*presentationir.Paragraph{p}, ruler)
-	if p.DefaultTabSizeEMU != 360*127 || len(p.TabStops) != 1 ||
-		p.TabStops[0].Pos != 720*127 || p.TabStops[0].Algn != "r" {
+	if p.DefaultTabSizeEMU != legacyPptMasterUnitsToEMU(360) || len(p.TabStops) != 1 ||
+		p.TabStops[0].Pos != int64(legacyPptMasterUnitsToEMU(720)) || p.TabStops[0].Algn != "r" {
 		t.Fatalf("paragraph ruler projection = %#v", p)
 	}
 }
 
 func TestApplyRulerLevelsToParasDoesNotOverrideParagraphTabSemantics(t *testing.T) {
 	p := &presentationir.Paragraph{
-		Level: 0, DefaultTabSizeEMU: 240 * 127,
-		TabStops: []presentationir.TabStop{{Pos: 480 * 127, Algn: "l"}},
+		Level: 0, DefaultTabSizeEMU: legacyPptMasterUnitsToEMU(240),
+		TabStops: []presentationir.TabStop{{Pos: int64(legacyPptMasterUnitsToEMU(480)), Algn: "l"}},
 	}
 	ruler := legacyPptTextRuler{
 		defaultTabSize: 360, hasDefaultTab: true, hasTabs: true,
-		tabs: []presentationir.TabStop{{Pos: 720 * 127, Algn: "r"}},
+		tabs: []presentationir.TabStop{{Pos: int64(legacyPptMasterUnitsToEMU(720)), Algn: "r"}},
 	}
 	applyRulerLevelsToParas([]*presentationir.Paragraph{p}, ruler)
-	if p.DefaultTabSizeEMU != 240*127 || len(p.TabStops) != 1 ||
-		p.TabStops[0].Pos != 480*127 || p.TabStops[0].Algn != "l" {
+	if p.DefaultTabSizeEMU != legacyPptMasterUnitsToEMU(240) || len(p.TabStops) != 1 ||
+		p.TabStops[0].Pos != int64(legacyPptMasterUnitsToEMU(480)) || p.TabStops[0].Algn != "l" {
 		t.Fatalf("paragraph-owned tabs were overridden: %#v", p)
+	}
+}
+
+func TestMergeLegacyPptMasterParagraphConvertsAbsoluteBulletOffsetToRelativeIndent(t *testing.T) {
+	margin := legacyPptMasterUnitsToEMU(39)
+	p := &presentationir.Paragraph{
+		MarginLeftEMU: margin, HasMarginLeft: true,
+		TextIndentEMU: 0, HasTextIndent: true,
+	}
+	got := mergeLegacyPptMasterParagraph(p, legacyPptMasterTextLevel{}, false)
+	if got.TextIndentEMU != -margin {
+		t.Fatalf("relative indent = %d, want %d", got.TextIndentEMU, -margin)
 	}
 }
 
@@ -5846,4 +5922,409 @@ func TestParseTextRulerAtomPreservesExplicitZeroMarginAndIndent(t *testing.T) {
 	}
 }
 
+func TestMergeLegacyPptMasterParagraphIgnoresCachedBulletCharWhenBulletDisabled(t *testing.T) {
+	paragraph := &presentationir.Paragraph{Runs: []*presentationir.Run{{Text: "E-Auth Level 1"}}}
+	master := legacyPptMasterTextLevel{paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: false, BulletChar: '•'}}
+	merged := mergeLegacyPptMasterParagraph(paragraph, master, false)
+	if merged.BulletChar != "" || merged.BulletNone {
+		t.Fatalf("bullet = char:%q none:%v, want no inherited bullet", merged.BulletChar, merged.BulletNone)
+	}
+}
 
+func TestMergeLegacyPptMasterParagraphPreservesExplicitNoBullet(t *testing.T) {
+	paragraph := &presentationir.Paragraph{Runs: []*presentationir.Run{{Text: "E-Auth Level 1"}}}
+	master := legacyPptMasterTextLevel{paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true, BulletChar: '•'}}
+	merged := mergeLegacyPptMasterParagraph(paragraph, master, false)
+	if merged.BulletChar != "" || !merged.BulletNone {
+		t.Fatalf("bullet = char:%q none:%v, want explicit no-bullet", merged.BulletChar, merged.BulletNone)
+	}
+}
+
+func TestMergeLegacyPptMasterParagraphResolvesExplicitEnabledInheritedBullet(t *testing.T) {
+	paragraph := &presentationir.Paragraph{
+		BulletSpecified: true,
+		Runs:            []*presentationir.Run{{Text: "Item"}},
+	}
+	// A master can retain its marker glyph while disabling bullets at the level.
+	// Local fHasBullet=true re-enables that marker and must inherit the glyph.
+	master := legacyPptMasterTextLevel{paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true, BulletChar: '▪'}}
+	merged := mergeLegacyPptMasterParagraph(paragraph, master, false)
+	if merged.BulletNone || merged.BulletChar != "▪" {
+		t.Fatalf("bullet = char:%q none:%v, want inherited ▪", merged.BulletChar, merged.BulletNone)
+	}
+}
+
+func TestMergeLegacyPptMasterParagraphUsesStandardBulletWhenEnabledGlyphIsUnavailable(t *testing.T) {
+	paragraph := &presentationir.Paragraph{
+		BulletSpecified: true,
+		Runs:            []*presentationir.Run{{Text: "Item"}},
+	}
+	master := legacyPptMasterTextLevel{paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true}}
+	merged := mergeLegacyPptMasterParagraph(paragraph, master, false)
+	if merged.BulletNone || merged.BulletChar != "•" {
+		t.Fatalf("bullet = char:%q none:%v, want standard U+2022", merged.BulletChar, merged.BulletNone)
+	}
+}
+
+func TestLegacyPptOrdinaryTextBoxUsesOtherMasterTextRole(t *testing.T) {
+	shape := &presentationir.Shape{
+		Kind:        presentationir.ShapeText,
+		Placeholder: presentationir.PlaceholderNone,
+		Paragraphs:  []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "axis label"}}}},
+	}
+	styles := legacyPptMasterTextStyles{
+		pptTextTypeBody: {
+			0: {paragraph: stpaPFEntry{HasBullet: true, HasBulletSpecified: true, BulletChar: '•'}},
+		},
+		pptTextTypeOther: {
+			0: {paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true}},
+		},
+	}
+
+	textType := legacyPptMasterTextTypeForShape(shape)
+	if textType != pptTextTypeOther {
+		t.Fatalf("ordinary textbox text type = %d, want PT_Other %d", textType, pptTextTypeOther)
+	}
+	applyLegacyPptMasterTextStylesToShape(shape, styles, textType)
+	got := shape.Paragraphs[0]
+	if got.BulletChar != "" || got.AutoNum {
+		t.Fatalf("ordinary textbox bullet = char:%q auto:%v none:%v, want no bullet", got.BulletChar, got.AutoNum, got.BulletNone)
+	}
+}
+
+func TestLegacyPptBodyPlaceholderStillUsesBodyListSemantics(t *testing.T) {
+	shape := &presentationir.Shape{
+		Kind:        presentationir.ShapeText,
+		Placeholder: presentationir.PlaceholderBody,
+		Paragraphs:  []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "body item"}}}},
+	}
+	styles := legacyPptMasterTextStyles{
+		pptTextTypeBody: {
+			0: {paragraph: stpaPFEntry{HasBullet: true, HasBulletSpecified: true, BulletChar: '•'}},
+		},
+		pptTextTypeOther: {
+			0: {paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true}},
+		},
+	}
+
+	textType := legacyPptMasterTextTypeForShape(shape)
+	if textType != pptTextTypeBody {
+		t.Fatalf("body placeholder text type = %d, want PT_Body %d", textType, pptTextTypeBody)
+	}
+	applyLegacyPptMasterTextStylesToShape(shape, styles, textType)
+	got := shape.Paragraphs[0]
+	if got.BulletChar != "•" || got.BulletNone {
+		t.Fatalf("body placeholder bullet = char:%q none:%v, want inherited bullet", got.BulletChar, got.BulletNone)
+	}
+}
+
+func TestLegacyPptBodyMasterSparseLevelDoesNotSynthesizeBullet(t *testing.T) {
+	styles := legacyPptMasterTextStyles{
+		pptTextTypeBody: {
+			0: {paragraph: stpaPFEntry{HasBullet: true, HasBulletSpecified: true, BulletChar: '•'}},
+			1: {paragraph: stpaPFEntry{HasMarginLeft: true, MarginLeftEMU: 741363}},
+		},
+	}
+	shape := &presentationir.Shape{
+		Kind:        presentationir.ShapeText,
+		Placeholder: presentationir.PlaceholderBody,
+		Paragraphs: []*presentationir.Paragraph{{
+			Level: 1, Runs: []*presentationir.Run{{Text: "plain body paragraph"}},
+		}},
+	}
+
+	applyLegacyPptMasterTextStylesToShape(shape, styles, pptTextTypeBody)
+	got := shape.Paragraphs[0]
+	if got.BulletChar != "" || got.AutoNum || got.BulletNone {
+		t.Fatalf("sparse BODY level manufactured marker: char=%q auto=%v none=%v", got.BulletChar, got.AutoNum, got.BulletNone)
+	}
+	if !got.HasMarginLeft || got.MarginLeftEMU != 741363 {
+		t.Fatalf("BODY structure did not inherit independently of bullet enablement: %+v", got)
+	}
+}
+
+func TestLegacyPptMasterExplicitNoBulletLevelIsSemantic(t *testing.T) {
+	level := legacyPptMasterTextLevel{paragraph: stpaPFEntry{HasBulletSpecified: true, HasBullet: false}}
+	if legacyPptMasterTextLevelEmpty(level) {
+		t.Fatal("explicit fHasBullet=false must survive sparse-master filtering")
+	}
+
+	fallback := legacyPptMasterTextLevel{paragraph: stpaPFEntry{AutoNum: true, AutoNumType: "arabicPeriod", AutoNumStart: 1}}
+	merged := mergeLegacyPptMasterTextLevel(level, fallback)
+	if merged.paragraph.HasBullet || merged.paragraph.AutoNum || !merged.paragraph.HasBulletSpecified {
+		t.Fatalf("explicit fHasBullet=false inherited a fallback marker: %+v", merged.paragraph)
+	}
+}
+
+func TestLegacyPptMasterTextTypeWithRolesUsesParserLocalTextHeaderRole(t *testing.T) {
+	shape := &presentationir.Shape{Kind: presentationir.ShapeText, OriginalShapeID: 42, Placeholder: presentationir.PlaceholderNone}
+	roles := map[uint32]int{42: pptTextTypeTitle}
+	if got := legacyPptMasterTextTypeForShapeWithRoles(shape, roles); got != pptTextTypeTitle {
+		t.Fatalf("resolved text role = %d, want authored PT_Title %d", got, pptTextTypeTitle)
+	}
+	if got := legacyPptMasterTextTypeForShapeWithRoles(shape, nil); got != pptTextTypeOther {
+		t.Fatalf("role-less ordinary shape = %d, want PT_Other %d", got, pptTextTypeOther)
+	}
+}
+
+func TestLegacyPptGroupDescendantsPreserveParserLocalTextHeaderRoles(t *testing.T) {
+	child := &presentationir.Shape{
+		Kind:            presentationir.ShapeText,
+		OriginalShapeID: 42,
+		Paragraphs: []*presentationir.Paragraph{
+			{Level: 0, Runs: []*presentationir.Run{{Text: "Heading"}}},
+			{Level: 1, Runs: []*presentationir.Run{{Text: "Detail"}}},
+		},
+	}
+	group := &presentationir.Shape{Kind: presentationir.ShapeGroup, Children: []*presentationir.Shape{child}}
+	styles := legacyPptMasterTextStyles{
+		pptTextTypeBody: {
+			0: {paragraph: stpaPFEntry{HasBullet: true, HasBulletSpecified: true, BulletChar: '•'}},
+			1: {paragraph: stpaPFEntry{HasBullet: true, HasBulletSpecified: true, BulletChar: '–'}},
+		},
+		pptTextTypeOther: {
+			0: {paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true}},
+			1: {paragraph: stpaPFEntry{HasBullet: false, HasBulletSpecified: true}},
+		},
+	}
+	roles := map[uint32]int{42: pptTextTypeBody}
+
+	applyLegacyPptMasterTextStylesToShapeWithRoles(group, styles, pptTextTypeOther, roles)
+
+	if child.Paragraphs[0].BulletChar != "•" || child.Paragraphs[1].BulletChar != "–" {
+		t.Fatalf("nested body role was lost: bullets = %q, %q", child.Paragraphs[0].BulletChar, child.Paragraphs[1].BulletChar)
+	}
+}
+
+func TestLegacyPptGroupedBodyTextDoesNotInferBulletFromRole(t *testing.T) {
+	child := &presentationir.Shape{
+		Kind:            presentationir.ShapeText,
+		OriginalShapeID: 43,
+		Paragraphs: []*presentationir.Paragraph{{
+			Level: 1, Runs: []*presentationir.Run{{Text: "Nested plain body text"}},
+		}},
+	}
+	group := &presentationir.Shape{Kind: presentationir.ShapeGroup, Children: []*presentationir.Shape{child}}
+	styles := legacyPptMasterTextStyles{
+		pptTextTypeBody: {
+			1: {paragraph: stpaPFEntry{HasMarginLeft: true, MarginLeftEMU: 500000}},
+		},
+	}
+	roles := map[uint32]int{43: pptTextTypeBody}
+
+	applyLegacyPptMasterTextStylesToShapeWithRoles(group, styles, pptTextTypeOther, roles)
+
+	got := child.Paragraphs[0]
+	if got.BulletChar != "" || got.AutoNum || got.BulletNone {
+		t.Fatalf("nested BODY role manufactured marker: %+v", got)
+	}
+	if !got.HasMarginLeft || got.MarginLeftEMU != 500000 {
+		t.Fatalf("nested BODY paragraph lost inherited structure: %+v", got)
+	}
+}
+
+func TestLegacyBodyMasterLevelsInheritBaseCharacterFaceAndColor(t *testing.T) {
+	levels := map[int]legacyPptMasterTextLevel{
+		0: {run: stpaCFRun{FontSize: 2800, FontFamily: "Times New Roman", Color: "FFFFFF"}},
+		1: {run: stpaCFRun{FontSize: 2400}},
+		2: {run: stpaCFRun{FontSize: 2000, Color: "FFFF00"}},
+	}
+	got := legacyPptMasterTextLevelsWithBodyCharacterFallback(levels)
+	if got[1].run.FontSize != 2400 || got[1].run.FontFamily != "Times New Roman" || got[1].run.Color != "FFFFFF" {
+		t.Fatalf("level 1 = %#v, want own size plus inherited face/color", got[1].run)
+	}
+	if got[2].run.FontSize != 2000 || got[2].run.FontFamily != "Times New Roman" || got[2].run.Color != "FFFF00" {
+		t.Fatalf("level 2 = %#v, want authored color preserved and face inherited", got[2].run)
+	}
+	if got[0].run.FontSize != 2800 || got[0].run.Color != "FFFFFF" {
+		t.Fatalf("level 0 changed = %#v", got[0].run)
+	}
+}
+
+func TestNormalizeLegacyPptEffectiveParagraphDefaultsResolvesLeftAlignmentRecursively(t *testing.T) {
+	pres := &presentationir.Presentation{Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{
+		Kind:     presentationir.ShapeGroup,
+		Children: []*presentationir.Shape{{Kind: presentationir.ShapeText, Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "x"}}}}}},
+	}}}}}
+	normalizeLegacyPptEffectiveParagraphDefaults(pres)
+	if got := pres.Slides[0].Shapes[0].Children[0].Paragraphs[0].Align; got != "l" {
+		t.Fatalf("effective alignment = %q, want l", got)
+	}
+}
+
+func TestMergeLegacyPptMasterParagraphCarriesRemainingParagraphSemantics(t *testing.T) {
+	p := &presentationir.Paragraph{Runs: []*presentationir.Run{{Text: "x"}}}
+	master := legacyPptMasterTextLevel{paragraph: stpaPFEntry{
+		MarginRightEMU: 914400, HasMarginRight: true,
+		DefaultTabSizeEMU: 457200, HasDefaultTabSize: true,
+		TabStops:      []presentationir.TabStop{{Pos: 914400, Algn: "r"}},
+		FontAlign:     "base",
+		LineSpacingPt: 1800, HasLineSpacing: true,
+	}}
+	got := mergeLegacyPptMasterParagraph(p, master, false)
+	if !got.HasMarginRight || got.MarginRightEMU != 914400 || got.DefaultTabSizeEMU != 457200 || len(got.TabStops) != 1 || got.TabStops[0].Algn != "r" || got.FontAlign != "base" || !got.HasLineSpacing || got.LineSpacingPt != 1800 {
+		t.Fatalf("merged paragraph semantics = %#v", got)
+	}
+}
+
+func TestNormalizeLegacyPptAnimatedEntrancePaintRestoresChildStroke(t *testing.T) {
+	child := &presentationir.Shape{
+		ID:        267,
+		LineColor: "FFFFFF",
+		LineStyle: &drawing.LineStyle{Color: "FFFFFF", Width: 3, Alpha: 0},
+		OfficeArt: &officeartir.Shape{Line: officeartir.Line{Visible: true, Color: "FFFFFF", WidthPt: 3, Alpha: 0}},
+	}
+	group := &presentationir.Shape{
+		ID:              266,
+		AnimStep:        1,
+		EmphasisEffects: []string{"cut"},
+		Children:        []*presentationir.Shape{child},
+	}
+
+	normalizeLegacyPptAnimatedEntrancePaint([]*presentationir.Shape{group})
+
+	if child.LineStyle == nil || child.LineStyle.Alpha != 1 {
+		t.Fatalf("animated child line alpha = %#v, want opaque final paint", child.LineStyle)
+	}
+	if child.OfficeArt == nil || child.OfficeArt.Line.Alpha != 1 {
+		t.Fatalf("animated child OfficeArt alpha = %#v, want opaque final paint", child.OfficeArt)
+	}
+}
+
+func TestNormalizeLegacyPptAnimatedEntrancePaintRestoresStandaloneLineEndCache(t *testing.T) {
+	shape := &presentationir.Shape{
+		ID:        219,
+		LineColor: "FFFFFF",
+		ArrowTail: "triangle",
+		LineStyle: &drawing.LineStyle{Color: "FFFFFF", Width: 0.75, Alpha: 0},
+		OfficeArt: &officeartir.Shape{Line: officeartir.Line{Visible: true, Color: "FFFFFF", WidthPt: 0.75, Alpha: 0}},
+	}
+
+	normalizeLegacyPptAnimatedEntrancePaint([]*presentationir.Shape{shape})
+
+	if shape.LineStyle == nil || shape.LineStyle.Alpha != 1 {
+		t.Fatalf("line-ended cache alpha = %#v, want opaque final paint", shape.LineStyle)
+	}
+	if shape.OfficeArt == nil || shape.OfficeArt.Line.Alpha != 1 {
+		t.Fatalf("line-ended OfficeArt cache alpha = %#v, want opaque final paint", shape.OfficeArt)
+	}
+}
+
+func TestNormalizeLegacyPptAnimatedEntrancePaintPreservesOrdinaryTransparentStroke(t *testing.T) {
+	shape := &presentationir.Shape{
+		ID:        99,
+		LineColor: "FFFFFF",
+		LineStyle: &drawing.LineStyle{Color: "FFFFFF", Width: 3, Alpha: 0},
+		OfficeArt: &officeartir.Shape{Line: officeartir.Line{Visible: true, Color: "FFFFFF", WidthPt: 3, Alpha: 0}},
+	}
+
+	normalizeLegacyPptAnimatedEntrancePaint([]*presentationir.Shape{shape})
+
+	if shape.LineStyle == nil || shape.LineStyle.Alpha != 0 {
+		t.Fatalf("ordinary transparent line alpha = %#v, want authored zero preserved", shape.LineStyle)
+	}
+	if shape.OfficeArt == nil || shape.OfficeArt.Line.Alpha != 0 {
+		t.Fatalf("ordinary transparent OfficeArt alpha = %#v, want authored zero preserved", shape.OfficeArt)
+	}
+}
+
+func TestParseLegacyPptPictureRecolorPreservesMathTypeOLEForeground(t *testing.T) {
+	props := []officeartescher.Property{{ID: legacyOfficeArtPropPictureRecolor, Value: 0x00FFFF00}}
+	if got := parseLegacyPptPictureRecolor(props, nil); got != "00FFFF" {
+		t.Fatalf("picture recolor = %q, want 00FFFF", got)
+	}
+}
+
+func TestParseLegacyPptPictureRecolorResolvesSlideSchemeColor(t *testing.T) {
+	props := []officeartescher.Property{{ID: legacyOfficeArtPropPictureRecolor, Value: 0x08000004}}
+	scheme := map[uint8]string{4: "FFFFFF"}
+	if got := parseLegacyPptPictureRecolor(props, scheme); got != "FFFFFF" {
+		t.Fatalf("scheme picture recolor = %q, want FFFFFF", got)
+	}
+}
+
+func TestParseLegacyPptMetafileForegroundRecolorResolvesBlackInkToSchemeColor(t *testing.T) {
+	payload := make([]byte, 12+44)
+	binary.LittleEndian.PutUint16(payload[0:2], 0x0001) // fShouldRecolor
+	binary.LittleEndian.PutUint16(payload[2:4], 1)      // cColors
+	entry := payload[12:]
+	binary.LittleEndian.PutUint16(entry[0:2], 0x0001) // fDoRecolor
+	entry[8] = 0                                      // background scheme slot
+	binary.LittleEndian.PutUint16(entry[10:12], 0)    // RecolorEntryColor
+	// source WideColorStruct remains black.
+
+	if got := parseLegacyPptRecolorInfoForeground(payload, map[uint8]string{0: "FFFFFF"}); got != "FFFFFF" {
+		t.Fatalf("metafile foreground recolor = %q, want FFFFFF", got)
+	}
+}
+
+func TestParseLegacyPptMetafileForegroundRecolorIgnoresDisabledMapping(t *testing.T) {
+	payload := make([]byte, 12+44)
+	binary.LittleEndian.PutUint16(payload[0:2], 0x0001)
+	binary.LittleEndian.PutUint16(payload[2:4], 1)
+	payload[12+8] = 0
+	if got := parseLegacyPptRecolorInfoForeground(payload, map[uint8]string{0: "FFFFFF"}); got != "" {
+		t.Fatalf("disabled metafile recolor = %q, want empty", got)
+	}
+}
+
+func TestParseLegacyPptMetafileForegroundRecolorUsesExplicitDestinationColor(t *testing.T) {
+	payload := make([]byte, 12+44)
+	binary.LittleEndian.PutUint16(payload[0:2], 0x0001)
+	binary.LittleEndian.PutUint16(payload[2:4], 1)
+	entry := payload[12:]
+	binary.LittleEndian.PutUint16(entry[0:2], 0x0001)
+	binary.LittleEndian.PutUint16(entry[2:4], 0x1200)
+	binary.LittleEndian.PutUint16(entry[4:6], 0x3400)
+	binary.LittleEndian.PutUint16(entry[6:8], 0x5600)
+	entry[8] = 8
+	binary.LittleEndian.PutUint16(entry[10:12], 0)
+	if got := parseLegacyPptRecolorInfoForeground(payload, nil); got != "123456" {
+		t.Fatalf("explicit metafile recolor = %q, want 123456", got)
+	}
+}
+
+func TestParseLegacyPptRecolorInfoPreservesAllColorMappings(t *testing.T) {
+	payload := make([]byte, 12+2*44)
+	binary.LittleEndian.PutUint16(payload[0:2], 0x0001)
+	binary.LittleEndian.PutUint16(payload[2:4], 2)
+
+	first := payload[12:]
+	binary.LittleEndian.PutUint16(first[0:2], 0x0001)
+	first[8] = 0
+	binary.LittleEndian.PutUint16(first[10:12], 0)
+
+	second := payload[12+44:]
+	binary.LittleEndian.PutUint16(second[0:2], 0x0001)
+	binary.LittleEndian.PutUint16(second[2:4], 0xAA00)
+	binary.LittleEndian.PutUint16(second[4:6], 0xBB00)
+	binary.LittleEndian.PutUint16(second[6:8], 0xCC00)
+	second[8] = 8
+	binary.LittleEndian.PutUint16(second[10:12], 0)
+	binary.LittleEndian.PutUint16(second[12:14], 0x1100)
+	binary.LittleEndian.PutUint16(second[14:16], 0x2200)
+	binary.LittleEndian.PutUint16(second[16:18], 0x3300)
+
+	got := parseLegacyPptRecolorInfo(payload, map[uint8]string{0: "FFFFFF"})
+	if len(got) != 2 {
+		t.Fatalf("recolors = %#v, want 2 entries", got)
+	}
+	if got[0].Source != "000000" || got[0].Destination != "FFFFFF" {
+		t.Fatalf("first recolor = %#v", got[0])
+	}
+	if got[1].Source != "112233" || got[1].Destination != "AABBCC" {
+		t.Fatalf("second recolor = %#v", got[1])
+	}
+}
+
+func TestNormalizeLegacyPptSymbolRunStorageCodes(t *testing.T) {
+	pres := &presentationir.Presentation{Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "\uf044 \uf03e \uf030", FontFamily: "Symbol"}, {Text: "\uf044 = \uf030", FontFamily: "Symbol"}}}}}}}}}
+	normalizeLegacyPptSymbolRunStorageCodes(pres)
+	runs := pres.Slides[0].Shapes[0].Paragraphs[0].Runs
+	if got := runs[0].Text; got != "Δ > 0" {
+		t.Fatalf("first text = %q, want %q", got, "Δ > 0")
+	}
+	if got := runs[1].Text; got != "Δ = 0" {
+		t.Fatalf("second text = %q, want %q", got, "Δ = 0")
+	}
+}

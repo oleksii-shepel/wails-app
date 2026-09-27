@@ -65,3 +65,69 @@ func TestPhysicalEndpointConnectorUnionsAuthoredFrameAndPathEnvelope(t *testing.
 		t.Fatalf("connector union envelope = %+v, want authored frame and endpoint path", got)
 	}
 }
+
+func TestPhysicalRotatedHorizontalBoundedConnectorOwnsPaintEnvelope(t *testing.T) {
+	shape := &ir.Shape{
+		Kind:          ir.ShapeConnector,
+		Bounds:        ir.Rect{X: 12700 * 10, Y: 12700 * 20, W: 12700 * 100, H: 0},
+		ConnectorType: "straightConnector1",
+		RotationDeg:   30,
+		LineWidthPt:   2,
+	}
+	visuals := MaterializePhysicalVisualTree([]*ir.Shape{shape})
+	if len(visuals) != 1 || visuals[0].Connector == nil {
+		t.Fatalf("bounded connector not materialized: %+v", visuals)
+	}
+	b := visuals[0].Drawing.Paint.Bounds
+	if b.Empty() {
+		t.Fatal("rotated zero-height connector paint envelope is empty")
+	}
+	// The 100pt horizontal segment rotates around (60,20) to endpoints near
+	// (16.7,-5) and (103.3,45). The paint envelope must contain both plus stroke.
+	if b.LeftPt > 16.7 || b.TopPt > -5 || b.LeftPt+b.WidthPt < 103.3 || b.TopPt+b.HeightPt < 45 {
+		t.Fatalf("rotated connector paint envelope = %+v, want rotated primitive coverage", b)
+	}
+}
+
+func TestPhysicalRotatedVerticalBoundedConnectorOwnsPaintEnvelope(t *testing.T) {
+	shape := &ir.Shape{
+		Kind:          ir.ShapeConnector,
+		Bounds:        ir.Rect{X: 12700 * 60, Y: 12700 * 10, W: 0, H: 12700 * 100},
+		ConnectorType: "straightConnector1",
+		RotationDeg:   -15,
+		LineWidthPt:   1.5,
+	}
+	visuals := MaterializePhysicalVisualTree([]*ir.Shape{shape})
+	if len(visuals) != 1 || visuals[0].Connector == nil {
+		t.Fatalf("bounded connector not materialized: %+v", visuals)
+	}
+	if b := visuals[0].Drawing.Paint.Bounds; b.Empty() || b.WidthPt <= 20 || b.HeightPt <= 90 {
+		t.Fatalf("rotated zero-width connector paint envelope = %+v, want rotated primitive coverage", b)
+	}
+}
+
+func TestPhysicalShortBidirectionalFreeConnectorKeepsBothArrowPaint(t *testing.T) {
+	start := ir.Point{X: 12700 * 100, Y: 12700 * 100}
+	end := ir.Point{X: 12700 * 100, Y: 12700 * 136}
+	shape := &ir.Shape{
+		Kind:            ir.ShapeConnector,
+		Bounds:          ir.Rect{X: start.X, Y: start.Y, W: 0, H: end.Y - start.Y},
+		ConnectorStart:  &start,
+		ConnectorEnd:    &end,
+		LineWidthPt:     2.75,
+		ArrowHead:       "stealth",
+		ArrowHeadWidth:  "med",
+		ArrowHeadLength: "med",
+		ArrowTail:       "stealth",
+		ArrowTailWidth:  "med",
+		ArrowTailLength: "med",
+	}
+	plan := ResolveFreeConnectorVisualPlan(shape)
+	if plan.StartArrow == nil || plan.EndArrow == nil {
+		t.Fatalf("short bidirectional connector arrows = (%v,%v), want both materialized", plan.StartArrow, plan.EndArrow)
+	}
+	visuals := MaterializePhysicalVisualTree([]*ir.Shape{shape})
+	if len(visuals) != 1 || visuals[0].Drawing == nil || visuals[0].Drawing.Paint.Bounds.Empty() {
+		t.Fatalf("short bidirectional connector paint = %#v, want non-empty marker envelope", visuals)
+	}
+}

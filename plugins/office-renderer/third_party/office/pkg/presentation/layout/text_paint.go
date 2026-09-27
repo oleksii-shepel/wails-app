@@ -23,6 +23,8 @@ type ParagraphVisualPlan struct {
 type MarkerVisualPlan struct {
 	Kind          string
 	Text          string
+	ImageData     []byte
+	ImageMIME     string
 	CounterKey    string
 	NumberingType string
 	Start         int
@@ -44,17 +46,17 @@ type MarkerVisualPlan struct {
 // canonical run remains the semantic text/field/hyperlink carrier; all visual
 // decisions are projected here before serialization.
 type RunVisualPlan struct {
-	Bold, Italic, Underline, Strike bool
-	AllCaps, SmallCaps              bool
-	Superscript, Subscript          bool
-	BaselineShiftPct                float64
-	FontSizePt                      float64
-	CharSpacingPt                   float64
-	KernPt                          float64
+	Bold, Italic, Underline, Strike  bool
+	AllCaps, SmallCaps               bool
+	Superscript, Subscript           bool
+	BaselineShiftPct                 float64
+	FontSizePt                       float64
+	CharSpacingPt                    float64
+	KernPt                           float64
 	KerningSpecified, KerningEnabled bool
-	FontFamily                      string
-	Color, Highlight                string
-	Effects                         EffectVisualPlan
+	FontFamily                       string
+	Color, Highlight                 string
+	Effects                          EffectVisualPlan
 }
 
 func ResolveParagraphVisualPlan(p *ir.Paragraph, frameWidthPt, fontScale, lineScale float64) ParagraphVisualPlan {
@@ -76,7 +78,7 @@ func ResolveParagraphVisualPlan(p *ir.Paragraph, frameWidthPt, fontScale, lineSc
 		TabStops: append([]ir.TabStop(nil), p.TabStops...),
 	}
 	indent := p.Level
-	if p.BulletChar != "" || p.AutoNum {
+	if p.BulletChar != "" || len(p.BulletImageData) != 0 || p.AutoNum {
 		indent++
 	}
 	if !p.HasMarginLeft && !p.HasTextIndent && indent > 0 {
@@ -136,6 +138,19 @@ func ResolveParagraphVisualPlan(p *ir.Paragraph, frameWidthPt, fontScale, lineSc
 	if marker.FontSizePt <= 0 {
 		marker.FontSizePt = baseFontPt
 	}
+	// Picture bullets are authored inside the paragraph's negative hanging-indent
+	// region. Some converted PPTX files retain a large buSzPct value from the
+	// source theme (37625 uses 113.071%), but PowerPoint still keeps the bitmap
+	// comfortably inside that marker column. Rendering the percentage literally
+	// can make the image wider than the entire hanging region. Cap only oversized
+	// picture markers, leaving 20% of the authored region for visual separation
+	// from the first text glyph. Character and autonumber markers remain exact.
+	if len(p.BulletImageData) != 0 && p.HasTextIndent && plan.Metrics.TextIndentPt < 0 {
+		hangingPt := -plan.Metrics.TextIndentPt
+		if maxPicturePt := hangingPt * 0.8; maxPicturePt > 0 && marker.FontSizePt > maxPicturePt {
+			marker.FontSizePt = maxPicturePt
+		}
+	}
 	if marker.FontSizePt > 0 {
 		marker.GapPt = measurePlainTextWidthPt(" ", marker.FontSizePt, marker.FontFamily, false, false)
 		// DrawingML list paragraphs commonly use a negative text indent as a
@@ -153,13 +168,18 @@ func ResolveParagraphVisualPlan(p *ir.Paragraph, frameWidthPt, fontScale, lineSc
 				markerText = formatAutoNumForLayout(p.AutoNumType, start)
 			}
 			markerWidthPt := measurePlainTextWidthPt(markerText, marker.FontSizePt, marker.FontFamily, false, false)
+			if len(p.BulletImageData) != 0 {
+				markerWidthPt = marker.FontSizePt
+			}
 			hangingGapPt := -plan.Metrics.TextIndentPt - markerWidthPt
 			if hangingGapPt > marker.GapPt {
 				marker.GapPt = hangingGapPt
 			}
 		}
 	}
-	if p.BulletChar != "" {
+	if len(p.BulletImageData) != 0 {
+		marker.Kind, marker.ImageData, marker.ImageMIME = "image", append([]byte(nil), p.BulletImageData...), p.BulletImageMIME
+	} else if p.BulletChar != "" {
 		marker.Kind, marker.Text = "bullet", p.BulletChar
 	} else if p.AutoNum {
 		marker.Kind = "auto"
@@ -176,6 +196,8 @@ func ResolveParagraphVisualPlan(p *ir.Paragraph, frameWidthPt, fontScale, lineSc
 		markerFontPt := marker.FontSizePt
 		if marker.Kind == "bullet" {
 			markerText = marker.Text
+		} else if marker.Kind == "image" {
+			markerText = "■"
 		} else if marker.Kind == "auto" {
 			// Exact numbering remains stateful, but width ownership belongs to
 			// layout. Use the resolved start value as the physical representative.
@@ -196,7 +218,7 @@ func materializeMarkerBaselinePlacement(plan *ParagraphVisualPlan) {
 	}
 	a, d := paragraphPhysicalBaselineExtentsPt(plan.Marker.FontSizePt, plan.Marker.FontFamily, plan.Metrics)
 	plan.Marker.AscentPt, plan.Marker.DescentPt = a, d
-	plan.Marker.TopOffsetPt = maxFloat(0, plan.Lines[0].AscentPt-a)
+	plan.Marker.TopOffsetPt = physicalBaselineTopOffsetPt(plan.Lines[0].AscentPt, a, d, plan.Marker.FontSizePt, plan.Marker.FontFamily)
 }
 
 func ResolveRunVisualPlan(run *ir.Run, fontScale float64) RunVisualPlan {

@@ -75,3 +75,22 @@ func TestSample3SubtitleStyleKeepsAuthoredAfterAndInheritsBodyLineSpacing(t *tes
 		t.Fatalf("sample-3 subtitle run = %#v", r)
 	}
 }
+
+func Test37625PictureBulletBlocksInheritedBuNone(t *testing.T) {
+	dst := &ir.Paragraph{
+		BulletImageRelID: "rId1",
+		BulletImageData:  []byte("PNG-BULLET"),
+		BulletImageMIME:  "image/png",
+		BulletNone:       false,
+	}
+	src := &ir.Paragraph{BulletNone: true}
+
+	inheritParagraphFacts(dst, src)
+
+	if dst.BulletNone {
+		t.Fatal("inherited buNone suppressed authored picture bullet")
+	}
+	if dst.BulletImageRelID != "rId1" || string(dst.BulletImageData) != "PNG-BULLET" {
+		t.Fatalf("picture bullet changed: rel=%q data=%q", dst.BulletImageRelID, string(dst.BulletImageData))
+	}
+}

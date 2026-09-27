@@ -54,6 +54,7 @@ const (
 
 	PropFillType     uint16 = 0x0180
 	PropFillColor    uint16 = 0x0181
+	PropFillOpacity  uint16 = 0x0182
 	PropFillBooleans uint16 = 0x01BF
 
 	PropFillBackColor   uint16 = 0x0183
@@ -75,6 +76,8 @@ const (
 	PropLineStartArrowLength uint16 = 0x01D3
 	PropLineEndArrowWidth    uint16 = 0x01D4
 	PropLineEndArrowLength   uint16 = 0x01D5
+	PropLineJoinStyle        uint16 = 0x01D6
+	PropLineEndCapStyle      uint16 = 0x01D7
 	PropLineBooleans         uint16 = 0x01FF
 
 	PropShadowType     uint16 = 0x0200

@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"math"
+
 	"office/pkg/ooxml/drawing"
 	ir "office/pkg/presentation/ir"
 	"testing"
@@ -59,3 +61,31 @@ func TestNormAutofitWithoutAuthoredScaleKeepsAuthoredFontSize(t *testing.T) {
 		t.Fatalf("normAutofit font scale = %.4f, want authored/default 1.0 when fontScale is absent", plan.Frame.FontScale)
 	}
 }
+
+// PowerPoint ignores space-before on the first paragraph of a text body. Slide 5
+// of the 23884 fixture drifts ~6.9pt below its authored frame without this.
+func TestFirstBodyParagraphDropsAuthoredSpaceBefore(t *testing.T) {
+	newBody := func() []*ir.Paragraph {
+		return []*ir.Paragraph{
+			{SpaceBefore: 688, HasSpaceBefore: true, Runs: []*ir.Run{{Text: "GPS Block I", FontSize: 2000, FontFamily: "Times New Roman"}}},
+			{SpaceBefore: 588, HasSpaceBefore: true, Runs: []*ir.Run{{Text: "02/78", FontSize: 1800, FontFamily: "Times New Roman"}}},
+		}
+	}
+	shape := &ir.Shape{Bounds: ir.Rect{W: 12700 * 180, H: 12700 * 80}, Paragraphs: newBody()}
+	plan := ResolveTextVisualPlan(shape)
+	if len(plan.Paragraphs) != 2 {
+		t.Fatalf("paragraph plans = %d, want 2", len(plan.Paragraphs))
+	}
+	if plan.Paragraphs[0].Metrics.HasSpaceBefore || plan.Paragraphs[0].Metrics.SpaceBeforePt != 0 {
+		t.Fatalf("first paragraph space-before = %+v, want suppressed", plan.Paragraphs[0].Metrics)
+	}
+	if !plan.Paragraphs[1].Metrics.HasSpaceBefore || math.Abs(plan.Paragraphs[1].Metrics.SpaceBeforePt-5.88) > .001 {
+		t.Fatalf("following paragraph space-before = %.3f, want authored 5.88", plan.Paragraphs[1].Metrics.SpaceBeforePt)
+	}
+	// Frame measurement must consume the same suppressed value.
+	withLead := physicalParagraphLinesHeight(plan.Paragraphs[0].Lines) + 5.88 + physicalParagraphLinesHeight(plan.Paragraphs[1].Lines)
+	if math.Abs(plan.Layout.ContentHeightPt-withLead) > .001 {
+		t.Fatalf("content height = %.3f, want %.3f", plan.Layout.ContentHeightPt, withLead)
+	}
+}
+

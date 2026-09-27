@@ -22,7 +22,7 @@ func TestCanonicalWord97OwnsNumberingBinaryLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	projection := string(projectionData)
-	if !strings.Contains(projection, "input := word97BinaryDocumentInput(snapshot, visible)") {
+	if !strings.Contains(projection, "input := word97BinaryDocumentInput(snapshot, runs)") {
 		t.Fatal("legacy Word97 projection must consume canonical numbering through consolidated build inputs")
 	}
 	for _, forbidden := range []string{

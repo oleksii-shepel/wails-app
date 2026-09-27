@@ -137,3 +137,23 @@ func TestMergeVisualPropertiesPreservesZeroLineOpacity(t *testing.T) {
 		t.Fatalf("merged line opacity = present:%v value:%v", base.HasLineOpacity, base.LineOpacity)
 	}
 }
+
+func TestDecodeVisualPropertiesUnrelatedFillBooleanDoesNotCancelEarlierFilled(t *testing.T) {
+	props := []escher.Property{
+		// Explicit fFilled=true: value bit 4 + use bit 4.
+		{ID: escher.PropFillBooleans, Value: (1 << 20) | (1 << 4)},
+		// Later fill boolean record authors unrelated use bits only.
+		{ID: escher.PropFillBooleans, Value: 0x00600000},
+	}
+	got := DecodeVisualProperties(props, nil)
+	if !got.HasFill || !got.FillEnabled {
+		t.Fatalf("fill = present:%v enabled:%v, want preserved explicit fFilled=true", got.HasFill, got.FillEnabled)
+	}
+}
+
+func TestDecodeVisualPropertiesTracksFillOpacity(t *testing.T) {
+	got := DecodeVisualProperties([]escher.Property{{ID: escher.PropFillOpacity, Value: 0x00004CCD}}, nil)
+	if !got.HasFillOpacity || got.FillOpacity < 0.299 || got.FillOpacity > 0.301 {
+		t.Fatalf("fill opacity = present:%v value:%v, want about 0.30", got.HasFillOpacity, got.FillOpacity)
+	}
+}

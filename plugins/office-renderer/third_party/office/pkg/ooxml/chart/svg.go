@@ -52,6 +52,84 @@ func (c *Chart) defaultChartRect(width, height int) (x, y, w, h int) {
 	return
 }
 
+// chartPlotRect is the canonical drawable rectangle for Cartesian chart data.
+// The outer chart frame may also contain titles, legends and axis labels. Keeping
+// this rectangle in one place prevents individual renderers from applying their
+// own fixed-pixel insets and therefore scaling the same chart differently.
+type chartPlotRect struct {
+	X, Y, W, H int
+}
+
+func (c *Chart) cartesianPlotRect(x, y, w, h int) chartPlotRect {
+	// An authored inner manual layout already describes the plot rectangle.
+	// Applying another renderer inset here would shrink it twice.
+	if c.ManualLayout != nil && c.ManualLayout.LayoutTarget == "inner" {
+		return chartPlotRect{X: x, Y: y, W: maxInt(0, w), H: maxInt(0, h)}
+	}
+
+	left := maxInt(34, minInt(60, int(math.Round(float64(w)*0.08))))
+	right := maxInt(10, minInt(24, int(math.Round(float64(w)*0.02))))
+	bottom := maxInt(28, minInt(44, int(math.Round(float64(h)*0.10))))
+	top := 0
+	if c.YAxis.Title != "" {
+		left += 14
+	}
+	if c.XAxis.Title != "" {
+		bottom += 12
+	}
+	if c.YAxis2.Title != "" {
+		right += 18
+	}
+	if left+right >= w {
+		left, right = maxInt(8, w/8), maxInt(6, w/16)
+	}
+	if top+bottom >= h {
+		top, bottom = 0, maxInt(8, h/8)
+	}
+	return chartPlotRect{X: x + left, Y: y + top, W: maxInt(0, w-left-right), H: maxInt(0, h-top-bottom)}
+}
+
+func projectAxisValueY(plot chartPlotRect, value, minVal, maxVal float64) int {
+	if maxVal <= minVal || plot.H <= 0 {
+		return plot.Y + plot.H
+	}
+	return plot.Y + plot.H - int(math.Round(((value-minVal)/(maxVal-minVal))*float64(plot.H)))
+}
+
+func projectAxisValueX(plot chartPlotRect, value, minVal, maxVal float64) int {
+	if maxVal <= minVal || plot.W <= 0 {
+		return plot.X
+	}
+	return plot.X + int(math.Round(((value-minVal)/(maxVal-minVal))*float64(plot.W)))
+}
+
+func clampToPlotY(plot chartPlotRect, y int) int {
+	if y < plot.Y {
+		return plot.Y
+	}
+	if y > plot.Y+plot.H {
+		return plot.Y + plot.H
+	}
+	return y
+}
+
+func clampToPlotX(plot chartPlotRect, x int) int {
+	if x < plot.X {
+		return plot.X
+	}
+	if x > plot.X+plot.W {
+		return plot.X + plot.W
+	}
+	return x
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func minInt(a, b int) int {
 	if a < b {
 		return a
@@ -290,10 +368,8 @@ func (c *Chart) renderBarChart(b *strings.Builder, x, y, w, h int, horizontal bo
 	// Calculate bar dimensions
 	categories := len(c.Series[0].Values)
 	seriesCount := len(c.Series)
-	plotX := x + 50
-	plotY := y
-	plotW := w - 60
-	plotH := h - 40
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotY, plotW, plotH := plot.X, plot.Y, plot.W, plot.H
 
 	var maxVal float64
 	if c.PercentStacked {
@@ -474,8 +550,8 @@ func (c *Chart) renderLineChart(b *strings.Builder, x, y, w, h int) {
 	// physical plot rectangle so out-of-range authored points cannot leak into
 	// labels, legends, or neighbouring worksheet content.
 	c.renderAxes(b, x, y, w, h, false)
-	plotX, plotY := x+50, y
-	plotW, plotH := w-60, h-40
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotY, plotW, plotH := plot.X, plot.Y, plot.W, plot.H
 	if plotW < 0 {
 		plotW = 0
 	}
@@ -491,9 +567,7 @@ func (c *Chart) renderLineChart(b *strings.Builder, x, y, w, h int) {
 	if points > 1 {
 		xStep = float64(plotW) / float64(points-1)
 	}
-	projectY := func(val float64) int {
-		return plotY + plotH - int(((val-minVal)/(maxVal-minVal))*float64(plotH))
-	}
+	projectY := func(val float64) int { return projectAxisValueY(plot, val, minVal, maxVal) }
 
 	for seriesIdx, series := range c.Series {
 		color := c.seriesLineColor(seriesIdx)
@@ -720,36 +794,37 @@ func (c *Chart) renderAreaChart(b *strings.Builder, x, y, w, h int) {
 		return
 	}
 
-	maxVal := c.axisMax()
-	if maxVal == 0 {
-		maxVal = 1
+	minVal, maxVal := c.axisRange()
+	if maxVal <= minVal {
+		maxVal = minVal + 1
 	}
 
 	// Draw axes
 	c.renderAxes(b, x, y, w, h, false)
+	plot := c.cartesianPlotRect(x, y, w, h)
 
 	// Draw areas
 	points := len(c.Series[0].Values)
 	xStep := 0.0
 	if points > 1 {
-		xStep = float64(w-60) / float64(points-1)
+		xStep = float64(plot.W) / float64(points-1)
 	}
 
 	for seriesIdx, series := range c.Series {
 		color := c.seriesFillColor(seriesIdx)
 
 		var path strings.Builder
-		baseY := y + h - 40
+		baseY := clampToPlotY(plot, projectAxisValueY(plot, 0, minVal, maxVal))
 
 		coords := make([][2]int, len(series.Values))
 		for i, val := range series.Values {
-			px := x + 50 + int(float64(i)*xStep)
-			py := baseY - int((val/maxVal)*float64(h-40))
+			px := plot.X + int(float64(i)*xStep)
+			py := projectAxisValueY(plot, val, minVal, maxVal)
 			coords[i] = [2]int{px, py}
 		}
 
 		// Start at bottom left
-		fmt.Fprintf(&path, "M%d,%d", x+50, baseY)
+		fmt.Fprintf(&path, "M%d,%d", plot.X, baseY)
 
 		// Top edge
 		if series.Smooth && len(coords) > 2 {
@@ -770,7 +845,7 @@ func (c *Chart) renderAreaChart(b *strings.Builder, x, y, w, h int) {
 		}
 
 		// Back to bottom right and close
-		lastX := x + 50 + int(float64(points-1)*xStep)
+		lastX := plot.X + int(float64(points-1)*xStep)
 		fmt.Fprintf(&path, " L%d,%d Z", lastX, baseY)
 
 		// Draw area with transparency
@@ -809,15 +884,15 @@ func (c *Chart) renderAreaChart(b *strings.Builder, x, y, w, h int) {
 			continue
 		}
 		for i, val := range series.Values {
-			px := x + 50 + int(float64(i)*xStep)
-			py := y + h - 40 - int((val/maxVal)*float64(h-40))
-			c.drawErrorBar(b, series.ErrorBars, px, py, val, maxVal, h-40, maxVal, w-60, series.Values, i)
+			px := plot.X + int(float64(i)*xStep)
+			py := projectAxisValueY(plot, val, minVal, maxVal)
+			c.drawErrorBar(b, series.ErrorBars, px, py, val, maxVal, plot.H, maxVal-minVal, plot.W, series.Values, i)
 		}
 	}
 
 	// Trendlines
 	for _, series := range c.Series {
-		c.renderTrendline(b, series, x+50, y, w-60, h-40, 0, float64(points-1), maxVal, false)
+		c.renderTrendline(b, series, plot.X, plot.Y, plot.W, plot.H, 0, float64(points-1), maxVal, false)
 	}
 
 	c.renderCategoryLabels(b, x, y, w, h, points)
@@ -865,13 +940,11 @@ func (c *Chart) renderScatterChart(b *strings.Builder, x, y, w, h int) {
 		xMax = xMin + 1
 	}
 
-	plotX := x + 50
-	plotY := y
-	plotW := w - 60
-	plotH := h - 40
-	maxVal := c.axisMax()
-	if maxVal == 0 {
-		maxVal = 1
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotY, plotW, plotH := plot.X, plot.Y, plot.W, plot.H
+	yMin, yMax := c.axisRange()
+	if yMax <= yMin {
+		yMax = yMin + 1
 	}
 
 	for seriesIdx, series := range c.Series {
@@ -898,7 +971,7 @@ func (c *Chart) renderScatterChart(b *strings.Builder, x, y, w, h int) {
 					groupSize := float64(plotW) / float64(points)
 					px = plotX + int(float64(i)*groupSize) + int(groupSize/2)
 				}
-				py = plotY + plotH - int((val/maxVal)*float64(plotH))
+				py = projectAxisValueY(plot, val, yMin, yMax)
 				coords[i] = [2]int{px, py}
 				if i > 0 {
 					path.WriteString(" L")
@@ -922,7 +995,7 @@ func (c *Chart) renderScatterChart(b *strings.Builder, x, y, w, h int) {
 				groupSize := float64(plotW) / float64(points)
 				px = plotX + int(float64(i)*groupSize) + int(groupSize/2)
 			}
-			py = plotY + plotH - int((val/maxVal)*float64(plotH))
+			py = projectAxisValueY(plot, val, yMin, yMax)
 			if drawMarker {
 				markerColor := c.seriesMarkerColor(seriesIdx)
 				markerSize := c.seriesMarkerSize(seriesIdx)
@@ -956,18 +1029,18 @@ func (c *Chart) renderScatterChart(b *strings.Builder, x, y, w, h int) {
 				groupSize := float64(plotW) / float64(points)
 				px = plotX + int(float64(i)*groupSize) + int(groupSize/2)
 			}
-			py = plotY + plotH - int((val/maxVal)*float64(plotH))
+			py = projectAxisValueY(plot, val, yMin, yMax)
 			xRange := xMax - xMin
 			if !hasXValues {
-				xRange = maxVal
+				xRange = yMax - yMin
 			}
-			c.drawErrorBar(b, series.ErrorBars, px, py, val, maxVal, plotH, xRange, plotW, series.Values, i)
+			c.drawErrorBar(b, series.ErrorBars, px, py, val, yMax, plotH, xRange, plotW, series.Values, i)
 		}
 	}
 
 	// Trendlines
 	for _, series := range c.Series {
-		c.renderTrendline(b, series, plotX, plotY, plotW, plotH, xMin, xMax, maxVal, false)
+		c.renderTrendline(b, series, plotX, plotY, plotW, plotH, xMin, xMax, yMax, false)
 	}
 
 	if !hasXValues {
@@ -984,14 +1057,11 @@ func (c *Chart) renderBubbleChart(b *strings.Builder, x, y, w, h int) {
 
 	c.renderAxes(b, x, y, w, h, false)
 
-	plotX := x + 50
-	plotY := y
-	plotW := w - 60
-	plotH := h - 40
-
-	maxVal := c.axisMax()
-	if maxVal == 0 {
-		maxVal = 1
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotW, plotH := plot.X, plot.W, plot.H
+	yMin, yMax := c.axisRange()
+	if yMax <= yMin {
+		yMax = yMin + 1
 	}
 
 	xMin, xMax := math.Inf(1), math.Inf(-1)
@@ -1046,7 +1116,7 @@ func (c *Chart) renderBubbleChart(b *strings.Builder, x, y, w, h int) {
 			} else {
 				px = plotX + int(float64(i)*float64(plotW)/float64(len(series.Values)))
 			}
-			py = plotY + plotH - int((val/maxVal)*float64(plotH))
+			py = projectAxisValueY(plot, val, yMin, yMax)
 
 			// Bubble radius proportional to sqrt of size
 			radius := 4
@@ -1081,12 +1151,12 @@ func (c *Chart) renderBubbleChart(b *strings.Builder, x, y, w, h int) {
 			} else {
 				px = plotX + int(float64(i)*float64(plotW)/float64(len(series.Values)))
 			}
-			py := plotY + plotH - int((val/maxVal)*float64(plotH))
+			py := projectAxisValueY(plot, val, yMin, yMax)
 			xRange := xMax - xMin
 			if !hasXValues {
-				xRange = maxVal
+				xRange = yMax - yMin
 			}
-			c.drawErrorBar(b, series.ErrorBars, px, py, val, maxVal, plotH, xRange, plotW, series.Values, i)
+			c.drawErrorBar(b, series.ErrorBars, px, py, val, yMax, plotH, xRange, plotW, series.Values, i)
 		}
 	}
 }
@@ -1100,10 +1170,8 @@ func (c *Chart) renderStockChart(b *strings.Builder, x, y, w, h int) {
 
 	c.renderAxes(b, x, y, w, h, false)
 
-	plotX := x + 50
-	plotY := y
-	plotW := w - 60
-	plotH := h - 40
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotY, plotW, plotH := plot.X, plot.Y, plot.W, plot.H
 
 	points := len(c.Series[0].Values)
 	if points == 0 {
@@ -1390,21 +1458,22 @@ func (c *Chart) renderCategoryLabels(b *strings.Builder, x, y, w, h, points int)
 	if len(c.Categories) > maxLabels {
 		step = int(math.Ceil(float64(len(c.Categories)) / float64(maxLabels)))
 	}
+	plot := c.cartesianPlotRect(x, y, w, h)
 	xStep := 0.0
 	if points > 1 {
-		xStep = float64(w-60) / float64(points-1)
+		xStep = float64(plot.W) / float64(points-1)
 	}
 
 	// Rotate labels when there are many categories to prevent overlap.
 	rotateLabels := len(c.Categories) > 15
-	labelY := y + h - 15
+	labelY := plot.Y + plot.H + 18
 	if rotateLabels {
-		labelY = y + h - 5
+		labelY = plot.Y + plot.H + 30
 	}
 
 	lastDrawn := -1
 	for i := 0; i < points && i < len(c.Categories); i += step {
-		px := x + 50
+		px := plot.X
 		if points > 1 {
 			px += int(float64(i) * xStep)
 		}
@@ -1422,7 +1491,7 @@ func (c *Chart) renderCategoryLabels(b *strings.Builder, x, y, w, h, points int)
 		last = len(c.Categories) - 1
 	}
 	if last >= 0 && last != lastDrawn {
-		px := x + 50
+		px := plot.X
 		if points > 1 {
 			px += int(float64(last) * xStep)
 		}
@@ -1439,19 +1508,17 @@ func (c *Chart) renderCategoryLabels(b *strings.Builder, x, y, w, h, points int)
 // renderEmptyFrame draws an axes skeleton with a label for charts with no cached data.
 func (c *Chart) renderEmptyFrame(b *strings.Builder, x, y, w, h int) {
 	axisColor := "#000"
-	// Y axis
+	plot := c.cartesianPlotRect(x, y, w, h)
 	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-		x+50, y, x+50, y+h-40, axisColor)
-	// X axis
+		plot.X, plot.Y, plot.X, plot.Y+plot.H, axisColor)
 	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-		x+50, y+h-40, x+w-10, y+h-40, axisColor)
-	// Placeholder label
+		plot.X, plot.Y+plot.H, plot.X+plot.W, plot.Y+plot.H, axisColor)
 	label := c.ChartType.String() + " chart"
 	if len(c.Series) > 0 && c.Series[0].Name != "" {
 		label = c.Series[0].Name
 	}
 	fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" font-size="12" fill="#999" font-style="italic">%s</text>`,
-		x+50+(w-60)/2, y+h/2, escapeSVG(label))
+		plot.X+plot.W/2, plot.Y+plot.H/2, escapeSVG(label))
 }
 
 // solveLinearSystem solves A·x = b using Gaussian elimination with partial pivoting.
@@ -1966,16 +2033,8 @@ func (c *Chart) renderTrendline(b *strings.Builder, series Series, plotX, plotY,
 // renderAxes renders X and Y axes.
 func (c *Chart) renderAxes(b *strings.Builder, x, y, w, h int, horizontal bool) {
 	axisColor := "#000"
-	plotX := x + 50
-	plotY := y
-	plotW := w - 60
-	plotH := h - 40
-	if plotW < 0 {
-		plotW = 0
-	}
-	if plotH < 0 {
-		plotH = 0
-	}
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotY, plotW, plotH := plot.X, plot.Y, plot.W, plot.H
 	fill := "white"
 	if c.PlotArea.FillColor != "" {
 		fill = "#" + c.resolveColor(c.PlotArea.FillColor)
@@ -1992,7 +2051,7 @@ func (c *Chart) renderAxes(b *strings.Builder, x, y, w, h int, horizontal bool) 
 
 	// Y axis
 	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-		x+50, y, x+50, y+h-40, axisColor)
+		plotX, plotY, plotX, plotY+plotH, axisColor)
 
 	// X axis. Cross at zero for a mixed-sign value domain; otherwise use the
 	// nearest plot edge.
@@ -2021,42 +2080,48 @@ func (c *Chart) renderAxes(b *strings.Builder, x, y, w, h int, horizontal bool) 
 					gridColor = "#" + c.resolveColor(c.YAxis.GridlineColor)
 				}
 				fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-					x+50, yPos, x+w-10, yPos, gridColor)
+					plotX, yPos, plotX+plotW, yPos, gridColor)
 			}
 			fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-				x+46, yPos, x+50, yPos, axisColor)
+				plotX-4, yPos, plotX, yPos, axisColor)
 			label := formatAxisValue(val, c.YAxis.NumFmt, c.PercentStacked)
 			fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="end" %s>%s</text>`,
-				x+40, yPos+3, chartTextSVGStyle(c.YAxis.LabelStyle, 9, false, "000000"), escapeSVG(label))
+				plotX-10, yPos+3, chartTextSVGStyle(c.YAxis.LabelStyle, 9, false, "000000"), escapeSVG(label))
 		}
 	}
 
 	// Axis titles
 	if c.YAxis.Title != "" {
 		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s transform="rotate(-90 %d %d)">%s</text>`,
-			x+15, y+h/2, chartTextSVGStyle(c.YAxis.TitleStyle, 11, false, "333333"), x+15, y+h/2, escapeSVG(c.YAxis.Title))
+			x+14, plotY+plotH/2, chartTextSVGStyle(c.YAxis.TitleStyle, 11, false, "333333"), x+14, plotY+plotH/2, escapeSVG(c.YAxis.Title))
 	}
 	if c.XAxis.Title != "" {
 		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s>%s</text>`,
-			x+w/2+25, y+h-5, chartTextSVGStyle(c.XAxis.TitleStyle, 11, false, "333333"), escapeSVG(c.XAxis.Title))
+			plotX+plotW/2, y+h-5, chartTextSVGStyle(c.XAxis.TitleStyle, 11, false, "333333"), escapeSVG(c.XAxis.Title))
 	}
 }
 
 func (c *Chart) renderCategoryComboChart(b *strings.Builder, x, y, w, h int) {
-	primaryMax := c.axisMax()
-	if primaryMax == 0 {
-		primaryMax = 1
+	primaryIndices := make([]int, 0, len(c.Series))
+	for i := range c.Series {
+		if !c.Series[i].UsesSecondaryValueAxis() {
+			primaryIndices = append(primaryIndices, i)
+		}
+	}
+	primaryMin, primaryMax := c.axisRangeForSeriesIndices(primaryIndices, c.YAxis)
+	if primaryMax <= primaryMin {
+		primaryMax = primaryMin + 1
 	}
 	c.renderAxes(b, x, y, w, h, false)
 
 	secondarySeries := c.secondaryAxisSeriesIndices()
-	secondaryMax := 0.0
+	secondaryMin, secondaryMax := 0.0, 1.0
 	if len(secondarySeries) > 0 {
-		secondaryMax = c.axisMaxForSeriesIndices(secondarySeries, c.YAxis2)
-		if secondaryMax == 0 {
-			secondaryMax = 1
+		secondaryMin, secondaryMax = c.axisRangeForSeriesIndices(secondarySeries, c.YAxis2)
+		if secondaryMax <= secondaryMin {
+			secondaryMax = secondaryMin + 1
 		}
-		c.renderSecondaryYAxis(b, x, y, w, h, secondaryMax)
+		c.renderSecondaryYAxis(b, x, y, w, h, secondaryMin, secondaryMax)
 	}
 
 	categories := len(c.Series[0].Values)
@@ -2074,11 +2139,15 @@ func (c *Chart) renderCategoryComboChart(b *strings.Builder, x, y, w, h int) {
 		}
 	}
 
-	plotX := x + 50
-	plotY := y
-	plotW := w - 60
-	plotH := h - 40
+	plot := c.cartesianPlotRect(x, y, w, h)
+	plotX, plotY, plotW, plotH := plot.X, plot.Y, plot.W, plot.H
 	groupSize := float64(plotW) / float64(categories)
+	seriesRange := func(seriesIdx int) (float64, float64) {
+		if seriesIdx >= 0 && seriesIdx < len(c.Series) && c.Series[seriesIdx].UsesSecondaryValueAxis() {
+			return secondaryMin, secondaryMax
+		}
+		return primaryMin, primaryMax
+	}
 	barSize := groupSize * 0.7
 	if len(columnSeries) > 0 {
 		barSize = (groupSize * 0.7) / float64(len(columnSeries))
@@ -2089,13 +2158,13 @@ func (c *Chart) renderCategoryComboChart(b *strings.Builder, x, y, w, h int) {
 
 	for _, seriesIdx := range areaSeries {
 		series := c.Series[seriesIdx]
-		maxVal := c.seriesAxisMax(seriesIdx, primaryMax, secondaryMax)
+		minVal, maxVal := seriesRange(seriesIdx)
 		var path strings.Builder
 		baseY := plotY + plotH
 		coords := make([][2]int, len(series.Values))
 		for i, val := range series.Values {
 			px := plotX + int(float64(i)*groupSize) + int(groupSize/2)
-			py := plotY + plotH - int((val/maxVal)*float64(plotH))
+			py := projectAxisValueY(plot, val, minVal, maxVal)
 			coords[i] = [2]int{px, py}
 		}
 		startX := plotX
@@ -2140,12 +2209,14 @@ func (c *Chart) renderCategoryComboChart(b *strings.Builder, x, y, w, h int) {
 			if catIdx >= len(series.Values) {
 				continue
 			}
-			maxVal := c.seriesAxisMax(seriesIdx, primaryMax, secondaryMax)
+			minVal, maxVal := seriesRange(seriesIdx)
 			val := series.Values[catIdx]
 			bw := int(barSize * 0.9)
-			bh := int((val / maxVal) * float64(plotH))
+			baseY := clampToPlotY(plot, projectAxisValueY(plot, 0, minVal, maxVal))
+			valueY := clampToPlotY(plot, projectAxisValueY(plot, val, minVal, maxVal))
+			bh := absInt(baseY - valueY)
 			bx := plotX + int(float64(catIdx)*groupSize) + int(groupSize*0.15) + int(float64(pos)*barSize)
-			by := plotY + plotH - bh
+			by := minInt(baseY, valueY)
 			fmt.Fprintf(b, `<rect x="%d" y="%d" width="%d" height="%d" fill="#%s" stroke="#%s" stroke-width="1"/>`,
 				bx, by, bw, bh, c.seriesFillColorFor(seriesIdx, catIdx), c.seriesStrokeColor(seriesIdx))
 		}
@@ -2153,7 +2224,7 @@ func (c *Chart) renderCategoryComboChart(b *strings.Builder, x, y, w, h int) {
 
 	for _, seriesIdx := range lineSeries {
 		series := c.Series[seriesIdx]
-		maxVal := c.seriesAxisMax(seriesIdx, primaryMax, secondaryMax)
+		minVal, maxVal := seriesRange(seriesIdx)
 		color := c.seriesLineColor(seriesIdx)
 		strokeWidth := 2
 		if series.LineWidth > 0 {
@@ -2166,7 +2237,7 @@ func (c *Chart) renderCategoryComboChart(b *strings.Builder, x, y, w, h int) {
 		coords := make([][2]int, len(series.Values))
 		for i, val := range series.Values {
 			px := plotX + int(float64(i)*groupSize) + int(groupSize/2)
-			py := plotY + plotH - int((val/maxVal)*float64(plotH))
+			py := projectAxisValueY(plot, val, minVal, maxVal)
 			coords[i] = [2]int{px, py}
 			if i == 0 {
 				path.WriteString("M")
@@ -2645,7 +2716,6 @@ func scatterRenderOptions(series Series) (drawLine, smooth, drawMarker bool) {
 	}
 }
 
-
 func (c *Chart) chartValueRange() (float64, float64, bool) {
 	minVal, maxVal := 0.0, 0.0
 	haveValues := false
@@ -2700,6 +2770,54 @@ func (c *Chart) axisRange() (float64, float64) {
 		}
 		if c.YAxis.Max == 0 && maxVal > 0 {
 			maxVal = math.Ceil(maxVal/step) * step
+		}
+	}
+	return minVal, maxVal
+}
+
+func (c *Chart) axisRangeForSeriesIndices(indices []int, axis Axis) (float64, float64) {
+	minVal, maxVal := 0.0, 0.0
+	have := false
+	for _, idx := range indices {
+		if idx < 0 || idx >= len(c.Series) {
+			continue
+		}
+		for _, value := range c.Series[idx].Values {
+			if !have {
+				minVal, maxVal, have = value, value, true
+				continue
+			}
+			if value < minVal {
+				minVal = value
+			}
+			if value > maxVal {
+				maxVal = value
+			}
+		}
+	}
+	if !have {
+		minVal, maxVal = 0, 0
+	}
+	if axis.Min != 0 {
+		minVal = axis.Min
+	} else if minVal > 0 {
+		minVal = 0
+	}
+	if axis.Max != 0 {
+		maxVal = axis.Max
+	} else if maxVal < 0 {
+		maxVal = 0
+	}
+	span := maxVal - minVal
+	if span > 0 {
+		step := axisTickStep(span, axis.MajorUnit)
+		if step > 0 {
+			if axis.Min == 0 && minVal < 0 {
+				minVal = math.Floor(minVal/step) * step
+			}
+			if axis.Max == 0 && maxVal > 0 {
+				maxVal = math.Ceil(maxVal/step) * step
+			}
 		}
 	}
 	return minVal, maxVal
@@ -2766,27 +2884,29 @@ func axisTickStep(maxVal, majorUnit float64) float64 {
 	return 10 * power
 }
 
-func (c *Chart) renderSecondaryYAxis(b *strings.Builder, x, y, w, h int, maxVal float64) {
-	if maxVal <= 0 {
+func (c *Chart) renderSecondaryYAxis(b *strings.Builder, x, y, w, h int, minVal, maxVal float64) {
+	if maxVal <= minVal {
 		return
 	}
+	plot := c.cartesianPlotRect(x, y, w, h)
 	axisColor := "#000"
-	rightX := x + w - 10
-	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-		rightX, y, rightX, y+h-40, axisColor)
-
-	tick := axisTickStep(maxVal, c.YAxis2.MajorUnit)
-	for val := 0.0; val <= maxVal+0.001; val += tick {
-		yPos := y + h - 40 - int((val/maxVal)*float64(h-40))
-		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`,
-			rightX, yPos, rightX+4, yPos, axisColor)
+	rightX := plot.X + plot.W
+	fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`, rightX, plot.Y, rightX, plot.Y+plot.H, axisColor)
+	tick := axisTickStep(maxVal-minVal, c.YAxis2.MajorUnit)
+	if tick <= 0 {
+		return
+	}
+	startTick := math.Ceil(minVal/tick) * tick
+	for val := startTick; val <= maxVal+0.001; val += tick {
+		yPos := projectAxisValueY(plot, val, minVal, maxVal)
+		fmt.Fprintf(b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>`, rightX, yPos, rightX+4, yPos, axisColor)
 		label := formatAxisValue(val, c.YAxis2.NumFmt, false)
-		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="start" %s>%s</text>`,
-			rightX+8, yPos+3, chartTextSVGStyle(c.YAxis2.LabelStyle, 9, false, "000000"), escapeSVG(label))
+		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="start" %s>%s</text>`, rightX+8, yPos+3, chartTextSVGStyle(c.YAxis2.LabelStyle, 9, false, "000000"), escapeSVG(label))
 	}
 	if c.YAxis2.Title != "" {
-		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s transform="rotate(90 %d %d)">%s</text>`,
-			rightX+24, y+h/2, chartTextSVGStyle(c.YAxis2.TitleStyle, 11, false, "333333"), rightX+24, y+h/2, escapeSVG(c.YAxis2.Title))
+		titleX := rightX + 24
+		titleY := plot.Y + plot.H/2
+		fmt.Fprintf(b, `<text x="%d" y="%d" text-anchor="middle" %s transform="rotate(90 %d %d)">%s</text>`, titleX, titleY, chartTextSVGStyle(c.YAxis2.TitleStyle, 11, false, "333333"), titleX, titleY, escapeSVG(c.YAxis2.Title))
 	}
 }
 
@@ -3340,10 +3460,16 @@ func formatDataLabelValue(val float64, numFmt string, isPercent bool) string {
 		return fmt.Sprintf("%.0f", val)
 	}
 
-	// Percentage formats: 0%, 0.0%, 0.00%
+	// Percentage formats: 0%, 0.0%, 0.00%. For ordinary numeric values the
+	// stored value is a fraction (0.51 == 51%). Callers rendering an already
+	// computed percentage, such as pie data-label percentages, pass isPercent=true
+	// and therefore must not be scaled a second time.
 	if strings.HasSuffix(numFmt, "%") {
 		base := strings.TrimSuffix(numFmt, "%")
 		dec := countDecimalPlaces(base)
+		if !isPercent {
+			val *= 100
+		}
 		return fmt.Sprintf("%.*f%%", dec, val)
 	}
 

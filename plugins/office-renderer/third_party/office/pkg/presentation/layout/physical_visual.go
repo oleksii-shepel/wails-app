@@ -5,8 +5,11 @@ import (
 	"sort"
 	"strings"
 
+	"office/pkg/fontmetrics"
+	"office/pkg/ooxml/chart"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/presentation/ir"
+	"office/pkg/render/metafile"
 )
 
 // PhysicalVisual is the format-neutral render contract produced by layout.
@@ -144,7 +147,18 @@ type PhysicalVisual struct {
 // MaterializePhysicalVisualTree closes the presentation layout boundary in one
 // operation: hierarchy -> slide-space leaves -> physical drawing plans. The
 // returned order is the authored paint order and the canonical IR is untouched.
+type PhysicalMaterializeOptions struct {
+	MetafileFonts []metafile.FontFace
+	TextFonts     *fontmetrics.Catalog
+	SlideWidthPt  float64
+	SlideHeightPt float64
+}
+
 func MaterializePhysicalVisualTree(shapes []*ir.Shape) []PhysicalVisual {
+	return MaterializePhysicalVisualTreeWithOptions(shapes, PhysicalMaterializeOptions{})
+}
+
+func MaterializePhysicalVisualTreeWithOptions(shapes []*ir.Shape, opts PhysicalMaterializeOptions) []PhysicalVisual {
 	leaves := materializeVisualTreeWithAncestry(shapes)
 	out := make([]PhysicalVisual, 0, len(leaves))
 	paintIndex := 0
@@ -159,8 +173,12 @@ func MaterializePhysicalVisualTree(shapes []*ir.Shape) []PhysicalVisual {
 		clip := resolvePhysicalClipPlan(visual)
 		overflow := resolvePhysicalOverflowPlan(shape, visual.Effects)
 		svgPaint := resolvePhysicalSVGPaintPlan(shape, overflow, visual.Effects)
-		paintBounds := resolvePhysicalPaintBounds(shape, overflow, transform)
-		paintBounds = resolvePhysicalVectorPaintBounds(shape, paintBounds, overflow)
+		basePaintBounds := resolvePhysicalPaintBounds(shape, overflow, transform)
+		paintBounds := resolvePhysicalVectorPaintBounds(shape, basePaintBounds, overflow)
+		vectorOverflowVisible := physicalPaintBoundsExtendBeyond(basePaintBounds, paintBounds)
+		if vectorOverflowVisible {
+			svgPaint.OverflowVisible = true
+		}
 		ancestorClips := resolvePhysicalAncestorClipPlans(paintBounds, leaf.AncestorClips)
 		clippedBounds, paintClipped := resolveClippedPhysicalPaintBounds(paintBounds, ancestorClips)
 		// Fully clipped leaves remain in the physical scene. PaintClipped plus an
@@ -171,7 +189,7 @@ func MaterializePhysicalVisualTree(shapes []*ir.Shape) []PhysicalVisual {
 		ancestorPaint := resolvePhysicalAncestorPaintPlans(shape, paintBounds, leaf.Ancestors)
 		paint := PhysicalPaintPlan{
 			ZIndex:          paintIndex,
-			OverflowVisible: visual.Effects.NeedsOverflow || !overflow.Empty(),
+			OverflowVisible: visual.Effects.NeedsOverflow || !overflow.Empty() || vectorOverflowVisible,
 			Overflow:        overflow,
 			Bounds:          paintBounds,
 			Clip:            clip,
@@ -182,7 +200,7 @@ func MaterializePhysicalVisualTree(shapes []*ir.Shape) []PhysicalVisual {
 			PaintClipped:    paintClipped,
 		}
 		composition := materializePhysicalCompositionPlan(shape, paint, transform, visual.Effects)
-		textPlan := resolveTextVisualPlanWithShapeVisualAndComposition(shape, visual, composition)
+		textPlan := resolveTextVisualPlanWithShapeVisualAndCompositionAndOptions(shape, visual, composition, opts)
 		drawingPlan := PhysicalShapePlan{
 			PhysicalCompositionPlan: composition,
 			Visual:                  visual,
@@ -197,12 +215,21 @@ func MaterializePhysicalVisualTree(shapes []*ir.Shape) []PhysicalVisual {
 		}
 		switch shape.Kind {
 		case ir.ShapeImage:
-			plan := resolveImageVisualPlanWithComposition(shape, composition)
+			var plan ImageVisualPlan
+			if len(opts.MetafileFonts) == 0 {
+				plan = resolveImageVisualPlanWithComposition(shape, composition)
+			} else {
+				plan = resolveImageVisualPlanWithCompositionAndOptions(shape, composition, opts)
+			}
 			item.Image = &plan
 		case ir.ShapeMedia:
 			item.Media = resolvePhysicalMediaPlanWithComposition(shape, composition)
 		case ir.ShapeOleObject:
-			item.OLE = resolvePhysicalOLEPlanWithComposition(shape, composition)
+			if len(opts.MetafileFonts) == 0 {
+				item.OLE = resolvePhysicalOLEPlanWithComposition(shape, composition)
+			} else {
+				item.OLE = resolvePhysicalOLEPlanWithCompositionAndOptions(shape, composition, opts)
+			}
 		case ir.ShapeConnector:
 			if shape.ConnectorStart != nil && shape.ConnectorEnd != nil {
 				plan := resolveFreeConnectorVisualPlanWithComposition(shape, composition)
@@ -223,7 +250,11 @@ func MaterializePhysicalVisualTree(shapes []*ir.Shape) []PhysicalVisual {
 				item.FreeConnector = &plan
 			}
 		case ir.ShapeTable:
-			item.Table = resolvePhysicalTablePlanWithComposition(shape, composition)
+			if opts.TextFonts == nil || opts.TextFonts.Empty() {
+				item.Table = resolvePhysicalTablePlanWithComposition(shape, composition)
+			} else {
+				item.Table = resolvePhysicalTablePlanWithCompositionAndOptions(shape, composition, opts)
+			}
 		case ir.ShapeChart:
 			item.Chart = resolvePhysicalChartPlanWithComposition(shape, composition)
 		case ir.ShapeSmartArt:
@@ -296,6 +327,23 @@ type PhysicalOverflowPlan struct {
 
 func (p PhysicalOverflowPlan) Empty() bool {
 	return p.LeftPt <= 0 && p.TopPt <= 0 && p.RightPt <= 0 && p.BottomPt <= 0
+}
+
+func physicalPaintBoundsExtendBeyond(base, expanded PhysicalPaintBoundsPlan) bool {
+	const epsilon = 1e-6
+	if base.Empty() || expanded.Empty() {
+		return false
+	}
+	if expanded.LeftPt < base.LeftPt-epsilon || expanded.TopPt < base.TopPt-epsilon {
+		return true
+	}
+	if expanded.LeftPt+expanded.WidthPt > base.LeftPt+base.WidthPt+epsilon {
+		return true
+	}
+	if expanded.TopPt+expanded.HeightPt > base.TopPt+base.HeightPt+epsilon {
+		return true
+	}
+	return false
 }
 
 // resolvePhysicalOverflowPlan materializes effect paint extents once. Inner
@@ -714,50 +762,158 @@ func resolvePhysicalVectorPaintBounds(shape *ir.Shape, base PhysicalPaintBoundsP
 	}
 	strokePad := math.Max(0, shape.LineWidthPt/2)
 	arrowPad := 0.0
-	if shape.Kind == ir.ShapeConnector || shape.Kind == ir.ShapeSmartArtConnector {
-		for _, spec := range [][3]string{{shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength}, {shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength}} {
-			if spec[0] == "" || spec[0] == "none" {
-				continue
-			}
-			length, width := drawing.ArrowDimensions(spec[0], spec[1], spec[2])
-			arrowPad = math.Max(arrowPad, math.Max(length, width)/2)
+	// Line-end markers are legal on freeform p:sp shapes as well as p:cxnSp.
+	// Include them in the physical paint envelope regardless of ShapeKind so the
+	// marker cannot be clipped by an otherwise tight authored freeform frame.
+	for _, spec := range [][3]string{{shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength}, {shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength}} {
+		if spec[0] == "" || spec[0] == "none" {
+			continue
 		}
+		length, width := drawing.ArrowDimensionsForStroke(spec[0], spec[1], spec[2], math.Max(shape.LineWidthPt, 0.5))
+		arrowPad = math.Max(arrowPad, math.Max(length, width)/2)
 	}
 	pad := math.Max(strokePad, arrowPad)
 
-	// Endpoint/path connectors are already in slide space and frequently carry
-	// an empty canonical Bounds rectangle. Materialize their actual path envelope.
-	if (shape.Kind == ir.ShapeConnector || shape.Kind == ir.ShapeSmartArtConnector) && shape.ConnectorStart != nil && shape.ConnectorEnd != nil {
-		points := make([]ir.Point, 0, len(shape.ConnectorPath)+2)
-		points = append(points, *shape.ConnectorStart)
-		if len(shape.ConnectorPath) > 2 {
-			points = append(points, shape.ConnectorPath[1:len(shape.ConnectorPath)-1]...)
+	// Connector paint bounds come from the same materialized primitives that the
+	// renderer consumes. This is important for zero-axis lines and arrowheads:
+	// an authored frame can be empty while the painted connector is not, and
+	// marker geometry scales with stroke width. Do not estimate arrow extents a
+	// second time after the primitive builder has already materialized them.
+	if shape.Kind == ir.ShapeConnector || shape.Kind == ir.ShapeSmartArtConnector {
+		var connectorBounds PhysicalPaintBoundsPlan
+		var ok bool
+		if shape.ConnectorStart != nil && shape.ConnectorEnd != nil {
+			connectorBounds, ok = physicalFreeConnectorPrimitiveBounds(shape)
+		} else {
+			connectorBounds, ok = physicalBoundedConnectorPrimitiveBounds(shape)
 		}
-		points = append(points, *shape.ConnectorEnd)
-		minX, minY := math.Inf(1), math.Inf(1)
-		maxX, maxY := math.Inf(-1), math.Inf(-1)
-		for _, pt := range points {
-			x, y := drawing.EMUToPoints(pt.X), drawing.EMUToPoints(pt.Y)
-			minX, minY = math.Min(minX, x), math.Min(minY, y)
-			maxX, maxY = math.Max(maxX, x), math.Max(maxY, y)
-		}
-		if !math.IsInf(minX, 0) {
-			pathBounds := PhysicalPaintBoundsPlan{
-				LeftPt:   minX - pad - overflow.LeftPt,
-				TopPt:    minY - pad - overflow.TopPt,
-				WidthPt:  maxX - minX + 2*pad + overflow.LeftPt + overflow.RightPt,
-				HeightPt: maxY - minY + 2*pad + overflow.TopPt + overflow.BottomPt,
-			}
-			// A connector may also carry a non-empty authored frame. Keep the
-			// effect-aware frame envelope as well as the actual endpoint/path
-			// envelope instead of allowing one representation to discard the other.
-			return unionPhysicalPaintBounds(base, pathBounds)
+		if ok {
+			// Primitive bounds contain the filled marker geometry exactly. Only the
+			// shaft/open-marker stroke still needs half-stroke expansion here.
+			connectorBounds.LeftPt -= strokePad + overflow.LeftPt
+			connectorBounds.TopPt -= strokePad + overflow.TopPt
+			connectorBounds.WidthPt += 2*strokePad + overflow.LeftPt + overflow.RightPt
+			connectorBounds.HeightPt += 2*strokePad + overflow.TopPt + overflow.BottomPt
+			return unionPhysicalPaintBounds(base, connectorBounds)
 		}
 	}
 	if base.Empty() || pad <= 0 {
 		return base
 	}
 	return PhysicalPaintBoundsPlan{LeftPt: base.LeftPt - pad, TopPt: base.TopPt - pad, WidthPt: base.WidthPt + 2*pad, HeightPt: base.HeightPt + 2*pad}
+}
+
+func physicalBoundedConnectorPrimitiveBounds(shape *ir.Shape) (PhysicalPaintBoundsPlan, bool) {
+	if shape == nil {
+		return PhysicalPaintBoundsPlan{}, false
+	}
+	plan := ResolveConnectorVisualPlan(shape)
+	if len(plan.Primitives) == 0 {
+		return PhysicalPaintBoundsPlan{}, false
+	}
+
+	cx := plan.BoundsXPt + plan.BoundsWPt/2
+	cy := plan.BoundsYPt + plan.BoundsHPt/2
+	angle := math.Mod(shape.RotationDeg, 360)
+	rad := angle * math.Pi / 180
+	cosA, sinA := math.Cos(rad), math.Sin(rad)
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	includePoint := func(point drawing.Point) {
+		x, y := point.X, point.Y
+		if math.Abs(angle) > 1e-9 {
+			dx, dy := x-cx, y-cy
+			x = cx + dx*cosA - dy*sinA
+			y = cy + dx*sinA + dy*cosA
+		}
+		minX, minY = math.Min(minX, x), math.Min(minY, y)
+		maxX, maxY = math.Max(maxX, x), math.Max(maxY, y)
+	}
+
+	for _, primitive := range plan.Primitives {
+		switch primitive.Primitive.Kind {
+		case drawing.PrimitivePolyline:
+			for _, point := range primitive.Primitive.Points {
+				includePoint(point)
+			}
+		case drawing.PrimitivePath:
+			if primitive.Primitive.Path == nil {
+				continue
+			}
+			// Bézier curves remain inside the convex hull of their control points,
+			// so including every authored command point gives a conservative paint
+			// envelope without renderer-specific curve sampling.
+			for _, command := range primitive.Primitive.Path.Commands {
+				for _, point := range command.Points {
+					includePoint(point)
+				}
+			}
+		case drawing.PrimitiveEllipse:
+			if primitive.Primitive.Ellipse == nil {
+				continue
+			}
+			e := primitive.Primitive.Ellipse
+			for _, point := range []drawing.Point{
+				{X: e.Center.X - e.RX, Y: e.Center.Y},
+				{X: e.Center.X + e.RX, Y: e.Center.Y},
+				{X: e.Center.X, Y: e.Center.Y - e.RY},
+				{X: e.Center.X, Y: e.Center.Y + e.RY},
+			} {
+				includePoint(point)
+			}
+		}
+	}
+	if math.IsInf(minX, 0) || math.IsInf(minY, 0) || math.IsInf(maxX, 0) || math.IsInf(maxY, 0) {
+		return PhysicalPaintBoundsPlan{}, false
+	}
+	return PhysicalPaintBoundsPlan{LeftPt: minX, TopPt: minY, WidthPt: maxX - minX, HeightPt: maxY - minY}, true
+}
+
+func physicalFreeConnectorPrimitiveBounds(shape *ir.Shape) (PhysicalPaintBoundsPlan, bool) {
+	plan := ResolveFreeConnectorVisualPlan(shape)
+	if len(plan.Points) == 0 && plan.StartArrow == nil && plan.EndArrow == nil {
+		return PhysicalPaintBoundsPlan{}, false
+	}
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	includePoint := func(point drawing.Point) {
+		minX, minY = math.Min(minX, point.X), math.Min(minY, point.Y)
+		maxX, maxY = math.Max(maxX, point.X), math.Max(maxY, point.Y)
+	}
+	for _, point := range plan.Points {
+		includePoint(point)
+	}
+	for _, segment := range plan.CurveSegments {
+		// A cubic Bézier is contained by the convex hull of its endpoints and
+		// controls, so this remains conservative without renderer sampling.
+		includePoint(segment.Start)
+		includePoint(segment.Control1)
+		includePoint(segment.Control2)
+		includePoint(segment.End)
+	}
+	includeArrow := func(arrow *drawing.ArrowGeometry) {
+		if arrow == nil {
+			return
+		}
+		includePoint(arrow.Tip)
+		for _, point := range arrow.PolyPts {
+			includePoint(point)
+		}
+		switch arrow.Type {
+		case "arrow":
+			includePoint(arrow.Left)
+			includePoint(arrow.Right)
+		case "oval":
+			includePoint(drawing.Point{X: arrow.Center.X - arrow.RX, Y: arrow.Center.Y - arrow.RY})
+			includePoint(drawing.Point{X: arrow.Center.X + arrow.RX, Y: arrow.Center.Y + arrow.RY})
+		}
+	}
+	includeArrow(plan.StartArrow)
+	includeArrow(plan.EndArrow)
+	if math.IsInf(minX, 0) || math.IsInf(minY, 0) || math.IsInf(maxX, 0) || math.IsInf(maxY, 0) {
+		return PhysicalPaintBoundsPlan{}, false
+	}
+	return PhysicalPaintBoundsPlan{LeftPt: minX, TopPt: minY, WidthPt: maxX - minX, HeightPt: maxY - minY}, true
 }
 
 func unionPhysicalPaintBounds(a, b PhysicalPaintBoundsPlan) PhysicalPaintBoundsPlan {
@@ -1002,6 +1158,24 @@ func resolvePhysicalMediaPlanWithComposition(shape *ir.Shape, composition Physic
 	return &PhysicalMediaPlan{PhysicalCompositionPlan: composition}
 }
 
+// physicalPresentationImage closes ordinary picture artifact normalization at
+// the same shared physical boundary used by OLE previews. PPT and PPTX may both
+// carry browser-unsupported WMF/EMF payloads; convert them once to SVG and keep
+// browser-renderable image formats byte-for-byte unchanged.
+func physicalPresentationImage(data []byte, mime string) ([]byte, string) {
+	return physicalPresentationImageWithOptions(data, mime, nil)
+}
+
+func physicalPresentationImageWithOptions(data []byte, mime string, fonts []metafile.FontFace) ([]byte, string) {
+	if len(data) == 0 {
+		return nil, mime
+	}
+	if svg, _, _, ok := metafile.ToSVGWithOptions(data, mime, metafile.Options{Fonts: fonts}); ok {
+		return append([]byte(nil), svg...), "image/svg+xml"
+	}
+	return append([]byte(nil), data...), mime
+}
+
 // PhysicalOLEPlan closes OLE frame composition at the layout boundary. The
 // embedded payload and link remain content concerns; placement, transform and
 // drawing effects are physical presentation concerns.
@@ -1012,6 +1186,8 @@ type PhysicalOLEPlan struct {
 	LinkURL    string
 	ObjectMIME string
 	ObjectData []byte
+	MathML     string
+	MathColor  string
 	IconMIME   string
 	IconData   []byte
 }
@@ -1021,16 +1197,41 @@ func ResolvePhysicalOLEPlan(shape *ir.Shape) *PhysicalOLEPlan {
 }
 
 func resolvePhysicalOLEPlanWithComposition(shape *ir.Shape, composition PhysicalCompositionPlan) *PhysicalOLEPlan {
+	return resolvePhysicalOLEPlanWithCompositionAndOptions(shape, composition, PhysicalMaterializeOptions{})
+}
+
+func resolvePhysicalOLEPlanWithCompositionAndOptions(shape *ir.Shape, composition PhysicalCompositionPlan, opts PhysicalMaterializeOptions) *PhysicalOLEPlan {
 	if shape == nil || shape.Kind != ir.ShapeOleObject {
 		return nil
 	}
+	previewData, previewMIME := physicalOLEPreviewWithOptions(shape.OLEIconData, shape.OLEIconMIME, append([]metafile.FontFace(nil), opts.MetafileFonts...))
 	return &PhysicalOLEPlan{
 		PhysicalCompositionPlan: composition,
-		Name: shape.OLEObjectName, ProgID: shape.OLEObjectProgID,
+		Name:                    shape.OLEObjectName, ProgID: shape.OLEObjectProgID,
 		LinkURL: shape.OLEObjectLinkURL, ObjectMIME: shape.OLEObjectMIME,
 		ObjectData: append([]byte(nil), shape.OLEObjectData...),
-		IconMIME: shape.OLEIconMIME, IconData: append([]byte(nil), shape.OLEIconData...),
+		MathML:     shape.OLEMathML, MathColor: shape.OLEMathColor,
+		IconMIME: previewMIME, IconData: previewData,
 	}
+}
+
+// physicalOLEPreview closes OLE preview-image normalization at the shared
+// physical boundary. Both legacy PPT and OOXML may carry the authored preview
+// as a WMF/EMF payload; renderers should not need to know which parser supplied
+// it or how to decode a Windows metafile. Convert those previews to SVG once,
+// while leaving already browser-renderable raster/vector previews unchanged.
+func physicalOLEPreview(data []byte, mime string) ([]byte, string) {
+	return physicalOLEPreviewWithOptions(data, mime, nil)
+}
+
+func physicalOLEPreviewWithOptions(data []byte, mime string, fonts []metafile.FontFace) ([]byte, string) {
+	if len(data) == 0 {
+		return nil, mime
+	}
+	if svg, _, _, ok := metafile.ToSVGWithOptions(data, mime, metafile.Options{Fonts: fonts}); ok {
+		return append([]byte(nil), svg...), "image/svg+xml"
+	}
+	return append([]byte(nil), data...), mime
 }
 
 type PhysicalChartPlan struct {
@@ -1052,6 +1253,10 @@ func ResolvePhysicalTablePlan(shape *ir.Shape) *PhysicalTablePlan {
 }
 
 func resolvePhysicalTablePlanWithComposition(shape *ir.Shape, composition PhysicalCompositionPlan) *PhysicalTablePlan {
+	return resolvePhysicalTablePlanWithCompositionAndOptions(shape, composition, PhysicalMaterializeOptions{})
+}
+
+func resolvePhysicalTablePlanWithCompositionAndOptions(shape *ir.Shape, composition PhysicalCompositionPlan, opts PhysicalMaterializeOptions) *PhysicalTablePlan {
 	if shape == nil || shape.Table == nil || len(shape.Table.Rows) == 0 {
 		return nil
 	}
@@ -1118,7 +1323,7 @@ func resolvePhysicalTablePlanWithComposition(shape *ir.Shape, composition Physic
 			if cellWidthPt < 0 {
 				cellWidthPt = 0
 			}
-			cp.ParagraphPlans = resolveParagraphPlansForExtent(cp.Paragraphs, cellWidthPt, 1, 1)
+			cp.ParagraphPlans = resolveParagraphPlansForExtentWithCatalog(cp.Paragraphs, cellWidthPt, 1, 1, opts.TextFonts)
 			rp.Cells = append(rp.Cells, cp)
 		}
 		plan.Rows = append(plan.Rows, rp)
@@ -1308,9 +1513,13 @@ func physicalTableCellWidthPt(widths []int64, start, span int) float64 {
 }
 
 func resolveParagraphPlansForExtent(paragraphs []*ir.Paragraph, extent, fontScale, lineScale float64) []ParagraphVisualPlan {
+	return resolveParagraphPlansForExtentWithCatalog(paragraphs, extent, fontScale, lineScale, nil)
+}
+
+func resolveParagraphPlansForExtentWithCatalog(paragraphs []*ir.Paragraph, extent, fontScale, lineScale float64, catalog *fontmetrics.Catalog) []ParagraphVisualPlan {
 	plans := make([]ParagraphVisualPlan, 0, len(paragraphs))
 	counters := map[string]int{}
-	for _, p := range paragraphs {
+	for i, p := range paragraphs {
 		pp := ResolveParagraphVisualPlan(p, extent, fontScale, lineScale)
 		if pp.Marker.Kind == "auto" {
 			if counters[pp.Marker.CounterKey] == 0 {
@@ -1319,12 +1528,15 @@ func resolveParagraphPlansForExtent(paragraphs []*ir.Paragraph, extent, fontScal
 			pp.Marker.Text = formatAutoNumForLayout(pp.Marker.NumberingType, counters[pp.Marker.CounterKey])
 			counters[pp.Marker.CounterKey]++
 			if CanLayoutParagraphLines(p, pp.Metrics, fontScale) {
-				lines := layoutParagraphLinesWithMarker(p, pp.Metrics, fontScale, pp.Marker.Text, pp.Marker.FontSizePt, pp.Marker.FontFamily, pp.Marker.GapPt)
+				lines := layoutParagraphLinesWithMarkerAndCatalog(p, pp.Metrics, fontScale, pp.Marker.Text, pp.Marker.FontSizePt, pp.Marker.FontFamily, pp.Marker.GapPt, catalog)
 				pp.Lines = append([]PhysicalTextLine(nil), lines.Lines...)
 				pp.LinesMeasured = true
 			}
 		} else {
 			clear(counters)
+		}
+		if i == 0 {
+			SuppressLeadingSpaceBefore(&pp.Metrics)
 		}
 		plans = append(plans, pp)
 	}
@@ -1350,14 +1562,50 @@ func ResolvePhysicalChartPlan(shape *ir.Shape) *PhysicalChartPlan {
 }
 
 func resolvePhysicalChartPlanWithComposition(shape *ir.Shape, composition PhysicalCompositionPlan) *PhysicalChartPlan {
-	if shape == nil || shape.Kind != ir.ShapeChart || len(shape.ImageData) == 0 {
+	if shape == nil || shape.Kind != ir.ShapeChart {
+		return nil
+	}
+	widthPt := drawing.EMUToPoints(shape.Bounds.W)
+	heightPt := drawing.EMUToPoints(shape.Bounds.H)
+
+	// Canonical ChartData is the authoritative representation when present.
+	// Legacy PPT MSGraph objects and OOXML chart parts both converge here, so
+	// render the semantic chart once at the shared physical boundary instead of
+	// exposing parser-specific preview images to HTML. Authored previews remain
+	// the fallback for chart types/data that cannot yet be materialized.
+	if len(shape.ChartData) > 0 {
+		if semantic, err := chart.ParseChart(shape.ChartData); err == nil && semantic != nil {
+			w := int(math.Round(widthPt * 4.0 / 3.0))
+			h := int(math.Round(heightPt * 4.0 / 3.0))
+			if w < 1 {
+				w = 600
+			}
+			if h < 1 {
+				h = 400
+			}
+			if svg := strings.TrimSpace(semantic.SVG(w, h)); svg != "" {
+				return &PhysicalChartPlan{
+					PhysicalCompositionPlan: composition,
+					MIME:                    "image/svg+xml",
+					Data:                    []byte(svg),
+					Alt:                     shape.Name,
+					WidthPt:                 widthPt,
+					HeightPt:                heightPt,
+					ObjectFit:               "fill",
+					ClipContent:             true,
+				}
+			}
+		}
+	}
+
+	if len(shape.ImageData) == 0 {
 		return nil
 	}
 	data := append([]byte(nil), shape.ImageData...)
 	return &PhysicalChartPlan{
 		PhysicalCompositionPlan: composition,
 		MIME:                    shape.ImageMIME, Data: data, Alt: shape.Name,
-		WidthPt: drawing.EMUToPoints(shape.Bounds.W), HeightPt: drawing.EMUToPoints(shape.Bounds.H),
+		WidthPt: widthPt, HeightPt: heightPt,
 		ObjectFit: "fill", ClipContent: true,
 	}
 }
@@ -1423,6 +1671,10 @@ type PhysicalSlidePlan struct {
 
 // MaterializePhysicalSlide closes slide-level composition before rendering.
 func MaterializePhysicalSlide(slide *ir.Slide) PhysicalSlidePlan {
+	return MaterializePhysicalSlideWithOptions(slide, PhysicalMaterializeOptions{})
+}
+
+func MaterializePhysicalSlideWithOptions(slide *ir.Slide, opts PhysicalMaterializeOptions) PhysicalSlidePlan {
 	if slide == nil {
 		return PhysicalSlidePlan{}
 	}
@@ -1433,7 +1685,7 @@ func MaterializePhysicalSlide(slide *ir.Slide) PhysicalSlidePlan {
 			shapes = append(shapes, shape)
 		}
 	}
-	all := MaterializePhysicalVisualTree(shapes)
+	all := MaterializePhysicalVisualTreeWithOptions(shapes, opts)
 	contentSet := make(map[*ir.Shape]struct{}, len(slide.Shapes))
 	for _, shape := range slide.Shapes {
 		contentSet[shape] = struct{}{}

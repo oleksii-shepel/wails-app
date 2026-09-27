@@ -1,11 +1,13 @@
 package word97
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 	"unicode/utf16"
 
 	wordir "office/pkg/word/ir"
+	docbinary "office/pkg/word/parsers/doc/binary"
 )
 
 func canonicalTestLVL(start int, nfc byte, template string) []byte {
@@ -124,6 +126,34 @@ func TestCanonicalNumberingParsesWriterCompatibleBullet(t *testing.T) {
 	got := doc.Paragraphs[0].List
 	if got == nil || got.Kind != "bullet" || got.Format != "bullet" || got.Template != "•" {
 		t.Fatalf("bullet=%+v", got)
+	}
+}
+
+func TestCanonicalNumberingReadsWord97FibSlotsAndTrailingLVLs(t *testing.T) {
+	lst := canonicalTestPlfLst(202, canonicalTestLVL(1, 23, "\uF0B7"), canonicalTestLVL(1, 0, "%1."))
+	// Real Word 97 files can leave bullet rgbxchNums zeroed and count only
+	// fixed LSTF records in lcbPlfLst, excluding the following LVLs.
+	for i := 2 + 28 + 6; i < 2+28+15; i++ {
+		lst[i] = 0
+	}
+	lfo := canonicalTestPlfLfo(202)
+	table := append(append([]byte(nil), lst...), lfo...)
+	layout := docbinary.Word97Layout{FibBase: 2, CbRgFcLcb: 75}
+	fib := make([]byte, layout.FibBase+layout.CbRgFcLcb*8)
+	lstPos := layout.FibBase + fibPlfLst*8
+	binary.LittleEndian.PutUint32(fib[lstPos:lstPos+4], 0)
+	binary.LittleEndian.PutUint32(fib[lstPos+4:lstPos+8], 2+28)
+	lfoPos := layout.FibBase + fibPlfLfo*8
+	binary.LittleEndian.PutUint32(fib[lfoPos:lfoPos+4], uint32(len(lst)))
+	binary.LittleEndian.PutUint32(fib[lfoPos+4:lfoPos+8], uint32(len(lfo)))
+
+	catalog := LoadNumberingCatalogReaderAt(bytes.NewReader(table), int64(len(table)), fib, layout)
+	if catalog == nil {
+		t.Fatal("numbering catalog was not loaded")
+	}
+	level := catalog.Abstract[202][0]
+	if level.Format != "bullet" || level.Text != "\uF0B7" {
+		t.Fatalf("bullet level = %+v", level)
 	}
 }
 

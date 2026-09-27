@@ -257,6 +257,9 @@ func ShapeTypeToPreset(shapeType uint16) string {
 		return "flowChartDelay"
 
 	// 136..175 are WordArt/text-effect shapes and are handled by WordArtWarpName.
+	// Later MSOSPT values return to ordinary AutoShapes.
+	case 184:
+		return "moon"
 	default:
 		return ""
 	}

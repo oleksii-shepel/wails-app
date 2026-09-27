@@ -173,8 +173,8 @@ func WriteDocument(doc *wordir.Document, w io.Writer) error {
 // definitions, not parser compatibility aliases.
 const (
 	fib97FcLcbPlcftxbxTxtIndex = 56
-	ftxbxs97Size                = 22
-	ftxbxs97LidOffset           = 14
+	ftxbxs97Size               = 22
+	ftxbxs97LidOffset          = 14
 )
 
 func buildLegacyPlcftxbxTxt(text string, ownerShapeIDs []uint32) []byte {
@@ -886,7 +886,7 @@ type fibRgFcLcb struct {
 	// [13] = fcPlcfBtePapx / lcbPlcfBtePapx
 	// [33] = fcClx / lcbClx
 	// [48] = fcDop / lcbDop
-	entries [136]uint32
+	entries [136 * 2]uint32
 }
 
 type fibRgCswNew struct {
@@ -927,11 +927,14 @@ func buildFIB(textLen, fcClx, lcbClx, fcStshf, lcbStshf, fcPlfLfo, lcbPlfLfo, fc
 	// Entry 1: fcStshf / lcbStshf
 	f.fibRgFcLcb.entries[1*2] = uint32(fcStshf)
 	f.fibRgFcLcb.entries[1*2+1] = uint32(lcbStshf)
-	// Entries 20/21: list overrides and list definitions.
-	f.fibRgFcLcb.entries[legacyFibFcLcbPlfLfoIndex*2] = uint32(fcPlfLfo)
-	f.fibRgFcLcb.entries[legacyFibFcLcbPlfLfoIndex*2+1] = uint32(lcbPlfLfo)
-	f.fibRgFcLcb.entries[legacyFibFcLcbPlfLstIndex*2] = uint32(fcPlfLst)
-	f.fibRgFcLcb.entries[legacyFibFcLcbPlfLstIndex*2+1] = uint32(lcbPlfLst)
+	// Word 97 FIB slots 73/74 hold PlfLst and PlfLfo respectively. The
+	// compatibility list scanner retains its older synthetic 20/21 fixture
+	// indices, but emitted DOC files must use the specification slots.
+	const word97PlfLstIndex, word97PlfLfoIndex = 73, 74
+	f.fibRgFcLcb.entries[word97PlfLfoIndex*2] = uint32(fcPlfLfo)
+	f.fibRgFcLcb.entries[word97PlfLfoIndex*2+1] = uint32(lcbPlfLfo)
+	f.fibRgFcLcb.entries[word97PlfLstIndex*2] = uint32(fcPlfLst)
+	f.fibRgFcLcb.entries[word97PlfLstIndex*2+1] = uint32(lcbPlfLst)
 	// Entry 40: PlcfSpaMom. This matches real Word 97+ binary fixtures. The
 	// reader still accepts historical slot-30 files produced by older versions
 	// of this package.
@@ -975,7 +978,7 @@ func writeFIB(b *bytes.Buffer, f fib) {
 		binary.Write(b, binary.LittleEndian, f.fibRgLw.reserved[i])
 	}
 	binary.Write(b, binary.LittleEndian, f.fibRgFcLcb.cbRgFcLcb)
-	for i := 0; i < 136; i++ {
+	for i := 0; i < int(f.fibRgFcLcb.cbRgFcLcb)*2; i++ {
 		binary.Write(b, binary.LittleEndian, f.fibRgFcLcb.entries[i])
 	}
 	binary.Write(b, binary.LittleEndian, f.fibRgCswNew.cswNew)

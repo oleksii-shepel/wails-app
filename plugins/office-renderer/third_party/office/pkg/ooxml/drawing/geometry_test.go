@@ -673,3 +673,46 @@ func TestClass13RemainingPresetAdjustmentsAffectGeometry(t *testing.T) {
 		}
 	}
 }
+
+func TestMoonPresetUsesAuthoredAdjustment(t *testing.T) {
+	defaultMoon := PresetGeometry{Name: "moon", Adjustments: []float64{0.5}}
+	path, err := defaultMoon.GetPath(30, 684)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(path.Commands) != 4 {
+		t.Fatalf("commands = %#v, want M A A Z", path.Commands)
+	}
+	for i, want := range []string{"M", "A", "A", "Z"} {
+		if path.Commands[i].Type != want {
+			t.Fatalf("command %d = %q, want %q", i, path.Commands[i].Type, want)
+		}
+	}
+	if got := path.Commands[0].Points[0]; math.Abs(got.X-30) > 1e-9 || math.Abs(got.Y-684) > 1e-9 {
+		t.Fatalf("move = %#v, want (30,684)", got)
+	}
+	if got := path.Commands[1].Points[0]; math.Abs(got.X-30) > 1e-9 || math.Abs(got.Y) > 1e-9 {
+		t.Fatalf("outer arc end = %#v, want (30,0)", got)
+	}
+	if len(path.Commands[2].Args) < 2 || path.Commands[2].Args[0] <= 0 || path.Commands[2].Args[1] <= 0 {
+		t.Fatalf("inner arc radii = %#v, want positive radii", path.Commands[2].Args)
+	}
+	if got := path.Commands[2].Points[0]; math.Abs(got.X-30) > 1e-9 || math.Abs(got.Y-684) > 1e-9 {
+		t.Fatalf("inner arc end = %#v, want shared moon endpoint (30,684)", got)
+	}
+	if got := path.Commands[2].Args[3:5]; got[0] != 0 || got[1] != 0 {
+		t.Fatalf("inner arc flags = %#v, want short counter-clockwise return arc", got)
+	}
+
+	narrowMoon := PresetGeometry{Name: "moon", Adjustments: []float64{0.1}}
+	narrowPath, err := narrowMoon.GetPath(30, 684)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(narrowPath.Commands) != 4 {
+		t.Fatalf("narrow commands = %#v", narrowPath.Commands)
+	}
+	if reflect.DeepEqual(path.Commands[2].Args[:2], narrowPath.Commands[2].Args[:2]) && reflect.DeepEqual(path.Commands[2].Points, narrowPath.Commands[2].Points) {
+		t.Fatalf("moon adjustment did not change inner arc: default=%#v narrow=%#v", path.Commands[2], narrowPath.Commands[2])
+	}
+}

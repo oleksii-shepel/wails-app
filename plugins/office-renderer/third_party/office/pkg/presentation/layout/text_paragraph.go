@@ -91,6 +91,18 @@ func paragraphReferenceLineHeightPt(p *ir.Paragraph, baseFontPt, lineScale float
 	return baseFontPt * metrics.LineBoxScale * lineScale
 }
 
+// SuppressLeadingSpaceBefore clears paragraph space-before. PowerPoint ignores
+// space-before on the first paragraph of a text body, so the authored value must
+// not push the first baseline down.
+func SuppressLeadingSpaceBefore(m *ParagraphMetrics) {
+	if m == nil {
+		return
+	}
+	m.HasSpaceBefore = false
+	m.SpaceBeforePt = 0
+	m.SpaceBeforeScale = 0
+}
+
 // TextFrameContentWidthPt returns the horizontal width available to paragraph
 // layout after canonical text-body insets have been applied.
 func TextFrameContentWidthPt(shape *ir.Shape, frame TextFrameMetrics) float64 {

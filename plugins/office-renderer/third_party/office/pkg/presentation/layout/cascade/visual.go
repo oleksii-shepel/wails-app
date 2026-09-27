@@ -37,7 +37,7 @@ func RotationDegrees(xfrm *parts.Transform2D) float64 {
 	if xfrm == nil || xfrm.Rot == 0 {
 		return 0
 	}
-	return float64(xfrm.Rot) / 60000.0
+	return ir.CanonicalRotationDeg(float64(xfrm.Rot) / 60000.0)
 }
 
 // EffectiveShapeFill resolves explicit shape fill inheritance and materializes

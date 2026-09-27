@@ -16,6 +16,8 @@ type VectorStyle struct {
 	Fill            Fill
 	Stroke          *LineStyle
 	FillColor       string
+	FillAlpha       float64
+	FillAlphaSet    bool
 	StrokeColor     string
 	StrokeWidth     float64
 	StrokeFillDefID string // Optional SVG def ID for a gradient/pattern stroke
@@ -49,6 +51,15 @@ type ShapeGeometrySpec struct {
 	Stroke      *LineStyle
 	StrokeColor string
 	StrokeWidth float64
+	// ArrowHead/ArrowTail preserve line-end decorations on ordinary shape geometry.
+	// PowerPoint can attach these to freeform p:sp/mso_sptNotPrimitive shapes rather
+	// than p:cxnSp connectors, so they belong to the shared vector contract too.
+	ArrowHead       string
+	ArrowHeadWidth  string
+	ArrowHeadLength string
+	ArrowTail       string
+	ArrowTailWidth  string
+	ArrowTailLength string
 }
 
 // ConnectorSpec describes a connector body plus optional endpoint decorations.
@@ -100,6 +111,14 @@ func BuildConnectorPrimitives(spec ConnectorSpec) []VectorPrimitive {
 		tailTrim = ArrowTrimDistanceForStroke(spec.ArrowTail, spec.ArrowTailLength, spec.LineWidthPt)
 	}
 	drawPoints := ShortenWaypointsForArrows(origPoints, headTrim, tailTrim)
+	// Bent connectors are polylines, not a single endpoint segment. If a
+	// large arrowhead is deeper than a short terminal dogleg, continue the
+	// shaft trim across successive segments rather than leaving the shaft
+	// doubled back underneath the marker. Curved connector guide points are
+	// Bézier controls, so they intentionally keep endpoint-only trimming.
+	if !strings.HasPrefix(spec.Type, "curvedConnector") {
+		drawPoints = ShortenPolylineWaypointsForArrows(origPoints, headTrim, tailTrim)
+	}
 
 	var primitives []VectorPrimitive
 
@@ -138,15 +157,30 @@ func BuildConnectorPrimitives(spec ConnectorSpec) []VectorPrimitive {
 	}
 
 	if prim, ok := arrowPrimitiveForStroke(spec.ArrowHead, spec.ArrowHeadWidth, spec.ArrowHeadLength, spec.LineWidthPt, color, origPoints[0], origPoints[1]); ok {
+		inheritArrowPrimitiveLineAlpha(&prim, spec.LineStyle)
 		primitives = append(primitives, prim)
 	}
 	if last := len(origPoints) - 1; last > 0 {
 		if prim, ok := arrowPrimitiveForStroke(spec.ArrowTail, spec.ArrowTailWidth, spec.ArrowTailLength, spec.LineWidthPt, color, origPoints[last], origPoints[last-1]); ok {
+			inheritArrowPrimitiveLineAlpha(&prim, spec.LineStyle)
 			primitives = append(primitives, prim)
 		}
 	}
 
 	return primitives
+}
+
+func inheritArrowPrimitiveLineAlpha(prim *VectorPrimitive, style *LineStyle) {
+	if prim == nil || style == nil {
+		return
+	}
+	if prim.Style.Stroke != nil {
+		prim.Style.Stroke.Alpha = style.Alpha
+	}
+	if prim.Style.FillColor != "" || prim.Style.Fill != nil {
+		prim.Style.FillAlpha = style.Alpha
+		prim.Style.FillAlphaSet = true
+	}
 }
 
 func arrowPrimitive(arrowType, widthSize, lengthSize, color string, tip, neighbor Point) (VectorPrimitive, bool) {
@@ -196,6 +230,124 @@ func arrowPrimitiveForStroke(arrowType, widthSize, lengthSize string, strokeWidt
 	}
 }
 
+// pathLineEndReferences returns the authored endpoints and their adjacent tangent
+// references for an open path. It intentionally works from the path command
+// stream rather than flattening curves: for cubic/quadratic segments the nearest
+// control point is the correct endpoint tangent reference.
+func pathLineEndReferences(path Path) (start, startRef, end, endRef Point, ok bool) {
+	var current Point
+	var haveCurrent bool
+	var first Point
+	var firstRef Point
+	var haveFirstRef bool
+	var lastRef Point
+	var haveLastRef bool
+	closed := false
+	for _, cmd := range path.Commands {
+		switch cmd.Type {
+		case "M":
+			if len(cmd.Points) == 0 {
+				continue
+			}
+			current = cmd.Points[len(cmd.Points)-1]
+			if !haveCurrent {
+				first = current
+			}
+			haveCurrent = true
+		case "L", "A":
+			if !haveCurrent || len(cmd.Points) == 0 {
+				continue
+			}
+			next := cmd.Points[len(cmd.Points)-1]
+			if !haveFirstRef && next != first {
+				firstRef = next
+				haveFirstRef = true
+			}
+			if next != current {
+				lastRef = current
+				haveLastRef = true
+			}
+			current = next
+		case "Q":
+			if !haveCurrent || len(cmd.Points) < 2 {
+				continue
+			}
+			control := cmd.Points[len(cmd.Points)-2]
+			next := cmd.Points[len(cmd.Points)-1]
+			if !haveFirstRef {
+				firstRef = control
+				haveFirstRef = true
+			}
+			lastRef = control
+			haveLastRef = true
+			current = next
+		case "C":
+			if !haveCurrent || len(cmd.Points) < 3 {
+				continue
+			}
+			firstControl := cmd.Points[len(cmd.Points)-3]
+			lastControl := cmd.Points[len(cmd.Points)-2]
+			next := cmd.Points[len(cmd.Points)-1]
+			if !haveFirstRef {
+				firstRef = firstControl
+				haveFirstRef = true
+			}
+			lastRef = lastControl
+			haveLastRef = true
+			current = next
+		case "Z":
+			closed = true
+		}
+	}
+	if !haveCurrent || !haveFirstRef || !haveLastRef || closed || current == first {
+		return Point{}, Point{}, Point{}, Point{}, false
+	}
+	return first, firstRef, current, lastRef, true
+}
+
+func appendShapeLineEndPrimitives(primitives []VectorPrimitive, spec ShapeGeometrySpec) []VectorPrimitive {
+	if (spec.ArrowHead == "" || spec.ArrowHead == "none") && (spec.ArrowTail == "" || spec.ArrowTail == "none") {
+		return primitives
+	}
+	color := spec.StrokeColor
+	if spec.Stroke != nil {
+		if color == "" {
+			color = spec.Stroke.Color
+		}
+		if spec.StrokeWidth <= 0 && spec.Stroke.Width > 0 {
+			spec.StrokeWidth = spec.Stroke.Width
+		}
+	}
+	if color == "" {
+		color = "000000"
+	}
+	if spec.StrokeWidth < 0.5 {
+		spec.StrokeWidth = 0.5
+	}
+	// Use the first open stroked path. PowerPoint line-end decorations apply to
+	// the shape's line geometry, and freeform arrow shapes in legacy PPT/PPTX use
+	// a single authored open path.
+	for _, primitive := range primitives {
+		if primitive.Kind != PrimitivePath || primitive.Path == nil || primitive.Closed {
+			continue
+		}
+		start, startRef, end, endRef, ok := pathLineEndReferences(*primitive.Path)
+		if !ok {
+			continue
+		}
+		if prim, ok := arrowPrimitiveForStroke(spec.ArrowHead, spec.ArrowHeadWidth, spec.ArrowHeadLength, spec.StrokeWidth, color, start, startRef); ok {
+			inheritArrowPrimitiveLineAlpha(&prim, spec.Stroke)
+			primitives = append(primitives, prim)
+		}
+		if prim, ok := arrowPrimitiveForStroke(spec.ArrowTail, spec.ArrowTailWidth, spec.ArrowTailLength, spec.StrokeWidth, color, end, endRef); ok {
+			inheritArrowPrimitiveLineAlpha(&prim, spec.Stroke)
+			primitives = append(primitives, prim)
+		}
+		break
+	}
+	return primitives
+}
+
 // BuildShapePrimitives returns the shared vector primitives for a preset shape.
 func BuildShapePrimitives(spec ShapeGeometrySpec) ([]VectorPrimitive, error) {
 	if spec.Width <= 0 || spec.Height <= 0 {
@@ -227,13 +379,27 @@ func BuildShapePrimitives(spec ShapeGeometrySpec) ([]VectorPrimitive, error) {
 			primitives := make([]VectorPrimitive, 0, len(spec.Geometry.Paths))
 			for _, path := range spec.Geometry.Paths {
 				normalized := NormalizePath(path, spec.Width, spec.Height)
+				pathStyle := style
+				if path.PaintFlagsSet {
+					if !path.FillEnabled {
+						pathStyle.Fill = nil
+						pathStyle.FillColor = ""
+						pathStyle.FillAlpha = 0
+						pathStyle.FillAlphaSet = false
+					}
+					if !path.StrokeEnabled {
+						pathStyle.Stroke = nil
+						pathStyle.StrokeColor = ""
+						pathStyle.StrokeWidth = 0
+					}
+				}
 				primitives = append(primitives, VectorPrimitive{
 					Kind:  PrimitivePath,
 					Path:  &normalized,
-					Style: style,
+					Style: pathStyle,
 				})
 			}
-			return primitives, nil
+			return appendShapeLineEndPrimitives(primitives, spec), nil
 		case GeometryTypePreset:
 			if spec.Preset == nil {
 				spec.Preset = &PresetGeometry{Name: spec.Geometry.Name}

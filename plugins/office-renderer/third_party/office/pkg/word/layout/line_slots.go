@@ -4,6 +4,9 @@ import (
 	"math"
 	"strings"
 
+	sharedfontmetrics "office/pkg/fontmetrics"
+	wordfontmetrics "office/pkg/word/fontmetrics"
+	"office/pkg/word/inlineposition"
 	resolve "office/pkg/word/ir"
 )
 
@@ -97,9 +100,21 @@ func (p paragraphSlotPlan) SlotRangeForPhysicalLines(startLine, endLine int) (st
 	return startSlot, endSlot, true
 }
 
+type paragraphPositionedRun struct {
+	Run      resolve.Run
+	LeftPt   float64
+	TopPt    float64
+	WidthPt  float64
+	HeightPt float64
+	Leader   string
+}
+
 type paragraphSlotRun struct {
-	Slot lineSlot
-	Runs []resolve.Run
+	Slot          lineSlot
+	Runs          []resolve.Run
+	Positioned    []paragraphPositionedRun
+	HasAdvance    bool
+	HasPositioned bool
 }
 
 // paragraphPhysicalLine is the authoritative laid-out line. Spatial run
@@ -126,10 +141,11 @@ type paragraphSlotFlow struct {
 
 type paragraphFlowContext struct {
 	DefaultTabStopTwips int
+	FontMetrics         *sharedfontmetrics.Catalog
 }
 
 func paragraphFlowContextForDocument(doc *resolve.Document) paragraphFlowContext {
-	ctx := paragraphFlowContext{DefaultTabStopTwips: defaultWordTabStopTwips}
+	ctx := paragraphFlowContext{DefaultTabStopTwips: defaultWordTabStopTwips, FontMetrics: wordfontmetrics.BuildCatalog(doc)}
 	if doc != nil && doc.DefaultTabStop > 0 {
 		ctx.DefaultTabStopTwips = doc.DefaultTabStop
 	}
@@ -160,52 +176,24 @@ func paragraphPhysicalLinesRunProjection(lines []paragraphPhysicalLine) [][]reso
 // paragraph layout. Tokens move through slots horizontally. Moving to another
 // slot in the same band does not create another physical line.
 
-const defaultWordTabStopTwips = 720
+const defaultWordTabStopTwips = inlineposition.DefaultTabStopTwips
 
-type resolvedParagraphTabStop struct {
-	PositionPt float64
-	Alignment  string
-	Leader     string
-}
+type resolvedParagraphTabStop = inlineposition.TabStop
 
 func nextParagraphTabStop(p *resolve.Paragraph, currentXPt float64, ctx paragraphFlowContext) resolvedParagraphTabStop {
-	if ctx.DefaultTabStopTwips <= 0 {
-		ctx.DefaultTabStopTwips = defaultWordTabStopTwips
-	}
+	var stops []resolve.TabStop
 	if p != nil {
-		best := resolvedParagraphTabStop{PositionPt: math.Inf(1)}
-		for _, stop := range p.Format.TabStops {
-			if stop.Pos <= 0 || stop.Algn == "bar" {
-				continue
-			}
-			pos := float64(stop.Pos) / twipsPerPoint
-			if pos > currentXPt+0.01 && pos < best.PositionPt {
-				best = resolvedParagraphTabStop{
-					PositionPt: pos,
-					Alignment:  stop.Algn,
-					Leader:     stop.Leader,
-				}
-			}
-		}
-		if !math.IsInf(best.PositionPt, 1) {
-			if best.Alignment == "" {
-				best.Alignment = "left"
-			}
-			return best
-		}
+		stops = p.Format.TabStops
 	}
-	step := float64(ctx.DefaultTabStopTwips) / twipsPerPoint
-	return resolvedParagraphTabStop{
-		PositionPt: (math.Floor(currentXPt/step) + 1) * step,
-		Alignment:  "left",
-	}
+	return inlineposition.NextTabStop(stops, currentXPt, ctx.DefaultTabStopTwips)
 }
 
 func paragraphTabAdvancePt(p *resolve.Paragraph, currentXPt float64, ctx paragraphFlowContext) float64 {
-	return nextParagraphTabStop(p, currentXPt, ctx).PositionPt - currentXPt
+	stop := nextParagraphTabStop(p, currentXPt, ctx)
+	return inlineposition.AlignedTabAdvance(stop, currentXPt, 0, 0)
 }
 
-func followingTabFieldWidthPt(tokens []paragraphRenderToken, start int, defaultSizePt float64) float64 {
+func followingTabFieldWidthPt(tokens []paragraphRenderToken, start int, defaultSizePt float64, ctx paragraphFlowContext) float64 {
 	width := 0.0
 	previousFontSize := 0.0
 	for i := start; i < len(tokens); i++ {
@@ -214,7 +202,7 @@ func followingTabFieldWidthPt(tokens []paragraphRenderToken, start int, defaultS
 			break
 		}
 		if token.separated && width > 0 {
-			width += interWordSpaceWidthPt(previousFontSize, token.fontSizePt, defaultSizePt)
+			width += runInterWordSpaceWidthPt(ctx.FontMetrics, token.run.Format, defaultSizePt, previousFontSize)
 		}
 		width += token.widthPt
 		previousFontSize = token.fontSizePt
@@ -222,7 +210,7 @@ func followingTabFieldWidthPt(tokens []paragraphRenderToken, start int, defaultS
 	return width
 }
 
-func decimalPrefixWidthPt(tokens []paragraphRenderToken, start int, defaultSizePt float64) float64 {
+func decimalPrefixWidthPt(tokens []paragraphRenderToken, start int, defaultSizePt float64, ctx paragraphFlowContext) float64 {
 	width := 0.0
 	previousFontSize := 0.0
 	for i := start; i < len(tokens); i++ {
@@ -231,13 +219,13 @@ func decimalPrefixWidthPt(tokens []paragraphRenderToken, start int, defaultSizeP
 			break
 		}
 		if token.separated && width > 0 {
-			width += interWordSpaceWidthPt(previousFontSize, token.fontSizePt, defaultSizePt)
+			width += runInterWordSpaceWidthPt(ctx.FontMetrics, token.run.Format, defaultSizePt, previousFontSize)
 		}
 		if token.run.Text != "" {
 			if cut := strings.IndexAny(token.run.Text, ".,"); cut >= 0 {
 				prefix := []rune(token.run.Text)[:cut]
 				if len(prefix) > 0 {
-					w, _ := runWordWidthPt(token.run.Format, string(prefix), defaultSizePt)
+					w, _ := runWordWidthPtWithCatalog(ctx.FontMetrics, token.run.Format, string(prefix), defaultSizePt)
 					width += w
 				}
 				return width
@@ -249,21 +237,16 @@ func decimalPrefixWidthPt(tokens []paragraphRenderToken, start int, defaultSizeP
 	return width
 }
 
-func alignedTabAdvancePt(p *resolve.Paragraph, tokens []paragraphRenderToken, tokenIndex int, currentXPt float64, ctx paragraphFlowContext, defaultSizePt float64) float64 {
+func alignedTabPlacementPt(p *resolve.Paragraph, tokens []paragraphRenderToken, tokenIndex int, currentXPt float64, ctx paragraphFlowContext, defaultSizePt float64) (float64, inlineposition.TabStop) {
 	stop := nextParagraphTabStop(p, currentXPt, ctx)
-	target := stop.PositionPt
-	switch stop.Alignment {
-	case "center":
-		target -= followingTabFieldWidthPt(tokens, tokenIndex+1, defaultSizePt) / 2
-	case "right":
-		target -= followingTabFieldWidthPt(tokens, tokenIndex+1, defaultSizePt)
-	case "decimal":
-		target -= decimalPrefixWidthPt(tokens, tokenIndex+1, defaultSizePt)
-	}
-	if target <= currentXPt {
-		return 0
-	}
-	return target - currentXPt
+	fieldWidth := followingTabFieldWidthPt(tokens, tokenIndex+1, defaultSizePt, ctx)
+	decimalPrefix := decimalPrefixWidthPt(tokens, tokenIndex+1, defaultSizePt, ctx)
+	return inlineposition.AlignedTabAdvance(stop, currentXPt, fieldWidth, decimalPrefix), stop
+}
+
+func alignedTabAdvancePt(p *resolve.Paragraph, tokens []paragraphRenderToken, tokenIndex int, currentXPt float64, ctx paragraphFlowContext, defaultSizePt float64) float64 {
+	advance, _ := alignedTabPlacementPt(p, tokens, tokenIndex, currentXPt, ctx, defaultSizePt)
+	return advance
 }
 
 func breakParagraphAcrossSlots(p *resolve.Paragraph, plan paragraphSlotPlan, defaultSizePt float64) paragraphSlotFlow {
@@ -325,9 +308,12 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 
 	lineIndex, slotIndex := 0, 0
 	currentWidth, previousFontSize := 0.0, 0.0
+	var advanceState inlineposition.AdvanceState
+	advanceState.Reset(0)
 	advanceSlot := func() {
 		slotIndex++
-		currentWidth, previousFontSize = 0, 0
+		currentWidth, previousFontSize = math.Max(0, advanceState.HorizontalPt), 0
+		advanceState.InlineXPt = currentWidth
 		for {
 			ensureLine(lineIndex)
 			if slotIndex < len(slotsByLine[lineIndex]) {
@@ -342,13 +328,38 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 		}
 	}
 
-	tokens := paragraphSpatialRenderTokens(p, defaultSizePt)
+	tokens := paragraphSpatialRenderTokensWithContext(p, defaultSizePt, ctx)
 	if len(tokens) == 0 {
 		return flow
 	}
 
 	ensureLine(0)
 	for tokenIndex, token := range tokens {
+		if token.advance {
+			ensureLine(lineIndex)
+			if len(slotsByLine[lineIndex]) == 0 {
+				lineIndex++
+				slotIndex = 0
+				currentWidth, previousFontSize = math.Max(0, advanceState.HorizontalPt), 0
+				advanceState.InlineXPt = currentWidth
+				ensureLine(lineIndex)
+			}
+			for len(flow.Lines[lineIndex].Slots) <= slotIndex {
+				i := len(flow.Lines[lineIndex].Slots)
+				flow.Lines[lineIndex].Slots = append(flow.Lines[lineIndex].Slots, paragraphSlotRun{Slot: slotsByLine[lineIndex][i]})
+			}
+			owner := &flow.Lines[lineIndex].Slots[slotIndex]
+			owner.Runs = append(owner.Runs, token.run)
+			owner.Positioned = append(owner.Positioned, paragraphPositionedRun{
+				Run: token.run, LeftPt: currentWidth, TopPt: -advanceState.VerticalPt,
+			})
+			owner.HasAdvance = true
+			advanceState.InlineXPt = currentWidth
+			advanceState.Apply(token.advanceOffsets)
+			currentWidth = advanceState.InlineXPt
+			previousFontSize = 0
+			continue
+		}
 		if token.tab {
 			for {
 				ensureLine(lineIndex)
@@ -360,7 +371,7 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				}
 				slot := slotsByLine[lineIndex][slotIndex]
 				currentX := slot.Span.Left + currentWidth
-				advance := alignedTabAdvancePt(p, tokens, tokenIndex, currentX-slot.Span.Left, ctx, defaultSizePt)
+				advance, tabStop := alignedTabPlacementPt(p, tokens, tokenIndex, currentX-slot.Span.Left, ctx, defaultSizePt)
 				if currentWidth == 0 || currentWidth+advance <= slot.Width()+0.01 {
 					for len(flow.Lines[lineIndex].Slots) <= slotIndex {
 						i := len(flow.Lines[lineIndex].Slots)
@@ -368,7 +379,12 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 					}
 					owner := &flow.Lines[lineIndex].Slots[slotIndex]
 					owner.Runs = append(owner.Runs, token.run)
+					owner.Positioned = append(owner.Positioned, paragraphPositionedRun{
+						Run: token.run, LeftPt: currentWidth, TopPt: -advanceState.VerticalPt, WidthPt: advance, HeightPt: token.fontSizePt, Leader: tabStop.Leader,
+					})
+					owner.HasPositioned = true
 					currentWidth += advance
+					advanceState.InlineXPt = currentWidth
 					previousFontSize = token.fontSizePt
 					break
 				}
@@ -398,7 +414,8 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 			mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token, defaultSizePt)
 			lineIndex++
 			slotIndex = 0
-			currentWidth, previousFontSize = 0, 0
+			currentWidth, previousFontSize = math.Max(0, advanceState.HorizontalPt), 0
+			advanceState.InlineXPt = currentWidth
 			ensureLine(lineIndex)
 			continue
 		}
@@ -414,7 +431,7 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				advanceSlot()
 				continue
 			}
-			space := interWordSpaceWidthPt(previousFontSize, token.fontSizePt, defaultSizePt)
+			space := runInterWordSpaceWidthPt(ctx.FontMetrics, token.run.Format, defaultSizePt, previousFontSize)
 			needsSpace := currentWidth > 0 && token.separated
 			needed := token.widthPt
 			if needsSpace {
@@ -429,10 +446,20 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				if needsSpace {
 					spaceRun := resolve.Run{Kind: "run", Text: " ", Format: token.run.Format}
 					owner.Runs = append(owner.Runs, spaceRun)
+					owner.Positioned = append(owner.Positioned, paragraphPositionedRun{
+						Run: spaceRun, LeftPt: currentWidth, TopPt: -advanceState.VerticalPt, WidthPt: space, HeightPt: token.fontSizePt,
+					})
 					currentWidth += space
 				}
 				owner.Runs = append(owner.Runs, token.run)
+				owner.Positioned = append(owner.Positioned, paragraphPositionedRun{
+					Run: token.run, LeftPt: currentWidth, TopPt: -advanceState.VerticalPt, WidthPt: token.widthPt, HeightPt: token.heightPt,
+				})
+				if runNeedsVerticalPositioning(token.run) {
+					owner.HasPositioned = true
+				}
 				currentWidth += token.widthPt
+				advanceState.InlineXPt = currentWidth
 				previousFontSize = token.fontSizePt
 				mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token, defaultSizePt)
 				break
@@ -453,8 +480,8 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 
 func mergeRenderTokenMetric(dst *paragraphLineMetric, token paragraphRenderToken, defaultSizePt float64) {
 	dst.maxFontSizePt = math.Max(dst.maxFontSizePt, math.Max(defaultSizePt, token.fontSizePt))
-	if token.run.Kind == "image" && token.run.Image != nil && !token.run.Image.Floating {
-		dst.maxInlineHeightPt = math.Max(dst.maxInlineHeightPt, emuToPoints(token.run.Image.Height))
+	if inlineObjectRun(token.run) && token.heightPt > 0 {
+		dst.maxInlineHeightPt = math.Max(dst.maxInlineHeightPt, token.heightPt)
 	}
 }
 

@@ -80,3 +80,54 @@ func TestEmptyCatalog(t *testing.T) {
 	if catalog.Shapes != nil { t.Fatalf("shapes=%v", catalog.Shapes) }
 	if flows := catalog.TextFlows(); flows != nil { t.Fatalf("flows=%v", flows) }
 }
+
+func TestDecodeStreamsNormalizesDOCGroupCoordinateDomain(t *testing.T) {
+	fsp := func(shapeID uint32, flags uint32) []byte {
+		payload := make([]byte, 8)
+		binary.LittleEndian.PutUint32(payload[0:4], shapeID)
+		binary.LittleEndian.PutUint32(payload[4:8], flags)
+		return officeArtTestRecord(0x0002, 0xF00A, payload)
+	}
+	childAnchor := func(left, top, right, bottom int32) []byte {
+		payload := make([]byte, 16)
+		binary.LittleEndian.PutUint32(payload[0:4], uint32(left))
+		binary.LittleEndian.PutUint32(payload[4:8], uint32(top))
+		binary.LittleEndian.PutUint32(payload[8:12], uint32(right))
+		binary.LittleEndian.PutUint32(payload[12:16], uint32(bottom))
+		return payload
+	}
+	sp := func(shapeID uint32, flags uint32, extra ...[]byte) []byte {
+		payload := append([]byte(nil), fsp(shapeID, flags)...)
+		for _, record := range extra {
+			payload = append(payload, record...)
+		}
+		return officeArtTestRecord(0x000F, 0xF004, payload)
+	}
+
+	groupRect := make([]byte, 16)
+	groupTop := int32(-1694)
+	binary.LittleEndian.PutUint32(groupRect[0:4], 0)
+	binary.LittleEndian.PutUint32(groupRect[4:8], uint32(groupTop))
+	binary.LittleEndian.PutUint32(groupRect[8:12], 2381)
+	binary.LittleEndian.PutUint32(groupRect[12:16], 1587)
+	root := sp(1026, 0x0205, officeArtTestRecord(0x0000, 0xF009, groupRect))
+	first := sp(1027, 0x0202, officeArtTestRecord(0x0000, 0xF00F, childAnchor(0, -1694, 2380, -108)))
+	second := sp(1028, 0x0202, officeArtTestRecord(0x0000, 0xF00F, childAnchor(0, 0, 2380, 1586)))
+	group := officeArtTestRecord(0x000F, 0xF003, append(append(root, first...), second...))
+
+	catalog := DecodeStreams(group)
+	got, ok := catalog.Find(1026)
+	if !ok || got == nil || len(got.Children) != 2 {
+		t.Fatalf("group=%+v", got)
+	}
+	if got.Children[0].Transform.Rect.Y != 0 {
+		t.Fatalf("first child y=%d, want normalized 0", got.Children[0].Transform.Rect.Y)
+	}
+	wantSecondY := int64(1694 * 635)
+	if got.Children[1].Transform.Rect.Y != wantSecondY {
+		t.Fatalf("second child y=%d, want %d", got.Children[1].Transform.Rect.Y, wantSecondY)
+	}
+	if got.Transform.Rect.W != int64(2381*635) || got.Transform.Rect.H != int64(3281*635) {
+		t.Fatalf("group rect=%+v", got.Transform.Rect)
+	}
+}

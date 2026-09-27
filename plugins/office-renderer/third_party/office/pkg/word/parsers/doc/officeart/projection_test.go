@@ -10,11 +10,11 @@ import (
 func TestProjectShapeCarriesSharedVisuals(t *testing.T) {
 	catalog := Catalog{Shapes: map[uint32]*officeartir.Shape{
 		7: {
-			ID: 7,
-			Geometry: officeartir.Geometry{Kind: officeartir.GeometryPreset, Preset: "ellipse", Adjustments: []float64{0.25}},
+			ID:        7,
+			Geometry:  officeartir.Geometry{Kind: officeartir.GeometryPreset, Preset: "ellipse", Adjustments: []float64{0.25}},
 			Transform: officeartir.Transform{RotationDeg: 30, FlipH: true, FlipV: true},
-			Fill: officeartir.Fill{Kind: officeartir.FillSolid, Color: "112233"},
-			Line: officeartir.Line{Visible: true, Color: "445566", WidthPt: 2},
+			Fill:      officeartir.Fill{Kind: officeartir.FillSolid, Color: "112233"},
+			Line:      officeartir.Line{Visible: true, Color: "445566", WidthPt: 2},
 		},
 	}}
 
@@ -200,5 +200,14 @@ func TestApplyImageVisualCarriesTransformCropAndAdjustments(t *testing.T) {
 	}
 	if image.BorderColor != "ABCDEF" || image.BorderWidth != 1.5 {
 		t.Fatalf("image border=%q/%v", image.BorderColor, image.BorderWidth)
+	}
+}
+
+func TestWordLegacyRotationUsesScreenDirection(t *testing.T) {
+	if got := wordLegacyRotationDeg(45); got != -45 {
+		t.Fatalf("rotation = %v, want -45", got)
+	}
+	if got := wordLegacyRotationDeg(315); got != 45 {
+		t.Fatalf("rotation = %v, want 45", got)
 	}
 }

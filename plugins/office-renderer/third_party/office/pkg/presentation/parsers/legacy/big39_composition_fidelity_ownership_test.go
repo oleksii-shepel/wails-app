@@ -19,11 +19,11 @@ func TestBIG39RicherVisualFamiliesRetainOfficeArtComposition(t *testing.T) {
 	required := []string{
 		"shape.officeArt = officeartlegacy.ShapeFromEscher(node)",
 		"OfficeArt: connector.officeArt",
-		"applyLegacyPptOfficeArtVisual(connectorIR, connector.officeArt)",
+		"applyLegacyPptOfficeArtSurface(connectorIR, connector.officeArt, connector.transform)",
 		"pictureIR.OfficeArt = pictureShape.officeArt",
-		"applyLegacyPptOfficeArtVisual(pictureIR, pictureShape.officeArt)",
+		"applyLegacyPptOfficeArtSurface(pictureIR, pictureShape.officeArt, pictureShape.transform)",
 		"child.OfficeArt = officeartlegacy.ShapeFromEscherWithColorResolver(node",
-		"applyLegacyPptOfficeArtVisual(child, child.OfficeArt)",
+		"applyLegacyPptOfficeArtSurface(child, child.OfficeArt, transform)",
 	}
 	for _, want := range required {
 		if !strings.Contains(src, want) {

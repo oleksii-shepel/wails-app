@@ -43,6 +43,21 @@ func TestConnectorWaypointsBent3(t *testing.T) {
 	}
 }
 
+func TestConnectorWaypointsBent3DefaultsMissingGuideButPreservesAuthoredZero(t *testing.T) {
+	defaulted := ConnectorWaypoints("bentConnector3", 0, 0, 100, 50, nil, false, false)
+	if len(defaulted) != 4 || defaulted[1].X != 50 || defaulted[2].X != 50 {
+		t.Fatalf("missing bentConnector3 guide = %#v, want midpoint elbow x=50", defaulted)
+	}
+
+	explicitZero := ConnectorWaypoints("bentConnector3", 0, 0, 100, 50, []int{0}, false, false)
+	if len(explicitZero) != 3 {
+		t.Fatalf("authored zero bentConnector3 guide = %#v, want zero-column elbow path", explicitZero)
+	}
+	if explicitZero[0] != (Point{X: 0, Y: 0}) || explicitZero[1] != (Point{X: 0, Y: 50}) || explicitZero[2] != (Point{X: 100, Y: 50}) {
+		t.Fatalf("authored zero bentConnector3 guide = %#v, want zero-column elbow semantics", explicitZero)
+	}
+}
+
 func TestConnectorWaypointsBent4(t *testing.T) {
 	pts := ConnectorWaypoints("bentConnector4", 0, 0, 100, 50, []int{30000, 70000}, false, false)
 	if len(pts) < 2 {
@@ -185,14 +200,14 @@ func TestShortenWaypointsForArrowsShortLine(t *testing.T) {
 }
 
 func TestArrowTrimDistance(t *testing.T) {
-	if got := ArrowTrimDistance("triangle", "med"); got != 8.0 {
-		t.Errorf("triangle med = %v, want 8.0", got)
+	if got := ArrowTrimDistance("triangle", "med"); got != 4.0 {
+		t.Errorf("triangle med = %v, want 4.0", got)
 	}
-	if got := ArrowTrimDistance("diamond", "med"); got != 8.0 {
-		t.Errorf("diamond med = %v, want 8.0", got)
+	if got := ArrowTrimDistance("diamond", "med"); got != 4.0 {
+		t.Errorf("diamond med = %v, want 4.0", got)
 	}
-	if got := ArrowTrimDistance("oval", "med"); got != 8.0 {
-		t.Errorf("oval med = %v, want 8.0", got)
+	if got := ArrowTrimDistance("oval", "med"); got != 4.0 {
+		t.Errorf("oval med = %v, want 4.0", got)
 	}
 	if got := ArrowTrimDistance("arrow", "med"); got != 0 {
 		t.Errorf("arrow med = %v, want 0", got)
@@ -201,49 +216,49 @@ func TestArrowTrimDistance(t *testing.T) {
 
 func TestArrowDimensions(t *testing.T) {
 	lenPt, widthPt := ArrowDimensions("triangle", "sm", "lg")
-	if lenPt != 12.0 {
-		t.Errorf("triangle lg length = %v, want 12.0", lenPt)
+	if lenPt != 6.0 {
+		t.Errorf("triangle lg length = %v, want 6.0", lenPt)
 	}
-	if widthPt != 4.5 {
-		t.Errorf("triangle sm width = %v, want 4.5", widthPt)
+	if widthPt != 2.25 {
+		t.Errorf("triangle sm width = %v, want 2.25", widthPt)
 	}
 
 	lenPt2, widthPt2 := ArrowDimensions("diamond", "lg", "lg")
-	if lenPt2 != 6.0 {
-		t.Errorf("diamond lg length = %v, want 6.0", lenPt2)
+	if lenPt2 != 3.0 {
+		t.Errorf("diamond lg length = %v, want 3.0", lenPt2)
 	}
-	if widthPt2 != 8.0 {
-		t.Errorf("diamond lg width = %v, want 8.0", widthPt2)
+	if widthPt2 != 4.0 {
+		t.Errorf("diamond lg width = %v, want 4.0", widthPt2)
 	}
 }
 
 func TestMapArrowLengthPt(t *testing.T) {
-	if got := mapArrowLengthPt("sm"); got != 6.0 {
-		t.Errorf("small length = %v, want 6.0", got)
+	if got := mapArrowLengthPt("sm"); got != 3.0 {
+		t.Errorf("small length = %v, want 3.0", got)
 	}
-	if got := mapArrowLengthPt("med"); got != 8.0 {
-		t.Errorf("medium length = %v, want 8.0", got)
+	if got := mapArrowLengthPt("med"); got != 4.0 {
+		t.Errorf("medium length = %v, want 4.0", got)
 	}
-	if got := mapArrowLengthPt("lg"); got != 12.0 {
-		t.Errorf("large length = %v, want 12.0", got)
+	if got := mapArrowLengthPt("lg"); got != 6.0 {
+		t.Errorf("large length = %v, want 6.0", got)
 	}
-	if got := mapArrowLengthPt("unknown"); got != 8.0 {
-		t.Errorf("unknown length = %v, want 8.0", got)
+	if got := mapArrowLengthPt("unknown"); got != 4.0 {
+		t.Errorf("unknown length = %v, want 4.0", got)
 	}
 }
 
 func TestMapArrowWidthPt(t *testing.T) {
-	if got := mapArrowWidthPt("sm"); got != 4.5 {
-		t.Errorf("small width = %v, want 4.5", got)
+	if got := mapArrowWidthPt("sm"); got != 2.25 {
+		t.Errorf("small width = %v, want 2.25", got)
 	}
-	if got := mapArrowWidthPt("med"); got != 5.5 {
-		t.Errorf("medium width = %v, want 5.5", got)
+	if got := mapArrowWidthPt("med"); got != 2.75 {
+		t.Errorf("medium width = %v, want 2.75", got)
 	}
-	if got := mapArrowWidthPt("lg"); got != 8.0 {
-		t.Errorf("large width = %v, want 8.0", got)
+	if got := mapArrowWidthPt("lg"); got != 4.0 {
+		t.Errorf("large width = %v, want 4.0", got)
 	}
-	if got := mapArrowWidthPt("unknown"); got != 5.5 {
-		t.Errorf("unknown width = %v, want 5.5", got)
+	if got := mapArrowWidthPt("unknown"); got != 2.75 {
+		t.Errorf("unknown width = %v, want 2.75", got)
 	}
 }
 
@@ -365,38 +380,38 @@ func TestUnsupportedArrowMarkerDoesNotTrimOrMaterialize(t *testing.T) {
 
 func TestArrowDimensionsUnknownWidth(t *testing.T) {
 	lenPt, widthPt := ArrowDimensions("triangle", "unknown", "med")
-	if widthPt != 5.5 {
-		t.Errorf("unknown width = %v, want 5.5", widthPt)
+	if widthPt != 2.75 {
+		t.Errorf("unknown width = %v, want 2.75", widthPt)
 	}
 	_ = lenPt
 }
 
 func TestArrowDimensionsUnknownLength(t *testing.T) {
 	lenPt, widthPt := ArrowDimensions("triangle", "med", "unknown")
-	if lenPt != 8.0 {
-		t.Errorf("unknown length = %v, want 8.0", lenPt)
+	if lenPt != 4.0 {
+		t.Errorf("unknown length = %v, want 4.0", lenPt)
 	}
 	_ = widthPt
 }
 
 func TestArrowDimensionsStealth(t *testing.T) {
 	lenPt, widthPt := ArrowDimensions("stealth", "sm", "lg")
-	if lenPt != 12.0 {
-		t.Errorf("stealth lg length = %v, want 12.0", lenPt)
+	if lenPt != 6.0 {
+		t.Errorf("stealth lg length = %v, want 6.0", lenPt)
 	}
-	if widthPt != 4.5 {
-		t.Errorf("stealth sm width = %v, want 4.5", widthPt)
+	if widthPt != 2.25 {
+		t.Errorf("stealth sm width = %v, want 2.25", widthPt)
 	}
 }
 
 func TestArrowDimensionsOalWithDefaults(t *testing.T) {
 	// "oal" is not a known type, falls through to default
 	lenPt, widthPt := ArrowDimensions("oal", "", "")
-	if lenPt != 8.0 {
-		t.Errorf("default length = %v, want 8.0", lenPt)
+	if lenPt != 4.0 {
+		t.Errorf("default length = %v, want 4.0", lenPt)
 	}
-	if widthPt != 5.5 {
-		t.Errorf("default width = %v, want 5.5", widthPt)
+	if widthPt != 2.75 {
+		t.Errorf("default width = %v, want 2.75", widthPt)
 	}
 }
 
@@ -404,37 +419,38 @@ func TestArrowTrimDistanceMatchesMaterializedMarkerExtent(t *testing.T) {
 	if got := ArrowTrimDistance("arrow", "med"); got != 0 {
 		t.Fatalf("open arrow trim = %v, want 0 so the shaft reaches the wing vertex", got)
 	}
-	if got, want := ArrowTrimDistance("triangle", "med"), 8.0; got != want {
+	if got, want := ArrowTrimDistance("triangle", "med"), 4.0; got != want {
 		t.Fatalf("triangle trim = %v, want %v", got, want)
 	}
-	if got, want := ArrowTrimDistance("oval", "med"), 8.0; got != want {
+	if got, want := ArrowTrimDistance("oval", "med"), 4.0; got != want {
 		t.Fatalf("oval trim = %v, want %v", got, want)
 	}
 	// ArrowDimensions intentionally represents a diamond by its tip-to-center
 	// half-length. The materialized marker extends twice that far to its back vertex.
-	if got, want := ArrowTrimDistance("diamond", "med"), 8.0; got != want {
+	if got, want := ArrowTrimDistance("diamond", "med"), 4.0; got != want {
 		t.Fatalf("diamond trim = %v, want %v", got, want)
 	}
 }
 
-func TestArrowDimensionsForStrokeScaleWithEffectiveLineWidth(t *testing.T) {
-	thinL, thinW := ArrowDimensionsForStroke("triangle", "med", "med", 0.5)
+func TestArrowDimensionsForStrokeClampThinMarkersToMinimumEffectiveStroke(t *testing.T) {
+	tinyL, tinyW := ArrowDimensionsForStroke("triangle", "med", "med", 0.5)
+	thinL, thinW := ArrowDimensionsForStroke("triangle", "med", "med", 1.5)
 	thickL, thickW := ArrowDimensionsForStroke("triangle", "med", "med", 3)
-	if thinL != 4 || thinW != 2.75 {
-		t.Fatalf("0.5pt medium arrow = %.2fx%.2f, want 4x2.75", thinL, thinW)
+	if tinyL != 6 || tinyW != 4.125 {
+		t.Fatalf("0.5pt medium arrow = %.3fx%.3f, want 6x4.125", tinyL, tinyW)
 	}
-	if thickL != 24 || thickW != 16.5 {
-		t.Fatalf("3pt medium arrow = %.2fx%.2f, want 24x16.5", thickL, thickW)
+	if tinyL != thinL || tinyW != thinW {
+		t.Fatalf("thin markers should clamp to a 1.5pt effective stroke: tiny %.3fx%.3f thin %.3fx%.3f", tinyL, tinyW, thinL, thinW)
 	}
-	if thickL/thinL != 6 || thickW/thinW != 6 {
-		t.Fatalf("arrow dimensions must scale with stroke: thin %.2fx%.2f thick %.2fx%.2f", thinL, thinW, thickL, thickW)
+	if thickL != 12 || thickW != 8.25 {
+		t.Fatalf("3pt medium arrow = %.2fx%.2f, want 12x8.25", thickL, thickW)
 	}
 }
 
 func TestOpenArrowStrokeTracksConnectorStroke(t *testing.T) {
 	ag := ComputeArrowGeometryForStroke("arrow", "med", "med", 4, Point{X: 100}, Point{})
-	if ag == nil || ag.StrokeWidth != 6 {
-		t.Fatalf("open arrow stroke = %#v, want 6pt for 4pt connector", ag)
+	if ag == nil || ag.StrokeWidth != 4 {
+		t.Fatalf("open arrow stroke = %#v, want the same 4pt pen as the connector", ag)
 	}
 }
 
@@ -461,5 +477,73 @@ func TestArrowMarkerTypeAndSizeMatrixMaterializesFiniteGeometry(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestShortenPolylineWaypointsForArrowsConsumesShortBentDogleg(t *testing.T) {
+	pts := []Point{{X: 0, Y: 0}, {X: 5, Y: 0}, {X: 5, Y: 40}, {X: 60, Y: 40}}
+	got := ShortenPolylineWaypointsForArrows(pts, 12, 0)
+	want := []Point{{X: 5, Y: 7}, {X: 5, Y: 40}, {X: 60, Y: 40}}
+	if len(got) != len(want) {
+		t.Fatalf("trimmed points = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("trimmed points[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestShortenPolylineWaypointsForArrowsConsumesShortTailDogleg(t *testing.T) {
+	pts := []Point{{X: 0, Y: 0}, {X: 55, Y: 0}, {X: 55, Y: 5}, {X: 60, Y: 5}}
+	got := ShortenPolylineWaypointsForArrows(pts, 0, 12)
+	want := []Point{{X: 0, Y: 0}, {X: 53, Y: 0}}
+	if len(got) != len(want) {
+		t.Fatalf("trimmed points = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("trimmed points[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestStealthArrowTrimStopsAtConcaveNotch(t *testing.T) {
+	length, _ := ArrowDimensionsForStroke("stealth", "med", "lg", 2)
+	got := ArrowTrimDistanceForStroke("stealth", "lg", 2)
+	want := length * 0.55
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("stealth trim = %v, want notch depth %v", got, want)
+	}
+	geometry := ComputeArrowGeometryForStroke("stealth", "med", "lg", 2, Point{X: 0, Y: 0}, Point{X: 100, Y: 0})
+	if geometry == nil || len(geometry.PolyPts) != 4 {
+		t.Fatalf("stealth geometry = %#v", geometry)
+	}
+	notch := geometry.PolyPts[2]
+	if math.Abs(math.Hypot(notch.X, notch.Y)-got) > 1e-9 {
+		t.Fatalf("stealth notch distance = %v, trim = %v", math.Hypot(notch.X, notch.Y), got)
+	}
+}
+
+func TestPowerPointReferenceArrowScaleMatchesEffectiveMarkers(t *testing.T) {
+	// 23884 slide 1 provides two useful PowerPoint-rendered references:
+	// the 3pt large yellow triangle is about 18pt deep, while the 2.75pt
+	// medium stealth arrows under the monitor stations are about 11pt deep.
+	length, width := ArrowDimensionsForStroke("triangle", "lg", "lg", 3)
+	if length != 18 || width != 12 {
+		t.Fatalf("3pt large triangle = %.4fx%.4fpt, want 18x12pt", length, width)
+	}
+	length, width = ArrowDimensionsForStroke("stealth", "med", "med", 2.75)
+	if length != 11 || math.Abs(width-7.5625) > 1e-9 {
+		t.Fatalf("2.75pt medium stealth = %.4fx%.4fpt, want 11x7.5625pt", length, width)
+	}
+}
+
+func TestPowerPointThinStealthMarkersRespectMinimumEffectiveStroke(t *testing.T) {
+	// 23884 slide 3 uses 0.75pt white stealth tails that PowerPoint still
+	// renders with a visibly medium marker instead of a 3pt-deep sliver.
+	length, width := ArrowDimensionsForStroke("stealth", "med", "med", 0.75)
+	if length != 6 || math.Abs(width-4.125) > 1e-9 {
+		t.Fatalf("0.75pt medium stealth = %.4fx%.4fpt, want 6x4.125pt", length, width)
 	}
 }

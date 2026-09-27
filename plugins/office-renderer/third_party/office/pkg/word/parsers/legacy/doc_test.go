@@ -8803,3 +8803,90 @@ func TestLegacyTopLevelBlocksOwnCanonicalParagraphAndTableObjects(t *testing.T) 
 		t.Fatalf("block paragraph text = %q, want canonical", got)
 	}
 }
+
+func TestRestoreLegacyHiddenEdgeTextRestoresExactCanonicalPrefix(t *testing.T) {
+	hidden := true
+	runs := []wordir.Run{
+		{Text: "Le", Format: wordir.RunFormat{Vanish: &hidden}},
+		{Text: "gacy DOC fixture: advanced textboxes"},
+	}
+	got := reconcileLegacyVisibleRunWhitespace(runs, "Legacy DOC fixture: advanced textboxes")
+	if len(got) != 2 || legacyRunIsHidden(got[0]) || got[0].Text != "Le" {
+		t.Fatalf("leading canonical fragment not restored: %#v", got)
+	}
+}
+
+func TestRestoreLegacyHiddenEdgeTextDoesNotExposeInteriorHiddenText(t *testing.T) {
+	hidden := true
+	runs := []wordir.Run{
+		{Text: "visible"},
+		{Text: "secret", Format: wordir.RunFormat{Vanish: &hidden}},
+		{Text: "tail"},
+	}
+	got := reconcileLegacyVisibleRunWhitespace(runs, "visiblesecrettail")
+	if !legacyRunIsHidden(got[1]) {
+		t.Fatalf("interior hidden text was exposed: %#v", got)
+	}
+}
+
+func TestBuildLegacyParagraphFromRunsDoesNotDropLeadingTextForTrailingWhitespace(t *testing.T) {
+	runs := []binaryWordRun{
+		{Text: "Legacy DOC fixture: advanced textboxes"},
+		{Text: "  "},
+		{Kind: "shape", Shape: &wordir.Shape{}},
+	}
+	p, _ := buildLegacyParagraphFromRuns(0, runs, nil, nil, nil, nil)
+	if p.Text != "Legacy DOC fixture: advanced textboxes" {
+		t.Fatalf("paragraph text = %q", p.Text)
+	}
+	visible := wordir.CanonicalVisibleRuns(&p)
+	if len(visible) == 0 || visible[0].Text != "Legacy DOC fixture: advanced textboxes" {
+		t.Fatalf("first visible run = %#v, want complete Legacy prefix", visible)
+	}
+}
+
+func TestSplitDocRunsTreatsVerticalTabAsManualLineBoundary(t *testing.T) {
+	lines := splitDocRunsIntoLines([]binaryWordRun{
+		{Text: "Legacy DOC fixture: advanced textboxes\v"},
+		{Text: "Expected: custom insets\v"},
+	})
+	if len(lines) < 2 {
+		t.Fatalf("lines = %d, want at least 2", len(lines))
+	}
+	if got := joinDocRunsText(lines[0]); got != "Legacy DOC fixture: advanced textboxes" {
+		t.Fatalf("line[0] = %q", got)
+	}
+	if got := joinDocRunsText(lines[1]); got != "Expected: custom insets" {
+		t.Fatalf("line[1] = %q", got)
+	}
+}
+
+func TestParseAdvancedTextboxesHeaderKeepsLeadingCharactersAndSecondLine(t *testing.T) {
+	data, err := os.ReadFile("testdata/legacy-advanced-textboxes.doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := ParseDocBytes(data, "legacy-advanced-textboxes.doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Paragraphs) < 2 {
+		t.Fatalf("paragraphs = %d, want at least 2", len(doc.Paragraphs))
+	}
+	if got := doc.Paragraphs[0].Text; got != "Legacy DOC fixture: advanced textboxes" {
+		t.Fatalf("header = %q", got)
+	}
+	if got := doc.Paragraphs[1].Text; !strings.HasPrefix(got, "Expected: custom insets") {
+		t.Fatalf("second line = %q", got)
+	}
+	visible := wordir.CanonicalVisibleRuns(&doc.Paragraphs[0])
+	var text strings.Builder
+	for _, run := range visible {
+		if run.Kind == "" || run.Kind == "hyperlink" {
+			text.WriteString(run.Text)
+		}
+	}
+	if got := text.String(); got != "Legacy DOC fixture: advanced textboxes" {
+		t.Fatalf("visible header runs = %q", got)
+	}
+}

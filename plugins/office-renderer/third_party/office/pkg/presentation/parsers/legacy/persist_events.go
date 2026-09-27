@@ -145,7 +145,11 @@ func parsePersistHeaderFooterInfos(events map[int]PersistEvent, persistIDs []int
 			continue
 		}
 		info := parseLegacyPptHeaderFooterInfoFromPersist(e.Payload)
-		if info.hasRenderableContent() {
+		// Presence of a HeadersFootersAtom is semantic even when every visibility
+		// bit is clear. Such an atom is the authored per-slide override that turns
+		// document/master header-footer defaults off. Dropping it here makes the
+		// merge layer incorrectly restore those defaults on title/photo slides.
+		if info.hasAtom || info.hasRenderableContent() {
 			out[persistID] = info
 		}
 	}

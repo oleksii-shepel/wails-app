@@ -105,3 +105,17 @@ func TestClass10NeutralCharactersStayWithSurroundingScriptMetricRun(t *testing.T
 		t.Fatalf("EA segment = %#v", segments[1])
 	}
 }
+
+func TestClass10MixedLegacySymbolGlyphDoesNotOwnFollowingANSIText(t *testing.T) {
+	cf := stpaCFRun{CharCount: 36, FontFamily: "Symbol", SymbolFontFamily: "Symbol", FontSize: 2800}
+	runs := buildRunsFromCF("\uf0bc and its frequency-domain equivalent", []stpaCFRun{cf}, 0, 36)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %#v, want symbol glyph + ANSI segment", runs)
+	}
+	if runs[0].Text != "\uf0bc " || runs[0].FontFamily != "Symbol" {
+		t.Fatalf("symbol segment = %#v", runs[0])
+	}
+	if runs[1].Text != "and its frequency-domain equivalent" || runs[1].FontFamily != "" {
+		t.Fatalf("ANSI segment = %#v, want unowned font for master cascade", runs[1])
+	}
+}

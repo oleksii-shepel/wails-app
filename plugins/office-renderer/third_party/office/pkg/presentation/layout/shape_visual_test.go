@@ -334,3 +334,25 @@ func TestClass6StrokePlanPreservesAuthoredCompoundWidths(t *testing.T) {
 		t.Fatalf("physical plan aliases canonical style: %#v", plan.CompoundWidths)
 	}
 }
+
+func TestResolveShapeVisualPlanMaterializesFreeformArrowheads(t *testing.T) {
+	shape := &ir.Shape{
+		Bounds: ir.Rect{W: 1270000, H: 635000},
+		GeometryData: &drawing.Geometry{Type: drawing.GeometryTypeCustom, Paths: []drawing.Path{{Commands: []drawing.PathCommand{
+			{Type: "M", Points: []drawing.Point{{X: 0, Y: 0}}},
+			{Type: "L", Points: []drawing.Point{{X: 1, Y: 1}}},
+		}}}},
+		LineColor: "FFFF00", LineWidthPt: 3,
+		ArrowTail: "triangle", ArrowTailWidth: "med", ArrowTailLength: "lg",
+	}
+	plan := ResolveShapeVisualPlan(shape)
+	if !plan.UseVector {
+		t.Fatal("freeform arrow shape did not request vector materialization")
+	}
+	if len(plan.Primitives) != 2 {
+		t.Fatalf("freeform arrow primitives = %d, want path + endpoint marker", len(plan.Primitives))
+	}
+	if got := plan.Primitives[1].Primitive; got.Kind != drawing.PrimitivePolyline || !got.Closed {
+		t.Fatalf("freeform arrow marker = %+v", got)
+	}
+}

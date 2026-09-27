@@ -2,12 +2,29 @@ package sax
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
+	"office/pkg/mathtype"
+	"office/pkg/msgraph"
 	"office/pkg/ooxml/drawing"
+	"office/pkg/presentation/imageutil"
 	"office/pkg/presentation/ir"
 	"office/pkg/render/metafile"
 )
+
+func canonicalLineCapToken(value string) drawing.LineCap {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "rnd", "round":
+		return drawing.LineCapRound
+	case "sq", "square":
+		return drawing.LineCapSquare
+	case "flat", "":
+		return drawing.LineCapFlat
+	default:
+		return drawing.LineCap(value)
+	}
+}
 
 // BuildContextualSlidesPath builds slide IR directly from the forward-only SAX
 // stream. Package relationships and theme colors are resolved as immutable
@@ -17,6 +34,8 @@ func BuildContextualSlidesPath(filePath string, opts Options) ([]*ir.Slide, erro
 	if err := WalkPath(filePath, b, opts); err != nil {
 		return nil, err
 	}
+	ir.NormalizeLegacyListMarkerGlyphsInSlides(b.slides)
+	ir.NormalizeDuplicateBulletGlyphShapesInSlides(b.slides)
 	return b.slides, nil
 }
 
@@ -26,6 +45,8 @@ func BuildContextualSlidesBytes(data []byte, opts Options) ([]*ir.Slide, error) 
 	if err := WalkBytes(data, b, opts); err != nil {
 		return nil, err
 	}
+	ir.NormalizeLegacyListMarkerGlyphsInSlides(b.slides)
+	ir.NormalizeDuplicateBulletGlyphShapesInSlides(b.slides)
 	return b.slides, nil
 }
 
@@ -39,6 +60,8 @@ func BuildContextualPresentationBytes(data []byte, opts Options) (*ir.Presentati
 	}
 	b.presentation.Slides = b.slides
 	b.finalizeCanonicalTheme()
+	ir.NormalizeLegacyListMarkerGlyphs(b.presentation)
+	ir.NormalizeDuplicateBulletGlyphShapes(b.presentation)
 	return b.presentation, nil
 }
 
@@ -72,8 +95,12 @@ type irBuilder struct {
 	themeName               string
 	masterShapes            []*ir.Shape
 	layoutShapes            []*ir.Shape
+	masterBackground        backgroundState
+	layoutBackground        backgroundState
 	masterPart              string
 	layoutPart              string
+	masterCatalog           map[string]*ir.SlideMaster
+	layoutCatalog           map[string]*ir.SlideLayout
 	masterTextStyles        map[string]map[int]textStyleLevel
 	defaultTextStyles       map[int]textStyleLevel
 	themeFonts              map[string]string
@@ -89,6 +116,13 @@ type irBuilder struct {
 	inNotes                 bool
 	showMasterShapes        bool
 	layoutShowsMasterShapes bool
+}
+
+type backgroundState struct {
+	Fill        drawing.Fill
+	Color       string
+	PictureTile *ir.PictureTile
+	Set         bool
 }
 
 type connectorRef struct {
@@ -114,7 +148,7 @@ type textStyleLevel struct {
 }
 
 func newIRBuilder() *irBuilder {
-	return &irBuilder{presentation: &ir.Presentation{}, themeColors: make(map[string]string), themeLineStyles: make(map[int]LineProperties), themeFillStyles: make(map[int]ThemeFillStyle), themeEffectStyles: make(map[int]ThemeEffectStyle), masterTextStyles: make(map[string]map[int]textStyleLevel), defaultTextStyles: make(map[int]textStyleLevel), themeFonts: make(map[string]string), connectorRefs: make(map[*ir.Shape]connectorRefs), relationships: make(map[int]map[string]relationshipTarget), payloads: make(map[int]map[string]relationshipPayload), olePreviews: make(map[int]map[string]relationshipPayload), partRelationships: make(map[string]map[string]relationshipTarget), partPayloads: make(map[string]map[string]relationshipPayload)}
+	return &irBuilder{presentation: &ir.Presentation{}, themeColors: make(map[string]string), themeLineStyles: make(map[int]LineProperties), themeFillStyles: make(map[int]ThemeFillStyle), themeEffectStyles: make(map[int]ThemeEffectStyle), masterTextStyles: make(map[string]map[int]textStyleLevel), defaultTextStyles: make(map[int]textStyleLevel), themeFonts: make(map[string]string), connectorRefs: make(map[*ir.Shape]connectorRefs), relationships: make(map[int]map[string]relationshipTarget), payloads: make(map[int]map[string]relationshipPayload), olePreviews: make(map[int]map[string]relationshipPayload), partRelationships: make(map[string]map[string]relationshipTarget), partPayloads: make(map[string]map[string]relationshipPayload), masterCatalog: make(map[string]*ir.SlideMaster), layoutCatalog: make(map[string]*ir.SlideLayout)}
 }
 
 func (b *irBuilder) HandleEvent(ev Event) error {
@@ -123,43 +157,42 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 		b.presentation.SlideWidthEMU, b.presentation.SlideHeightEMU = ev.CanvasWidthEMU, ev.CanvasHeightEMU
 	case EventBackgroundStyleRef:
 		style, ok := b.themeFillStyles[ev.StyleIndex]
-		if ok && style.Kind != "" && b.slide != nil {
+		if ok && style.Kind != "" {
 			tmp := &ir.Shape{}
 			b.applyThemeFillStyle(tmp, style, ev.Color)
 			if tmp.Fill != nil {
-				b.slide.BgFill, b.slide.BgColor = tmp.Fill, tmp.FillColor
+				b.assignBackground(ev.Scope, backgroundState{Fill: tmp.Fill, Color: tmp.FillColor, Set: true})
 			}
 		}
+	case EventBackgroundFill:
+		tmp := &ir.Shape{}
+		b.applyThemeFillStyle(tmp, ev.ThemeFill, VisualColor{})
+		// An explicit noFill is still authored background state and must block
+		// inheritance even though its effective Fill is nil.
+		b.assignBackground(ev.Scope, backgroundState{Fill: tmp.Fill, Color: tmp.FillColor, Set: true})
 	case EventBackgroundPicture:
-		if b.slide != nil {
-			payload := b.relationshipPayloadForEvent(ev)
-			if len(payload.Data) != 0 {
-				fill := drawing.PictureFill{EmbedID: ev.RelID, ImageData: append([]byte(nil), payload.Data...), ContentType: payload.ContentType, Stretch: true, Alpha: 1}
-				if ev.CropLeft != 0 || ev.CropTop != 0 || ev.CropRight != 0 || ev.CropBottom != 0 {
-					fill.Crop = &drawing.Rect{X: float64(ev.CropLeft) / 100000, Y: float64(ev.CropTop) / 100000, Width: 1 - float64(ev.CropLeft+ev.CropRight)/100000, Height: 1 - float64(ev.CropTop+ev.CropBottom)/100000}
-				}
-				if ev.PictureFillLeft != 0 || ev.PictureFillTop != 0 || ev.PictureFillRight != 0 || ev.PictureFillBottom != 0 {
-					fill.FillRect = &drawing.Rect{X: float64(ev.PictureFillLeft) / 100000, Y: float64(ev.PictureFillTop) / 100000, Width: 1 - float64(ev.PictureFillLeft+ev.PictureFillRight)/100000, Height: 1 - float64(ev.PictureFillTop+ev.PictureFillBottom)/100000}
-				}
-				if ev.PictureTileSx != 0 || ev.PictureTileSy != 0 || ev.PictureTileTx != 0 || ev.PictureTileTy != 0 || ev.PictureTileFlip != "" || ev.PictureTileAlign != "" {
-					fill.Tile, fill.Stretch = true, false
-					fill.TileOffsetX, fill.TileOffsetY = ev.PictureTileTx, ev.PictureTileTy
-					fill.TileScaleX, fill.TileScaleY = ev.PictureTileSx, ev.PictureTileSy
-					fill.TileFlip, fill.TileAlign = ev.PictureTileFlip, ev.PictureTileAlign
-				}
-				b.slide.BgFill = fill
+		payload := b.relationshipPayloadForEvent(ev)
+		if len(payload.Data) != 0 {
+			fill := drawing.PictureFill{EmbedID: ev.RelID, ImageData: append([]byte(nil), payload.Data...), ContentType: payload.ContentType, Stretch: true, Alpha: 1}
+			if ev.CropLeft != 0 || ev.CropTop != 0 || ev.CropRight != 0 || ev.CropBottom != 0 {
+				fill.Crop = &drawing.Rect{X: float64(ev.CropLeft) / 100000, Y: float64(ev.CropTop) / 100000, Width: 1 - float64(ev.CropLeft+ev.CropRight)/100000, Height: 1 - float64(ev.CropTop+ev.CropBottom)/100000}
 			}
+			if ev.HasPictureFill || ev.PictureFillLeft != 0 || ev.PictureFillTop != 0 || ev.PictureFillRight != 0 || ev.PictureFillBottom != 0 {
+				fill.FillRect = &drawing.Rect{X: float64(ev.PictureFillLeft) / 100000, Y: float64(ev.PictureFillTop) / 100000, Width: 1 - float64(ev.PictureFillLeft+ev.PictureFillRight)/100000, Height: 1 - float64(ev.PictureFillTop+ev.PictureFillBottom)/100000}
+			}
+			var tile *ir.PictureTile
+			if ev.PictureTileSx != 0 || ev.PictureTileSy != 0 || ev.PictureTileTx != 0 || ev.PictureTileTy != 0 || ev.PictureTileFlip != "" || ev.PictureTileAlign != "" {
+				fill.Tile, fill.Stretch = true, false
+				fill.TileOffsetX, fill.TileOffsetY = ev.PictureTileTx, ev.PictureTileTy
+				fill.TileScaleX, fill.TileScaleY = ev.PictureTileSx, ev.PictureTileSy
+				fill.TileFlip, fill.TileAlign = ev.PictureTileFlip, ev.PictureTileAlign
+				tile = &ir.PictureTile{Tx: ev.PictureTileTx, Ty: ev.PictureTileTy, Sx: ev.PictureTileSx, Sy: ev.PictureTileSy, Flip: ev.PictureTileFlip, Alignment: ev.PictureTileAlign}
+			}
+			b.assignBackground(ev.Scope, backgroundState{Fill: fill, PictureTile: tile, Set: true})
 		}
 	case EventSlideBackground:
-		if ev.SlideIndex >= 0 && ev.SlideIndex < len(b.slides) {
-			color := b.resolveVisualColor(ev.Color)
-			b.slides[ev.SlideIndex].BgColor = color
-			b.slides[ev.SlideIndex].BgFill = drawing.SolidFill{Color: color, Alpha: 1}
-		} else if b.slide != nil {
-			color := b.resolveVisualColor(ev.Color)
-			b.slide.BgColor = color
-			b.slide.BgFill = drawing.SolidFill{Color: color, Alpha: 1}
-		}
+		color := b.resolveVisualColor(ev.Color)
+		b.assignBackground(ev.Scope, backgroundState{Color: color, Fill: drawing.SolidFill{Color: color, Alpha: 1}, Set: true})
 	case EventSlideMasterVisibility:
 		if ev.ShowMasterShapesSet && b.slide != nil && b.slide.Index == ev.SlideIndex {
 			if ev.Scope == "layout" {
@@ -260,25 +293,41 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 		previews[ev.OLEShapeRef] = relationshipPayload{Data: append([]byte(nil), ev.Payload...), ContentType: ev.ContentType, RelType: ev.RelType}
 	case EventStartMaster:
 		b.masterShapes = nil
+		b.masterBackground = backgroundState{}
 		b.masterColorMap = make(map[string]string)
 		b.activeColorScope = "master"
 		b.masterTextStyles = make(map[string]map[int]textStyleLevel)
 		b.masterPart = ev.PartName
 	case EventStartLayout:
 		b.layoutShapes = nil
+		if b.slide != nil {
+			b.slide.LayoutType = canonicalSlideLayoutType(ev.LayoutType)
+		}
+		b.layoutBackground = backgroundState{}
 		b.layoutPart = ev.PartName
 		b.layoutColorMap = cloneStringMap(b.masterColorMap)
 		b.activeColorScope = "layout"
 	case EventTextStyle:
+		paragraph := ev.Paragraph
+		// Picture-bullet relationship IDs are local to the part that authored the
+		// text style. Materialize the payload while that ownership is still known;
+		// later placeholder/style inheritance intentionally works with semantic
+		// paragraph values and no longer carries the source Event/part context.
+		if paragraph.BulletImageRelID != "" {
+			if payload := b.partPayloads[ev.PartName][paragraph.BulletImageRelID]; len(payload.Data) != 0 {
+				paragraph.BulletImageData = append([]byte(nil), payload.Data...)
+				paragraph.BulletImageMIME = payload.ContentType
+			}
+		}
 		if ev.Scope == "presentation" && ev.TextStyleKind == "default" {
-			b.defaultTextStyles[ev.TextStyleLevel] = textStyleLevel{Paragraph: ev.Paragraph, Run: ev.Run}
+			b.defaultTextStyles[ev.TextStyleLevel] = textStyleLevel{Paragraph: paragraph, Run: ev.Run}
 		} else if ev.Scope == "master" && ev.TextStyleKind != "" {
 			levels := b.masterTextStyles[ev.TextStyleKind]
 			if levels == nil {
 				levels = make(map[int]textStyleLevel)
 				b.masterTextStyles[ev.TextStyleKind] = levels
 			}
-			levels[ev.TextStyleLevel] = textStyleLevel{Paragraph: ev.Paragraph, Run: ev.Run}
+			levels[ev.TextStyleLevel] = textStyleLevel{Paragraph: paragraph, Run: ev.Run}
 		}
 	case EventEndMaster:
 		b.activeColorScope = "slide"
@@ -302,6 +351,11 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 		}
 		b.applyContextualInheritance()
 		b.resolveConnectorEndpoints()
+		// Normalize syntax-only empty DrawingML text bodies only after master/layout
+		// inheritance has finished. Template filtering uses source text-container
+		// structure, while canonical slide IR should expose only effective text.
+		saxDropSyntaxOnlyEmptyParagraphs(b.slide.Shapes)
+		b.slide.Shapes = saxDropNoPaintWhitespaceArtifacts(b.slide.Shapes)
 		b.slides = append(b.slides, b.slide)
 		b.slide = nil
 		b.paragraph = nil
@@ -338,6 +392,43 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 		if ev.ShapeID != 0 && s.ID != ev.ShapeID {
 			return fmt.Errorf("sax ir builder: shape end id %d, want %d", ev.ShapeID, s.ID)
 		}
+		// DrawingML may encode an arrow/line as a plain p:sp with
+		// prstGeom="line" instead of p:cxnSp. Decide only after the whole
+		// shape is known: a line preset with meaningful text is still a text
+		// shape, while a visual-only line belongs to the canonical connector
+		// family. This keeps layout from painting the line's bounding rectangle.
+		if s.Kind == ir.ShapeText && !saxShapeHasMeaningfulText(s) && (saxPresetGeometryIsConnector(s.Geometry) || saxDegenerateCustomGeometryIsConnector(s)) {
+			s.Kind = ir.ShapeConnector
+			s.ConnectorType = saxConnectorTypeForPreset(s.Geometry)
+			// A zero-axis custom freeform that contains only an open polyline is
+			// the DrawingML representation produced for several legacy OfficeArt
+			// line shapes. Once classified as a connector, collapse the syntax-level
+			// custom geometry to the canonical line geometry used by both parsers.
+			if s.Geometry == "custom" {
+				s.Geometry = "line"
+				s.GeometryData = nil
+				s.ConnectorType = "straightConnector1"
+			}
+			s.Paragraphs = nil
+		}
+		if s.Kind == ir.ShapeConnector {
+			if s.ConnectorType == "" || s.ConnectorType == "line" {
+				s.ConnectorType = saxConnectorTypeForPreset(s.Geometry)
+			}
+			// Generic a:xfrm flips describe the connector's line geometry too.
+			// Connector layout owns its own flip fields, so transfer them at the
+			// canonical IR boundary instead of leaving them stranded on Shape.Flip*.
+			s.ConnectorFlipH = s.FlipH
+			s.ConnectorFlipV = s.FlipV
+		}
+		// Canonical Shape.Geometry names presets only. Custom geometry is already
+		// represented completely by GeometryData; retaining the SAX sentinel
+		// string "custom" duplicates source syntax and makes semantically identical
+		// PPT/PPTX shapes compare differently. Connector classification above still
+		// sees the sentinel while the shape is under construction.
+		if s.GeometryData != nil && s.Geometry == "custom" {
+			s.Geometry = ""
+		}
 		b.shapes = b.shapes[:len(b.shapes)-1]
 		b.paragraph = nil
 	case EventConnectorEndpoint:
@@ -361,10 +452,10 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 			if x.HasExtents {
 				s.Bounds.W, s.Bounds.H = x.CX, x.CY
 			}
-			s.RotationDeg = float64(x.Rotation) / 60000.0
+			s.RotationDeg = ir.CanonicalRotationDeg(float64(x.Rotation) / 60000.0)
 			s.FlipH, s.FlipV = x.FlipH, x.FlipV
 			if s.Kind == ir.ShapeGroup {
-				s.GroupTransform = &ir.VisualTransform{Offset: ir.Point{X: x.X, Y: x.Y}, Extent: ir.VisualSize{W: x.CX, H: x.CY}, ChildOffset: ir.Point{X: x.ChildX, Y: x.ChildY}, ChildExtent: ir.VisualSize{W: x.ChildCX, H: x.ChildCY}, Rotation: float64(x.Rotation) / 60000.0, FlipH: x.FlipH, FlipV: x.FlipV}
+				s.GroupTransform = &ir.VisualTransform{Offset: ir.Point{X: x.X, Y: x.Y}, Extent: ir.VisualSize{W: x.CX, H: x.CY}, ChildOffset: ir.Point{X: x.ChildX, Y: x.ChildY}, ChildExtent: ir.VisualSize{W: x.ChildCX, H: x.ChildCY}, Rotation: ir.CanonicalRotationDeg(float64(x.Rotation) / 60000.0), FlipH: x.FlipH, FlipV: x.FlipV}
 			}
 		}
 	case EventPlaceholder:
@@ -378,11 +469,24 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 	case EventGeometry:
 		if s := b.currentShape(); s != nil {
 			s.Geometry = ev.Geometry
+			s.GeometryAdjustments = append([]float64(nil), ev.GeometryAdjustments...)
 			if ev.GeometryData != nil {
 				s.GeometryData = ev.GeometryData
 			}
 			if s.Kind == ir.ShapeConnector {
-				s.ConnectorType = ev.Geometry
+				s.ConnectorType = saxConnectorTypeForPreset(ev.Geometry)
+				// SAX geometry events already normalize DrawingML guide values to
+				// fractions. Connector routing consumes the canonical 0..100000
+				// guide scale, so carry those authored values across the parser
+				// boundary instead of silently dropping every connector adjustment.
+				s.ConnectorAdjustments = s.ConnectorAdjustments[:0]
+				for _, adj := range ev.GeometryAdjustments {
+					s.ConnectorAdjustments = append(s.ConnectorAdjustments, int(math.Round(adj*100000)))
+				}
+				// Connector routing is owned canonically by ConnectorType +
+				// ConnectorAdjustments. Do not also expose the same preset guides
+				// through generic shape geometry adjustments.
+				s.GeometryAdjustments = nil
 			}
 		}
 	case EventThemeColor:
@@ -511,7 +615,7 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 					ls.Color = color
 				}
 				if line.Cap != "" {
-					ls.Cap = drawing.LineCap(line.Cap)
+					ls.Cap = canonicalLineCapToken(line.Cap)
 				}
 				if line.Join != "" {
 					ls.Join = drawing.LineJoin(line.Join)
@@ -525,8 +629,8 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 				}
 				ls.HeadEnd = saxArrowhead(line.HeadType, line.HeadWidth, line.HeadLength)
 				ls.TailEnd = saxArrowhead(line.TailType, line.TailWidth, line.TailLength)
-				s.ArrowHead, s.ArrowHeadWidth, s.ArrowHeadLength = line.HeadType, line.HeadWidth, line.HeadLength
-				s.ArrowTail, s.ArrowTailWidth, s.ArrowTailLength = line.TailType, line.TailWidth, line.TailLength
+				s.ArrowHead, s.ArrowHeadWidth, s.ArrowHeadLength = ir.CanonicalArrowEnd(line.HeadType, line.HeadWidth, line.HeadLength)
+				s.ArrowTail, s.ArrowTailWidth, s.ArrowTailLength = ir.CanonicalArrowEnd(line.TailType, line.TailWidth, line.TailLength)
 				s.LineStyle = &ls
 				s.LineWidthPt = ls.Width
 			}
@@ -562,15 +666,31 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 			if color == "" {
 				color = b.resolveVisualColor(ev.Color)
 			}
-			s.LineColor = color
-			s.LineWidthPt = float64(ev.Line.WidthEMU) / 12700.0
-			if ev.Line.WidthEMU == 0 {
-				s.LineWidthPt = float64(ev.LineWidthEMU) / 12700.0
-			}
 			ls := drawing.DefaultLineStyle()
+			if fill, representative := b.materializeLineFill(ev.Line.Fill); fill != nil {
+				ls.Fill = fill
+				if color == "" {
+					color = representative
+				}
+			}
+			s.LineColor = color
+			if ev.Line.WidthEMU > 0 {
+				s.LineWidthPt = float64(ev.Line.WidthEMU) / 12700.0
+			} else if ev.LineWidthEMU > 0 {
+				s.LineWidthPt = float64(ev.LineWidthEMU) / 12700.0
+			} else if !ev.Line.NoFill && (color != "" || ev.Line.Fill.Kind != "" || s.Kind == ir.ShapeConnector) {
+				// PowerPoint treats a visible a:ln with w omitted or w=0 as its
+				// default hairline (0.75pt). PPT->PPTX conversion writes w=0 for
+				// many legacy default-width lines, so zero is syntax, not a request
+				// for a non-painting stroke, at the canonical visual boundary.
+				s.LineWidthPt = 0.75
+			}
 			ls.Width, ls.Color = s.LineWidthPt, color
+			if ev.Line.NoFill {
+				ls.Fill = drawing.NoFill{}
+			}
 			if ev.Line.Cap != "" {
-				ls.Cap = drawing.LineCap(ev.Line.Cap)
+				ls.Cap = canonicalLineCapToken(ev.Line.Cap)
 			}
 			if ev.Line.Join != "" {
 				ls.Join = drawing.LineJoin(ev.Line.Join)
@@ -584,8 +704,8 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 			}
 			ls.HeadEnd = saxArrowhead(ev.Line.HeadType, ev.Line.HeadWidth, ev.Line.HeadLength)
 			ls.TailEnd = saxArrowhead(ev.Line.TailType, ev.Line.TailWidth, ev.Line.TailLength)
-			s.ArrowHead, s.ArrowHeadWidth, s.ArrowHeadLength = ev.Line.HeadType, ev.Line.HeadWidth, ev.Line.HeadLength
-			s.ArrowTail, s.ArrowTailWidth, s.ArrowTailLength = ev.Line.TailType, ev.Line.TailWidth, ev.Line.TailLength
+			s.ArrowHead, s.ArrowHeadWidth, s.ArrowHeadLength = ir.CanonicalArrowEnd(ev.Line.HeadType, ev.Line.HeadWidth, ev.Line.HeadLength)
+			s.ArrowTail, s.ArrowTailWidth, s.ArrowTailLength = ir.CanonicalArrowEnd(ev.Line.TailType, ev.Line.TailWidth, ev.Line.TailLength)
 			if ev.Line.Color.HasAlpha {
 				ls.Alpha = float64(ev.Line.Color.Alpha) / 100000.0
 			}
@@ -617,7 +737,7 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 			case "chart":
 				s.Kind = ir.ShapeChart
 				s.ImageRelID = ev.RelID
-				s.ChartData = append([]byte(nil), payload.Data...)
+				s.ChartData = b.resolveOOXMLChartData(ev, payload.Data)
 			case "smartArt":
 				s.Kind = ir.ShapeSmartArt
 				s.ImageRelID = ev.RelID
@@ -629,11 +749,17 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 				s.MediaMIME = payload.ContentType
 			case "ole":
 				s.Kind = ir.ShapeOleObject
+				if s.Geometry == "" {
+					s.Geometry = "rect"
+				}
 				s.ImageRelID = ev.RelID
 				s.OLEObjectName = ev.OLEName
 				s.OLEObjectProgID = ev.OLEProgID
 				s.OLEObjectData = append([]byte(nil), payload.Data...)
 				s.OLEObjectMIME = payload.ContentType
+				if mathml, err := mathtype.MathMLFromOLE(s.OLEObjectData); err == nil {
+					s.OLEMathML = mathml
+				}
 				if rel := b.relationshipForEvent(ev); rel.External {
 					s.OLEObjectLinkURL = rel.Target
 				}
@@ -645,6 +771,7 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 						}
 					}
 				}
+				promoteOOXMLMSGraphOLE(s)
 			}
 		}
 	case EventShapeAction:
@@ -732,17 +859,21 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 					} else {
 						s.ImageData = append([]byte(nil), payload.Data...)
 						s.ImageMIME = payload.ContentType
+						s.ImageEffects = append([]drawing.Effect(nil), ev.ImageEffects...)
+						s.ImageData, s.ImageMIME, s.ImageEffects = imageutil.MaterializeTransparentColorKeys(s.ImageData, s.ImageMIME, s.ImageEffects)
 					}
 				}
 			}
-			s.ImageCropLeft = float64(ev.CropLeft) / 100000
-			s.ImageCropTop = float64(ev.CropTop) / 100000
-			s.ImageCropRight = float64(ev.CropRight) / 100000
-			s.ImageCropBottom = float64(ev.CropBottom) / 100000
-			if ev.PictureTileSx != 0 || ev.PictureTileSy != 0 || ev.PictureTileTx != 0 || ev.PictureTileTy != 0 || ev.PictureTileFlip != "" || ev.PictureTileAlign != "" {
+			if ev.HasCrop {
+				s.ImageCropLeft = float64(ev.CropLeft) / 100000
+				s.ImageCropTop = float64(ev.CropTop) / 100000
+				s.ImageCropRight = float64(ev.CropRight) / 100000
+				s.ImageCropBottom = float64(ev.CropBottom) / 100000
+			}
+			if ev.HasPictureTile {
 				s.PictureTile = &ir.PictureTile{Tx: ev.PictureTileTx, Ty: ev.PictureTileTy, Sx: ev.PictureTileSx, Sy: ev.PictureTileSy, Flip: ev.PictureTileFlip, Alignment: ev.PictureTileAlign}
 			}
-			if ev.PictureFillLeft != 0 || ev.PictureFillTop != 0 || ev.PictureFillRight != 0 || ev.PictureFillBottom != 0 {
+			if ev.HasPictureFill {
 				s.ImageFillLeft, s.ImageFillTop = float64(ev.PictureFillLeft)/100000, float64(ev.PictureFillTop)/100000
 				s.ImageFillRight, s.ImageFillBottom = float64(ev.PictureFillRight)/100000, float64(ev.PictureFillBottom)/100000
 			}
@@ -764,6 +895,22 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 				pp.BulletColor = VisualColor{Kind: "srgbClr", Value: color}
 			}
 			applyParagraphProps(b.paragraph, pp)
+			if pp.BulletImageRelID != "" {
+				lookup := ev
+				// Paragraph styles emitted from a:lstStyle carry the picture-bullet
+				// relationship on the paragraph properties rather than Event.RelID.
+				// Resolve from that authored relationship while the owning part is
+				// still available so physical layout receives a paintable marker.
+				if lookup.RelID == "" {
+					lookup.RelID = pp.BulletImageRelID
+				}
+				payload := b.relationshipPayloadForEvent(lookup)
+				b.paragraph.BulletImageRelID = pp.BulletImageRelID
+				if len(payload.Data) != 0 {
+					b.paragraph.BulletImageData = append([]byte(nil), payload.Data...)
+					b.paragraph.BulletImageMIME = payload.ContentType
+				}
+			}
 		}
 	case EventStartRun:
 		b.pendingRun = &ir.Run{FieldKind: ev.FieldType}
@@ -783,10 +930,14 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 	case EventEndRun:
 		b.finishPendingRun()
 	case EventEndParagraph:
-		sh := b.currentShape()
-		if sh != nil && sh.Placeholder != ir.PlaceholderNone && b.paragraph != nil && len(b.paragraph.Runs) == 0 && b.runProps != nil {
+		if b.paragraph != nil && len(b.paragraph.Runs) == 0 {
 			r := &ir.Run{}
-			applyRunProps(r, *b.runProps)
+			// endParaRPr owns the paragraph-mark formatting. When it is absent,
+			// leave this run unset so the contextual default/master-style cascade
+			// supplies the effective level typography before physical layout.
+			if b.runProps != nil {
+				applyRunProps(r, *b.runProps)
+			}
 			b.paragraph.Runs = append(b.paragraph.Runs, r)
 		}
 		b.paragraph = nil
@@ -796,7 +947,9 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 			return nil
 		}
 		if b.pendingRun != nil {
-			b.pendingRun.Text += ev.Text
+			if b.pendingRun.FieldKind != "slidenum" && ev.FieldType != "slidenum" {
+				b.pendingRun.Text += ev.Text
+			}
 			if b.pendingRun.FieldKind == "" {
 				b.pendingRun.FieldKind = ev.FieldType
 			}
@@ -811,6 +964,26 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 		b.appendText("", ev.FieldType)
 	}
 	return nil
+}
+
+// promoteOOXMLMSGraphOLE gives embedded Microsoft Graph OLE objects the same
+// canonical chart ownership as the legacy PPT parser. The authored OLE preview
+// remains fallback media; a later nested preview blip will populate ImageData
+// because the shape has already become ShapeChart.
+func promoteOOXMLMSGraphOLE(s *ir.Shape) {
+	if s == nil || !msgraph.IsProgID(s.OLEObjectProgID) || len(s.OLEObjectData) == 0 {
+		return
+	}
+	chartData, err := msgraph.MarshalPrimaryChart(s.OLEObjectData)
+	if err != nil || len(chartData) == 0 {
+		return
+	}
+	s.Kind = ir.ShapeChart
+	s.ChartData = chartData
+	if len(s.OLEIconData) > 0 {
+		s.ImageData = append([]byte(nil), s.OLEIconData...)
+		s.ImageMIME = s.OLEIconMIME
+	}
 }
 
 func (b *irBuilder) relationshipPayloadForEvent(ev Event) relationshipPayload {
@@ -878,11 +1051,169 @@ func (b *irBuilder) finishPendingRun() {
 		return
 	}
 	b.applyPendingRunProps()
+	if b.runProps != nil {
+		if text, normalFamily, mixed := normalizeOOXMLMixedSymbolRun(b.pendingRun.Text, *b.runProps); mixed {
+			b.pendingRun.Text = text
+			b.pendingRun.FontFamily = normalFamily
+		} else if family := effectiveOOXMLRunFontFamily(b.pendingRun.Text, *b.runProps); family != "" {
+			b.pendingRun.FontFamily = family
+		}
+	}
+	if b.pendingRun.FieldKind == "slidenum" {
+		// The cached <a:t> value is serialization state, not presentation state.
+		// The renderer resolves the effective number from slide context.
+		b.pendingRun.Text = ""
+	}
 	if b.paragraph != nil {
 		b.paragraph.Runs = append(b.paragraph.Runs, b.pendingRun)
 	}
 	b.pendingRun = nil
 	b.runProps = nil
+}
+
+func normalizeOOXMLMixedSymbolRun(text string, props RunProperties) (string, string, bool) {
+	if props.SymbolFontFamily == "" || text == "" {
+		return text, "", false
+	}
+	hasSymbol, hasNormal := false, false
+	for _, r := range text {
+		if r >= 0xF000 && r <= 0xF0FF {
+			hasSymbol = true
+		} else if r >= 0x20 && r != 0x7f {
+			hasNormal = true
+		}
+	}
+	if !hasSymbol {
+		return text, "", false
+	}
+
+	// DrawingML produced by older PowerPoint versions stores Symbol characters in
+	// the U+F000 private-use block: U+F000 + the original 8-bit Symbol character
+	// code.  Those code points are storage, not presentation Unicode.  Leaving
+	// them in canonical IR makes browsers paint .notdef rectangles whenever the
+	// authored Symbol font is unavailable (for example U+F03E/U+F030 for "> 0").
+	// Decode every known Symbol storage code here, including symbol-only runs.
+	// Printable ASCII slots are identity mappings unless Symbol assigns a semantic
+	// Unicode character to that slot (Greek letters/operators below).
+	normalized := strings.Map(func(r rune) rune {
+		if r < 0xF000 || r > 0xF0FF {
+			return r
+		}
+		code := byte(r - 0xF000)
+		if v, ok := ooxmlSymbolStorageRune(code); ok {
+			return v
+		}
+		return r
+	}, text)
+	if normalized == text {
+		return text, "", false
+	}
+
+	// Once storage codes have become Unicode, use the normal text family when one
+	// was authored. This prevents a browser from reinterpreting Unicode through a
+	// legacy Symbol cmap. For sym-only runs, keep Symbol as a last-resort family;
+	// the renderer's Unicode fallback chain can still supply the decoded glyph.
+	family := props.LatinFontFamily
+	if family == "" {
+		family = props.FontFamily
+	}
+	if family == "" && !hasNormal {
+		family = props.SymbolFontFamily
+	}
+	return normalized, family, true
+}
+
+func ooxmlSymbolStorageRune(code byte) (rune, bool) {
+	// Symbol's ASCII punctuation/digit slots retain their ordinary meaning.
+	if code >= 0x20 && code <= 0x7e {
+		switch code {
+		case 0x44:
+			return '\u0394', true // Delta
+		case 0x53:
+			return '\u03a3', true // Sigma
+		case 0x61:
+			return '\u03b1', true // alpha
+		case 0x64:
+			return '\u03b4', true // delta
+		case 0x70:
+			return '\u03c0', true // pi
+		case 0x72:
+			return '\u03c1', true // rho
+		case 0x74:
+			return '\u03c4', true // tau
+		case 0x2d:
+			return '\u2212', true // mathematical minus
+		default:
+			return rune(code), true
+		}
+	}
+	switch code {
+	case 0xb1:
+		return '\u00b1', true
+	case 0xb7:
+		return '\u2022', true
+	case 0xbc:
+		return '\u2026', true
+	case 0xf2:
+		return '\u222b', true
+	default:
+		return 0, false
+	}
+}
+
+func effectiveOOXMLRunFontFamily(text string, props RunProperties) string {
+	// DrawingML carries script-specific typefaces. A run converted from legacy
+	// PowerPoint often has only <a:sym> (even for ASCII subscripts in old Math1
+	// fonts), while mixed normal text can carry both <a:latin> and <a:sym>.
+	// Canonical IR has one effective family, so resolve the script choice here at
+	// the parser boundary instead of leaving the renderer to understand OOXML.
+	if props.SymbolFontFamily != "" {
+		if props.LatinFontFamily == "" || ooxmlRunUsesSymbolTypeface(text) {
+			return props.SymbolFontFamily
+		}
+	}
+	if props.EastAsiaFontFamily != "" && ooxmlRunUsesEastAsianTypeface(text) {
+		return props.EastAsiaFontFamily
+	}
+	if props.ComplexFontFamily != "" && ooxmlRunUsesComplexTypeface(text) {
+		return props.ComplexFontFamily
+	}
+	if props.LatinFontFamily != "" {
+		return props.LatinFontFamily
+	}
+	return props.FontFamily
+}
+
+func ooxmlRunUsesSymbolTypeface(text string) bool {
+	for _, r := range text {
+		if r >= 0xF000 && r <= 0xF8FF {
+			return true
+		}
+	}
+	return false
+}
+
+func ooxmlRunUsesEastAsianTypeface(text string) bool {
+	for _, r := range text {
+		switch {
+		case r >= 0x3040 && r <= 0x30FF, // Hiragana/Katakana
+			r >= 0x3400 && r <= 0x9FFF, // CJK
+			r >= 0xAC00 && r <= 0xD7AF: // Hangul
+			return true
+		}
+	}
+	return false
+}
+
+func ooxmlRunUsesComplexTypeface(text string) bool {
+	for _, r := range text {
+		switch {
+		case r >= 0x0590 && r <= 0x08FF, // Hebrew + Arabic
+			r >= 0x0900 && r <= 0x0DFF: // Indic blocks commonly using cs
+			return true
+		}
+	}
+	return false
 }
 
 func (b *irBuilder) appendText(text, field string) {
@@ -893,6 +1224,12 @@ func (b *irBuilder) appendText(text, field string) {
 		}
 	}
 	if b.paragraph != nil {
+		if field == "slidenum" {
+			text = ""
+		}
+		if field == "slidenum" {
+			text = ""
+		}
 		r := &ir.Run{Text: text, FieldKind: field}
 		if b.runProps != nil {
 			applyRunProps(r, *b.runProps)
@@ -937,7 +1274,17 @@ func applyParagraphProps(p *ir.Paragraph, v ParagraphProperties) {
 	}
 	if v.HasBullet {
 		p.BulletChar = v.BulletChar
-		p.BulletNone = v.BulletChar == "" && !v.AutoNum
+		if v.BulletImageRelID != "" {
+			p.BulletImageRelID = v.BulletImageRelID
+			p.BulletImageData = append([]byte(nil), v.BulletImageData...)
+			p.BulletImageMIME = v.BulletImageMIME
+			p.BulletNone = false
+		} else {
+			p.BulletImageRelID = ""
+			p.BulletImageData = nil
+			p.BulletImageMIME = ""
+			p.BulletNone = v.BulletChar == "" && !v.AutoNum
+		}
 	}
 	if v.HasAutoNum {
 		p.AutoNum, p.AutoNumType, p.AutoNumStart = v.AutoNum, v.AutoNumType, v.AutoNumStart
@@ -1017,6 +1364,157 @@ func applyRunProps(r *ir.Run, v RunProperties) {
 	r.SmallCaps = v.Caps == "small"
 }
 
+func saxDegenerateCustomGeometryIsConnector(shape *ir.Shape) bool {
+	if shape == nil || shape.Geometry != "custom" || shape.GeometryData == nil {
+		return false
+	}
+	if shape.Bounds.W != 0 && shape.Bounds.H != 0 {
+		return false
+	}
+	if shape.Bounds.W == 0 && shape.Bounds.H == 0 {
+		return false
+	}
+	if shape.LineStyle == nil && strings.TrimSpace(shape.LineColor) == "" {
+		return false
+	}
+	hasSegment := false
+	for _, path := range shape.GeometryData.Paths {
+		for _, command := range path.Commands {
+			switch command.Type {
+			case "M":
+			case "L":
+				hasSegment = true
+			default:
+				return false
+			}
+		}
+	}
+	return hasSegment
+}
+
+func saxPresetGeometryIsConnector(preset string) bool {
+	switch preset {
+	case "line", "straightConnector1", "bentConnector2", "bentConnector3", "bentConnector4", "bentConnector5",
+		"curvedConnector2", "curvedConnector3", "curvedConnector4", "curvedConnector5":
+		return true
+	default:
+		return false
+	}
+}
+
+func saxConnectorTypeForPreset(preset string) string {
+	if preset == "" || preset == "line" {
+		return "straightConnector1"
+	}
+	return preset
+}
+
+// saxDropNoPaintWhitespaceArtifacts removes conversion-only shapes that carry no
+// visible paint and no semantic content. PowerPoint's legacy-to-OOXML converter can
+// materialize large grids/tables as hundreds of tiny no-fill/no-line rectangles whose
+// only text run is a single space. Those nodes are serialization scaffolding, not
+// effective presentation content, so they do not belong in canonical slide IR.
+func saxDropNoPaintWhitespaceArtifacts(shapes []*ir.Shape) []*ir.Shape {
+	if len(shapes) == 0 {
+		return shapes
+	}
+	out := shapes[:0]
+	for _, shape := range shapes {
+		if shape == nil {
+			continue
+		}
+		shape.Children = saxDropNoPaintWhitespaceArtifacts(shape.Children)
+		if saxIsNoPaintWhitespaceArtifact(shape) {
+			continue
+		}
+		out = append(out, shape)
+	}
+	return out
+}
+
+func saxIsNoPaintWhitespaceArtifact(shape *ir.Shape) bool {
+	if shape == nil || shape.Placeholder != ir.PlaceholderNone || shape.Kind != ir.ShapeText || len(shape.Children) != 0 || len(shape.Paragraphs) == 0 {
+		return false
+	}
+	hasRun := false
+	for _, paragraph := range shape.Paragraphs {
+		if paragraph == nil {
+			continue
+		}
+		for _, run := range paragraph.Runs {
+			if run == nil {
+				continue
+			}
+			hasRun = true
+			if run.FieldKind != "" || run.MathML != "" || run.HyperlinkURL != "" || strings.TrimSpace(run.Text) != "" {
+				return false
+			}
+		}
+	}
+	if !hasRun {
+		return false
+	}
+	if shape.Fill != nil && shape.Fill.Type() != drawing.FillTypeNone {
+		return false
+	}
+	if strings.TrimSpace(shape.FillColor) != "" || strings.TrimSpace(shape.LineColor) != "" || shape.LineWidthPt != 0 {
+		return false
+	}
+	if shape.LineStyle != nil {
+		if shape.LineStyle.Width != 0 || strings.TrimSpace(shape.LineStyle.Color) != "" {
+			return false
+		}
+		if shape.LineStyle.Fill != nil && shape.LineStyle.Fill.Type() != drawing.FillTypeNone {
+			return false
+		}
+	}
+	return true
+}
+
+func saxDropSyntaxOnlyEmptyParagraphs(shapes []*ir.Shape) {
+	for _, shape := range shapes {
+		if shape == nil {
+			continue
+		}
+		if saxShapeParagraphsAreSyntaxOnlyEmpty(shape) {
+			shape.Paragraphs = nil
+		}
+		saxDropSyntaxOnlyEmptyParagraphs(shape.Children)
+	}
+}
+
+func saxShapeParagraphsAreSyntaxOnlyEmpty(shape *ir.Shape) bool {
+	if shape == nil || len(shape.Paragraphs) == 0 {
+		return false
+	}
+	for _, paragraph := range shape.Paragraphs {
+		if paragraph == nil {
+			continue
+		}
+		if len(paragraph.Runs) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func saxShapeHasMeaningfulText(shape *ir.Shape) bool {
+	if shape == nil {
+		return false
+	}
+	for _, paragraph := range shape.Paragraphs {
+		if paragraph == nil {
+			continue
+		}
+		for _, run := range paragraph.Runs {
+			if run != nil && strings.TrimSpace(run.Text) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func shapeKind(kind string) ir.ShapeKind {
 	switch kind {
 	case "pic":
@@ -1031,6 +1529,21 @@ func shapeKind(kind string) ir.ShapeKind {
 		return ir.ShapeText
 	}
 }
+
+// canonicalSlideLayoutType translates format-specific OOXML layout names
+// into the shared presentation IR vocabulary. The IR describes effective
+// presentation semantics, not the serialization vocabulary of one parser.
+func canonicalSlideLayoutType(v string) string {
+	switch v {
+	case "obj", "tx":
+		// OOXML's Title and Content / Title and Text layouts correspond to the
+		// legacy Title+Body semantic layout used by the common IR.
+		return "titleBody"
+	default:
+		return v
+	}
+}
+
 func placeholderKind(v string, idx ...int) ir.PlaceholderKind {
 	switch v {
 	case "title", "ctrTitle":
@@ -1077,6 +1590,25 @@ func placeholderKind(v string, idx ...int) ir.PlaceholderKind {
 	}
 }
 
+func (b *irBuilder) assignBackground(scope string, bg backgroundState) {
+	switch scope {
+	case "master":
+		b.masterBackground = bg
+	case "layout":
+		b.layoutBackground = bg
+	default:
+		if b.slide == nil {
+			return
+		}
+		b.slide.BgFill, b.slide.BgColor = bg.Fill, bg.Color
+		b.slide.BgPictureTile = nil
+		if bg.PictureTile != nil {
+			tile := *bg.PictureTile
+			b.slide.BgPictureTile = &tile
+		}
+	}
+}
+
 // applyContextualInheritance resolves the visual subset whose semantics are
 // unambiguous at the SAX boundary. It deliberately leaves text-style/theme
 // cascade to later SP passes. Matching follows PresentationML placeholder
@@ -1085,10 +1617,45 @@ func (b *irBuilder) applyContextualInheritance() {
 	if b.slide == nil {
 		return
 	}
-	master := &ir.SlideMaster{Shapes: cloneShapeSlice(b.masterShapes)}
-	layout := &ir.SlideLayout{Master: master, Shapes: cloneShapeSlice(b.layoutShapes)}
-	master.Layouts = []*ir.SlideLayout{layout}
+	// Publish one canonical template graph per OOXML part. The forward-only walk
+	// replays master/layout context for every slide, but those events describe the
+	// same immutable source parts and must not manufacture per-slide masters.
+	masterKey := b.masterPart
+	if masterKey == "" {
+		masterKey = fmt.Sprintf("master@slide:%d", b.slide.Index)
+	}
+	master := b.masterCatalog[masterKey]
+	if master == nil {
+		master = &ir.SlideMaster{Shapes: cloneShapeSlice(b.masterShapes)}
+		b.masterCatalog[masterKey] = master
+		b.presentation.SlideMasters = append(b.presentation.SlideMasters, master)
+	}
+	layoutKey := b.layoutPart
+	if layoutKey == "" {
+		layoutKey = fmt.Sprintf("%s/layout:%s", masterKey, b.slide.LayoutType)
+	}
+	layout := b.layoutCatalog[layoutKey]
+	if layout == nil {
+		layout = &ir.SlideLayout{Type: b.slide.LayoutType, Master: master, Shapes: cloneShapeSlice(b.layoutShapes)}
+		b.layoutCatalog[layoutKey] = layout
+		master.Layouts = append(master.Layouts, layout)
+	}
 	b.slide.Master, b.slide.Layout = master, layout
+	// Backgrounds cascade master -> layout -> slide. Direct slide background
+	// events already populate the slide and therefore win over inherited state.
+	if b.slide.BgFill == nil && b.slide.BgColor == "" && b.slide.BgPictureTile == nil {
+		bg := b.masterBackground
+		if b.layoutBackground.Set {
+			bg = b.layoutBackground
+		}
+		if bg.Set {
+			b.slide.BgFill, b.slide.BgColor = bg.Fill, bg.Color
+			if bg.PictureTile != nil {
+				tile := *bg.PictureTile
+				b.slide.BgPictureTile = &tile
+			}
+		}
+	}
 	// Resolve authored slide shapes against placeholder templates before adding
 	// inherited artwork. Layout/master placeholders are templates only; non-
 	// placeholder shapes are real paint content and must participate in the
@@ -1101,12 +1668,39 @@ func (b *irBuilder) applyContextualInheritance() {
 	}
 	authored := b.slide.Shapes
 	effective := make([]*ir.Shape, 0, len(b.masterShapes)+len(b.layoutShapes)+len(authored))
-	if b.showMasterShapes && b.layoutShowsMasterShapes {
-		effective = appendDecorativeShapes(effective, b.masterShapes)
+	// A slide-level showMasterSp=0 is a paint suppression contract for the
+	// inherited visual scene. Converted/legacy-authored decks can carry what
+	// were master graphics in the slide-layout part itself (for example the
+	// notebook grid in 37625). Keep layout/master template graphs available for
+	// placeholder and text-style inheritance, but do not materialize either
+	// source as slide paint when the slide explicitly hides master shapes.
+	if b.showMasterShapes {
+		if b.layoutShowsMasterShapes {
+			effective = appendDecorativeShapes(effective, b.masterShapes)
+		}
+		effective = appendDecorativeShapes(effective, b.layoutShapes)
 	}
-	effective = appendDecorativeShapes(effective, b.layoutShapes)
 	effective = append(effective, authored...)
 	b.slide.Shapes = effective
+	materializeDefaultNoAutofitTree(b.slide.Shapes)
+}
+
+// materializeDefaultNoAutofitTree resolves the DrawingML default text-fit
+// behavior only after placeholder inheritance has completed. An omitted
+// EG_TextAutofit choice means a fixed-size noAutofit frame; setting that
+// default while parsing local bodyPr would incorrectly mask an inherited
+// normAutofit/spAutoFit contract from a layout or master placeholder.
+func materializeDefaultNoAutofitTree(shapes []*ir.Shape) {
+	for _, shape := range shapes {
+		if shape == nil {
+			continue
+		}
+		if len(shape.Paragraphs) > 0 && shape.TextBodyProps.AutofitType == "" && !shape.TextAutoGrow && !shape.TextAllowOverflow {
+			shape.TextBodyProps.AutofitType = "noAutofit"
+			shape.TextAllowOverflow = true
+		}
+		materializeDefaultNoAutofitTree(shape.Children)
+	}
 }
 
 // appendDecorativeShapes materializes inherited paint content while keeping
@@ -1153,7 +1747,7 @@ func cloneInheritedPaintShape(s *ir.Shape) *ir.Shape {
 		cloned.Paragraphs = nil
 	}
 	if len(cloned.Children) == 0 {
-		if cloned.Kind == ir.ShapeGroup {
+		if cloned.Kind == ir.ShapeGroup || !inheritedShapeHasPaint(cloned) {
 			return nil
 		}
 		return cloned
@@ -1173,6 +1767,72 @@ func cloneInheritedPaintShape(s *ir.Shape) *ir.Shape {
 		return nil
 	}
 	return cloned
+}
+
+// inheritedShapeHasPaint rejects source-template scaffolding that has no visible
+// contribution. PowerPoint's PPT -> PPTX conversion can materialize empty
+// master text boxes with no fill or line; keeping those in the effective scene
+// makes the OOXML IR structurally differ from the legacy IR even though the
+// presentation is visually identical. The template itself remains in Master.Shapes.
+func inheritedLineHasPaint(s *ir.Shape) bool {
+	if s == nil {
+		return false
+	}
+	if s.LineColor != "" || s.LineWidthPt > 0 {
+		return true
+	}
+	line := s.LineStyle
+	if line == nil {
+		return false
+	}
+	if line.Color != "" || line.ThemeColor != "" || line.Width > 0 {
+		return true
+	}
+	if line.Fill != nil {
+		switch line.Fill.(type) {
+		case drawing.NoFill, *drawing.NoFill:
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func inheritedShapeHasPaint(s *ir.Shape) bool {
+	if s == nil {
+		return false
+	}
+	switch s.Kind {
+	case ir.ShapeImage, ir.ShapeOleObject, ir.ShapeChart, ir.ShapeTable, ir.ShapeSmartArt:
+		return true
+	case ir.ShapeConnector:
+		return inheritedLineHasPaint(s)
+	}
+	for _, p := range s.Paragraphs {
+		if p == nil {
+			continue
+		}
+		for _, r := range p.Runs {
+			if r != nil && (r.Text != "" || r.FieldKind != "") {
+				return true
+			}
+		}
+	}
+	if s.FillColor != "" || inheritedLineHasPaint(s) || len(s.Effects.Effects) != 0 || s.EffectOverlay != nil {
+		return true
+	}
+	if s.Fill != nil {
+		switch s.Fill.(type) {
+		case drawing.NoFill, *drawing.NoFill:
+		default:
+			return true
+		}
+	}
+	// A p:sp without txBody can still be ordinary AutoShape geometry even when
+	// this parser has not materialized its paint yet. The conversion artifact we
+	// need to suppress is narrower: an explicit text body whose paragraphs contain
+	// neither text nor a dynamic field and whose shape has no independent paint.
+	return len(s.Paragraphs) == 0
 }
 
 // isMasterEditingPromptShape recognizes PowerPoint's built-in master editing
@@ -1470,10 +2130,13 @@ func (b *irBuilder) inheritParagraphStyle(p *ir.Paragraph, v ParagraphProperties
 	if p.FontAlign == "" {
 		p.FontAlign = v.FontAlign
 	}
-	if p.BulletChar == "" && !p.AutoNum && !p.BulletNone {
+	if p.BulletChar == "" && len(p.BulletImageData) == 0 && p.BulletImageRelID == "" && !p.AutoNum && !p.BulletNone {
 		if v.HasBullet {
 			p.BulletChar = v.BulletChar
-			p.BulletNone = v.BulletChar == "" && !v.AutoNum
+			p.BulletImageRelID = v.BulletImageRelID
+			p.BulletImageData = append([]byte(nil), v.BulletImageData...)
+			p.BulletImageMIME = v.BulletImageMIME
+			p.BulletNone = v.BulletChar == "" && v.BulletImageRelID == "" && len(v.BulletImageData) == 0 && !v.AutoNum
 		}
 		if v.HasAutoNum {
 			p.AutoNum, p.AutoNumType, p.AutoNumStart = v.AutoNum, v.AutoNumType, v.AutoNumStart
@@ -1622,13 +2285,19 @@ func inheritVisualFacts(dst, src *ir.Shape) {
 	if dst.Geometry == "" {
 		dst.Geometry = src.Geometry
 	}
-	if dst.FillColor == "" {
+	// Fill is provenance-bearing: drawing.NoFill is an authored visual fact, not
+	// the absence of a fill. Only inherit when the destination has neither a
+	// typed fill nor the legacy solid-color compatibility field. This prevents
+	// explicit a:noFill from being overwritten by layout/master placeholder paint.
+	if dst.Fill == nil && dst.FillColor == "" {
+		dst.Fill = src.Fill
 		dst.FillColor = src.FillColor
 	}
-	if dst.LineColor == "" {
+	if dst.LineStyle == nil && dst.LineColor == "" {
+		dst.LineStyle = src.LineStyle
 		dst.LineColor = src.LineColor
-	}
-	if dst.LineWidthPt == 0 {
+		dst.LineWidthPt = src.LineWidthPt
+	} else if dst.LineStyle == nil && dst.LineWidthPt == 0 {
 		dst.LineWidthPt = src.LineWidthPt
 	}
 	if dst.PlaceholderOrient == "" {
@@ -1752,15 +2421,19 @@ func inheritParagraphFacts(dst, src *ir.Paragraph) {
 	}
 
 	// Explicit buNone is an override and must survive all later cascade stages.
-	if src.BulletNone && dst.BulletChar == "" && !dst.AutoNum && !dst.BulletNone {
+	if src.BulletNone && dst.BulletChar == "" && len(dst.BulletImageData) == 0 && dst.BulletImageRelID == "" && !dst.AutoNum && !dst.BulletNone {
 		dst.BulletNone = true
 		dst.BulletChar = ""
 		dst.AutoNum = false
 		dst.AutoNumType = ""
 		dst.AutoNumStart = 0
-	} else if dst.BulletChar == "" && !dst.AutoNum && !dst.BulletNone {
+	} else if dst.BulletChar == "" && len(dst.BulletImageData) == 0 && dst.BulletImageRelID == "" && !dst.AutoNum && !dst.BulletNone {
 		if src.AutoNum {
 			dst.AutoNum, dst.AutoNumType, dst.AutoNumStart = true, src.AutoNumType, src.AutoNumStart
+		} else if len(src.BulletImageData) != 0 || src.BulletImageRelID != "" {
+			dst.BulletImageRelID = src.BulletImageRelID
+			dst.BulletImageData = append([]byte(nil), src.BulletImageData...)
+			dst.BulletImageMIME = src.BulletImageMIME
 		} else if src.BulletChar != "" {
 			dst.BulletChar = src.BulletChar
 		}
@@ -2080,6 +2753,49 @@ func (b *irBuilder) themeStyleColor(token, placeholder VisualColor) VisualColor 
 		out.Alpha, out.HasAlpha = placeholder.Alpha, true
 	}
 	return out
+}
+
+func (b *irBuilder) materializeLineFill(style ThemeFillStyle) (drawing.Fill, string) {
+	switch style.Kind {
+	case "none":
+		return drawing.NoFill{}, ""
+	case "solid":
+		color := b.resolveVisualColor(style.Color)
+		alpha := 1.0
+		if style.Color.HasAlpha {
+			alpha = float64(style.Color.Alpha) / 100000.0
+		}
+		return drawing.SolidFill{Color: color, Alpha: alpha}, color
+	case "gradient":
+		g := drawing.GradientFill{GradientType: drawing.GradientTypeLinear, Angle: float64(style.Gradient.Angle) / 60000.0, Flip: style.Gradient.Flip, RotateWithShape: style.Gradient.RotateWithShape}
+		if style.Gradient.Path != "" {
+			g.GradientType = drawing.GradientTypePath
+		}
+		representative := ""
+		for _, st := range style.Gradient.Stops {
+			alpha := 1.0
+			if st.Color.HasAlpha {
+				alpha = float64(st.Color.Alpha) / 100000.0
+			}
+			color := b.resolveVisualColor(st.Color)
+			if representative == "" {
+				representative = color
+			}
+			g.Stops = append(g.Stops, drawing.GradientStop{Position: float64(st.Position) / 100000.0, Color: color, Alpha: alpha})
+		}
+		return g, representative
+	case "pattern":
+		fg, bg := b.resolveVisualColor(style.Pattern.Foreground), b.resolveVisualColor(style.Pattern.Background)
+		fa, ba := 1.0, 1.0
+		if style.Pattern.Foreground.HasAlpha {
+			fa = float64(style.Pattern.Foreground.Alpha) / 100000.0
+		}
+		if style.Pattern.Background.HasAlpha {
+			ba = float64(style.Pattern.Background.Alpha) / 100000.0
+		}
+		return drawing.PatternFill{PatternType: drawing.PatternType(style.Pattern.Preset), Foreground: fg, Background: bg, ForeAlpha: fa, BackAlpha: ba}, fg
+	}
+	return nil, ""
 }
 
 func (b *irBuilder) applyThemeFillStyle(s *ir.Shape, style ThemeFillStyle, placeholder VisualColor) {

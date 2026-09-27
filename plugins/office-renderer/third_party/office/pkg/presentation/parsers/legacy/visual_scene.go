@@ -2,6 +2,7 @@ package legacy
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	officeartir "office/pkg/officeart/ir"
@@ -38,10 +39,60 @@ func (s legacyPptVisualScene) textMetas(fontTable map[uint16]string, colorScheme
 	return metas
 }
 
-// project materializes the complete local visual scene from one OfficeArt event
-// sequence. Reconciliation (table-vs-text ownership, connector endpoint binding,
-// and grouped-child suppression) happens here instead of in parsePptFile.
-func (s legacyPptVisualScene) project(
+func (s legacyPptVisualScene) filterTextMetasOwnedByGroupPaths(metas []legacyPptTextShape, ownedPaths [][]int) []legacyPptTextShape {
+	if len(metas) == 0 || len(ownedPaths) == 0 {
+		return metas
+	}
+	ownedIDs := make(map[uint32]struct{})
+	for _, container := range s.dispatch.containers.shapeContainers() {
+		if container.ShapeID == 0 || container.IsGroupRoot {
+			continue
+		}
+		for _, path := range ownedPaths {
+			if legacyPptGroupPathHasPrefix(container.GroupPath, path) {
+				ownedIDs[container.ShapeID] = struct{}{}
+				break
+			}
+		}
+	}
+	if len(ownedIDs) == 0 {
+		return metas
+	}
+	out := metas[:0]
+	for _, meta := range metas {
+		if _, owned := ownedIDs[meta.shapeID]; owned {
+			continue
+		}
+		out = append(out, meta)
+	}
+	return out
+}
+
+// legacyPptVisualProjection carries the complete local semantic result and its
+// ownership ledger. Reconciliation and completeness accounting share one boundary.
+type legacyPptVisualProjection struct {
+	Shapes    []*presentationir.Shape
+	Ownership []legacyPptContainerOwnership
+	// TextRoles preserves the authored TextHeaderAtom role only until the legacy
+	// master-text cascade has resolved effective paragraph/run semantics. It is
+	// parser-local metadata and never leaks into canonical presentation IR.
+	TextRoles map[uint32]int
+}
+
+func (p legacyPptVisualProjection) unclaimed() []legacyPptContainerOwnership {
+	var out []legacyPptContainerOwnership
+	for _, entry := range p.Ownership {
+		if !entry.Claimed {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+// completeProjection is the parser-completeness boundary for one OfficeArt
+// scene. Projection and ownership accounting are deliberately inseparable: any
+// SpContainer that fails to reach canonical IR remains observable as unclaimed.
+func (s legacyPptVisualScene) completeProjection(
 	slideText legacySlideText,
 	fontTable map[uint16]string,
 	colorScheme map[uint8]string,
@@ -49,13 +100,30 @@ func (s legacyPptVisualScene) project(
 	exHyperlinks map[uint32]string,
 	pictureStore map[uint32]*legacyPptPicture,
 	externalObjects map[uint32]legacyPptExternalObject,
-) []*presentationir.Shape {
+) legacyPptVisualProjection {
+	// Table ownership is outcome-based. Project tables first so text can be
+	// suppressed only for group paths that actually materialized as canonical
+	// ShapeTable. The previous text-first path used a permissive table recovery
+	// guess inside the event walker and could erase every label in an ordinary
+	// diagram when the stricter table projector later rejected that group.
+	var tables []*presentationir.Shape
+	var tableOwnedPaths [][]int
+	collectLegacyPptTableShapesFromSceneForSlideWithOwnership(s.dispatch.containers, legacyPptGroupFrame{}, slideText, fontTable, colorScheme, exHyperlinks, &tables, &tableOwnedPaths)
+
 	metas := s.textMetas(fontTable, colorScheme, exHyperlinks)
+	metas = s.filterTextMetasOwnedByGroupPaths(metas, tableOwnedPaths)
 	metas = inheritLegacyPptMasterPlaceholderTemplates(metas, placeholderTemplates)
+	textRoles := make(map[uint32]int)
+	for _, meta := range metas {
+		if meta.shapeID != 0 && meta.textType != pptTextTypeUnknown {
+			textRoles[meta.shapeID] = meta.textType
+		}
+	}
+	if len(textRoles) == 0 {
+		textRoles = nil
+	}
 	shapes := buildLegacyPptTextShapesFromMetas(metas, slideText)
 
-	var tables []*presentationir.Shape
-	collectLegacyPptTableShapesFromSceneForSlide(s.dispatch.containers, legacyPptGroupFrame{}, slideText, fontTable, colorScheme, exHyperlinks, &tables)
 	tablesByScene := map[int][]*presentationir.Shape{1: tables}
 	textByScene := map[int][]*presentationir.Shape{1: shapes}
 	tablesByScene = filterLegacyDuplicateProjectedTables(textByScene, tablesByScene)
@@ -65,24 +133,32 @@ func (s legacyPptVisualScene) project(
 	// BStore decoding. Always project picture nodes so a missing/damaged Pictures
 	// stream cannot silently turn authored pictures into generic AutoShapes.
 	var pictures []*presentationir.Shape
-	collectLegacyPptImageShapesFromEvents(s.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, pictureStore, externalObjects, &pictures)
+	collectLegacyPptImageShapesFromEvents(s.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, colorScheme, pictureStore, externalObjects, &pictures)
 	shapes = append(shapes, pictures...)
 
-	// BIG37: materialize ordinary OfficeArt AutoShapes from the same semantic
-	// container scene before connector/group reconciliation. Historically the
-	// PPT adapter projected only family-specific text/table/picture shapes, which
-	// meant master artwork such as rectangles, callouts and decorative shapes
-	// silently disappeared. Generic shapes now participate in the same scene and
-	// are suppressed whenever a richer family projection already owns the ID.
-	shapes = append(shapes, s.genericShapes(shapes, colorScheme)...)
-
-	shapeIndex := legacyPptShapeIndexByOriginalID(shapes)
+	// Semantic-family ownership is outcome based, but family precedence is
+	// authoritative. Build a provisional generic projection only as an endpoint
+	// index for connector-rule resolution; do not commit it yet. This lets a
+	// connector bind to an ordinary AutoShape that has no richer family owner
+	// without allowing that provisional generic connector to steal the connector
+	// SpContainer itself.
+	provisionalGeneric := s.genericShapes(shapes, colorScheme)
+	endpointCandidates := append(append([]*presentationir.Shape(nil), shapes...), provisionalGeneric...)
+	shapeIndex := legacyPptShapeIndexByOriginalID(endpointCandidates)
 	var connectors []*presentationir.Shape
 	collectLegacyPptConnectorShapesFromEvents(s.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, colorScheme, s.dispatch.rules, shapeIndex, &connectors)
 	shapes = append(shapes, connectors...)
 
+	// Commit generic OfficeArt only after every richer leaf family has had an
+	// opportunity to claim its ShapeID. genericShapes is the completeness
+	// fallback: text/table/picture/media/OLE/connector ownership wins when it
+	// materializes; otherwise a valid authored OfficeArt container survives as a
+	// canonical visual instead of disappearing because a specialized decoder
+	// declined it.
+	shapes = append(shapes, s.genericShapes(shapes, colorScheme)...)
+
 	groupSource := legacyPptDiscoveredShapeSource(legacyPptShapeIndexByOriginalID(shapes))
-	groups := buildLegacyPptGroupShapesFromScene(s.dispatch.containers, groupSource, fontTable, colorScheme, exHyperlinks)
+	groups := buildLegacyPptGroupShapesFromSceneWithOwnership(s.dispatch.containers, groupSource, fontTable, colorScheme, exHyperlinks, &tableOwnedPaths)
 	if len(groups) != 0 {
 		groupMap := map[int][]*presentationir.Shape{1: groups}
 		flatMap := map[int][]*presentationir.Shape{1: shapes}
@@ -90,7 +166,8 @@ func (s legacyPptVisualScene) project(
 		flatMap = filterLegacyGroupedShapeDuplicates(flatMap, groupMap)
 		shapes = append(flatMap[1], groups...)
 	}
-	return s.sourceOrdered(shapes)
+	shapes = s.sourceOrdered(shapes)
+	return legacyPptVisualProjection{Shapes: shapes, Ownership: s.ownershipAuditWithTablePaths(shapes, tableOwnedPaths), TextRoles: textRoles}
 }
 
 // sourceOrdered restores authored OfficeArt z/source order after the semantic
@@ -152,6 +229,12 @@ func (s legacyPptVisualScene) genericShapes(owned []*presentationir.Shape, color
 	if ownedIDs == nil {
 		ownedIDs = make(map[uint32]*presentationir.Shape)
 	}
+	projectedTables := make(map[uint32]struct{})
+	for _, shape := range owned {
+		if shape != nil && shape.Kind == presentationir.ShapeTable && shape.OriginalShapeID != 0 {
+			projectedTables[shape.OriginalShapeID] = struct{}{}
+		}
+	}
 	var out []*presentationir.Shape
 	for _, container := range s.dispatch.containers.shapeContainers() {
 		if container.Node == nil || container.IsGroupRoot || container.ShapeID == 0 {
@@ -160,72 +243,129 @@ func (s legacyPptVisualScene) genericShapes(owned []*presentationir.Shape, color
 		if _, exists := ownedIDs[container.ShapeID]; exists {
 			continue
 		}
-		node := container.Node
-		// Rich semantic families own their authored SpContainer even when payload
-		// resolution is incomplete. Falling back to a generic AutoShape for a
-		// picture or ClientTextbox creates a second visible object and makes a
-		// damaged relationship look like authored artwork. Keep ownership at the
-		// semantic boundary; family projectors may retain a placeholder/payload-less
-		// node for diagnostics, but generic projection must never compete for it.
-		if node.ShapeType == legacyOfficeArtShapePicture || node.HasClientTextbox {
+		// Grid/border lines authored inside an explicit or already-materialized
+		// table are structural topology, not generic fallback shapes. This guard is
+		// essential now that placement preserves zero-axis anchors: otherwise table
+		// borders would reappear as duplicate standalone connectors.
+		if s.tableTopologyOwnsLine(container, projectedTables, nil) {
 			continue
 		}
-		var bounds presentationir.Rect
-		var ok bool
-		if node.Flags&legacyOfficeArtSpFlagChild != 0 && len(node.ChildAnchor) != 0 {
-			if local, valid := parseLegacyPptChildAnchor(node.ChildAnchor); valid {
-				// A shape belongs to the deepest authored group whose path is an
-				// ancestor of the container. Exact matching loses nested-group
-				// transforms and leaves ChildAnchor coordinates in group space.
-				frame := legacyPptGroupFrame{}
-				bestDepth := -1
-				for _, group := range s.dispatch.containers.shapeGroups() {
-					if legacyPptGroupPathHasPrefix(container.GroupPath, group.Path) && len(group.Path) > bestDepth {
-						frame = group.Frame
-						bestDepth = len(group.Path)
-					}
-				}
-				bounds, ok = mapLegacyPptRectThroughGroupFrame(local, frame)
+		node := container.Node
+		// A richer family projection wins when it actually materializes this ID.
+		// Do not reserve picture-frame SpContainers merely because of ShapeType:
+		// damaged/unusual decks can retain a perfectly valid OfficeArt frame while
+		// its BLIP/ExObj relationship is absent. In that case the complete OfficeArt
+		// visual is still authored content and must reach canonical IR rather than
+		// becoming an unclaimed container. The owned-ID check above prevents a
+		// duplicate whenever picture/media/OLE projection did succeed.
+		// ClientTextbox is only a possible text payload. Empty textbox-bearing
+		// decorative shapes still own their authored OfficeArt visual.
+		if node.HasClientTextbox {
+			if _, textOwned := ownedIDs[container.ShapeID]; textOwned {
+				continue
 			}
 		}
-		if !ok && len(node.ClientAnchor) != 0 {
-			bounds, ok = parseLegacyPptClientAnchor(node.ClientAnchor)
-		}
-		// ChildAnchor coordinates are meaningful only inside an authored group
-		// coordinate system.  Treating an unresolved child anchor as slide-space
-		// geometry leaks raw Escher group units into canonical bounds (often many
-		// times the slide width).  Non-child shapes may still carry a ChildAnchor
-		// as their only placement, but FLAG_CHILD shapes require a resolved frame.
-		if !ok && node.Flags&legacyOfficeArtSpFlagChild == 0 && len(node.ChildAnchor) != 0 {
-			bounds, ok = parseLegacyPptChildAnchor(node.ChildAnchor)
-		}
-		if !ok || bounds.W <= 0 || bounds.H <= 0 {
+		placement := resolveLegacyPptShapePlacement(node, s.frameForContainer(container))
+		if !placement.valid() {
 			continue
 		}
+		bounds := placement.Bounds
 
 		shared := officeartlegacy.ShapeFromEscherWithColorResolver(node, func(raw uint32) string {
 			return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
 		})
+		// A ClientTextbox with no recovered text and no authored OfficeArt paint is a
+		// structural text-run fragment, not a drawable shape. Binary PPT frequently
+		// persists these narrow spacer boxes inside dense grouped diagrams; OOXML
+		// drops them because they have neither semantic text nor visual paint. Keep
+		// the completeness fallback for genuinely decorative empty textboxes, but do
+		// not promote an invisible container into canonical presentation IR.
+		if container.GroupDepth > 1 && node.HasClientTextbox && legacyPptOfficeArtShapeIsEmptyTextbox(shared) {
+			continue
+		}
+		var transform legacyPptShapeTransform
+		transform.FlipH = node.Flags&legacyOfficeArtSpFlagFlipH != 0
+		transform.FlipV = node.Flags&legacyOfficeArtSpFlagFlipV != 0
+		parseLegacyPptFOPTPropertiesTransform(node.Properties, colorScheme, &transform)
+
+		kind := presentationir.ShapeText
+		if (bounds.W == 0 || bounds.H == 0) && shared != nil && shared.Line.Visible && !node.HasClientTextbox {
+			// A non-primitive/freeform OfficeArt shape can author a stroked zero-axis
+			// anchor without using an MSOSPT connector type. Materialize that surface
+			// as a canonical connector so the stroke has physical endpoints instead of
+			// disappearing inside a zero-sized generic shape box.
+			kind = presentationir.ShapeConnector
+		}
 		shape := &presentationir.Shape{
-			Kind:            presentationir.ShapeText,
+			Kind:            kind,
 			OriginalShapeID: container.ShapeID,
 			Name:            fmt.Sprintf("Legacy Shape %d", container.ShapeID),
 			Bounds:          bounds,
 			OfficeArt:       shared,
 		}
-		applyLegacyPptOfficeArtGeometry(shape, shared)
-		applyLegacyPptOfficeArtVisual(shape, shared)
-		var transform legacyPptShapeTransform
-		parseLegacyPptFOPTPropertiesTransform(node.Properties, colorScheme, &transform)
-		if fill, valid := parseLegacyPptFOPTPropertiesTextFillColor(node.Properties, colorScheme); valid {
-			shape.FillColor = fill
-			shape.Fill = &drawing.SolidFill{Color: fill, Alpha: 1}
+		if kind == presentationir.ShapeConnector {
+			// Degenerate freeform strokes and authored line shapes share the same
+			// canonical connector geometry once their zero-axis anchor is known.
+			// Normalizing the geometry here keeps PPT and PPTX from carrying two
+			// representations of the same physical line into layout.
+			shape.Geometry = "line"
+			shape.ConnectorType = "straightConnector1"
+			shape.ConnectorFlipH = transform.FlipH
+			shape.ConnectorFlipV = transform.FlipV
+			shape.ConnectorStart, shape.ConnectorEnd = legacyPptConnectorEndpoints(bounds, transform.FlipH, transform.FlipV)
 		}
-		applyLegacyPptShapeTransform(shape, transform)
+		applyLegacyPptOfficeArtSurface(shape, shared, transform)
+		// ShapeFromEscherWithColorResolver already resolves the authored OfficeArt
+		// surface with contextual COLORREF semantics (including fSysIndex references
+		// to this shape's fill/line colors). Do not re-decode an explicit textbox
+		// fill with the simpler PPT resolver: doing so can replace the resolved
+		// authored color (for example the yellow pulse rectangles) with black.
+		// Keep the legacy helper only as a fallback for records the shared decoder
+		// could not materialize.
+		if shape.FillColor == "" {
+			if fill, valid := parseLegacyPptFOPTPropertiesTextFillColor(node.Properties, colorScheme); valid {
+				shape.FillColor = fill
+				shape.Fill = &drawing.SolidFill{Color: fill, Alpha: 1}
+			}
+		}
 		out = append(out, shape)
 		ownedIDs[container.ShapeID] = shape
 	}
 	return out
+}
+
+func legacyPptOfficeArtShapeIsEmptyTextbox(shape *officeartir.Shape) bool {
+	if shape == nil {
+		return true
+	}
+	if shape.Fill.Kind != officeartir.FillUnset && shape.Fill.Kind != officeartir.FillNone && shape.Fill.Alpha != 0 {
+		return false
+	}
+	if shape.Line.Visible && shape.Line.Alpha != 0 {
+		return false
+	}
+	if shape.Effects.Shadow != nil || shape.Effects.Glow != nil || shape.Effects.Blur != nil || shape.Image != nil || shape.GeometryText != nil {
+		return false
+	}
+	if shape.Text != nil && len(shape.Text.Paragraphs) != 0 {
+		return false
+	}
+	return true
+}
+
+// applyLegacyPptOfficeArtSurface is the single PPT adapter boundary for an
+// authored OfficeArt shape surface. The shared OfficeArt IR owns geometry,
+// fills, strokes, effects and image adjustments; PPT's transform keeps only
+// application-specific compatibility such as arrow enum mapping and text-body
+// behavior. Every semantic shape family must pass through this boundary so a
+// picture, connector, textbox or grouped child cannot silently lose styling.
+func applyLegacyPptOfficeArtSurface(shape *presentationir.Shape, shared *officeartir.Shape, transform legacyPptShapeTransform) {
+	if shape == nil {
+		return
+	}
+	applyLegacyPptOfficeArtGeometry(shape, shared)
+	applyLegacyPptOfficeArtVisual(shape, shared)
+	applyLegacyPptShapeTransform(shape, transform)
 }
 
 // applyLegacyPptOfficeArtGeometry bridges the shared OfficeArt geometry model to
@@ -240,9 +380,24 @@ func applyLegacyPptOfficeArtGeometry(shape *presentationir.Shape, shared *office
 	}
 	geometry := shared.Geometry
 	if geometry.Kind == officeartir.GeometryCustom && len(geometry.Paths) != 0 {
+		// A zero-axis OfficeArt freeform made only from open M/L segments is the
+		// legacy representation of a straight connector. The scene classifier has
+		// already established connector ownership from the authored anchor/stroke;
+		// do not overwrite that canonical line geometry with syntax-level custom
+		// geometry during the OfficeArt -> presentation bridge. This mirrors the
+		// DrawingML boundary, which collapses the same degenerate open freeform.
+		if shape.Kind == presentationir.ShapeConnector && legacyPptCustomGeometryIsZeroAxisLine(shape, geometry) {
+			shape.Geometry = "line"
+			shape.GeometryData = nil
+			shape.GeometryAdjustments = nil
+			if shape.ConnectorType == "" {
+				shape.ConnectorType = "straightConnector1"
+			}
+			return
+		}
 		converted := &drawing.Geometry{Type: drawing.GeometryTypeCustom}
 		for _, sourcePath := range geometry.Paths {
-			path := drawing.Path{FillRule: sourcePath.FillRule}
+			path := drawing.Path{FillRule: sourcePath.FillRule, PaintFlagsSet: true, FillEnabled: sourcePath.Fill, StrokeEnabled: sourcePath.Stroke}
 			for _, sourceCommand := range sourcePath.Commands {
 				command := drawing.PathCommand{Type: sourceCommand.Op}
 				for _, point := range sourceCommand.Points {
@@ -260,9 +415,82 @@ func applyLegacyPptOfficeArtGeometry(shape *presentationir.Shape, shared *office
 	if geometry.Preset != "" {
 		shape.Geometry = geometry.Preset
 	}
-	if len(geometry.Adjustments) != 0 {
+	if geometry.Preset == "rightArrow" {
+		// OfficeArt and DrawingML expose the same two visual handles through
+		// different coordinate systems and in a different order. Materialize
+		// the effective DrawingML-style values even when the legacy slots were
+		// omitted, because the OfficeArt defaults are aspect-ratio dependent
+		// after conversion to DrawingML.
+		shape.GeometryAdjustments = normalizeLegacyPptRightArrowAdjustments(geometry.Adjustments, geometry.AdjustmentPresent, shape.Bounds)
+	} else if len(geometry.Adjustments) != 0 {
 		shape.GeometryAdjustments = normalizeLegacyPptPresetAdjustments(geometry.Preset, geometry.Adjustments)
 	}
+}
+
+func legacyPptCustomGeometryIsZeroAxisLine(shape *presentationir.Shape, geometry officeartir.Geometry) bool {
+	if shape == nil || (shape.Bounds.W == 0) == (shape.Bounds.H == 0) {
+		return false
+	}
+	hasSegment := false
+	for _, path := range geometry.Paths {
+		for _, command := range path.Commands {
+			switch command.Op {
+			case "M":
+			case "L":
+				hasSegment = true
+			default:
+				return false
+			}
+		}
+	}
+	return hasSegment
+}
+
+// normalizeLegacyPptRightArrowAdjustments maps the two OfficeArt/VML right-arrow
+// handles to DrawingML's canonical rightArrow adjustments. In OfficeArt the
+// first handle is the x coordinate where the arrow head begins (default 16200
+// in a 21600-wide geometry box) and the second is the shaft's top y coordinate
+// (default 5400). DrawingML instead stores shaft thickness as adj1 and head
+// length, measured in units of the short side, as adj2.
+func normalizeLegacyPptRightArrowAdjustments(values []float64, present []bool, bounds presentationir.Rect) []float64 {
+	const (
+		legacyCoord      = 21600.0
+		defaultHeadStart = 16200.0
+		defaultShaftTop  = 5400.0
+	)
+	headStart := defaultHeadStart
+	shaftTop := defaultShaftTop
+	if len(values) > 0 && len(present) > 0 && present[0] {
+		headStart = values[0]
+	}
+	if len(values) > 1 && len(present) > 1 && present[1] {
+		shaftTop = values[1]
+	}
+
+	// DrawingML adj1 is the full shaft-height fraction. OfficeArt stores the
+	// distance from the top edge to that shaft, hence 1 - 2*y/h.
+	body := 1.0 - 2.0*(shaftTop/legacyCoord)
+	if body < 0 {
+		body = 0
+	} else if body > 1 {
+		body = 1
+	}
+
+	w := math.Abs(float64(bounds.W))
+	h := math.Abs(float64(bounds.H))
+	ss := math.Min(w, h)
+	if ss == 0 {
+		// With no physical bounds available, preserve the square-shape meaning.
+		w, ss = 1, 1
+	}
+	head := (1.0 - headStart/legacyCoord) * w / ss
+	maxHead := w / ss
+	if head < 0 {
+		head = 0
+	} else if head > maxHead {
+		head = maxHead
+	}
+	return []float64{body, head}
 }
 
 // normalizeLegacyPptPresetAdjustments converts shape-specific legacy OfficeArt
@@ -412,9 +640,40 @@ func applyLegacyPptOfficeArtVisual(shape *presentationir.Shape, shared *officear
 		shape.LineStyle = nil
 	}
 
+	// Endpoint decorations are part of the shared OfficeArt line surface, not a
+	// connector-only concern. Canonical semantics match DrawingML and the vector
+	// builder: StartArrow -> ArrowHead (first point), EndArrow -> ArrowTail (last
+	// point). An explicitly invisible line owns no endpoint paint.
+	if shared.Line.Visible {
+		if shared.Line.StartArrow.Type != "" {
+			shape.ArrowHead = shared.Line.StartArrow.Type
+			shape.ArrowHeadWidth = shared.Line.StartArrow.Width
+			shape.ArrowHeadLength = shared.Line.StartArrow.Length
+		}
+		if shared.Line.EndArrow.Type != "" {
+			shape.ArrowTail = shared.Line.EndArrow.Type
+			shape.ArrowTailWidth = shared.Line.EndArrow.Width
+			shape.ArrowTailLength = shared.Line.EndArrow.Length
+		}
+		shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength = presentationir.CanonicalArrowEnd(shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength)
+		shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength = presentationir.CanonicalArrowEnd(shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength)
+	}
+
 	if shared.Effects.Shadow != nil {
 		shadow := shared.Effects.Shadow
-		shape.Effects.Effects = append(shape.Effects.Effects, drawing.Shadow{Color: shadow.Color, Alpha: shadow.Alpha, Blur: shadow.BlurRadius, Distance: shadow.Distance, Angle: shadow.AngleDeg})
+		if shadow.Inner {
+			shape.Effects.Effects = append(shape.Effects.Effects, drawing.InnerShadow{Color: shadow.Color, Alpha: shadow.Alpha, Blur: shadow.BlurRadius, Distance: shadow.Distance, Angle: shadow.AngleDeg})
+		} else {
+			shape.Effects.Effects = append(shape.Effects.Effects, drawing.Shadow{Color: shadow.Color, Alpha: shadow.Alpha, Blur: shadow.BlurRadius, Distance: shadow.Distance, Angle: shadow.AngleDeg})
+		}
+	}
+	if shared.Effects.Glow != nil {
+		glow := shared.Effects.Glow
+		shape.Effects.Effects = append(shape.Effects.Effects, drawing.Glow{Color: glow.Color, Alpha: glow.Alpha, Radius: glow.RadiusPt})
+	}
+	if shared.Effects.Blur != nil {
+		blur := shared.Effects.Blur
+		shape.Effects.Effects = append(shape.Effects.Effects, drawing.Blur{Radius: blur.RadiusPt})
 	}
 
 	if shared.Image != nil {
@@ -458,31 +717,35 @@ func applyLegacyPptOfficeArtVisual(shape *presentationir.Shape, shared *officear
 	}
 }
 
-func (s legacyPptVisualScene) pictures(pictureStore map[uint32]*legacyPptPicture, externalObjects map[uint32]legacyPptExternalObject) []*presentationir.Shape {
-	var pictures []*presentationir.Shape
-	collectLegacyPptImageShapesFromEvents(s.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, pictureStore, externalObjects, &pictures)
-	return pictures
-}
-
-// textShapes projects text directly from the scene's already collected event stream.
-func (s legacyPptVisualScene) textShapes(slideText legacySlideText, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	return buildLegacyPptTextShapesFromMetas(s.textMetas(fontTable, colorScheme, exHyperlinks), slideText)
-}
-
-func (s legacyPptVisualScene) tables(fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	var shapes []*presentationir.Shape
-	collectLegacyPptTableShapesFromScene(s.dispatch.containers, legacyPptGroupFrame{}, fontTable, colorScheme, exHyperlinks, &shapes)
-	return shapes
-}
-
-func (s legacyPptVisualScene) connectors(colorScheme map[uint8]string, shapeIndex map[uint32]*presentationir.Shape) []*presentationir.Shape {
-	var shapes []*presentationir.Shape
-	collectLegacyPptConnectorShapesFromEvents(s.dispatch.containers.officeArtEvents(), legacyPptGroupFrame{}, colorScheme, s.dispatch.rules, shapeIndex, &shapes)
-	return shapes
-}
-
-func (s legacyPptVisualScene) groups(childSource legacyPptGroupChildSource, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []*presentationir.Shape {
-	return buildLegacyPptGroupShapesFromScene(s.dispatch.containers, childSource, fontTable, colorScheme, exHyperlinks)
+// legacyPptBackgroundFill resolves any OfficeArt fBackground surface into the
+// canonical DrawingML fill model. Background containers commonly carry gradients
+// and patterns without a usable client anchor, so they must not depend on ordinary
+// shape projection/placement.
+func legacyPptBackgroundFill(scene legacyPptVisualScene, colorScheme map[uint8]string) drawing.Fill {
+	const spFlagBackground uint32 = 0x00000400
+	for _, event := range scene.dispatch.containers.officeArtEvents() {
+		node := event.ShapeNode
+		if !event.ShapeStart || node == nil || node.Flags&spFlagBackground == 0 {
+			continue
+		}
+		shared := officeartlegacy.ShapeFromEscherWithColorResolver(node, func(raw uint32) string {
+			return resolveLegacyPptOfficeArtColorRef(raw, colorScheme)
+		})
+		if shared == nil {
+			continue
+		}
+		tmp := &presentationir.Shape{}
+		applyLegacyPptOfficeArtVisual(tmp, shared)
+		switch tmp.Fill.(type) {
+		case drawing.NoFill:
+			return tmp.Fill
+		default:
+			if tmp.Fill != nil {
+				return tmp.Fill
+			}
+		}
+	}
+	return nil
 }
 
 // legacyPptPictureBackgroundFill resolves an OfficeArt fBackground shape into
@@ -521,4 +784,180 @@ func legacyPptPictureBackgroundFill(scene legacyPptVisualScene, pictureStore map
 		}
 	}
 	return nil
+}
+
+// legacyPptContainerOwnership makes the completeness contract explicit for every
+// authored SpContainer. A container is either represented by canonical IR or is
+// intentionally structural/background-only. Anything else is unclaimed and is
+// therefore a parser-completeness gap rather than a silently ignored record.
+type legacyPptContainerOwnership struct {
+	ShapeID uint32
+	Reason  string
+	Claimed bool
+}
+
+func (s legacyPptVisualScene) ownershipAudit(projected []*presentationir.Shape) []legacyPptContainerOwnership {
+	return s.ownershipAuditWithTablePaths(projected, nil)
+}
+
+// ownershipAuditWithTablePaths consumes semantic ownership emitted by the table
+// projector itself. A recovered legacy table can have an unavailable/unstable
+// group-root ShapeID even though its group topology materialized successfully, so
+// group path is the authoritative ownership key for table descendants.
+func (s legacyPptVisualScene) ownershipAuditWithTablePaths(projected []*presentationir.Shape, tableOwnedPaths [][]int) []legacyPptContainerOwnership {
+	claimed := make(map[uint32]struct{})
+	projectedTables := make(map[uint32]struct{})
+	var collect func(*presentationir.Shape)
+	collect = func(shape *presentationir.Shape) {
+		if shape == nil {
+			return
+		}
+		if shape.OriginalShapeID != 0 {
+			claimed[shape.OriginalShapeID] = struct{}{}
+			if shape.Kind == presentationir.ShapeTable {
+				projectedTables[shape.OriginalShapeID] = struct{}{}
+			}
+		}
+		for _, child := range shape.Children {
+			collect(child)
+		}
+	}
+	for _, shape := range projected {
+		collect(shape)
+	}
+
+	const spFlagBackground uint32 = 0x00000400
+	out := make([]legacyPptContainerOwnership, 0, len(s.dispatch.containers.shapeContainers()))
+	for _, container := range s.dispatch.containers.shapeContainers() {
+		entry := legacyPptContainerOwnership{ShapeID: container.ShapeID}
+		switch {
+		case container.ShapeID == 0:
+			// Shape identity comes from the decoded FSP record. If decoding did not
+			// yield a ShapeID there is no authored visual identity that canonical IR
+			// could preserve. Treat this as structural/no-ID ownership before looking
+			// at Node so malformed scaffolding does not become a false corpus gap.
+			entry.Claimed, entry.Reason = true, "structural: no authored ShapeID"
+		case container.Node == nil:
+			// This branch is intentionally defensive: current scene decoding derives
+			// ShapeID from Node, so Node==nil with a non-zero ShapeID should be
+			// impossible. If a future decoder preserves identity across a partial
+			// decode, keep it visible as a genuine completeness failure.
+			entry.Reason = "unclaimed: missing decoded ShapeNode"
+		case container.IsGroupRoot:
+			entry.Claimed, entry.Reason = true, "structural: group root"
+		case container.Node.Flags&spFlagBackground != 0:
+			entry.Claimed, entry.Reason = true, "background paint"
+		default:
+			_, entry.Claimed = claimed[container.ShapeID]
+			if entry.Claimed {
+				entry.Reason = "canonical IR"
+			} else if s.tableTopologyOwnsLine(container, projectedTables, tableOwnedPaths) {
+				// Explicit PowerPoint tables author their borders/grid as child line
+				// SpContainers. Once the containing group has successfully materialized
+				// as canonical ShapeTable, those line containers are semantic table
+				// topology rather than independent drawable shapes. Keep them out of
+				// generic fallback and account for them explicitly in the ownership
+				// ledger so zero-axis table borders do not look like parser gaps.
+				entry.Claimed = true
+				entry.Reason = "table topology"
+			} else {
+				placement := resolveLegacyPptShapePlacement(container.Node, s.frameForContainer(container))
+				if !placement.valid() {
+					entry.Reason = "unclaimed: placement: " + placement.Reason
+				} else if placement.Bounds.W <= 0 || placement.Bounds.H <= 0 {
+					entry.Reason = "unclaimed: placement: degenerate bounds"
+				} else {
+					entry.Reason = "unclaimed: no canonical IR owner"
+				}
+			}
+		}
+		out = append(out, entry)
+	}
+
+	// Grid lines are structural children of explicit PPT table groups. Audit the
+	// semantic table once per group instead: if the table failed to materialize,
+	// expose one group-level completeness gap rather than one gap per border line.
+	for _, group := range s.dispatch.containers.shapeGroups() {
+		if !legacyPptGroupContainerIsTable(group.Event.Payload) {
+			continue
+		}
+		materialized := legacyPptOwnedGroupPath(tableOwnedPaths, group.Path)
+		rootID, hasRootID := legacyPptGroupRootShapeID(group.Event.Payload)
+		if !materialized && hasRootID && rootID != 0 {
+			_, materialized = projectedTables[rootID]
+		}
+		if materialized {
+			continue
+		}
+		out = append(out, legacyPptContainerOwnership{
+			ShapeID: rootID,
+			Reason:  "unclaimed: explicit table group did not materialize",
+			Claimed: false,
+		})
+	}
+	return out
+}
+
+func (s legacyPptVisualScene) tableTopologyOwnsLine(container legacyPptShapeContainer, projectedTables map[uint32]struct{}, tableOwnedPaths [][]int) bool {
+	if container.Node == nil || legacyPptConnectorType(container.Node.ShapeType) == "" {
+		return false
+	}
+
+	// An explicit PowerPoint table owns its grid/border SpContainers as structural
+	// topology regardless of whether the higher-level table object can be rebuilt.
+	// Materialization failure is audited once at the table-group boundary instead
+	// of surfacing hundreds of child line failures.
+	for _, group := range s.dispatch.containers.shapeGroups() {
+		if !legacyPptGroupContainerIsTable(group.Event.Payload) {
+			continue
+		}
+		if legacyPptGroupPathHasPrefix(container.GroupPath, group.Path) {
+			return true
+		}
+	}
+
+	// Inferred (non-explicit) tables still require successful semantic
+	// materialization before their lines are consumed as table topology.
+	for _, path := range tableOwnedPaths {
+		if legacyPptGroupPathHasPrefix(container.GroupPath, path) {
+			return true
+		}
+	}
+	if len(projectedTables) == 0 {
+		return false
+	}
+	for _, group := range s.dispatch.containers.shapeGroups() {
+		if !legacyPptGroupPathHasPrefix(container.GroupPath, group.Path) {
+			continue
+		}
+		rootID, ok := legacyPptGroupRootShapeID(group.Event.Payload)
+		if !ok || rootID == 0 {
+			continue
+		}
+		if _, ok := projectedTables[rootID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func appendLegacyPptOwnedGroupPath(paths [][]int, path []int) [][]int {
+	if len(path) == 0 {
+		return paths
+	}
+	for _, existing := range paths {
+		if legacyPptGroupPathEqual(existing, path) {
+			return paths
+		}
+	}
+	return append(paths, append([]int(nil), path...))
+}
+
+func legacyPptOwnedGroupPath(paths [][]int, path []int) bool {
+	for _, existing := range paths {
+		if legacyPptGroupPathEqual(existing, path) {
+			return true
+		}
+	}
+	return false
 }

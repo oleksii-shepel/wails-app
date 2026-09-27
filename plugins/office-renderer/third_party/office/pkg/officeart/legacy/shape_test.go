@@ -81,6 +81,23 @@ func TestShapeFromEscherTextBoxFillColorWithoutFilledFlagStaysTransparent(t *tes
 	}
 }
 
+func TestShapeFromEscherUsesOfficeArtDefaultLineWidth(t *testing.T) {
+	node := &escher.ShapeNode{Properties: []escher.Property{{ID: escher.PropLineColor, Value: 0x00000000}}}
+	shape := ShapeFromEscher(node)
+	if !shape.Line.Visible {
+		t.Fatal("line with authored color must remain visible")
+	}
+	if shape.Line.WidthPt != 0.75 {
+		t.Fatalf("implicit OfficeArt line width = %gpt, want 0.75pt", shape.Line.WidthPt)
+	}
+
+	node.Properties = append(node.Properties, escher.Property{ID: escher.PropLineWidth, Value: 25400})
+	shape = ShapeFromEscher(node)
+	if shape.Line.WidthPt != 2 {
+		t.Fatalf("authored OfficeArt line width = %gpt, want 2pt", shape.Line.WidthPt)
+	}
+}
+
 func TestShapeFromEscherProjectsLegacyGradientFill(t *testing.T) {
 	node := &escher.ShapeNode{Properties: []escher.Property{
 		{ID: escher.PropFillType, Value: 4},
@@ -144,6 +161,13 @@ func TestShapeFromEscherPreservesLegacyGradientFocusAndCenterRect(t *testing.T) 
 func TestLegacyGradientFocusPositiveMirrorsForegroundAtEnds(t *testing.T) {
 	stops := legacyGradientStops("112233", "AABBCC", VisualProperties{HasFillFocus: true, FillFocus: 50})
 	if len(stops) != 3 || stops[0].Color != "112233" || stops[1].Color != "AABBCC" || stops[1].Position != .5 || stops[2].Color != "112233" {
+		t.Fatalf("stops = %#v", stops)
+	}
+}
+
+func TestLegacyGradientFocusPositiveWithNegativeAngleMirrorsBackgroundAtEnds(t *testing.T) {
+	stops := legacyGradientStops("112233", "AABBCC", VisualProperties{HasFillFocus: true, FillFocus: 50, HasFillAngle: true, FillAngleDeg: -210})
+	if len(stops) != 3 || stops[0].Color != "AABBCC" || stops[1].Color != "112233" || stops[1].Position != .5 || stops[2].Color != "AABBCC" {
 		t.Fatalf("stops = %#v", stops)
 	}
 }
@@ -216,6 +240,27 @@ func TestContextualOfficeArtColorResolverResolvesFillColorDarkenReference(t *tes
 	}
 }
 
+func TestLegacyPatternFillPreservesBackgroundInsteadOfCollapsingToBlack(t *testing.T) {
+	node := &escher.ShapeNode{Properties: []escher.Property{
+		{ID: escher.PropFillType, Value: 1},               // msofillPattern
+		{ID: escher.PropFillColor, Value: 0x00000000},     // black foreground
+		{ID: escher.PropFillBackColor, Value: 0x0000FFFF}, // yellow COLORREF (BGR storage)
+	}}
+	shape := ShapeFromEscher(node)
+	if shape.Fill.Kind != ir.FillPattern || shape.Fill.Pattern == nil {
+		t.Fatalf("pattern fill = %#v, want canonical pattern", shape.Fill)
+	}
+	if got := shape.Fill.Pattern.Foreground; got != "000000" {
+		t.Fatalf("foreground = %q, want 000000", got)
+	}
+	if got := shape.Fill.Pattern.Background; got != "FFFF00" {
+		t.Fatalf("background = %q, want FFFF00", got)
+	}
+	if got := shape.Fill.Color; got != "FFFF00" {
+		t.Fatalf("representative fill color = %q, want FFFF00", got)
+	}
+}
+
 func TestLegacyGradientShadeVariantIsPreserved(t *testing.T) {
 	cases := []struct {
 		fillType uint32
@@ -242,7 +287,6 @@ func TestLegacyGradientShadeVariantIsPreserved(t *testing.T) {
 		}
 	}
 }
-
 
 func TestClass14ExplicitShadowFalseIsAuthoritative(t *testing.T) {
 	props := []escher.Property{
@@ -279,5 +323,141 @@ func TestClass14LegacyShadowPreservesTransparentAlphaAndPhysicalGeometry(t *test
 	}
 	if sh.Distance <= 0 {
 		t.Fatalf("shadow distance = %g, want positive physical distance", sh.Distance)
+	}
+}
+
+func TestPass8ShapeFromEscherPromotesLineEndsIntoSharedIR(t *testing.T) {
+	node := &escher.ShapeNode{Properties: []escher.Property{
+		{ID: escher.PropLineStartArrow, Value: 1},
+		{ID: escher.PropLineStartArrowWidth, Value: 2},
+		{ID: escher.PropLineStartArrowLength, Value: 0},
+		{ID: escher.PropLineEndArrow, Value: 3},
+		{ID: escher.PropLineEndArrowWidth, Value: 0},
+		{ID: escher.PropLineEndArrowLength, Value: 2},
+	}}
+	got := ShapeFromEscher(node)
+	if !got.Line.Visible {
+		t.Fatal("line with authored endpoints must remain visible")
+	}
+	if got.Line.StartArrow.Type == "" || got.Line.EndArrow.Type == "" {
+		t.Fatalf("line ends were not promoted: start=%+v end=%+v", got.Line.StartArrow, got.Line.EndArrow)
+	}
+	if got.Line.StartArrow.Width == "" || got.Line.StartArrow.Length == "" || got.Line.EndArrow.Width == "" || got.Line.EndArrow.Length == "" {
+		t.Fatalf("line end sizing was not promoted: start=%+v end=%+v", got.Line.StartArrow, got.Line.EndArrow)
+	}
+}
+
+func TestShapeFromEscherProjectsSolidFillOpacityAndKeepsEarlierFilledBoolean(t *testing.T) {
+	node := &escher.ShapeNode{ShapeID: 42485, ShapeType: 1, Properties: []escher.Property{
+		{ID: escher.PropFillColor, Value: 0x00FF0000}, // blue COLORREF
+		{ID: escher.PropFillOpacity, Value: 0x00004CCD},
+		{ID: escher.PropFillBooleans, Value: (1 << 20) | (1 << 4)},
+		{ID: escher.PropFillBooleans, Value: 0x00600000},
+	}}
+	got := ShapeFromEscher(node)
+	if got.Fill.Kind != ir.FillSolid || got.Fill.Color != "0000FF" {
+		t.Fatalf("fill = %#v, want blue solid", got.Fill)
+	}
+	if got.Fill.Alpha < 0.299 || got.Fill.Alpha > 0.301 {
+		t.Fatalf("fill alpha = %v, want about 0.30", got.Fill.Alpha)
+	}
+}
+
+func TestShapeFromEscherDefaultsClientTextboxGeometryToRect(t *testing.T) {
+	shape := ShapeFromEscher(&escher.ShapeNode{ShapeID: 7, HasClientTextbox: true})
+	if shape == nil || shape.Geometry.Kind != ir.GeometryPreset || shape.Geometry.Preset != "rect" {
+		t.Fatalf("client textbox geometry = %#v, want preset rect", shape)
+	}
+}
+
+func TestShapeFromEscherPreservesPresetGeometryAdjustments(t *testing.T) {
+	node := &escher.ShapeNode{
+		ShapeID:   7,
+		ShapeType: 2, // msosptRoundRectangle
+		Properties: []escher.Property{
+			{ID: escher.PropAdjust1, Value: 1000},
+			{ID: escher.PropAdjust2, Value: 2000},
+		},
+	}
+	shape := ShapeFromEscher(node)
+	if shape == nil || shape.Geometry.Preset != "roundRect" {
+		t.Fatalf("shape geometry=%#v", shape)
+	}
+	if len(shape.Geometry.Adjustments) != 2 || shape.Geometry.Adjustments[0] != 1000 || shape.Geometry.Adjustments[1] != 2000 {
+		t.Fatalf("preset adjustments=%v", shape.Geometry.Adjustments)
+	}
+}
+
+func TestShapeFromEscherMaterializesOfficeArtLineDefaults(t *testing.T) {
+	node := &escher.ShapeNode{Properties: []escher.Property{
+		{ID: escher.PropLineStartArrow, Value: 1},
+		{ID: escher.PropLineEndArrow, Value: 2},
+	}}
+	got := ShapeFromEscher(node)
+	if !got.Line.Visible {
+		t.Fatal("line with arrows must be visible")
+	}
+	if got.Line.WidthPt != 0.75 || got.Line.Join != "round" || got.Line.Cap != "flat" {
+		t.Fatalf("line defaults = width %g join %q cap %q", got.Line.WidthPt, got.Line.Join, got.Line.Cap)
+	}
+	if got.Line.StartArrow.Width != "med" || got.Line.StartArrow.Length != "med" || got.Line.EndArrow.Width != "med" || got.Line.EndArrow.Length != "med" {
+		t.Fatalf("arrow defaults = start %+v end %+v", got.Line.StartArrow, got.Line.EndArrow)
+	}
+}
+
+func TestShapeFromEscherPreservesAuthoredOfficeArtJoinAndCap(t *testing.T) {
+	node := &escher.ShapeNode{Properties: []escher.Property{
+		{ID: escher.PropLineWidth, Value: 12700},
+		{ID: escher.PropLineJoinStyle, Value: 1},
+		{ID: escher.PropLineEndCapStyle, Value: 1},
+	}}
+	got := ShapeFromEscher(node)
+	if got.Line.Join != "miter" || got.Line.Cap != "square" {
+		t.Fatalf("authored line style = join %q cap %q", got.Line.Join, got.Line.Cap)
+	}
+}
+
+func TestShapeFromEscherCanonicalizesImplicitVisibleLinePaint(t *testing.T) {
+	node := &escher.ShapeNode{ShapeType: 20, Properties: []escher.Property{{ID: escher.PropLineWidth, Value: 3175}}}
+	got := ShapeFromEscher(node)
+	if got.Fill.Kind != ir.FillNone {
+		t.Fatalf("line fill = %q, want canonical no-fill", got.Fill.Kind)
+	}
+	if !got.Line.Visible || got.Line.Color != "000000" || got.Line.Alpha != 1 || got.Line.WidthPt != 0.25 {
+		t.Fatalf("implicit line paint = %#v, want opaque black 0.25pt", got.Line)
+	}
+}
+
+func TestShapeFromEscherPreservesExplicitTransparentLine(t *testing.T) {
+	node := &escher.ShapeNode{ShapeType: 20, Properties: []escher.Property{
+		{ID: escher.PropLineWidth, Value: 12700},
+		{ID: escher.PropLineOpacity, Value: 0},
+	}}
+	got := ShapeFromEscher(node)
+	if !got.Line.Visible || got.Line.Alpha != 0 {
+		t.Fatalf("explicit transparent line = %#v, want visible semantic line with alpha 0", got.Line)
+	}
+}
+
+func TestShapeFromEscherAreaGeometryUsesOfficeArtDefaultWhiteFill(t *testing.T) {
+	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 3}) // ellipse
+	if got.Fill.Kind != ir.FillSolid || got.Fill.Color != "FFFFFF" || got.Fill.Alpha != 1 {
+		t.Fatalf("default area fill = %#v, want opaque OfficeArt white", got.Fill)
+	}
+}
+
+func TestShapeFromEscherExplicitNoFillOverridesOfficeArtDefault(t *testing.T) {
+	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 3, Properties: []escher.Property{{
+		ID: escher.PropFillBooleans, Value: uint32(1 << (16 + 4)),
+	}}})
+	if got.Fill.Kind != ir.FillNone {
+		t.Fatalf("explicit no-fill = %#v, want none", got.Fill)
+	}
+}
+
+func TestShapeFromEscherLineDoesNotAcquireOfficeArtDefaultAreaFill(t *testing.T) {
+	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 20})
+	if got.Fill.Kind != ir.FillNone {
+		t.Fatalf("line fill = %#v, want none", got.Fill)
 	}
 }

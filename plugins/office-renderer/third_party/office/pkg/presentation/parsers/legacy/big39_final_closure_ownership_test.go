@@ -19,7 +19,7 @@ func TestBIG39FinalClosureKeepsSemanticSceneAndEffectiveCompositionAuthoritative
 		t.Fatal(err)
 	}
 	visualSource, pptSource := string(visual), string(ppt)
-	for _, want := range []string{"return s.sourceOrdered(shapes)", "s.genericShapes(shapes, colorScheme)", "buildLegacyPptGroupShapesFromScene"} {
+	for _, want := range []string{"shapes = s.sourceOrdered(shapes)", "s.genericShapes(shapes, colorScheme)", "buildLegacyPptGroupShapesFromSceneWithOwnership"} {
 		if !strings.Contains(visualSource, want) {
 			t.Fatalf("BIG39 semantic scene lost closure boundary %q", want)
 		}

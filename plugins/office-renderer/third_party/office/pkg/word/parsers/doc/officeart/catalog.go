@@ -150,6 +150,33 @@ func applyDOCChildAnchors(node *officeartescher.ShapeNode, shape *officeartir.Sh
 	for i := 0; i < limit; i++ {
 		applyDOCChildAnchors(node.Children[i], shape.Children[i])
 	}
+
+	// Word stores group-member ChildAnchor rectangles in the FSPGR coordinate
+	// domain, not in the group's eventual FSPA page rectangle. The domain may
+	// have a negative origin while FSPA contains only the enclosing group box.
+	// Normalize members into that local box before layout/rendering.
+	if node.GroupRect != nil && len(shape.Children) > 0 {
+		domain, ok := officeartlegacy.NormalizeRect(
+			units.TwipsToEMU(int64(node.GroupRect.Left)),
+			units.TwipsToEMU(int64(node.GroupRect.Top)),
+			units.TwipsToEMU(int64(node.GroupRect.Right)),
+			units.TwipsToEMU(int64(node.GroupRect.Bottom)),
+		)
+		if ok {
+			target := shape.Transform.Rect
+			if target.W <= 0 || target.H <= 0 {
+				target = officeartir.Rect{W: domain.W, H: domain.H}
+			}
+			officeartlegacy.ComposeGroupChildren(shape.Children, officeartlegacy.GroupFrame{
+				Domain: domain,
+				Target: target,
+				Valid:  true,
+			})
+			if shape.Transform.Rect.W <= 0 || shape.Transform.Rect.H <= 0 {
+				shape.Transform.Rect = target
+			}
+		}
+	}
 }
 
 func indexShape(shape *officeartir.Shape, index map[uint32]*officeartir.Shape) {

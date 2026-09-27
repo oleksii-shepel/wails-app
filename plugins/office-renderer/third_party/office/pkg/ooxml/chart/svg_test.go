@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -378,10 +379,10 @@ func TestSVGAreaLineComboChartStartsAreaVerticallyAtFirstCategory(t *testing.T) 
 		}},
 	}
 	svg := c.SVG(1253, 302)
-	if !strings.Contains(svg, `M256,250 L256,12`) {
+	if !strings.Contains(svg, `M262,262 L262,12`) {
 		t.Fatalf("expected combo area to rise vertically from the first category, got:\n%s", svg)
 	}
-	if strings.Contains(svg, `M62,250 L256,12`) {
+	if strings.Contains(svg, `M72,262 L262,12`) {
 		t.Fatalf("expected combo area not to start diagonally from the plot edge, got:\n%s", svg)
 	}
 }
@@ -432,7 +433,7 @@ func TestSVGManualLayoutInnerPlotArea(t *testing.T) {
 		Series: []Series{{Name: "S1", Values: []float64{10, 20}}},
 	}
 	svg := c.SVG(400, 300)
-	if !strings.Contains(svg, `x="100" y="40" width="166" height="98"`) {
+	if !strings.Contains(svg, `x="50" y="40" width="226" height="138"`) {
 		t.Fatalf("expected manual inner plot area rect in SVG, got:\n%s", svg)
 	}
 }
@@ -484,8 +485,8 @@ func TestSVGManualLayoutOuterPlotArea(t *testing.T) {
 	}
 	svg := c.SVG(400, 300)
 	// Outer layout on full canvas: x=80, y=60, w=200, h=120
-	// After renderAxes offset: plotX=130, plotY=60, plotW=140, plotH=80
-	if !strings.Contains(svg, `x="130" y="60" width="140" height="80"`) {
+	// The outer layout is resolved first; the shared plot geometry then reserves scaled axis gutters.
+	if !strings.Contains(svg, `x="114" y="60" width="156" height="92"`) {
 		t.Fatalf("expected manual outer plot area rect in SVG, got:\n%s", svg)
 	}
 }
@@ -1893,5 +1894,55 @@ func TestAxisRangeSkipsEmptySeriesBeforePopulatedSeries(t *testing.T) {
 	minVal, maxVal := c.axisRange()
 	if minVal > -25 || maxVal < 75 {
 		t.Fatalf("axis range with leading empty series = %g..%g, want range covering -25..75", minVal, maxVal)
+	}
+}
+
+func TestFormatDataLabelValueScalesStoredFractionForPercentNumberFormat(t *testing.T) {
+	if got := formatDataLabelValue(0.51, "0%", false); got != "51%" {
+		t.Fatalf("formatDataLabelValue(0.51, 0%%) = %q, want 51%%", got)
+	}
+	if got := formatDataLabelValue(0.516, "0.0%", false); got != "51.6%" {
+		t.Fatalf("formatDataLabelValue(0.516, 0.0%%) = %q, want 51.6%%", got)
+	}
+}
+
+func TestFormatDataLabelValueDoesNotRescaleComputedPercent(t *testing.T) {
+	if got := formatDataLabelValue(51, "0%", true); got != "51%" {
+		t.Fatalf("computed percent = %q, want 51%%", got)
+	}
+}
+
+func TestSVGCartesianPlotRectScalesWithChartFrame(t *testing.T) {
+	c := &Chart{ChartType: ChartLine, Series: []Series{{Values: []float64{0, 10}}}}
+	small := c.cartesianPlotRect(0, 0, 400, 300)
+	large := c.cartesianPlotRect(0, 0, 1200, 900)
+	if small.W <= 0 || small.H <= 0 || large.W <= small.W || large.H <= small.H {
+		t.Fatalf("plot rectangles did not scale: small=%+v large=%+v", small, large)
+	}
+	if large.X == small.X && large.H == small.H {
+		t.Fatalf("expected dimension-aware gutters, got small=%+v large=%+v", small, large)
+	}
+}
+
+func TestSVGLineChartProjectsAuthoredNonZeroAxisRange(t *testing.T) {
+	c := &Chart{
+		ChartType: ChartLine,
+		YAxis:     Axis{Min: 0.35, Max: 0.75, MajorUnit: 0.05, NumFmt: "0%"},
+		Series:    []Series{{Values: []float64{0.35, 0.55, 0.75}}},
+	}
+	svg := c.SVG(400, 300)
+	plot := c.cartesianPlotRect(12, 12, 376, 276)
+	bottom := fmt.Sprintf(",%d", plot.Y+plot.H)
+	top := fmt.Sprintf(",%d", plot.Y)
+	if !strings.Contains(svg, bottom) || !strings.Contains(svg, top) {
+		t.Fatalf("expected authored 35%%..75%% values to span the plot, got:\n%s", svg)
+	}
+}
+
+func TestSVGInnerManualLayoutIsNotInsetTwice(t *testing.T) {
+	c := &Chart{ManualLayout: &ManualLayout{LayoutTarget: "inner"}}
+	got := c.cartesianPlotRect(80, 60, 200, 120)
+	if got != (chartPlotRect{X: 80, Y: 60, W: 200, H: 120}) {
+		t.Fatalf("inner manual plot rect = %+v; want authored rect unchanged", got)
 	}
 }

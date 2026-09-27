@@ -13,8 +13,8 @@ func TestVisualSceneOwnsTableAndGroupStructuralProjection(t *testing.T) {
 	}
 	src := string(data)
 	for _, required := range []string{
-		"collectLegacyPptTableShapesFromScene(s.dispatch.containers",
-		"buildLegacyPptGroupShapesFromScene(s.dispatch.containers",
+		"collectLegacyPptTableShapesFromSceneForSlideWithOwnership(s.dispatch.containers",
+		"buildLegacyPptGroupShapesFromSceneWithOwnership(s.dispatch.containers",
 	} {
 		if !strings.Contains(src, required) {
 			t.Fatalf("visual scene must consume decoded container scene via %q", required)
@@ -36,7 +36,7 @@ func TestGroupProjectionConsumesDecodedShapeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	start := strings.Index(src, "func buildLegacyPptGroupShapesFromScene")
+	start := strings.Index(src, "func buildLegacyPptGroupShapesFromSceneWithOwnership")
 	if start < 0 {
 		t.Fatal("unified group scene projection missing")
 	}

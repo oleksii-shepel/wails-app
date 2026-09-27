@@ -21,9 +21,9 @@ func TestBackgroundStyleRefUsesThemeBackgroundFillAndLayoutColorMap(t *testing.T
 	if err := b.HandleEvent(Event{Type: EventBackgroundStyleRef, SlideIndex: 1, Scope: "layout", StyleIndex: 1002, Color: VisualColor{Kind: "schemeClr", Value: "bg1"}}); err != nil {
 		t.Fatal(err)
 	}
-	g, ok := b.slide.BgFill.(drawing.GradientFill)
+	g, ok := b.layoutBackground.Fill.(drawing.GradientFill)
 	if !ok {
-		t.Fatalf("background fill = %T, want drawing.GradientFill", b.slide.BgFill)
+		t.Fatalf("background fill = %T, want drawing.GradientFill", b.layoutBackground.Fill)
 	}
 	if g.GradientType != drawing.GradientTypePath {
 		t.Fatalf("gradient type = %q, want path", g.GradientType)

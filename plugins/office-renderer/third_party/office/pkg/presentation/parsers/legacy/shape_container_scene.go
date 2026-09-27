@@ -75,7 +75,23 @@ func decodeLegacyPptShapeContainerScene(events []OfficeArtEvent) legacyPptShapeC
 	return scene
 }
 
-func (s legacyPptShapeContainerScene) officeArtEvents() []OfficeArtEvent { return s.events }
+func (s legacyPptShapeContainerScene) officeArtEvents() []OfficeArtEvent {
+	if len(s.events) != 0 || len(s.containers) == 0 {
+		return s.events
+	}
+	// A decoded semantic scene is sufficient input for leaf-family projection.
+	// Focused callers/tests may construct containers directly without retaining
+	// the transient record-event buffer; do not make those shapes invisible to
+	// connector/picture/text family ownership merely because events are absent.
+	events := make([]OfficeArtEvent, 0, len(s.containers))
+	for _, container := range s.containers {
+		if container.Node == nil || container.IsGroupRoot {
+			continue
+		}
+		events = append(events, OfficeArtEvent{ShapeStart: true, ShapeNode: container.Node, Payload: container.Event.Payload})
+	}
+	return events
+}
 func (s legacyPptShapeContainerScene) shapeContainers() []legacyPptShapeContainer {
 	return s.containers
 }

@@ -38,6 +38,43 @@ func TestParagraphFromLocalKeepsInheritedDefaultsWithoutLocalProperties(t *testi
 	}
 }
 
+func TestBodyStructureWithoutMarkerEvidenceDoesNotCreateBullet(t *testing.T) {
+	margin, indent := 342900, -171450
+	defaults := TextDefaults{
+		MarginLeftEMU: &margin,
+		TextIndentEMU: &indent,
+		FontFamily:    "Aptos",
+		FontSize:      1800,
+	}
+	p, _ := ParagraphFromLocal(&parts.DMLParagraph{}, defaults, nil, nil)
+	if p.BulletChar != "" || p.AutoNum || p.BulletNone {
+		t.Fatalf("marker synthesized from structural body defaults: %#v", p)
+	}
+	if !p.HasMarginLeft || p.MarginLeftEMU != margin || !p.HasTextIndent || p.TextIndentEMU != indent {
+		t.Fatalf("structural paragraph defaults were not inherited: %#v", p)
+	}
+}
+
+func TestParagraphLocalBuNoneSuppressesInheritedMarker(t *testing.T) {
+	ap := &parts.DMLParagraph{Properties: &parts.DMLParaProps{BuNone: &struct{}{}}}
+	p, _ := ParagraphFromLocal(ap, TextDefaults{
+		BulletSpecified: true,
+		BulletChar:      "•",
+		AutoNumType:     "arabicPeriod",
+	}, nil, nil)
+	if !p.BulletNone || p.BulletChar != "" || p.AutoNum || p.AutoNumType != "" {
+		t.Fatalf("local buNone did not suppress inherited marker: %#v", p)
+	}
+}
+
+func TestParagraphLocalBuCharIsMarkerEvidence(t *testing.T) {
+	ap := &parts.DMLParagraph{Properties: &parts.DMLParaProps{BuChar: &parts.BuChar{Char: "→"}}}
+	p, _ := ParagraphFromLocal(ap, TextDefaults{}, nil, nil)
+	if p.BulletNone || p.AutoNum || p.BulletChar != "→" {
+		t.Fatalf("local buChar not preserved: %#v", p)
+	}
+}
+
 func TestParagraphLocalAutoNumberReplacesInheritedBulletGlyph(t *testing.T) {
 	ap := &parts.DMLParagraph{Properties: &parts.DMLParaProps{
 		BuAutoNum: &parts.BuAutoNum{Type: "arabicPeriod", StartAt: 5},
@@ -76,7 +113,6 @@ func TestMoreSpecificAutoNumberBlocksLessSpecificBulletGlyph(t *testing.T) {
 		t.Fatalf("less-specific bullet replaced autonum: %#v", got)
 	}
 }
-
 
 func TestMergeTextDefaultsTreatsBulletSizeFormAsSingleCascadeProperty(t *testing.T) {
 	got := MergeTextDefaults(

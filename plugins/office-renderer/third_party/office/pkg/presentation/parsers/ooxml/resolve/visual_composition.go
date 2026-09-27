@@ -11,6 +11,7 @@ import (
 	officeartdml "office/pkg/officeart/ooxml/drawingml"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/media"
+	"office/pkg/presentation/imageutil"
 	"office/pkg/presentation/layout/cascade"
 	"office/pkg/presentation/parsers/ooxml/parts"
 	"office/pkg/presentation/parsers/ooxml/project"
@@ -203,7 +204,30 @@ func resolveShape(sp *parts.Shape, layoutShape, masterShape *parts.Shape, master
 					defaults.FontFamily = family
 				}
 			}
-			shape.Paragraphs = append(shape.Paragraphs, resolveParagraph(&ap, defaults, slideThemeColors, theme, hlinkURLs))
+			paragraph := resolveParagraph(&ap, defaults, slideThemeColors, theme, hlinkURLs)
+			if paragraph != nil && paragraph.BulletImageRelID != "" {
+				scope := defaults.BulletImageScope
+				// Paragraph-local buBlip is owned by the slide part, regardless of
+				// which inherited marker supplied the defaults before local composition.
+				if ap.Properties != nil && ap.Properties.BuBlip != nil && ap.Properties.BuBlip.Blip.Embed == paragraph.BulletImageRelID {
+					scope = "slide"
+				}
+				var part media.Part
+				var ok bool
+				switch scope {
+				case "layout":
+					part, ok = layoutMediaParts[paragraph.BulletImageRelID]
+				case "master":
+					part, ok = masterMediaParts[paragraph.BulletImageRelID]
+				default:
+					part, ok = mediaParts[paragraph.BulletImageRelID]
+				}
+				if ok {
+					paragraph.BulletImageData = append([]byte(nil), part.Data...)
+					paragraph.BulletImageMIME = part.ContentType
+				}
+			}
+			shape.Paragraphs = append(shape.Paragraphs, paragraph)
 		}
 	}
 	ensureAutoSlideNumberField(shape, sp, layoutShape, masterShape, master, slideThemeColors, layoutThemeColors, masterThemeColors, theme)
@@ -352,6 +376,7 @@ func resolvePicture(pic *parts.Picture, resources project.SlideResources, themeC
 			if m, ok := resources.Lookup(relID); ok {
 				shape.ImageData = m.Data
 				shape.ImageMIME = m.MIME
+				shape.ImageData, shape.ImageMIME, shape.ImageEffects = imageutil.MaterializeTransparentColorKeys(shape.ImageData, shape.ImageMIME, shape.ImageEffects)
 				convertPresentationMetafileImage(shape)
 				applyIntrinsicPictureSize(shape)
 			}

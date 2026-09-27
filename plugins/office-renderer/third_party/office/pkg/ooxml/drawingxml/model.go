@@ -679,10 +679,12 @@ type CustomGeometry struct {
 
 // CustomPath stores one custom-geometry path in its local coordinate space.
 type CustomPath struct {
-	W        float64             `xml:"w,attr,omitempty"`
-	H        float64             `xml:"h,attr,omitempty"`
-	Fill     string              `xml:"fill,attr,omitempty"`
-	Commands []CustomPathCommand `xml:"-"`
+	W         float64             `xml:"w,attr,omitempty"`
+	H         float64             `xml:"h,attr,omitempty"`
+	Fill      string              `xml:"fill,attr,omitempty"`
+	Stroke    bool                `xml:"-"`
+	HasStroke bool                `xml:"-"`
+	Commands  []CustomPathCommand `xml:"-"`
 }
 
 // FormulaPoint stores a custom-path coordinate that may be a formula.
@@ -713,6 +715,9 @@ func (p *CustomPath) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 			}
 		case "fill":
 			p.Fill = attr.Value
+		case "stroke":
+			p.HasStroke = true
+			p.Stroke = attr.Value != "0" && !strings.EqualFold(attr.Value, "false")
 		}
 	}
 	for {
@@ -939,6 +944,11 @@ func (p *CustomPath) DrawingPath(guides []drawing.Guide) (drawing.Path, error) {
 	}
 	ctx := drawing.GuideContext{Width: width, Height: height, Guides: guideValues}
 	path := drawing.Path{FillRule: "nonzero"}
+	if p.Fill != "" || p.HasStroke {
+		path.PaintFlagsSet = true
+		path.FillEnabled = !strings.EqualFold(strings.TrimSpace(p.Fill), "none")
+		path.StrokeEnabled = !p.HasStroke || p.Stroke
+	}
 	current := drawing.Point{}
 	for _, cmd := range p.Commands {
 		switch cmd.Type {

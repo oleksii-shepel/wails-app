@@ -11,11 +11,12 @@ const (
 // Geometry is intentionally independent from DrawingML and Escher geometry
 // structures. Frontends normalize either representation into this form.
 type Geometry struct {
-	Kind        GeometryKind
-	Preset      string
-	Adjustments []float64
-	Paths       []Path
-	ViewBox     Rect
+	Kind              GeometryKind
+	Preset            string
+	Adjustments       []float64
+	AdjustmentPresent []bool
+	Paths             []Path
+	ViewBox           Rect
 }
 
 // Path is a normalized vector path.

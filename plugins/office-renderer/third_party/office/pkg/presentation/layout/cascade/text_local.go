@@ -16,7 +16,7 @@ func ParagraphFromLocal(ap *parts.DMLParagraph, defaults TextDefaults, colors ma
 	if ap.Properties != nil {
 		defaults = MergeEndParagraphRunDefaults(defaults, ap.Properties.DefRPr, colors, theme)
 	}
-	p := &ir.Paragraph{BulletChar: defaults.BulletChar, BulletNone: defaults.BulletNone, AutoNum: defaults.AutoNum, AutoNumType: defaults.AutoNumType, AutoNumStart: defaults.AutoNumStart, BulletColor: defaults.BulletColor, BulletFontFamily: defaults.BulletFontFamily, BulletFontTx: defaults.BulletFontTx, BulletSize: defaults.BulletSize, BulletSizePct: defaults.BulletSizePct, TabStops: defaults.TabStops}
+	p := &ir.Paragraph{BulletChar: defaults.BulletChar, BulletImageRelID: defaults.BulletImageRelID, BulletNone: defaults.BulletNone, AutoNum: defaults.AutoNum, AutoNumType: defaults.AutoNumType, AutoNumStart: defaults.AutoNumStart, BulletColor: defaults.BulletColor, BulletFontFamily: defaults.BulletFontFamily, BulletFontTx: defaults.BulletFontTx, BulletSize: defaults.BulletSize, BulletSizePct: defaults.BulletSizePct, TabStops: defaults.TabStops}
 	if defaults.MarginLeftEMU != nil {
 		p.MarginLeftEMU = *defaults.MarginLeftEMU
 		p.HasMarginLeft = true
@@ -105,6 +105,7 @@ func ParagraphFromLocal(ap *parts.DMLParagraph, defaults TextDefaults, colors ma
 	}
 	if pr.BuNone != nil {
 		p.BulletChar = ""
+		p.BulletImageRelID = ""
 		p.BulletNone = true
 		p.AutoNum = false
 		p.AutoNumType = ""
@@ -112,12 +113,19 @@ func ParagraphFromLocal(ap *parts.DMLParagraph, defaults TextDefaults, colors ma
 	} else {
 		if pr.BuChar != nil && pr.BuChar.Char != "" {
 			p.BulletChar = pr.BuChar.Char
+			p.BulletImageRelID = ""
+			p.BulletNone = false
+		} else if pr.BuBlip != nil && pr.BuBlip.Blip.Embed != "" {
+			p.BulletChar = ""
+			p.BulletImageRelID = pr.BuBlip.Blip.Embed
+			p.AutoNum = false
 			p.BulletNone = false
 		} else if pr.BuAutoNum != nil {
 			// A local automatic-number marker replaces any bullet inherited from
 			// layout/master. Keeping the inherited buChar makes text paint prefer
 			// the glyph (often a Wingdings arrow) over the authored number.
 			p.BulletChar = ""
+			p.BulletImageRelID = ""
 			p.AutoNum = true
 			p.BulletNone = false
 			p.AutoNumType = pr.BuAutoNum.Type

@@ -352,6 +352,26 @@ func TestSpatialTokenizerPreservesWhitespaceAcrossRunBoundary(t *testing.T) {
 	}
 }
 
+func TestSpatialTokenizerAllowsWrapAfterHardHyphenWithoutSpace(t *testing.T) {
+	p := fidelityParagraph("Multi-column flow")
+	p.Source = &resolve.ParagraphSource{}
+	tokens := paragraphSpatialRenderTokens(p, 16)
+	if len(tokens) != 3 {
+		t.Fatalf("tokens = %d, want 3", len(tokens))
+	}
+	for i, want := range []string{"Multi-", "column", "flow"} {
+		if tokens[i].run.Text != want {
+			t.Errorf("token %d = %q, want %q", i, tokens[i].run.Text, want)
+		}
+	}
+	if tokens[1].separated {
+		t.Error("hyphen continuation acquired an inter-word space")
+	}
+	if !tokens[2].separated {
+		t.Error("source space after hyphenated word was lost")
+	}
+}
+
 func TestParagraphAffectedByActiveWrapFollowsFloatBeyondAnchorParagraph(t *testing.T) {
 	geom := PageGeometry{
 		Width: 612, Height: 792,
@@ -616,5 +636,228 @@ func TestActiveWrapLifetimeIsColumnLocal(t *testing.T) {
 	}
 	if paragraphAffectedByActiveWrap(geom, 1, 120, 20, []FloatBox{fl}) {
 		t.Fatal("first-column float must not constrain second-column paragraph")
+	}
+}
+
+func TestAdvanceMaterializesFollowingRunIntoPhysicalGeometry(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "run", Text: "A"},
+		{Kind: "run", FieldKind: "ADVANCE", FieldInstr: `ADVANCE \r 12 \u 3`},
+		{Kind: "run", Text: "B"},
+	}}
+	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
+	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
+	if len(flow.Lines) != 1 || len(flow.Lines[0].Slots) != 1 {
+		t.Fatalf("flow topology = %#v, want one line/slot", flow.Lines)
+	}
+	slot := flow.Lines[0].Slots[0]
+	if !slot.HasAdvance {
+		t.Fatal("ADVANCE slot did not transfer to positioned physical geometry")
+	}
+	var a, b *paragraphPositionedRun
+	for i := range slot.Positioned {
+		placed := &slot.Positioned[i]
+		switch placed.Run.Text {
+		case "A":
+			a = placed
+		case "B":
+			b = placed
+		}
+	}
+	if a == nil || b == nil {
+		t.Fatalf("positioned runs = %#v, want A and B", slot.Positioned)
+	}
+	if b.LeftPt < a.LeftPt+a.WidthPt+11.9 {
+		t.Fatalf("B left = %.2fpt, want at least A end + 12pt", b.LeftPt)
+	}
+	if math.Abs(b.TopPt+3) > 0.01 {
+		t.Fatalf("B top offset = %.2fpt, want -3pt", b.TopPt)
+	}
+
+	public := paragraphLineLayouts(flow.Lines)
+	if len(public) != 1 || len(public[0].Slots) != 1 || len(public[0].Slots[0].PositionedRuns) == 0 {
+		t.Fatalf("renderer-facing positioned runs missing: %#v", public)
+	}
+}
+
+func TestAdvanceAbsoluteXOwnsFollowingRunPosition(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "run", Text: "A"},
+		{Kind: "run", FieldKind: "ADVANCE", FieldInstr: `ADVANCE \x 60`},
+		{Kind: "run", Text: "B"},
+	}}
+	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
+	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
+	slot := flow.Lines[0].Slots[0]
+	for _, placed := range slot.Positioned {
+		if placed.Run.Text == "B" {
+			if math.Abs(placed.LeftPt-60) > 0.01 {
+				t.Fatalf("B left = %.2fpt, want absolute 60pt", placed.LeftPt)
+			}
+			return
+		}
+	}
+	t.Fatal("B positioned run not found")
+}
+
+func TestTabLeaderTransfersToPhysicalPositionedGeometry(t *testing.T) {
+	p := &resolve.Paragraph{
+		Format: resolve.ParagraphFormat{TabStops: []resolve.TabStop{{Pos: 1440, Algn: "left", Leader: "dot"}}},
+		Runs:   []resolve.Run{{Kind: "run", Text: "A"}, {Kind: "tab"}, {Kind: "run", Text: "B"}},
+	}
+	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
+	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
+	public := paragraphLineLayouts(flow.Lines)
+	if len(public) != 1 || len(public[0].Slots) != 1 {
+		t.Fatalf("layout topology = %#v", public)
+	}
+	placed := public[0].Slots[0].PositionedRuns
+	if len(placed) == 0 {
+		t.Fatal("tab-bearing slot did not export positioned runs")
+	}
+	for _, run := range placed {
+		if run.Run.Kind == "tab" {
+			if run.Leader != "dot" {
+				t.Fatalf("tab leader = %q, want dot", run.Leader)
+			}
+			if run.Width <= 0 {
+				t.Fatalf("tab width = %.2f, want positive", run.Width)
+			}
+			return
+		}
+	}
+	t.Fatal("positioned tab not found")
+}
+
+func TestInlineImageTransfersToPhysicalPositionedGeometry(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "run", Text: "A"},
+		{Kind: "image", Image: &resolve.Image{Width: 24 * emuPerPoint, Height: 12 * emuPerPoint}},
+		{Kind: "run", Text: "B"},
+	}}
+	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 20, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
+	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
+	public := paragraphLineLayouts(flow.Lines)
+	placed := public[0].Slots[0].PositionedRuns
+	if len(placed) == 0 {
+		t.Fatal("inline-image slot did not export positioned runs")
+	}
+	for _, run := range placed {
+		if run.Run.Kind == "image" {
+			if math.Abs(run.Width-24) > 0.01 {
+				t.Fatalf("image physical width = %.2fpt, want 24pt", run.Width)
+			}
+			if run.Left <= 0 {
+				t.Fatalf("image physical left = %.2fpt, want after preceding text", run.Left)
+			}
+			return
+		}
+	}
+	t.Fatal("positioned inline image not found")
+}
+
+func TestSuperscriptAndPositionBecomePhysicalTopOffsets(t *testing.T) {
+	size := 20 // 10pt
+	pos := 6   // +3pt raise
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "run", Text: "A", Format: resolve.RunFormat{FontSize: &size}},
+		{Kind: "run", Text: "2", Format: resolve.RunFormat{FontSize: &size, VertAlignVal: "superscript"}},
+		{Kind: "run", Text: "B", Format: resolve.RunFormat{FontSize: &size, Position: &pos}},
+	}}
+	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
+	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
+	public := paragraphLineLayouts(flow.Lines)
+	placed := public[0].Slots[0].PositionedRuns
+	if len(placed) == 0 {
+		t.Fatal("vertical-formatted text did not promote slot to positioned geometry")
+	}
+	var sup, raised *ParagraphRunLayout
+	for i := range placed {
+		switch placed[i].Run.Text {
+		case "2":
+			sup = &placed[i]
+		case "B":
+			raised = &placed[i]
+		}
+	}
+	if sup == nil || raised == nil {
+		t.Fatalf("positioned runs = %#v, want superscript and positioned text", placed)
+	}
+	if math.Abs(sup.Top+3.3) > 0.05 {
+		t.Fatalf("superscript top = %.2fpt, want about -3.30pt", sup.Top)
+	}
+	if math.Abs(raised.Top+3) > 0.01 {
+		t.Fatalf("w:position top = %.2fpt, want -3pt", raised.Top)
+	}
+	if math.Abs(sup.Height-6.5) > 0.05 {
+		t.Fatalf("superscript physical font height = %.2fpt, want 6.5pt", sup.Height)
+	}
+}
+
+func TestInlineObjectsOwnVerticalHeightAndBottomAlignment(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "image", Image: &resolve.Image{Width: 20 * emuPerPoint, Height: 8 * emuPerPoint}},
+		{Kind: "olePlaceholder", OLEPreview: &resolve.Image{Width: 18 * emuPerPoint, Height: 10 * emuPerPoint}},
+		{Kind: "textbox", TextBox: &resolve.TextBox{Width: 16 * emuPerPoint, Height: 6 * emuPerPoint}},
+	}}
+	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
+	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
+	public := paragraphLineLayouts(flow.Lines)
+	placed := public[0].Slots[0].PositionedRuns
+	want := map[string][2]float64{
+		"image":          {8, 6},
+		"olePlaceholder": {10, 4},
+		"textbox":        {6, 8},
+	}
+	for _, r := range placed {
+		exp, ok := want[r.Run.Kind]
+		if !ok {
+			continue
+		}
+		if math.Abs(r.Height-exp[0]) > 0.01 || math.Abs(r.Top-exp[1]) > 0.01 {
+			t.Fatalf("%s physical vertical geometry = height %.2f top %.2f, want %.2f/%.2f", r.Run.Kind, r.Height, r.Top, exp[0], exp[1])
+		}
+		delete(want, r.Run.Kind)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing positioned inline objects: %#v", want)
+	}
+}
+
+func TestSpatialTokenizerUsesCanonicalVisibleRunsForLostLeadingLegacyFragment(t *testing.T) {
+	p := &resolve.Paragraph{
+		Text: "Legacy DOC fixture",
+		Runs: []resolve.Run{{Kind: "run", Text: "gacy DOC fixture"}},
+	}
+	tokens := paragraphSpatialRenderTokens(p, 11)
+	var got strings.Builder
+	for _, token := range tokens {
+		if token.separated {
+			got.WriteByte(' ')
+		}
+		got.WriteString(token.run.Text)
+	}
+	if got.String() != "Legacy DOC fixture" {
+		t.Fatalf("spatial token text = %q, want %q", got.String(), "Legacy DOC fixture")
+	}
+}
+
+func TestSpatialTokenizerSkipsSyntheticLegacyOLEAnchors(t *testing.T) {
+	p := &resolve.Paragraph{Runs: []resolve.Run{
+		{Kind: "olePlaceholder", Text: "Embedded Object"},
+		{Kind: "run", Text: "LEGACY GROUPED SHAPES"},
+	}}
+	tokens := paragraphSpatialRenderTokens(p, 12)
+	var got strings.Builder
+	for _, token := range tokens {
+		if token.separated {
+			got.WriteByte(' ')
+		}
+		got.WriteString(token.run.Text)
+	}
+	if got.String() != "LEGACY GROUPED SHAPES" {
+		t.Fatalf("spatial token text = %q, want title without synthetic OLE anchor", got.String())
 	}
 }

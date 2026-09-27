@@ -3969,20 +3969,54 @@ func TestLegacyShapeFieldFlowPacksConsecutiveOfficeArtShapesAcrossRows(t *testin
 		t.Fatalf("floats=%d want 5", len(got))
 	}
 
-	// Contract, not implementation coordinates: first row follows story order,
-	// the fourth wraps back to the column start, local Y is preserved, and the
-	// second row starts below the rotated/tallest first-row footprint.
-	if !(got[0].X < got[1].X && got[1].X < got[2].X) {
-		t.Fatalf("first-row order = %.1f %.1f %.1f", got[0].X, got[1].X, got[2].X)
+	// The usable legacy row is narrower than the column. The third shape wraps,
+	// but its local X/Y remain offsets within that new row; the fourth then
+	// continues alongside it.
+	if !(got[0].X < got[1].X) || !almostEqual(got[0].X, geom.MarginLeft) {
+		t.Fatalf("first row = %.1f %.1f", got[0].X, got[1].X)
 	}
-	if !almostEqual(got[0].X, geom.MarginLeft) || !almostEqual(got[3].X, geom.MarginLeft) {
-		t.Fatalf("row starts = %.1f / %.1f, want column start %.1f", got[0].X, got[3].X, geom.MarginLeft)
+	if !almostEqual(got[2].X, geom.MarginLeft+9) || got[2].Y <= got[1].Y+got[1].Height-0.01 {
+		t.Fatalf("wrapped local placement = (%.1f, %.1f)", got[2].X, got[2].Y)
 	}
-	if got[2].Y <= got[0].Y {
-		t.Fatalf("rotated shape local Y was lost: first=%.1f rotated=%.1f", got[0].Y, got[2].Y)
+	if !(got[3].X > got[2].X) || got[3].Y >= got[2].Y {
+		t.Fatalf("row continuation = third(%+.1f,%+.1f) fourth(%+.1f,%+.1f)", got[2].X, got[2].Y, got[3].X, got[3].Y)
 	}
-	if got[3].Y <= got[1].Y+got[1].Height-0.01 {
-		t.Fatalf("second row y=%.1f overlaps tallest first-row shape bottom %.1f", got[3].Y, got[1].Y+got[1].Height)
+}
+
+func TestLegacyShapeFieldFlowUsesGapLocalYOffsetAndMarginLimitedRow(t *testing.T) {
+	const emu = int64(12700)
+	state := legacyShapeFlowState{left: 56.7, width: 425.3, y: 107.3}
+	emuPt := func(pt float64) int64 { return int64(math.Round(pt * float64(emu))) }
+	a := &resolve.Shape{Width: emuPt(204.1), Height: emuPt(70.85)}
+	b := &resolve.Shape{Width: emuPt(90.7), Height: emuPt(175.75)}
+	c := &resolve.Shape{X: emuPt(9.35), Y: emuPt(24.65), Width: emuPt(100), Height: emuPt(60)}
+	d := &resolve.Shape{Width: 30 * emu, Height: 20 * emu}
+	_, _ = state.place(a, 204.1, 70.85)
+	bx, by := state.place(b, 90.7, 175.75)
+	cx, cy := state.place(c, 100, 60)
+	dx, dy := state.place(d, 30, 20)
+	if !almostEqual(bx, 263.8) || !almostEqual(by, 107.3) {
+		t.Fatalf("second shape = (%.2f, %.2f), want (263.80, 107.30)", bx, by)
+	}
+	if !almostEqual(cx, 366.85) || !almostEqual(cy, 131.95) {
+		t.Fatalf("local offsets = (%.2f, %.2f), want (366.85, 131.95)", cx, cy)
+	}
+	if !almostEqual(dx, 56.7) || !almostEqual(dy, 335.35) {
+		t.Fatalf("margin-limited wrap = (%.2f, %.2f), want (56.70, 335.35)", dx, dy)
+	}
+}
+
+func TestLegacyShapeFieldFlowReservesRotatedOutlineBeforeNextShape(t *testing.T) {
+	const emu = int64(12700)
+	state := legacyShapeFlowState{left: 56.7, width: 425.3, y: 107.3}
+	emuPt := func(pt float64) int64 { return int64(math.Round(pt * float64(emu))) }
+	rotated := &resolve.Shape{X: emuPt(9.35), Width: emuPt(141.75), Height: emuPt(85.05), RotationDeg: -45}
+	next := &resolve.Shape{Width: emuPt(204.1), Height: emuPt(93.55)}
+	_, _ = state.place(rotated, 141.75, 85.05)
+	nextX, _ := state.place(next, 204.1, 93.55)
+	_, _, rotatedRight, _ := transformedDrawingBounds(FloatBox{X: 56.7 + 9.35, Width: 141.75, Height: 85.05}, -45)
+	if nextX < rotatedRight+legacyShapeFlowGapPt+2*9.35-0.01 {
+		t.Fatalf("next shape x=%.2f did not preserve the rotated local-X gap after %.2f", nextX, rotatedRight)
 	}
 }
 
@@ -4268,5 +4302,46 @@ func TestEmptyTableRowFallbackUsesCanonicalWordSingleAdvance(t *testing.T) {
 	want := 13.8
 	if math.Abs(got-want) > 0.001 {
 		t.Fatalf("empty row fallback = %.3f, want %.3f", got, want)
+	}
+}
+
+func TestLegacyShapeFieldFlowRowHeightReservesRotatedAABB(t *testing.T) {
+	const emu = int64(12700)
+	a := &resolve.Shape{LegacyFlowAnchor: true, LegacyFlowOrder: 1, Floating: true, Width: 142 * emu, Height: 85 * emu, RotationDeg: -45}
+	b := &resolve.Shape{LegacyFlowAnchor: true, LegacyFlowOrder: 2, Floating: true, Y: 1 * emu, Width: 400 * emu, Height: 94 * emu}
+	state := legacyShapeFlowState{left: 60, width: 492, y: 120}
+	ax, ay := state.place(a, 142, 85)
+	_, by := state.place(b, 400, 94)
+	if ax != 60 || ay != 120 {
+		t.Fatalf("first placement=(%.1f,%.1f)", ax, ay)
+	}
+	// The next anchor row begins below the rotated 142x85 rectangle's visual
+	// footprint, not through its lower diamond corner.
+	if by < 243.0 {
+		t.Fatalf("next row y=%.2f overlaps the rotated outline", by)
+	}
+}
+
+func TestLegacyShapeFieldGroupStartsAtAnchorParagraphTop(t *testing.T) {
+	geom := PageGeometry{
+		Width: 595.3, Height: 841.9,
+		MarginLeft: 56.7, MarginRight: 56.7, MarginTop: 56.7, MarginBottom: 56.7,
+		ColumnCount: 1, ColumnWidthPt: 481.9,
+	}
+	group := &resolve.Shape{
+		Kind:             "group",
+		LegacyShapeID:    1026,
+		LegacyFlowAnchor: true,
+		LegacyFlowOrder:  43,
+		Floating:         true,
+		Width:            int64(119.05 * emuPerPoint),
+		Height:           int64(164.05 * emuPerPoint),
+	}
+	got := appendParagraphFloats(nil, []resolve.Run{{Kind: "shape", Shape: group}}, geom, 0, 70.5, 27.6)
+	if len(got) != 1 {
+		t.Fatalf("floats=%d, want 1", len(got))
+	}
+	if !almostEqual(got[0].X, 56.7) || !almostEqual(got[0].Y, 70.5) {
+		t.Fatalf("group position=(%.2f, %.2f), want (56.70, 70.50)", got[0].X, got[0].Y)
 	}
 }

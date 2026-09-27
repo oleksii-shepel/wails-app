@@ -1,6 +1,7 @@
 package render
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -1258,10 +1259,10 @@ func TestHTMLOrderedListsRenderResolvedWordNumberingTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `class="word-list-marker">1.</span>`) {
+	if !strings.Contains(out, `>1.</span>`) {
 		t.Fatalf("missing resolved level-0 marker: %s", out)
 	}
-	if !strings.Contains(out, `class="word-list-marker">1.1.</span>`) {
+	if !strings.Contains(out, `>1.1.</span>`) {
 		t.Fatalf("missing resolved multi-level marker: %s", out)
 	}
 	if !strings.Contains(out, `list-style-type:none`) {
@@ -1278,7 +1279,7 @@ func TestHTMLOrderedListsPreferSemanticTemplateOverStaleResolvedText(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(html, `<span class="word-list-marker">1.1.</span>`) {
+	if !strings.Contains(html, `>1.1.</span>`) {
 		t.Fatalf("template-resolved nested marker missing:\n%s", html)
 	}
 }
@@ -1477,6 +1478,21 @@ func TestHTMLExplicitEqualPhysicalColumnsStillUseWordGrid(t *testing.T) {
 	}
 	if got := explicitColumnGridTemplate(geom); got != "216.0pt 36.0pt 216.0pt" {
 		t.Fatalf("grid = %q", got)
+	}
+}
+
+func TestPhysicalFragmentRunsPreservesWrappedWordSpacing(t *testing.T) {
+	fragment := &layout.ParagraphFragment{Lines: []layout.ParagraphLineLayout{
+		{Slots: []layout.ParagraphSlotLayout{{Runs: []resolve.Run{{Text: "Multi-"}}}}},
+		{Slots: []layout.ParagraphSlotLayout{{Runs: []resolve.Run{{Text: "column"}, {Text: " "}, {Text: "flow"}}}}},
+		{Slots: []layout.ParagraphSlotLayout{{Runs: []resolve.Run{{Text: "text."}}}}},
+	}}
+	var got strings.Builder
+	for _, run := range physicalFragmentRuns(fragment) {
+		got.WriteString(run.Text)
+	}
+	if got.String() != "Multi-column flow text." {
+		t.Fatalf("fragment text = %q", got.String())
 	}
 }
 
@@ -1721,5 +1737,99 @@ func TestPhysicalParagraphContinuationDoesNotRepeatFloatingAnchor(t *testing.T) 
 	}
 	if !strings.Contains(got, "continued") {
 		t.Fatalf("continuation text missing: %s", got)
+	}
+}
+
+func TestPeekAheadTabFieldMetricsUsesMeasuredDecimalPrefix(t *testing.T) {
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	runs := []resolve.Run{{Text: "12.34"}}
+	field, prefix := r.peekAheadTabFieldMetrics(runs, 0)
+	wantField := r.estimateTextWidthForRun("12.34", resolve.RunFormat{})
+	wantPrefix := r.estimateTextWidthForRun("12", resolve.RunFormat{})
+	if math.Abs(field-wantField) > 0.001 {
+		t.Fatalf("field width = %.3f, want %.3f", field, wantField)
+	}
+	if math.Abs(prefix-wantPrefix) > 0.001 {
+		t.Fatalf("decimal prefix = %.3f, want %.3f", prefix, wantPrefix)
+	}
+	if math.Abs(prefix-field/2) < 0.001 {
+		t.Fatalf("decimal prefix unexpectedly fell back to half-width approximation: field=%.3f prefix=%.3f", field, prefix)
+	}
+}
+
+func TestPhysicalPositionedRunsConsumeAdvanceGeometryWithoutReapplyingField(t *testing.T) {
+	advance := resolve.Run{Kind: "run", FieldKind: "ADVANCE", FieldInstr: `ADVANCE \r 12 \u 3`}
+	fragment := &layout.ParagraphFragment{
+		Lines: []layout.ParagraphLineLayout{{Slots: []layout.ParagraphSlotLayout{{
+			Left: 72, Right: 200, Top: 72, Bottom: 86,
+			Runs: []resolve.Run{{Kind: "run", Text: "A"}, advance, {Kind: "run", Text: "B"}},
+			PositionedRuns: []layout.ParagraphRunLayout{
+				{Run: resolve.Run{Kind: "run", Text: "A"}, Left: 0, Top: 0, Width: 6},
+				{Run: advance, Left: 6, Top: 0},
+				{Run: resolve.Run{Kind: "run", Text: "B"}, Left: 18, Top: -3, Width: 6},
+			},
+		}}}},
+	}
+	box := layout.BlockBox{
+		Block:    &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{}},
+		Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1},
+		Height:   14, Fragment: fragment,
+	}
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPhysicalParagraphFragment(box)
+	got := r.buf.String()
+	for _, want := range []string{
+		`data-layout-owned="true"`,
+		`class="word-physical-run" style="position:absolute;left:18.00pt;top:-3.00pt`,
+		`>B<`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("layout-owned ADVANCE rendering missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "margin-left:12.00pt") || strings.Contains(got, "translateY(3.00pt)") {
+		t.Fatalf("renderer re-applied ADVANCE instead of consuming physical geometry: %s", got)
+	}
+}
+
+func TestPhysicalPositionedRunsConsumeLayoutOwnedSuperscriptAndPosition(t *testing.T) {
+	size := 20
+	pos := 6
+	fragment := &layout.ParagraphFragment{Lines: []layout.ParagraphLineLayout{{Slots: []layout.ParagraphSlotLayout{{
+		Left: 72, Right: 200, Top: 72, Bottom: 86,
+		PositionedRuns: []layout.ParagraphRunLayout{
+			{Run: resolve.Run{Kind: "run", Text: "2", Format: resolve.RunFormat{FontSize: &size, VertAlignVal: "superscript"}}, Left: 0, Top: -3.3, Width: 4, Height: 6.5},
+			{Run: resolve.Run{Kind: "run", Text: "B", Format: resolve.RunFormat{FontSize: &size, Position: &pos}}, Left: 5, Top: -3, Width: 5, Height: 10},
+		},
+	}}}}}
+	box := layout.BlockBox{Block: &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{}}, Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1}, Height: 14, Fragment: fragment}
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPhysicalParagraphFragment(box)
+	got := r.buf.String()
+	if strings.Contains(got, "<sup") || strings.Contains(got, "vertical-align:3.0pt") {
+		t.Fatalf("renderer re-applied vertical semantics already owned by physical layout: %s", got)
+	}
+	for _, want := range []string{`top:-3.30pt`, `font-size:6.5pt`, `top:-3.00pt`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("layout-owned vertical rendering missing %q: %s", want, got)
+		}
+	}
+}
+
+func TestPhysicalInlineImageConsumesLayoutOwnedVerticalBox(t *testing.T) {
+	const emuPerPoint = int64(12700)
+	img := &resolve.Image{Width: 20 * emuPerPoint, Height: 8 * emuPerPoint, MIMEType: "image/png", Data: []byte{1}}
+	fragment := &layout.ParagraphFragment{Lines: []layout.ParagraphLineLayout{{Slots: []layout.ParagraphSlotLayout{{
+		Left: 72, Right: 200, Top: 72, Bottom: 86,
+		PositionedRuns: []layout.ParagraphRunLayout{{Run: resolve.Run{Kind: "image", Image: img}, Left: 10, Top: 6, Width: 20, Height: 8}},
+	}}}}}
+	box := layout.BlockBox{Block: &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{}}, Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1}, Height: 14, Fragment: fragment}
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderPhysicalParagraphFragment(box)
+	got := r.buf.String()
+	for _, want := range []string{`left:10.00pt`, `top:6.00pt`, `width:20.00pt;height:8.00pt`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("layout-owned inline object rendering missing %q: %s", want, got)
+		}
 	}
 }

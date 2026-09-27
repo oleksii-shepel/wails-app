@@ -21,6 +21,8 @@ type VisualProperties struct {
 
 	HasFillColor     bool
 	FillColor        string
+	HasFillOpacity   bool
+	FillOpacity      float64
 	HasFill          bool
 	FillEnabled      bool
 	HasFillType      bool
@@ -48,6 +50,10 @@ type VisualProperties struct {
 	LineDash       string
 	HasLineOpacity bool
 	LineOpacity    float64
+	HasLineJoin    bool
+	LineJoin       string
+	HasLineCap     bool
+	LineCap        string
 	HasLine        bool
 	LineEnabled    bool
 
@@ -117,6 +123,9 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 		case escher.PropFillColor:
 			out.HasFillColor = true
 			out.FillColor = resolve(v)
+		case escher.PropFillOpacity:
+			out.HasFillOpacity = true
+			out.FillOpacity = Fixed16ToFraction(v)
 		case escher.PropFillBackColor:
 			out.HasFillBackColor = true
 			out.FillBackColor = resolve(v)
@@ -139,15 +148,21 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 			out.HasFillToBottom = true
 			out.FillToBottom = Fixed16ToFraction(v)
 		case escher.PropFillBooleans:
-			out.HasFill = true
 			valueBits := v & 0xFFFF
 			useBits := (v >> 16) & 0xFFFF
-			// fFilled is bit 4 in the OfficeArt fill boolean set.
+			// fFilled is bit 4 in the OfficeArt fill boolean set. A boolean
+			// property can author unrelated fill flags without authoring fFilled;
+			// in that case it must not cancel an earlier explicit fFilled value from
+			// another FOPT tier/record.
 			if useBits&(1<<4) != 0 {
+				out.HasFill = true
 				out.FillEnabled = valueBits&(1<<4) != 0
-			} else {
-				// Older producer paths have historically surfaced bit 0.
-				out.FillEnabled = valueBits&1 != 0
+			} else if useBits == 0 && valueBits&1 != 0 {
+				// Preserve the narrow compatibility form used by older producers:
+				// an isolated low value bit can mean enabled. Never interpret an
+				// unrelated non-zero use mask as an authored fFilled=false.
+				out.HasFill = true
+				out.FillEnabled = true
 			}
 
 		case escher.PropLineColor:
@@ -183,6 +198,12 @@ func DecodeVisualProperties(props []escher.Property, resolve ColorResolver) Visu
 			out.EndArrowWidth = ArrowSizeFromOfficeArt(v)
 		case escher.PropLineEndArrowLength:
 			out.EndArrowLength = ArrowSizeFromOfficeArt(v)
+		case escher.PropLineJoinStyle:
+			out.HasLineJoin = true
+			out.LineJoin = LineJoinFromOfficeArt(v)
+		case escher.PropLineEndCapStyle:
+			out.HasLineCap = true
+			out.LineCap = LineCapFromOfficeArt(v)
 
 		case escher.PropCropTop:
 			out.HasCrop = true
@@ -268,6 +289,10 @@ func MergeVisualProperties(base, incoming VisualProperties) VisualProperties {
 		base.HasFill = true
 		base.FillEnabled = incoming.FillEnabled
 	}
+	if incoming.HasFillOpacity {
+		base.HasFillOpacity = true
+		base.FillOpacity = incoming.FillOpacity
+	}
 	if incoming.HasFillType {
 		base.HasFillType = true
 		base.FillType = incoming.FillType
@@ -315,6 +340,14 @@ func MergeVisualProperties(base, incoming VisualProperties) VisualProperties {
 	if incoming.HasLineOpacity {
 		base.HasLineOpacity = true
 		base.LineOpacity = incoming.LineOpacity
+	}
+	if incoming.HasLineJoin {
+		base.HasLineJoin = true
+		base.LineJoin = incoming.LineJoin
+	}
+	if incoming.HasLineCap {
+		base.HasLineCap = true
+		base.LineCap = incoming.LineCap
 	}
 	if incoming.HasLine {
 		base.HasLine = true

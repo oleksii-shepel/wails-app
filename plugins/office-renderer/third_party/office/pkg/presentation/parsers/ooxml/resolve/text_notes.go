@@ -122,6 +122,15 @@ func resolveParagraph(ap *parts.DMLParagraph, defaults textDefaults, themeColors
 			}
 		}
 	}
+	// An empty PresentationML paragraph still has a formatted paragraph mark.
+	// Materialize that mark as an empty canonical run so physical text layout
+	// measures the authored endParaRPr metrics instead of falling back to the
+	// surrounding body/master run size. This is the OOXML counterpart of the
+	// legacy PPT CR-boundary CF run and keeps both parsers on the same canonical
+	// empty-paragraph contract without changing paragraph or shape coordinates.
+	if len(p.Runs) == 0 {
+		p.Runs = append(p.Runs, cascade.RunFromLocal("", ap.EndParaRPr, defaults, themeColors, theme))
+	}
 	return p
 }
 

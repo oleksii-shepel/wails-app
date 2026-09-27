@@ -136,7 +136,9 @@ func TestPresetGeometryCompoundShapes(t *testing.T) {
 			height:       100,
 			wantFillRule: "nonzero",
 			wantMoves:    1,
-			wantCmdTypes: []string{"C"},
+			// Moon is an outer ellipse arc plus an adjustment-controlled inner arc.
+			// Do not pin it to the older cubic approximation.
+			wantCmdTypes: []string{"A"},
 		},
 		{
 			name:         "cloud",
@@ -698,14 +700,14 @@ func TestBuildConnectorPrimitivesTailTriangle(t *testing.T) {
 		t.Fatalf("primitive count = %d, want 2", len(primitives))
 	}
 	body := primitives[0]
-	if len(body.Points) != 2 || body.Points[1] != (Point{X: 252, Y: 54}) {
-		t.Fatalf("trimmed body points = %#v, want stroke-scaled end at 252,54", body.Points)
+	if len(body.Points) != 2 || body.Points[1] != (Point{X: 270, Y: 54}) {
+		t.Fatalf("trimmed body points = %#v, want stroke-scaled end at 270,54", body.Points)
 	}
 	arrow := primitives[1]
 	if !arrow.Closed || arrow.Style.FillColor != "595959" {
 		t.Fatalf("arrow primitive = %#v, want closed filled polygon", arrow)
 	}
-	want := []Point{{X: 288, Y: 54}, {X: 252, Y: 66}, {X: 252, Y: 42}}
+	want := []Point{{X: 288, Y: 54}, {X: 270, Y: 60}, {X: 270, Y: 48}}
 	if len(arrow.Points) != len(want) {
 		t.Fatalf("arrow point count = %d, want %d", len(arrow.Points), len(want))
 	}
@@ -1394,5 +1396,40 @@ func TestMultiDirectionArrowCalloutExtremeAdjustmentsRemainFinite(t *testing.T) 
 				}
 			}
 		}
+	}
+}
+
+func TestRightArrowUsesDrawingMLAdjustmentSemantics(t *testing.T) {
+	pg := PresetGeometry{Name: "rightArrow", Adjustments: []float64{0.3819444444444444, 0.375}}
+	path, err := pg.GetPath(150, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(path.Commands) < 7 {
+		t.Fatalf("commands = %#v", path.Commands)
+	}
+	point := func(i int) Point { return path.Commands[i].Points[0] }
+	const eps = 1e-9
+	if math.Abs(point(0).Y-30.90277777777778) > eps {
+		t.Fatalf("shaft top = %v, want 30.9027777778", point(0).Y)
+	}
+	if math.Abs(point(1).X-112.5) > eps || math.Abs(point(2).X-112.5) > eps {
+		t.Fatalf("arrow-head base x = %v/%v, want 112.5", point(1).X, point(2).X)
+	}
+	if math.Abs(point(3).X-150) > eps || math.Abs(point(3).Y-50) > eps {
+		t.Fatalf("tip = %+v, want (150,50)", point(3))
+	}
+}
+
+func TestRightArrowSquareGeometryMatchesLegacyHandleConversion(t *testing.T) {
+	pg := PresetGeometry{Name: "rightArrow", Adjustments: []float64{0.42361111111111116, 0.59375}}
+	path, err := pg.GetPath(100, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	point := func(i int) Point { return path.Commands[i].Points[0] }
+	const eps = 1e-9
+	if math.Abs(point(0).Y-28.819444444444443) > eps || math.Abs(point(1).X-40.625) > eps {
+		t.Fatalf("rightArrow path = shaftTop %.12f headBase %.12f, want 28.819444444444 / 40.625", point(0).Y, point(1).X)
 	}
 }

@@ -10,12 +10,14 @@ import (
 	"strings"
 
 	"office/pkg/diag"
+	"office/pkg/fontmetrics"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/fontdata"
 	"office/pkg/ooxml/htmlasset"
 	ir "office/pkg/presentation/ir"
 	playout "office/pkg/presentation/layout"
 	drawingcss "office/pkg/render/drawingcss"
+	"office/pkg/render/metafile"
 )
 
 type HTMLImageMode string
@@ -89,8 +91,14 @@ func HTMLWithOptions(pres *ir.Presentation, opts HTMLOptions) (string, []HTMLAss
 	}
 	ctx := newHTMLRenderContext(pres, opts)
 	physicalSlides := make([]playout.PhysicalSlidePlan, 0, len(pres.Slides))
+	materializeOpts := playout.PhysicalMaterializeOptions{
+		MetafileFonts: presentationMetafileFontFaces(pres),
+		TextFonts:     presentationFontMetricsCatalog(pres),
+		SlideWidthPt:  slideW,
+		SlideHeightPt: slideH,
+	}
 	for _, slide := range pres.Slides {
-		physicalSlides = append(physicalSlides, playout.MaterializePhysicalSlide(slide))
+		physicalSlides = append(physicalSlides, playout.MaterializePhysicalSlideWithOptions(slide, materializeOpts))
 	}
 	playbackEnabled := opts.EnablePlayback && physicalPresentationNeedsPlayback(physicalSlides)
 	behaviorRuntimeEnabled := playbackEnabled || physicalPresentationNeedsBehaviorRuntime(physicalSlides)
@@ -101,6 +109,7 @@ func HTMLWithOptions(pres *ir.Presentation, opts HTMLOptions) (string, []HTMLAss
 	b.WriteString("<style>\n")
 	renderEmbeddedFontCSS(&b, pres, ctx)
 	fmt.Fprintf(&b, slideCSS, slideW, slideH, slideW/slideH, slideW, slideH)
+	b.WriteString(oleMathCSS)
 	if behaviorRuntimeEnabled {
 		fmt.Fprintf(&b, playbackCSS, slideW/slideH)
 	}
@@ -108,6 +117,9 @@ func HTMLWithOptions(pres *ir.Presentation, opts HTMLOptions) (string, []HTMLAss
 		b.WriteString(diagnosticsCSS)
 	}
 	b.WriteString("</style>\n")
+	b.WriteString("<script>\n")
+	b.WriteString(oleMathScript)
+	b.WriteString("\n</script>\n")
 	if behaviorRuntimeEnabled {
 		b.WriteString("<script>\n")
 		b.WriteString(playbackScript)
@@ -124,6 +136,73 @@ func HTMLWithOptions(pres *ir.Presentation, opts HTMLOptions) (string, []HTMLAss
 
 	b.WriteString("</body>\n</html>")
 	return b.String(), ctx.assetsCopy(), nil
+}
+
+func presentationMetafileFontFaces(pres *ir.Presentation) []metafile.FontFace {
+	if pres == nil {
+		return nil
+	}
+	var out []metafile.FontFace
+	for _, font := range pres.EmbeddedFonts {
+		if font == nil {
+			continue
+		}
+		for _, face := range font.Faces {
+			if face == nil || len(face.Data) == 0 {
+				continue
+			}
+			for _, source := range fontdata.EmbeddedSources(face.Data, face.ContentType, face.Family) {
+				if source.Format != "truetype" && source.Format != "opentype" {
+					continue
+				}
+				out = append(out, metafile.FontFace{
+					Family: face.Family,
+					Bold:   face.Weight >= 600,
+					Italic: strings.EqualFold(strings.TrimSpace(face.Style), "italic"),
+					Data:   append([]byte(nil), source.Data...),
+				})
+				break
+			}
+		}
+	}
+	return out
+}
+
+func presentationFontMetricsCatalog(pres *ir.Presentation) *fontmetrics.Catalog {
+	if pres == nil {
+		return nil
+	}
+	cat := &fontmetrics.Catalog{}
+	for _, font := range pres.EmbeddedFonts {
+		if font == nil {
+			continue
+		}
+		for _, face := range font.Faces {
+			if face == nil || len(face.Data) == 0 {
+				continue
+			}
+			for _, source := range fontdata.EmbeddedSources(face.Data, face.ContentType, face.Family) {
+				if source.Format != "truetype" && source.Format != "opentype" {
+					continue
+				}
+				parsed, ok := fontmetrics.ParseSFNT(source.Data)
+				if !ok {
+					continue
+				}
+				cat.Faces = append(cat.Faces, fontmetrics.NamedFace{
+					Family: face.Family,
+					Weight: face.Weight,
+					Italic: strings.EqualFold(strings.TrimSpace(face.Style), "italic"),
+					Face:   parsed,
+				})
+				break
+			}
+		}
+	}
+	if cat.Empty() {
+		return nil
+	}
+	return cat
 }
 
 func newHTMLRenderContext(pres *ir.Presentation, opts HTMLOptions) *htmlRenderContext {
@@ -412,6 +491,9 @@ func renderShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, slide
 		return
 	}
 	shape := item.SourceShape
+	if shape.AnimationOnly && (ctx == nil || !ctx.options.EnablePlayback) {
+		return
+	}
 	if shape.HyperlinkURL != "" || shape.ActionLink != "" {
 		var inner strings.Builder
 		renderShapeContent(&inner, item, slideW, slideH, ctx)
@@ -709,6 +791,17 @@ func renderTextShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, s
 		return
 	}
 
+	// Many legacy OfficeArt drawing primitives are represented by the parser as
+	// text-capable shapes even though they have no text body at all. Emitting an
+	// empty flex text layer for those shapes adds a second clipping/overflow
+	// surface that can only interfere with the vector paint. The vector is the
+	// complete visible content when there are no authored paragraphs, so stop
+	// after serializing it.
+	if len(shape.Paragraphs) == 0 {
+		b.WriteString("</div>\n")
+		return
+	}
+
 	var contentStyles []string
 	contentWidth := "width:100%"
 	contentHeight := "height:100%"
@@ -801,8 +894,25 @@ func renderTextShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, s
 	}
 
 	contentStyles = appendTextBoxPlacementStyles(contentStyles, textFrame, frameLayout, textBox)
-	if item.Drawing.Paint.Clip.ClipContent && item.Drawing.Paint.Clip.CSSPath != "" {
-		contentStyles = append(contentStyles, "clip-path:"+item.Drawing.Paint.Clip.CSSPath)
+
+	// Shape/effect overflow and text-frame clipping are independent physical
+	// contracts. Shadows, glows, reflections and other paint may need the outer
+	// shape to overflow while a fixed text frame still clips its text. Keep the
+	// physical line container overflow-visible so glyph ink and flex items are
+	// not clipped individually; when clipping is authored, a dedicated frame
+	// wrapper owns it instead. This also keeps body rotation and vertical-anchor
+	// offsets inside the same authored clipping frame.
+	textClipOpen := false
+	if textBox.ClipContent {
+		clipStyles := []string{"position:absolute", "inset:0", "overflow:hidden", "z-index:1"}
+		// Geometry clipping belongs to the fixed text frame, not to the physical
+		// line container. A noAutofit body has ClipContent=false and therefore
+		// intentionally escapes both the frame and ellipse/freeform geometry.
+		if item.Drawing.Paint.Clip.ClipContent && item.Drawing.Paint.Clip.CSSPath != "" {
+			clipStyles = append(clipStyles, "clip-path:"+item.Drawing.Paint.Clip.CSSPath)
+		}
+		fmt.Fprintf(b, "<div class=\"shape__text-clip\" style=%q>\n", strings.Join(clipStyles, ";"))
+		textClipOpen = true
 	}
 	fmt.Fprintf(b, "<div class=\"shape__content\" style=%q>\n", strings.Join(contentStyles, ";"))
 
@@ -815,6 +925,9 @@ func renderTextShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, s
 	}
 
 	b.WriteString("</div>\n")
+	if textClipOpen {
+		b.WriteString("</div>\n")
+	}
 	b.WriteString("</div>\n")
 }
 
@@ -2311,24 +2424,33 @@ func svgPathData(path drawing.Path) string {
 			if len(cmd.Points) == 0 {
 				continue
 			}
-			parts = append(parts, fmt.Sprintf("%s %.4f %.4f", cmd.Type, cmd.Points[0].X, cmd.Points[0].Y))
+			// Drawing paths may compact several consecutive vertices into one
+			// command. SVG accepts the same representation: additional points on
+			// M are implicit line-tos and additional points on L are further
+			// line-tos. Serializing only Points[0] silently collapsed presets such
+			// as flowChartCollate and multi-vertex legacy custom geometry.
+			var coords strings.Builder
+			coords.WriteString(cmd.Type)
+			for _, point := range cmd.Points {
+				fmt.Fprintf(&coords, " %.4f %.4f", point.X, point.Y)
+			}
+			parts = append(parts, coords.String())
 		case "C":
-			if len(cmd.Points) < 3 {
-				continue
+			// A canonical command may carry several consecutive cubic segments.
+			// SVG permits all control/end-point triples after one C opcode. Dropping
+			// everything after the first triple changes freeform OfficeArt curves.
+			for i := 0; i+2 < len(cmd.Points); i += 3 {
+				parts = append(parts, fmt.Sprintf("C %.4f %.4f %.4f %.4f %.4f %.4f",
+					cmd.Points[i].X, cmd.Points[i].Y,
+					cmd.Points[i+1].X, cmd.Points[i+1].Y,
+					cmd.Points[i+2].X, cmd.Points[i+2].Y))
 			}
-			parts = append(parts, fmt.Sprintf("C %.4f %.4f %.4f %.4f %.4f %.4f",
-				cmd.Points[0].X, cmd.Points[0].Y,
-				cmd.Points[1].X, cmd.Points[1].Y,
-				cmd.Points[2].X, cmd.Points[2].Y,
-			))
 		case "Q":
-			if len(cmd.Points) < 2 {
-				continue
+			for i := 0; i+1 < len(cmd.Points); i += 2 {
+				parts = append(parts, fmt.Sprintf("Q %.4f %.4f %.4f %.4f",
+					cmd.Points[i].X, cmd.Points[i].Y,
+					cmd.Points[i+1].X, cmd.Points[i+1].Y))
 			}
-			parts = append(parts, fmt.Sprintf("Q %.4f %.4f %.4f %.4f",
-				cmd.Points[0].X, cmd.Points[0].Y,
-				cmd.Points[1].X, cmd.Points[1].Y,
-			))
 		case "A":
 			if len(cmd.Points) == 0 || len(cmd.Args) < 5 {
 				continue
@@ -2384,8 +2506,8 @@ func renderImageShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, 
 	imageVisual := *item.Image
 	x, y, w, h := physicalBoundsPercent(imageVisual.Composition.FrameBounds, slideW, slideH)
 	effectStyles := presentationPictureEffectPlanStyles(imageVisual.Composition.Effects)
-	if len(shape.ImageData) > 0 {
-		if !browserRenderablePresentationImage(imageContentType(shape)) {
+	if len(imageVisual.Data) > 0 {
+		if !browserRenderablePresentationImage(imageVisual.MIME) {
 			var styles []string
 			styles = append(styles,
 				"position:absolute",
@@ -2417,10 +2539,10 @@ func renderImageShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, 
 			styles = appendImagePhysicalPaintStyles(styles, imageVisual)
 			fmt.Fprintf(b,
 				"<div class=\"shape shape--image shape--image-placeholder\" style=%q%s%s%s%s aria-label=%q>[%s]</div>\n",
-				strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(shape.Name), escapeHTML(imageContentType(shape)))
+				strings.Join(styles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(imageVisual.Alt), escapeHTML(imageVisual.MIME))
 			return
 		}
-		src := imageSource(ctx, shape)
+		src := imageVisualSource(ctx, imageVisual)
 		var styles []string
 		styles = append(styles,
 			"position:absolute",
@@ -2483,7 +2605,7 @@ func renderImageShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, 
 		geometryAttr := fmt.Sprintf(" data-ppt-image-dpi=%q data-ppt-rot-with-shape=%q data-ppt-fill-rect=%q", strconv.Itoa(imageVisual.DPI), strconv.FormatBool(imageVisual.RotWithShape), fmt.Sprintf("%.5f,%.5f,%.5f,%.5f", imageVisual.FrameLeft/100, imageVisual.FrameTop/100, imageVisual.FrameRight/100, imageVisual.FrameBottom/100))
 		fmt.Fprintf(b,
 			"<img class=\"shape__image\" style=%q src=%q alt=%q%s%s>",
-			strings.Join(imgStyles, ";"), src, escapeAttr(shape.Name), imageEffectsAttr, geometryAttr)
+			strings.Join(imgStyles, ";"), src, escapeAttr(imageVisual.Alt), imageEffectsAttr, geometryAttr)
 		b.WriteString("</div>")
 		// Shape-local overlays stay inside the authored picture geometry mask.
 		writeHTMLFillOverlays(b, imageVisual.Composition.Effects)
@@ -2620,6 +2742,33 @@ func renderOleObjectShape(b *strings.Builder, item *playout.PhysicalVisual, slid
 		fmt.Sprintf("width:%.4f%%", w),
 		fmt.Sprintf("height:%.4f%%", h),
 	}
+	if ole.MathML != "" {
+		baseStyles = append(baseStyles, "overflow:visible")
+		baseStyles = appendOLEPhysicalPaintStyles(baseStyles, ole)
+		if color := oleMathForegroundColor(ole); color != "" {
+			baseStyles = append(baseStyles, "color:"+color)
+		}
+		if ole.LinkURL != "" {
+			fmt.Fprintf(b, "<a class=\"ole-object-link\" href=%q target=\"_blank\" rel=\"noopener noreferrer\">", escapeAttr(ole.LinkURL))
+		}
+		metricAttr := ""
+		if dx, baselineY, centerY, ok := oleMathPreviewPlacement(ole); ok {
+			metricAttr += fmt.Sprintf(` data-math-offset-x="%.6f" data-math-baseline-y="%.6f" data-math-center-y="%.6f"`, dx, baselineY, centerY)
+		}
+		if oleMathPreviewIsMultiline(ole) {
+			metricAttr += ` data-math-multiline="1"`
+		}
+		preview := ""
+		if strings.EqualFold(strings.TrimSpace(ole.IconMIME), "image/svg+xml") && len(ole.IconData) > 0 {
+			preview = `<span class="ole-math-authored-preview" aria-hidden="true">` + string(ole.IconData) + `</span>`
+		}
+		fmt.Fprintf(b, "<div class=\"shape shape--ole-object shape--math shape--ole-math\" style=%q%s%s%s%s%s>%s<span class=\"ole-math-inner\">%s<span class=\"ole-math-baseline-marker\" aria-hidden=\"true\"></span></span></div>\n", strings.Join(baseStyles, ";"), metricAttr, animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), preview, ole.MathML)
+		if ole.LinkURL != "" {
+			b.WriteString("</a>\n")
+		}
+		return
+	}
+
 	if len(ole.IconData) > 0 && browserRenderablePresentationImage(ole.IconMIME) {
 		if len(effectStyles) > 0 {
 			baseStyles = append(baseStyles, "overflow:visible")
@@ -2649,15 +2798,26 @@ func renderOleObjectShape(b *strings.Builder, item *playout.PhysicalVisual, slid
 			baseStyles = appendSortedCSSProps(baseStyles, effectStyles)
 		}
 		baseStyles = appendOLEPhysicalPaintStyles(baseStyles, ole)
-		src := oleObjectIconSource(ctx, ole)
 		if ole.LinkURL != "" {
 			fmt.Fprintf(b, "<a class=\"ole-object-link\" href=%q target=\"_blank\" rel=\"noopener noreferrer\">", escapeAttr(ole.LinkURL))
 		}
-		fmt.Fprintf(b, "<img class=\"shape shape--ole-object\" style=%q src=%q alt=%q%s%s%s%s>\n",
-			strings.Join(baseStyles, ";"), src, escapeAttr(shape.Name), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
+		if strings.EqualFold(strings.TrimSpace(ole.IconMIME), "image/svg+xml") {
+			fmt.Fprintf(b, "<div class=\"shape shape--ole-object shape--ole-object-preview\" style=%q%s%s%s%s aria-label=%q><div class=\"shape--ole-object-preview-svg\">%s</div></div>\n",
+				strings.Join(baseStyles, ";"), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape), escapeAttr(shape.Name), oleInlineSVGPreviewMarkup(ole.IconData))
+		} else {
+			src := oleObjectIconSource(ctx, ole)
+			fmt.Fprintf(b, "<img class=\"shape shape--ole-object\" style=%q src=%q alt=%q%s%s%s%s>\n",
+				strings.Join(baseStyles, ";"), src, escapeAttr(shape.Name), animationAttrs(shape, ctx), emphasisEffectsAttr(shape), motionPathAttr(shape), triggerAttr(shape))
+		}
 		if ole.LinkURL != "" {
 			b.WriteString("</a>\n")
 		}
+		return
+	}
+	// Equation Editor objects have no meaningful generic icon. When neither the
+	// native MTEF payload nor a cached presentation image is available, the OLE
+	// record is metadata only; drawing a fallback badge creates a false overlay.
+	if isEquationOLE(ole, shape) {
 		return
 	}
 
@@ -2717,6 +2877,312 @@ func renderOleObjectShape(b *strings.Builder, item *playout.PhysicalVisual, slid
 	}
 }
 
+func isEquationOLE(ole *playout.PhysicalOLEPlan, shape *ir.Shape) bool {
+	if ole != nil && strings.Contains(strings.ToLower(ole.ProgID), "equation") {
+		return true
+	}
+	if shape == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(shape.OLEObjectProgID), "equation") ||
+		strings.Contains(strings.ToLower(shape.OLEObjectName), "equation")
+}
+
+func oleMathPreviewPlacement(ole *playout.PhysicalOLEPlan) (float64, float64, float64, bool) {
+	if ole == nil || !strings.EqualFold(strings.TrimSpace(ole.IconMIME), "image/svg+xml") || len(ole.IconData) == 0 {
+		return 0, 0, 0, false
+	}
+	svg := string(ole.IconData)
+	start := strings.Index(svg, "<svg")
+	if start < 0 {
+		return 0, 0, 0, false
+	}
+	end := strings.IndexByte(svg[start:], '>')
+	if end < 0 {
+		return 0, 0, 0, false
+	}
+	vb := strings.Fields(svgAttributeValue(svg[start:start+end], "viewBox"))
+	if len(vb) != 4 {
+		return 0, 0, 0, false
+	}
+	vx, e0 := strconv.ParseFloat(vb[0], 64)
+	vy, e1 := strconv.ParseFloat(vb[1], 64)
+	vw, e2 := strconv.ParseFloat(vb[2], 64)
+	vh, e3 := strconv.ParseFloat(vb[3], 64)
+	if e0 != nil || e1 != nil || e2 != nil || e3 != nil || vw <= 0 || vh <= 0 {
+		return 0, 0, 0, false
+	}
+
+	minX, maxX := 0.0, 0.0
+	minY, maxY := 0.0, 0.0
+	have := false
+	maxFS := 0.0
+	var baselineSum float64
+	var baselineCount int
+	// The metafile-to-SVG path writes GDI text y as its baseline.  Preserve the
+	// dominant authored baseline rather than the preview ink-box centre. Scripts
+	// have a smaller font size and therefore do not pull the equation vertically.
+	for from := 0; ; {
+		i := strings.Index(svg[from:], "<text")
+		if i < 0 {
+			break
+		}
+		i += from
+		j := strings.IndexByte(svg[i:], '>')
+		if j < 0 {
+			break
+		}
+		tagEnd := i + j
+		tag := svg[i:tagEnd]
+		x, ex := strconv.ParseFloat(svgAttributeValue(tag, "x"), 64)
+		y, ey := strconv.ParseFloat(svgAttributeValue(tag, "y"), 64)
+		fs, ef := strconv.ParseFloat(svgAttributeValue(tag, "font-size"), 64)
+		if ex == nil && ey == nil && ef == nil && fs > 0 {
+			w := fs * 0.55
+			if close := strings.Index(svg[tagEnd+1:], "</text>"); close >= 0 {
+				if n := len([]rune(strings.TrimSpace(svg[tagEnd+1 : tagEnd+1+close]))); n > 0 {
+					w *= float64(n)
+				}
+			}
+			if !have {
+				minX, maxX, have = x, x+w, true
+				minY, maxY = y-fs*.8, y+fs*.2
+			} else {
+				if x < minX {
+					minX = x
+				}
+				if x+w > maxX {
+					maxX = x + w
+				}
+				minY = math.Min(minY, y-fs*.8)
+				maxY = math.Max(maxY, y+fs*.2)
+			}
+			if fs > maxFS+0.01 {
+				maxFS, baselineSum, baselineCount = fs, y, 1
+			} else if math.Abs(fs-maxFS) <= 0.01 {
+				baselineSum += y
+				baselineCount++
+			}
+		}
+		from = tagEnd + 1
+	}
+	if !have || baselineCount == 0 {
+		return 0, 0, 0, false
+	}
+	baseline := baselineSum / float64(baselineCount)
+	// The formula follows text in an authored OLE gap, so its horizontal
+	// placement is determined by the preview's left ink origin—not its centre.
+	// Centre-derived offsets pull narrow formulas back over the preceding text.
+	return (minX - vx) / vw, (baseline - vy) / vh, ((minY+maxY)/2 - vy) / vh, true
+}
+
+func oleMathPreviewIsMultiline(ole *playout.PhysicalOLEPlan) bool {
+	if ole == nil || !strings.EqualFold(strings.TrimSpace(ole.IconMIME), "image/svg+xml") || len(ole.IconData) == 0 {
+		return false
+	}
+	svg := string(ole.IconData)
+	maxFS := 0.0
+	var ys []float64
+	for from := 0; ; {
+		i := strings.Index(svg[from:], "<text")
+		if i < 0 {
+			break
+		}
+		i += from
+		j := strings.IndexByte(svg[i:], '>')
+		if j < 0 {
+			break
+		}
+		tagEnd := i + j
+		tag := svg[i:tagEnd]
+		y, ey := strconv.ParseFloat(svgAttributeValue(tag, "y"), 64)
+		fs, ef := strconv.ParseFloat(svgAttributeValue(tag, "font-size"), 64)
+		if ey == nil && ef == nil && fs > 0 {
+			if fs > maxFS+0.01 {
+				maxFS, ys = fs, []float64{y}
+			} else if math.Abs(fs-maxFS) <= 0.01 {
+				ys = append(ys, y)
+			}
+		}
+		from = tagEnd + 1
+	}
+	if len(ys) < 2 {
+		return false
+	}
+	minY, maxY := ys[0], ys[0]
+	for _, y := range ys[1:] {
+		if y < minY {
+			minY = y
+		}
+		if y > maxY {
+			maxY = y
+		}
+	}
+	return maxY-minY > maxFS*0.5
+}
+
+func oleMathForegroundColor(ole *playout.PhysicalOLEPlan) string {
+	if ole == nil {
+		return ""
+	}
+	// Legacy PPT can recolor an OLE preview at the OfficeArt picture-shape
+	// level. The cached WMF/EMF remains black, so inspecting converted SVG
+	// paint alone loses the authored equation color. Explicit recolor wins.
+	if c := cssOLEMathColor(ole.MathColor); c != "" {
+		return c
+	}
+	if !strings.EqualFold(strings.TrimSpace(ole.IconMIME), "image/svg+xml") {
+		return ""
+	}
+	svg := string(ole.IconData)
+	// Text is the strongest signal when the metafile converter retained text.
+	// Many MathType previews are outlined to paths, however, so fall back to
+	// the first authored path/line paint rather than silently rendering black.
+	// Retained SVG text is authoritative because it represents actual glyphs.
+	if c := firstOLEMathSVGPaint(svg, "text"); c != "" {
+		return c
+	}
+	// Outlined previews may contain bookkeeping/clipping paths before the glyph
+	// outlines.  Choosing the first path therefore makes equation colour depend
+	// on converter serialization order.  Use the dominant authored glyph paint
+	// across drawable primitives instead.
+	return dominantOLEMathSVGPaint(svg, []string{"path", "polyline", "polygon", "line"})
+}
+
+func cssOLEMathColor(c string) string {
+	c = strings.TrimSpace(c)
+	if len(c) == 6 {
+		for _, r := range c {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return c
+			}
+		}
+		return "#" + c
+	}
+	return c
+}
+
+func dominantOLEMathSVGPaint(svg string, names []string) string {
+	counts := map[string]int{}
+	order := []string{}
+	for _, name := range names {
+		needle := "<" + name
+		for from := 0; ; {
+			i := strings.Index(svg[from:], needle)
+			if i < 0 {
+				break
+			}
+			i += from
+			j := strings.IndexByte(svg[i:], '>')
+			if j < 0 {
+				break
+			}
+			tag := svg[i : i+j]
+			c := ""
+			for _, attr := range []string{"fill", "stroke"} {
+				if v := svgAttributeValue(tag, attr); validOLEMathColor(v) {
+					c = strings.TrimSpace(v)
+					break
+				}
+			}
+			if c == "" {
+				if style := svgAttributeValue(tag, "style"); style != "" {
+					for _, decl := range strings.Split(style, ";") {
+						kv := strings.SplitN(decl, ":", 2)
+						if len(kv) == 2 && (strings.TrimSpace(kv[0]) == "fill" || strings.TrimSpace(kv[0]) == "stroke") && validOLEMathColor(kv[1]) {
+							c = strings.TrimSpace(kv[1])
+							break
+						}
+					}
+				}
+			}
+			if c != "" {
+				key := strings.ToLower(c)
+				if counts[key] == 0 {
+					order = append(order, key)
+				}
+				counts[key]++
+			}
+			from = i + j + 1
+		}
+	}
+	best, bestN := "", 0
+	for _, c := range order {
+		if counts[c] > bestN {
+			best, bestN = c, counts[c]
+		}
+	}
+	return best
+}
+
+func firstOLEMathSVGPaint(svg, name string) string {
+	needle := "<" + name
+	for from := 0; ; {
+		i := strings.Index(svg[from:], needle)
+		if i < 0 {
+			return ""
+		}
+		i += from
+		j := strings.IndexByte(svg[i:], '>')
+		if j < 0 {
+			return ""
+		}
+		tag := svg[i : i+j]
+		for _, attr := range []string{"fill", "stroke"} {
+			if c := svgAttributeValue(tag, attr); validOLEMathColor(c) {
+				return c
+			}
+		}
+		if style := svgAttributeValue(tag, "style"); style != "" {
+			for _, decl := range strings.Split(style, ";") {
+				kv := strings.SplitN(decl, ":", 2)
+				if len(kv) == 2 && (strings.TrimSpace(kv[0]) == "fill" || strings.TrimSpace(kv[0]) == "stroke") {
+					if c := strings.TrimSpace(kv[1]); validOLEMathColor(c) {
+						return c
+					}
+				}
+			}
+		}
+		from = i + j + 1
+	}
+}
+func svgAttributeValue(tag, name string) string {
+	// SVG emitted by the metafile converters is not required to use one quote
+	// style.  Accept both forms so MathType preview paint is not lost merely
+	// because a converter serialized fill='white' instead of fill="white".
+	for _, quote := range []byte{'"', '\''} {
+		needle := name + "=" + string(quote)
+		i := strings.Index(tag, needle)
+		if i < 0 {
+			continue
+		}
+		start := i + len(needle)
+		end := strings.IndexByte(tag[start:], quote)
+		if end >= 0 {
+			return tag[start : start+end]
+		}
+	}
+	return ""
+}
+func validOLEMathColor(c string) bool {
+	c = strings.TrimSpace(strings.ToLower(c))
+	if c == "" || c == "none" || c == "transparent" || c == "currentcolor" || strings.HasPrefix(c, "url(") {
+		return false
+	}
+	if strings.HasPrefix(c, "#") || strings.HasPrefix(c, "rgb(") || strings.HasPrefix(c, "rgba(") ||
+		strings.HasPrefix(c, "hsl(") || strings.HasPrefix(c, "hsla(") {
+		return true
+	}
+	// CSS/SVG named colors (white, yellow, black, etc.) are common in
+	// converter output.  They are safe to preserve verbatim as a CSS color.
+	for _, r := range c {
+		if (r < 'a' || r > 'z') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 func oleObjectIconSource(ctx *htmlRenderContext, ole *playout.PhysicalOLEPlan) string {
 	if ole == nil || len(ole.IconData) == 0 {
 		return ""
@@ -2736,6 +3202,35 @@ func oleObjectIconSource(ctx *htmlRenderContext, ole *playout.PhysicalOLEPlan) s
 		return assetPath
 	}
 	encoded := base64.StdEncoding.EncodeToString(ole.IconData)
+	return fmt.Sprintf("data:%s;base64,%s", mime, encoded)
+}
+
+func oleInlineSVGPreviewMarkup(data []byte) string {
+	markup := string(data)
+	start := strings.Index(markup, "<svg")
+	if start < 0 {
+		return markup
+	}
+	end := strings.Index(markup[start:], ">")
+	if end < 0 {
+		return markup
+	}
+	end += start
+	if strings.Contains(markup[start:end], "preserveAspectRatio=") {
+		return markup
+	}
+	return markup[:end] + ` preserveAspectRatio="xMidYMid meet"` + markup[end:]
+}
+
+func imageVisualSource(ctx *htmlRenderContext, image playout.ImageVisualPlan) string {
+	mime := image.MIME
+	if mime == "" {
+		mime = "image/jpeg"
+	}
+	if ctx != nil && ctx.options.ImageMode == HTMLImageModeExternal {
+		return ctx.addImageArtifact(image.Data, mime)
+	}
+	encoded := base64.StdEncoding.EncodeToString(image.Data)
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded)
 }
 
@@ -2810,6 +3305,17 @@ func browserRenderableMedia(contentType string) bool {
 	default:
 		return false
 	}
+}
+
+func (ctx *htmlRenderContext) addImageArtifact(data []byte, mime string) string {
+	ctx.nextImageIndex++
+	assetPath := htmlasset.AssetPath(ctx.options.ExternalImageDir, "image", ctx.nextImageIndex, htmlasset.ImageFileExtension(mime))
+	ctx.assets = append(ctx.assets, HTMLAsset{
+		Path:        assetPath,
+		ContentType: mime,
+		Data:        append([]byte(nil), data...),
+	})
+	return assetPath
 }
 
 func (ctx *htmlRenderContext) addImageAsset(shape *ir.Shape, mime string) string {
@@ -3121,7 +3627,8 @@ func appendTextBoxPlacementStyles(styles []string, frame playout.TextFrameMetric
 	}
 	// Padding cannot represent a negative physical anchor. Overflowing centered
 	// and end-anchored text therefore carries its signed progression offset as a
-	// relative translation, while clipping remains owned by the outer text box.
+	// relative translation, while clipping remains owned by the dedicated
+	// text-frame wrapper.
 	if box.ContentTopPt < 0 {
 		styles = append(styles, fmt.Sprintf("position:relative;top:%.2fpt", box.ContentTopPt))
 	}
@@ -3180,18 +3687,27 @@ func smartArtConnectorPointsString(pts []drawing.Point) string {
 	return b.String()
 }
 
-func smartArtArrowGeometrySVG(ag *drawing.ArrowGeometry, color string) string {
+func smartArtArrowGeometrySVG(ag *drawing.ArrowGeometry, color string, alpha float64, alphaSet bool) string {
 	if ag == nil {
 		return ""
 	}
+	fillOpacity := ""
+	strokeOpacity := ""
+	if alphaSet && alpha < 1 {
+		if alpha < 0 {
+			alpha = 0
+		}
+		fillOpacity = fmt.Sprintf(` fill-opacity="%.4f"`, alpha)
+		strokeOpacity = fmt.Sprintf(` stroke-opacity="%.4f"`, alpha)
+	}
 	switch ag.Type {
 	case "triangle", "stealth", "diamond":
-		return fmt.Sprintf(`<polygon points=%q fill="#%s"/>`, smartArtConnectorPointsString(ag.PolyPts), color)
+		return fmt.Sprintf(`<polygon points=%q fill="#%s"%s/>`, smartArtConnectorPointsString(ag.PolyPts), color, fillOpacity)
 	case "arrow":
 		pts := []drawing.Point{ag.Left, ag.Tip, ag.Right}
-		return fmt.Sprintf(`<polyline points=%q fill="none" stroke="#%s" stroke-width="%.2f" stroke-linecap="round" stroke-linejoin="round"/>`, smartArtConnectorPointsString(pts), color, ag.StrokeWidth)
+		return fmt.Sprintf(`<polyline points=%q fill="none" stroke="#%s" stroke-width="%.2f" stroke-linecap="round" stroke-linejoin="round"%s/>`, smartArtConnectorPointsString(pts), color, ag.StrokeWidth, strokeOpacity)
 	case "oval":
-		return fmt.Sprintf(`<ellipse cx="%.4f" cy="%.4f" rx="%.4f" ry="%.4f" fill="#%s"/>`, ag.Center.X, ag.Center.Y, ag.RX, ag.RY, color)
+		return fmt.Sprintf(`<ellipse cx="%.4f" cy="%.4f" rx="%.4f" ry="%.4f" fill="#%s"%s/>`, ag.Center.X, ag.Center.Y, ag.RX, ag.RY, color, fillOpacity)
 	}
 	return ""
 }
@@ -3310,8 +3826,8 @@ func renderPhysicalFreeConnector(b *strings.Builder, shape *ir.Shape, slideW, sl
 		writeSVGStrokePlan(b, visual.Stroke, "", "#"+color)
 		b.WriteString("/>")
 	}
-	b.WriteString(smartArtArrowGeometrySVG(visual.EndArrow, color))
-	b.WriteString(smartArtArrowGeometrySVG(visual.StartArrow, color))
+	b.WriteString(smartArtArrowGeometrySVG(visual.EndArrow, color, visual.Stroke.Alpha, visual.Stroke.AlphaSet))
+	b.WriteString(smartArtArrowGeometrySVG(visual.StartArrow, color, visual.Stroke.Alpha, visual.Stroke.AlphaSet))
 	b.WriteString("</svg>\n")
 }
 
@@ -3351,6 +3867,7 @@ func writeSVGPrimitivePlan(b *strings.Builder, plan playout.VectorPrimitivePlan,
 		}
 		if primitive.Closed {
 			fmt.Fprintf(b, "<polygon points=%q fill=%q", drawingPointsString(primitive.Points), svgPrimitiveFillValue(primitive.Style, fillDefID))
+			writeSVGPrimitiveFillOpacity(b, primitive.Style)
 			if primitive.Style.StrokeColor != "" && primitive.Style.StrokeWidth > 0 {
 				writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 			}
@@ -3376,6 +3893,7 @@ func writeSVGPrimitivePlan(b *strings.Builder, plan playout.VectorPrimitivePlan,
 		fill := svgPrimitiveFillValue(primitive.Style, fillDefID)
 		fmt.Fprintf(b, "<ellipse cx=\"%.4f\" cy=\"%.4f\" rx=\"%.4f\" ry=\"%.4f\" fill=%q",
 			primitive.Ellipse.Center.X, primitive.Ellipse.Center.Y, primitive.Ellipse.RX, primitive.Ellipse.RY, fill)
+		writeSVGPrimitiveFillOpacity(b, primitive.Style)
 		if primitive.Style.StrokeColor != "" && primitive.Style.StrokeWidth > 0 {
 			writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 		}
@@ -3385,6 +3903,7 @@ func writeSVGPrimitivePlan(b *strings.Builder, plan playout.VectorPrimitivePlan,
 			return
 		}
 		fmt.Fprintf(b, "<path d=%q fill=%q", svgPathData(*primitive.Path), svgPrimitiveFillValue(primitive.Style, fillDefID))
+		writeSVGPrimitiveFillOpacity(b, primitive.Style)
 		if primitive.Style.StrokeColor != "" && primitive.Style.StrokeWidth > 0 {
 			writeSVGStrokePlan(b, plan.Stroke, primitive.Style.StrokeFillDefID, "#"+primitive.Style.StrokeColor)
 		} else if primitive.Style.Stroke != nil {
@@ -3395,6 +3914,17 @@ func writeSVGPrimitivePlan(b *strings.Builder, plan playout.VectorPrimitivePlan,
 		}
 		b.WriteString("/>")
 	}
+}
+
+func writeSVGPrimitiveFillOpacity(b *strings.Builder, style drawing.VectorStyle) {
+	if b == nil || !style.FillAlphaSet || style.FillAlpha >= 1 {
+		return
+	}
+	alpha := style.FillAlpha
+	if alpha < 0 {
+		alpha = 0
+	}
+	fmt.Fprintf(b, " fill-opacity=\"%.4f\"", alpha)
 }
 
 func svgPrimitiveFillValue(style drawing.VectorStyle, fillDefID string) string {
@@ -3523,6 +4053,8 @@ func renderParagraphWithPlan(b *strings.Builder, p *ir.Paragraph, plan playout.P
 	switch marker.Kind {
 	case "bullet":
 		markerText = escapeHTML(marker.Text)
+	case "image":
+		markerText = "image" // presence sentinel; renderPhysicalMarker paints the relationship-backed image
 	case "auto":
 		// Layout owns numbering state and materializes the exact marker text.
 		markerText = marker.Text
@@ -3549,11 +4081,28 @@ func renderParagraphWithPlan(b *strings.Builder, p *ir.Paragraph, plan playout.P
 				// indent twice. Unmarked paragraphs still use the authored indent.
 				lineIndentPt = paragraphMetrics.TextIndentPt
 			}
-			if line.HeightPt > 0 {
-				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;width:auto;white-space:pre;text-indent:%.4fpt;line-height:%.4fpt;min-height:%.4fpt;overflow:visible;vertical-align:baseline\">", lineIndentPt, line.HeightPt, line.HeightPt)
-			} else {
-				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;width:100%%;white-space:pre;text-indent:%.4fpt\">", lineIndentPt)
+			linePositionStyle := ""
+			// A measured line also owns its horizontal origin. Do not ask the browser
+			// to re-measure centred/right-aligned inline children: small font-engine
+			// differences otherwise shift text relative to independently authored
+			// highlight rectangles and chart annotations.
+			if markerText == "" && !paragraphMetrics.HasTextIndent && line.WidthPt > 0 {
+				available := paragraphMetrics.AvailableWidthPt
+				switch plan.Align {
+				case "ctr", "center":
+					offset := math.Max(0, (available-line.WidthPt)/2)
+					linePositionStyle = fmt.Sprintf("width:%.4fpt;margin-left:%.4fpt;text-align:left;", line.WidthPt, offset)
+				case "r", "right":
+					offset := math.Max(0, available-line.WidthPt)
+					linePositionStyle = fmt.Sprintf("width:%.4fpt;margin-left:%.4fpt;text-align:left;", line.WidthPt, offset)
+				}
 			}
+			if line.HeightPt > 0 {
+				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;%swhite-space:pre;text-indent:%.4fpt;line-height:%.4fpt;min-height:%.4fpt;overflow:visible;vertical-align:baseline\">", linePositionStyle, lineIndentPt, line.HeightPt, line.HeightPt)
+			} else {
+				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;%swhite-space:pre;text-indent:%.4fpt\">", linePositionStyle, lineIndentPt)
+			}
+
 			// The marker is part of the first physical line box. Keeping it inside
 			// that box prevents the browser from creating a second independent
 			// baseline/height contribution beside layout's measured first line.
@@ -3603,6 +4152,26 @@ func physicalLineHasVisibleText(line playout.PhysicalTextLine) bool {
 }
 
 func renderPhysicalMarker(b *strings.Builder, marker playout.MarkerVisualPlan, text string, ctx *htmlRenderContext) {
+	if marker.Kind == "image" && len(marker.ImageData) != 0 {
+		mime := marker.ImageMIME
+		if mime == "" {
+			mime = "image/png"
+		}
+		size := marker.FontSizePt
+		if size <= 0 {
+			size = 12
+		}
+		styles := []string{fmt.Sprintf("width:%.4fpt", size), fmt.Sprintf("height:%.4fpt", size), "object-fit:contain", "display:inline-block", "vertical-align:top", "position:relative", fmt.Sprintf("top:%.4fpt", marker.TopOffsetPt)}
+		if marker.OffsetPt != 0 {
+			styles = append(styles, fmt.Sprintf("margin-left:%.4fpt", marker.OffsetPt))
+		}
+		if marker.GapPt > 0 {
+			styles = append(styles, fmt.Sprintf("margin-right:%.4fpt", marker.GapPt))
+		}
+		encoded := base64.StdEncoding.EncodeToString(marker.ImageData)
+		fmt.Fprintf(b, "<img class=\"bullet-marker bullet-marker--image\" style=%q src=\"data:%s;base64,%s\" alt=\"\">", strings.Join(styles, ";"), mime, encoded)
+		return
+	}
 	var styles []string
 	if marker.FontSizePt > 0 {
 		styles = append(styles, fmt.Sprintf("font-size:%.1fpt", marker.FontSizePt))
@@ -3711,6 +4280,13 @@ func renderRunWithPlan(b *strings.Builder, run *ir.Run, plan playout.RunVisualPl
 	}
 	if plan.AllCaps {
 		rawText = strings.ToUpper(rawText)
+	}
+	if family, portableText := metafile.PortableMathText(plan.FontFamily, rawText); family != plan.FontFamily {
+		rawText = portableText
+		// Override the legacy Symbol family emitted from the run plan. Its
+		// private-use positions have been translated to Unicode and must use a
+		// Unicode math-capable fallback instead of browser-dependent Symbol.
+		styles = append(styles, "font-family:"+cssFontFamilyValue(family, true))
 	}
 	text := escapeHTML(rawText)
 	// DrawingML line breaks (a:br) are resolved as \n runs; emit HTML <br> tags.
@@ -3933,6 +4509,15 @@ func animationAttrs(shape *ir.Shape, ctx *htmlRenderContext) string {
 		return ""
 	}
 	var attrs strings.Builder
+	// AnimationOnly shapes are persisted paint-state overlays, not part of the
+	// static slide. In playback mode they still need to be serialized so the
+	// timeline can reveal them, but they must start hidden immediately rather
+	// than waiting for the player bootstrap to add body.ppt-player-ready. This
+	// prevents legacy emphasis/selection overlays from flashing in exported HTML
+	// or screenshot pipelines before JavaScript applies step 0.
+	if shape.AnimationOnly {
+		attrs.WriteString(` data-animation-only="1" data-anim-visible="0"`)
+	}
 	if shapeHasTimelineTarget(shape, ctx) {
 		fmt.Fprintf(&attrs, " data-shape-id=\"%d\"", shape.ID)
 	}
@@ -4069,7 +4654,7 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #888; }
   box-sizing: border-box;
 }
 .shape--text { display: block; }
-.shape--text p { margin: 0; }
+.shape--text p { margin: 0; flex-shrink: 0; }
 .shape__effect-overlay { box-sizing: border-box; }
 .shape__background,
 .shape__vector {
@@ -4158,6 +4743,68 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #888; }
 }
 `
 
+const oleMathCSS = `
+.shape--ole-math { overflow: visible; }
+.shape--ole-math .ole-math-inner { position:absolute; left:0; top:0; display:inline-block; width:max-content; height:max-content; white-space:nowrap; line-height:normal; font-size:12pt; transform-origin:0 0; }
+.shape--ole-math math { display:inline-block; margin:0; padding:0; font-size:1em; line-height:normal; color:inherit; }
+.shape--ole-math .ole-math-baseline-marker { display:inline-block; width:0; height:0; margin:0; padding:0; vertical-align:baseline; }
+.shape--ole-math .ole-math-authored-preview { position:absolute; inset:0; visibility:hidden; pointer-events:none; }
+.shape--ole-math .ole-math-authored-preview > svg { width:100%; height:100%; display:block; }
+.shape--ole-object-preview { overflow: hidden; }
+.shape--ole-object-preview .shape--ole-object-preview-svg,
+.shape--ole-object-preview .shape--ole-object-preview-svg > svg { width: 100%; height: 100%; display: block; }
+`
+
+const oleMathScript = `
+(function(){
+ function fitOne(host){
+  var inner=host.querySelector(".ole-math-inner"); if(!inner)return;
+  var box=host.getBoundingClientRect(); if(!(box.width>0&&box.height>0))return;
+  var offsetX=parseFloat(host.getAttribute("data-math-offset-x")||"");
+  var baselineY=parseFloat(host.getAttribute("data-math-baseline-y")||"");
+  var centerY=parseFloat(host.getAttribute("data-math-center-y")||"");
+  // Use one scale from MathML's natural metrics to the OLE frame.  Preview SVGs
+  // are recorded in different coordinate systems by legacy PPT (WMF/EMF) and
+  // PPTX, so applying their font-size/viewBox ratio before this fit compounds
+  // that representation difference into the visible semantic equation.
+  inner.style.fontSize="16px";
+  inner.style.left="0px"; inner.style.top="0px"; inner.style.transform="none";
+  void inner.offsetHeight;
+  var content=inner.getBoundingClientRect(); if(!(content.width>0&&content.height>0))return;
+  var scale=Math.min(box.width/content.width,box.height/content.height);
+  if(!isFinite(scale)||scale<=0)return; scale=Math.max(0.05,scale);
+  // The OLE frame owns absolute placement.  The preview contributes only the
+  // authored content centre and baseline *inside* that frame.  This preserves
+  // PowerPoint's independent-shape model while matching the WMF/EMF placement.
+  // The OLE frame is already the authored absolute rectangle.  Do not centre
+  // browser MathML inside it: MathML is often intrinsically narrower than the
+  // authored equation viewport, and centring moves the visible formula away
+  // from the gap PowerPoint reserved for the OLE object.  The preview offset is
+  // an origin correction inside that rectangle, not a centring hint.
+  var originShift=(isFinite(offsetX)?offsetX:0)*box.width;
+  inner.style.left=originShift+"px";
+  // Align semantic ink to the authored preview's ink centre. Scripted MathML
+  // and a cached MTEF preview do not share a browser baseline box, whereas their
+  // visual centre remains stable across fractions, limits, and fences.
+  var marker=inner.querySelector(".ole-math-baseline-marker");
+  var topShift=0;
+  if(isFinite(centerY)){
+   topShift=box.height*centerY-content.height*scale/2;
+  } else if(marker&&isFinite(baselineY)){
+   var markerBox=marker.getBoundingClientRect();
+   var baselineOffset=markerBox.top-content.top;
+   topShift=box.height*baselineY-baselineOffset*scale;
+   if(!isFinite(topShift))topShift=0;
+  }
+  inner.style.top=topShift+"px";
+  inner.style.transform="scale("+scale+")";
+ }
+ function fitAll(){document.querySelectorAll(".shape--ole-math").forEach(fitOne)}
+ document.addEventListener("DOMContentLoaded",fitAll); window.addEventListener("resize",fitAll);
+ if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitAll);
+})();
+`
+
 const playbackCSS = `
 body.ppt-player-ready {
   padding: 0;
@@ -4206,6 +4853,9 @@ body.ppt-player-ready .canvas {
   margin: 0;
   box-shadow: 0 10px 30px rgba(0,0,0,.45);
   transform-origin: center center;
+}
+[data-animation-only="1"][data-anim-visible="0"] {
+  visibility: hidden;
 }
 body.ppt-player-ready [data-anim-step][data-anim-visible="0"] {
   visibility: hidden;

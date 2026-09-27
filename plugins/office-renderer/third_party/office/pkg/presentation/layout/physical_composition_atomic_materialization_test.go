@@ -31,6 +31,7 @@ func TestPhysicalCompositionMaterializesOncePerVisual(t *testing.T) {
 		"composition := materializePhysicalCompositionPlan(shape, paint, transform, visual.Effects)",
 		"resolvePhysicalMediaPlanWithComposition(shape, composition)",
 		"resolvePhysicalOLEPlanWithComposition(shape, composition)",
+		"resolvePhysicalOLEPlanWithCompositionAndOptions(shape, composition, opts)",
 		"resolvePhysicalTablePlanWithComposition(shape, composition)",
 		"resolvePhysicalChartPlanWithComposition(shape, composition)",
 		"resolvePhysicalSmartArtPlanWithComposition(shape, composition)",

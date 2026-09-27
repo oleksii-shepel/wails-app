@@ -78,6 +78,8 @@ func cloneShape(src *presir.Shape) *presir.Shape {
 		ActionLink:           src.ActionLink,
 		Table:                cloneTable(src.Table),
 		OLEObjectData:        cloneBytes(src.OLEObjectData),
+		OLEMathML:            src.OLEMathML,
+		OLEMathColor:         src.OLEMathColor,
 		OLEObjectMIME:        src.OLEObjectMIME,
 		OLEObjectName:        src.OLEObjectName,
 		OLEObjectProgID:      src.OLEObjectProgID,

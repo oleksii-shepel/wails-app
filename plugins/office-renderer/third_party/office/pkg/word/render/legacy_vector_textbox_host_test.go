@@ -69,3 +69,28 @@ func TestVectorShapeHostOwnsRotation(t *testing.T) {
 		t.Fatalf("rotation is not owned by host: %s", html)
 	}
 }
+
+func TestLegacyRotatedShapeKeepsTextHorizontalAndVerticalTextSideways(t *testing.T) {
+	shape := &resolve.Shape{
+		Kind:              "rect",
+		Width:             1828800,
+		Height:            914400,
+		RotationDeg:       45,
+		LegacyUprightText: true,
+		LegacyFlowAnchor:  true,
+		Geometry:          &dml.PresetGeometry{Name: "rect"},
+		TextBox: &resolve.TextBox{Vert: "vert", Blocks: []resolve.Block{{
+			Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "VERTICAL"}}},
+		}}},
+	}
+	var out bytes.Buffer
+	r := &htmlRenderer{doc: &resolve.Document{}}
+	r.renderShapeWithStyleAttrs(&out, shape, []string{"position:absolute"}, 144, 72)
+	html := out.String()
+	if !strings.Contains(html, `transform:rotate(-90deg) rotate(-45.00deg)`) {
+		t.Fatalf("legacy vertical text did not cancel outline rotation and turn sideways: %s", html)
+	}
+	if strings.Contains(html, `text-orientation:mixed`) {
+		t.Fatalf("legacy vertical text must not use upright-glyph vertical flow: %s", html)
+	}
+}

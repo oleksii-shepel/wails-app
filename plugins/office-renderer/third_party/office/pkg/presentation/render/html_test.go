@@ -1,6 +1,7 @@
 package render_test
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	"os"
@@ -16,6 +17,8 @@ import (
 	ir "office/pkg/presentation/ir"
 	"office/pkg/presentation/parsers/ooxml/resolve"
 	"office/pkg/presentation/render"
+	wordedit "office/pkg/word/edit"
+	wordlegacy "office/pkg/word/parsers/legacy"
 )
 
 func TestHTMLIncludesDiagnosticsDetails(t *testing.T) {
@@ -65,6 +68,23 @@ func TestHTMLRendersOLEObjectPlaceholder(t *testing.T) {
 	}
 }
 
+func TestHTMLDoesNotPaintUnavailableEquationOLEPlaceholder(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeOleObject, Bounds: resolve.Rect{W: 914400, H: 914400},
+			OLEObjectName: "Microsoft Equation 3.0", OLEObjectProgID: "Equation.3",
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "[Microsoft Equation 3.0]") {
+		t.Fatalf("unavailable Equation OLE must not paint a placeholder: %s", out)
+	}
+}
+
 func TestHTMLRendersOLEObjectIcon(t *testing.T) {
 	pres := &resolve.Presentation{
 		SlideWidthEMU:  9144000,
@@ -90,6 +110,74 @@ func TestHTMLRendersOLEObjectIcon(t *testing.T) {
 	}
 	if !strings.Contains(out, `data:image/png;base64,`) {
 		t.Fatalf("expected inline icon data URI in output: %s", out)
+	}
+}
+
+func TestHTMLRendersSVGPreviewOLEObjectInline(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU:  9144000,
+		SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{
+			Index: 0,
+			Shapes: []*resolve.Shape{{
+				Kind:          resolve.ShapeOleObject,
+				Name:          "Object 35",
+				Bounds:        resolve.Rect{X: 914400, Y: 685800, W: 1828800, H: 1371600},
+				OLEObjectName: "Document",
+				OLEIconData:   []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#99ffcc"/></svg>`),
+				OLEIconMIME:   "image/svg+xml",
+			}},
+		}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `shape--ole-object-preview`) {
+		t.Fatalf("expected inline OLE preview host in output: %s", out)
+	}
+	if !strings.Contains(out, `<div class="shape--ole-object-preview-svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" preserveAspectRatio="xMidYMid meet"><rect width="10" height="10" fill="#99ffcc"/></svg></div>`) {
+		t.Fatalf("expected inline SVG OLE preview in output: %s", out)
+	}
+	if strings.Contains(out, `data:image/svg+xml;base64,`) {
+		t.Fatalf("expected inline SVG preview instead of SVG data URI image: %s", out)
+	}
+}
+
+func TestHTMLRendersWordOLEPreviewBeforeNativeContent(t *testing.T) {
+	doc := wordedit.NewDocument()
+	doc.AddParagraph().AddRun().SetText("Embedded legacy Word preview")
+	var payload bytes.Buffer
+	if err := wordlegacy.WriteDocument(doc.IR, &payload); err != nil {
+		t.Fatalf("write legacy doc: %v", err)
+	}
+	pres := &resolve.Presentation{
+		SlideWidthEMU:  9144000,
+		SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{
+			Index: 0,
+			Shapes: []*resolve.Shape{{
+				Kind:            resolve.ShapeOleObject,
+				Name:            "Object 35",
+				Bounds:          resolve.Rect{X: 914400, Y: 685800, W: 1828800, H: 1371600},
+				OLEObjectName:   "Document",
+				OLEObjectProgID: "Word.Document.8",
+				OLEObjectMIME:   "application/msword",
+				OLEObjectData:   payload.Bytes(),
+				OLEIconData:     []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#99ffcc"/></svg>`),
+				OLEIconMIME:     "image/svg+xml",
+			}},
+		}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `shape--ole-object-preview`) {
+		t.Fatalf("expected preview-first OLE rendering in output: %s", out)
+	}
+	if strings.Contains(out, `data:image/svg+xml;base64,`) {
+		t.Fatalf("expected inline SVG preview instead of SVG data URI image: %s", out)
 	}
 }
 
@@ -878,7 +966,7 @@ func TestHTMLRendersTextBodyAndParagraphStyles(t *testing.T) {
 
 	if !strings.Contains(
 		html,
-		`<p style="text-align:center;margin-top:0.0000pt;margin-bottom:0.0000pt;line-height:1.0000">`,
+		`<p style="text-align:center;margin-bottom:0.0000pt;line-height:1.0000">`,
 	) {
 		t.Fatalf("expected paragraph styles in html: %s", html)
 	}
@@ -1182,6 +1270,9 @@ func TestHTMLAppliesPercentageSpacingBeforeAfter(t *testing.T) {
 				Kind:   resolve.ShapeText,
 				Bounds: resolve.Rect{W: 4572000, H: 2286000},
 				Paragraphs: []*resolve.Paragraph{{
+					// Space-before is suppressed on the first body paragraph.
+					Runs: []*resolve.Run{{Text: "Lead paragraph", FontSize: 1200}},
+				}, {
 					SpaceBeforePct: 100000, // 100% of the physical first-line box
 					SpaceAfterPct:  50000,  // 50% of the physical last-line box
 					Runs:           []*resolve.Run{{Text: "Spaced paragraph", FontSize: 1200}},
@@ -1508,11 +1599,33 @@ func TestHTMLRendersConnectorTailArrowGeometry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="252.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
+	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="270.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
 		t.Fatalf("expected line trim to scale with effective stroke width: %s", html)
 	}
-	if !strings.Contains(html, `<polygon points="288.0000,54.0000 252.0000,66.0000 252.0000,42.0000" fill="#595959"/>`) {
+	if !strings.Contains(html, `<polygon points="288.0000,54.0000 270.0000,60.0000 270.0000,48.0000" fill="#595959"/>`) {
 		t.Fatalf("expected tail arrow geometry to scale with effective stroke width: %s", html)
+	}
+}
+
+func TestHTMLArrowMarkersInheritConnectorOpacity(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Index: 0, Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeConnector, Bounds: resolve.Rect{X: 1828800, Y: 685800, W: 1828800},
+			LineColor: "336699", LineWidthPt: 2, ConnectorType: "straightConnector1",
+			LineStyle: &drawing.LineStyle{Width: 2, Color: "336699", Alpha: 0.35},
+			ArrowTail: "triangle", ArrowTailWidth: "med", ArrowTailLength: "med",
+		}}}},
+	}
+	html, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(html, `stroke-opacity="0.3500"`) {
+		t.Fatalf("connector shaft must retain authored opacity: %s", html)
+	}
+	if !strings.Contains(html, `fill="#336699" fill-opacity="0.3500"`) {
+		t.Fatalf("filled arrow marker must inherit connector opacity: %s", html)
 	}
 }
 
@@ -1589,16 +1702,16 @@ func TestHTMLAppliesArrowSizePresets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="270.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
+	if !strings.Contains(html, `<line x1="144.0000" y1="54.0000" x2="279.0000" y2="54.0000" stroke="#595959" stroke-width="3.00"/>`) {
 		t.Fatalf("expected small arrow length to scale with the 3pt stroke: %s", html)
 	}
-	if !strings.Contains(html, `<polygon points="288.0000,54.0000 270.0000,60.7500 270.0000,47.2500" fill="#595959"/>`) {
+	if !strings.Contains(html, `<polygon points="288.0000,54.0000 279.0000,57.3750 279.0000,50.6250" fill="#595959"/>`) {
 		t.Fatalf("expected small arrow width to render narrower triangle: %s", html)
 	}
-	if !strings.Contains(html, `<line x1="144.0000" y1="108.0000" x2="252.0000" y2="108.0000" stroke="#595959" stroke-width="3.00"/>`) {
+	if !strings.Contains(html, `<line x1="144.0000" y1="108.0000" x2="270.0000" y2="108.0000" stroke="#595959" stroke-width="3.00"/>`) {
 		t.Fatalf("expected large arrow length to scale with the 3pt stroke: %s", html)
 	}
-	if !strings.Contains(html, `<polygon points="288.0000,108.0000 252.0000,120.0000 252.0000,96.0000" fill="#595959"/>`) {
+	if !strings.Contains(html, `<polygon points="288.0000,108.0000 270.0000,114.0000 270.0000,102.0000" fill="#595959"/>`) {
 		t.Fatalf("expected large arrow width to render wider triangle: %s", html)
 	}
 }
@@ -3469,7 +3582,6 @@ func TestHTMLUsesLayoutOwnedMarkerBaselinePlacement(t *testing.T) {
 	}
 }
 
-
 func TestClass17SlideNumberWrapperDoesNotEscapePhysicalPaintOrder(t *testing.T) {
 	before := &ir.Shape{Kind: ir.ShapeText, Name: "before", Bounds: ir.Rect{W: 914400, H: 914400},
 		Paragraphs: []*ir.Paragraph{{Runs: []*ir.Run{{Text: "BEFORE"}}}}}
@@ -3478,11 +3590,322 @@ func TestClass17SlideNumberWrapperDoesNotEscapePhysicalPaintOrder(t *testing.T) 
 	pres := &ir.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
 		Slides: []*ir.Slide{{Index: 1, Shapes: []*ir.Shape{before}, SlideNumber: number}}}
 	got, _, err := render.HTMLWithOptions(pres, render.HTMLOptions{})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	beforeAt := strings.Index(got, "BEFORE")
 	wrapperAt := strings.Index(got, `class="slide-number"`)
 	numberAt := strings.Index(got, "NUMBER")
 	if beforeAt < 0 || wrapperAt < 0 || numberAt < 0 || !(beforeAt < wrapperAt && wrapperAt < numberAt) {
 		t.Fatalf("slide-number wrapper escaped physical order: before=%d wrapper=%d number=%d", beforeAt, wrapperAt, numberAt)
+	}
+}
+
+func TestHTMLFixedTextFrameClipsInsideEffectOverflow(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind:          resolve.ShapeText,
+			Bounds:        resolve.Rect{X: 914400, Y: 685800, W: 1828800, H: 457200},
+			TextBodyProps: drawing.TextBodyProperties{AutofitType: "normAutofit"},
+			Effects: drawing.EffectList{Effects: []drawing.Effect{
+				drawing.Shadow{Color: "000000", Alpha: .4, Blur: 4, Distance: 6, Angle: 45},
+			}},
+			Paragraphs: []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Fixed text with outer shadow", FontSize: 2400}}}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	shapeAt := strings.Index(out, `class="shape shape--text"`)
+	if shapeAt < 0 {
+		t.Fatalf("missing text shape: %s", out)
+	}
+	shapeEnd := strings.Index(out[shapeAt:], `>`)
+	if shapeEnd < 0 {
+		t.Fatalf("malformed text shape: %s", out)
+	}
+	shapeTag := out[shapeAt : shapeAt+shapeEnd]
+	if !strings.Contains(shapeTag, `overflow:visible`) {
+		t.Fatalf("effect paint should keep outer shape overflow visible: %s", shapeTag)
+	}
+	clipAt := strings.Index(out[shapeAt:], `class="shape__text-clip"`)
+	if clipAt < 0 {
+		t.Fatalf("fixed text frame needs its own clipping layer: %s", out)
+	}
+	clipEnd := strings.Index(out[shapeAt+clipAt:], `>`)
+	clipTag := out[shapeAt+clipAt : shapeAt+clipAt+clipEnd]
+	if !strings.Contains(clipTag, `overflow:hidden`) {
+		t.Fatalf("fixed text clip layer must own overflow clipping: %s", clipTag)
+	}
+	contentAt := strings.Index(out[shapeAt:], `class="shape__content"`)
+	if contentAt < 0 {
+		t.Fatalf("missing physical line container: %s", out)
+	}
+	contentEnd := strings.Index(out[shapeAt+contentAt:], `>`)
+	contentTag := out[shapeAt+contentAt : shapeAt+contentAt+contentEnd]
+	if !strings.Contains(contentTag, `overflow:visible`) {
+		t.Fatalf("physical line container should remain overflow visible inside frame clip: %s", contentTag)
+	}
+}
+
+func TestHTMLNoAutofitTextOverflowIsNotReclippedByShapeGeometry(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind:              resolve.ShapeText,
+			Geometry:          "ellipse",
+			Bounds:            resolve.Rect{X: 914400, Y: 685800, W: 914400, H: 457200},
+			TextBodyProps:     drawing.TextBodyProperties{AutofitType: "noAutofit"},
+			TextAllowOverflow: true,
+			Paragraphs:        []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Overflowing ellipse label", FontSize: 2400}}}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `class="shape__content"`) || !strings.Contains(out, `overflow:visible`) {
+		t.Fatalf("expected visible noAutofit text overflow: %s", out)
+	}
+	if strings.Contains(out, `class="shape__text-clip"`) {
+		t.Fatalf("noAutofit text must not regain a fixed clipping frame: %s", out)
+	}
+	if strings.Contains(out, `class="shape__content" style="position:relative;z-index:1;display:flex;flex-direction:column;box-sizing:border-box;width:100%;height:100%;overflow:visible;justify-content:flex-start;padding:3.60pt 7.20pt 3.60pt 7.20pt;clip-path:ellipse(`) {
+		t.Fatalf("noAutofit text content must not be re-clipped by ellipse geometry: %s", out)
+	}
+}
+
+func TestHTMLClippedTextStillUsesAuthoredGeometryClip(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind:          resolve.ShapeText,
+			Geometry:      "ellipse",
+			Bounds:        resolve.Rect{X: 914400, Y: 685800, W: 914400, H: 457200},
+			TextBodyProps: drawing.TextBodyProperties{AutofitType: "normAutofit"},
+			Paragraphs:    []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Contained ellipse label", FontSize: 2400}}}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	clipAt := strings.Index(out, `class="shape__text-clip"`)
+	if clipAt < 0 {
+		t.Fatalf("clipped ellipse text must have a fixed clipping frame: %s", out)
+	}
+	clipEnd := strings.Index(out[clipAt:], `>`)
+	clipTag := out[clipAt : clipAt+clipEnd]
+	if !strings.Contains(clipTag, `overflow:hidden`) || !strings.Contains(clipTag, `clip-path:ellipse(50% 50% at 50% 50%)`) {
+		t.Fatalf("clipped ellipse frame must retain authored geometry clip: %s", clipTag)
+	}
+	contentAt := strings.Index(out, `class="shape__content"`)
+	if contentAt < 0 {
+		t.Fatalf("missing physical line container: %s", out)
+	}
+	contentEnd := strings.Index(out[contentAt:], `>`)
+	contentTag := out[contentAt : contentAt+contentEnd]
+	if strings.Contains(contentTag, `clip-path:`) {
+		t.Fatalf("physical line container must not own geometry clipping: %s", contentTag)
+	}
+}
+
+func TestHTMLRotatedFixedTextKeepsFlowInsideClipFrame(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind:   resolve.ShapeText,
+			Bounds: resolve.Rect{X: 914400, Y: 685800, W: 1828800, H: 914400},
+			TextBodyProps: drawing.TextBodyProperties{
+				AutofitType: "normAutofit",
+				Rot:         5400000,
+				HasRot:      true,
+				Anchor:      "ctr",
+			},
+			Paragraphs: []*resolve.Paragraph{{Runs: []*resolve.Run{{Text: "Rotated fixed text", FontSize: 2400}}}},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	clipAt := strings.Index(out, `class="shape__text-clip"`)
+	contentAt := strings.Index(out, `class="shape__content"`)
+	if clipAt < 0 || contentAt < 0 || clipAt > contentAt {
+		t.Fatalf("rotated physical text must remain inside its clipping frame: %s", out)
+	}
+	contentEnd := strings.Index(out[contentAt:], `>`)
+	contentTag := out[contentAt : contentAt+contentEnd]
+	if !strings.Contains(contentTag, `transform:rotate(`) {
+		t.Fatalf("layout-owned text rotation missing from clipped content: %s", contentTag)
+	}
+}
+
+func TestHTMLPhysicalParagraphsDoNotFlexShrinkInsideOverflowingTextFrame(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind:              resolve.ShapeText,
+			Bounds:            resolve.Rect{X: 914400, Y: 685800, W: 2743200, H: 228600},
+			TextBodyProps:     drawing.TextBodyProperties{AutofitType: "noAutofit"},
+			TextAllowOverflow: true,
+			Paragraphs: []*resolve.Paragraph{
+				{Runs: []*resolve.Run{{Text: "First physical paragraph", FontSize: 2400}}},
+				{Runs: []*resolve.Run{{Text: "Second physical paragraph", FontSize: 2400}}},
+			},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `.shape--text p { margin: 0; flex-shrink: 0; }`) {
+		t.Fatalf("physical paragraphs must not shrink to the authored frame: %s", out)
+	}
+}
+
+func TestHTMLEmptyTextCapableShapeDoesNotEmitPhantomContentLayer(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+			Kind:     resolve.ShapeText,
+			Geometry: "ellipse",
+			Bounds:   resolve.Rect{X: 914400, Y: 685800, W: 914400, H: 457200},
+			Fill:     drawing.SolidFill{Color: "FF0000", Alpha: 1},
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `class="shape shape--text"`) {
+		t.Fatalf("expected vector shape wrapper: %s", out)
+	}
+	if strings.Contains(out, `class="shape__content"`) {
+		t.Fatalf("text-capable shape without paragraphs must not emit phantom text content: %s", out)
+	}
+}
+
+func Test37625PictureBulletRendersAsInlineMarkerImage(t *testing.T) {
+	pres := &resolve.Presentation{SlideWidthEMU: 9144000, SlideHeightEMU: 6858000, Slides: []*resolve.Slide{{Shapes: []*resolve.Shape{{
+		Kind: resolve.ShapeText, Bounds: resolve.Rect{W: 4000000, H: 1000000}, Paragraphs: []*resolve.Paragraph{{
+			BulletImageData: []byte("PNG-BULLET"), BulletImageMIME: "image/png", BulletSizePct: 113071,
+			HasMarginLeft: true, MarginLeftEMU: 343080, HasTextIndent: true, TextIndentEMU: -343080,
+			Runs: []*resolve.Run{{Text: "The policy context", FontSize: 2800, FontFamily: "Palatino"}},
+		}},
+	}}}}}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out, `class="bullet-marker bullet-marker--image"`) || !strings.Contains(out, `src="data:image/png;base64,`) {
+		t.Fatalf("picture bullet was not rendered as an inline marker image: %s", out)
+	}
+	if !strings.Contains(out, `width:21.6113pt;height:21.6113pt`) {
+		t.Fatalf("oversized picture bullet was not fitted to the authored hanging region: %s", out)
+	}
+}
+
+func TestHTMLNativeMathUsesSingleNaturalMetricFit(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Index: 0, Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeOleObject, Bounds: resolve.Rect{X: 0, Y: 0, W: 1828800, H: 914400},
+			OLEMathML: `<math><mi mathsize="18pt">x</mi></math>`,
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, "inner.style.fontSize=\"16px\"") {
+		t.Fatalf("native MathML renderer must measure from one neutral natural size")
+	}
+	if !strings.Contains(out, "Math.min(box.width/content.width,box.height/content.height)") {
+		t.Fatalf("native MathML must use one natural-metric fit to the OLE frame")
+	}
+	if strings.Contains(out, "data-math-base-ratio") {
+		t.Fatalf("native MathML must not inherit preview font/viewBox normalization")
+	}
+	if strings.Contains(out, "preview.getBBox") || strings.Contains(out, "preview.children") {
+		t.Fatalf("native MathML placement must not be derived from preview ink geometry")
+	}
+
+}
+
+func TestHTMLNativeMathUsesPreviewMetricsOnlyInsideAbsoluteOLEFrame(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Index: 0, Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeOleObject, Bounds: resolve.Rect{X: 914400, Y: 685800, W: 1828800, H: 914400},
+			OLEMathML:   `<math><mi>x</mi></math>`,
+			OLEIconMIME: "image/svg+xml",
+			OLEIconData: []byte(`<svg viewBox="0 0 200 100"><text x="20" y="60" font-size="20">x</text></svg>`),
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `left:10.0000%;top:10.0000%;width:20.0000%;height:13.3333%`) {
+		t.Fatalf("absolute OLE frame placement changed: %s", out)
+	}
+	if !strings.Contains(out, `data-math-offset-x=`) || !strings.Contains(out, `data-math-baseline-y=`) || !strings.Contains(out, `data-math-center-y=`) {
+		t.Fatalf("authored preview centre/baseline calibration was not emitted: %s", out)
+	}
+	if !strings.Contains(out, `originShift=(isFinite(offsetX)?offsetX:0)*box.width`) {
+		t.Fatalf("preview horizontal origin calibration is not applied inside the OLE frame: %s", out)
+	}
+	if strings.Contains(out, `(box.width-content.width*scale)*0.5`) {
+		t.Fatalf("MathML must not be recentered inside the authored OLE frame: %s", out)
+	}
+	if !strings.Contains(out, `box.height*baselineY-baselineOffset*scale`) || !strings.Contains(out, `baselineOffset=`) {
+		t.Fatalf("native MathML must align its baseline to the authored preview baseline inside the absolute OLE frame: %s", out)
+	}
+	if !strings.Contains(out, `inner.style.top=topShift+"px"`) {
+		t.Fatalf("native MathML must apply its computed preview baseline offset: %s", out)
+	}
+	if strings.Contains(out, "preview.getBBox") || strings.Contains(out, "preview.children") {
+		t.Fatalf("browser preview geometry must not become placement authority: %s", out)
+	}
+}
+
+func TestHTMLNativeMathUsesOutlinedPreviewForegroundColor(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Index: 0, Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeOleObject, Bounds: resolve.Rect{W: 1828800, H: 914400},
+			OLEMathML:   `<math><mi>x</mi></math>`,
+			OLEIconMIME: "image/svg+xml",
+			OLEIconData: []byte(`<svg viewBox="0 0 100 40"><path style="fill:#ffff00;stroke:none" d="M1 1h10v10z"/></svg>`),
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `color:#ffff00`) {
+		t.Fatalf("outlined MathType preview color was not inherited by native MathML: %s", out)
+	}
+}
+
+func TestHTMLNativeMathPrefersTextColorOverDecorativePathPaint(t *testing.T) {
+	pres := &resolve.Presentation{
+		SlideWidthEMU: 9144000, SlideHeightEMU: 6858000,
+		Slides: []*resolve.Slide{{Index: 0, Shapes: []*resolve.Shape{{
+			Kind: resolve.ShapeOleObject, Bounds: resolve.Rect{W: 1828800, H: 914400},
+			OLEMathML:   `<math><mi>x</mi></math>`,
+			OLEIconMIME: "image/svg+xml",
+			OLEIconData: []byte(`<svg><path fill="#000000" d="M0 0h1v1z"/><text fill="#ffffff">x</text></svg>`),
+		}}}},
+	}
+	out, err := render.HTML(pres)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, `color:#ffffff`) {
+		t.Fatalf("native MathML did not prefer authored text paint: %s", out)
 	}
 }

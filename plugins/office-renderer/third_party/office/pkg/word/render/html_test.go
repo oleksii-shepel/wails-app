@@ -413,8 +413,8 @@ func TestHTMLRunFormatting(t *testing.T) {
 		"background-color:#FFFF00",
 		"display:none",
 		"transform:scaleX(1.50)",
-		"vertical-align:6.0pt",
-		"vertical-align:-4.0pt",
+		"top:-6.00pt",
+		"top:4.00pt",
 		"font-kerning:normal",
 	}
 	for _, want := range checks {
@@ -850,11 +850,14 @@ func TestHTMLVertAlign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, "<sup>") {
-		t.Errorf("expected <sup> for superscript")
+	if strings.Contains(out, "<sup>") || strings.Contains(out, "<sub>") {
+		t.Errorf("physical layout should own superscript/subscript vertical placement: %s", out)
 	}
-	if !strings.Contains(out, "<sub>") {
-		t.Errorf("expected <sub> for subscript")
+	if !strings.Contains(out, "font-size:8.0pt") {
+		t.Errorf("expected layout-owned script font scaling: %s", out)
+	}
+	if !strings.Contains(out, "top:-3.96pt") || !strings.Contains(out, "top:1.92pt") {
+		t.Errorf("expected layout-owned superscript/subscript top offsets: %s", out)
 	}
 }
 
@@ -1875,14 +1878,12 @@ func TestHTMLParagraphFontAlignDoesNotOverrideRunPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	// Run-level Position (6pt) should override paragraph-level FontAlign.
-	if !strings.Contains(out, "vertical-align:6.0pt") {
-		t.Fatalf("expected run-level vertical-align:6.0pt to win, got:\n%s", out)
+	// Run-level Position (+6pt raise) is materialized by physical layout as top:-6pt.
+	if !strings.Contains(out, "top:-6.00pt") {
+		t.Fatalf("expected layout-owned top:-6.00pt to win, got:\n%s", out)
 	}
-	// The paragraph-level middle should NOT appear on the run span because run-level
-	// Position takes precedence and suppresses the paragraph-level FontAlign.
-	if strings.Contains(out, "vertical-align:middle") {
-		t.Fatalf("expected no paragraph-level vertical-align:middle when run has Position, got:\n%s", out)
+	if strings.Contains(out, "vertical-align:middle") || strings.Contains(out, "vertical-align:6.0pt") {
+		t.Fatalf("renderer should not reapply paragraph/run vertical alignment after physical layout, got:\n%s", out)
 	}
 }
 
@@ -7616,18 +7617,13 @@ func TestHTMLAdvanceFieldAppliesOffsetToSubsequentRuns(t *testing.T) {
 	if !strings.Contains(out, `class="word-field word-field-advance"`) {
 		t.Fatalf("expected ADVANCE semantic marker, got:\n%s", out)
 	}
-	// The marker must NOT contain old spacer styles.
-	if strings.Contains(out, `width:12.00pt`) || strings.Contains(out, `top:-3.00pt`) {
-		t.Fatalf("expected ADVANCE marker to have no width/top styles, got:\n%s", out)
+	// Physical layout owns ADVANCE geometry; the semantic marker is zero-sized and
+	// subsequent runs are absolutely positioned rather than margin/transform shifted.
+	if !strings.Contains(out, `data-layout-owned="true"`) || !strings.Contains(out, `top:-3.00pt`) {
+		t.Fatalf("expected layout-owned ADVANCE geometry, got:\n%s", out)
 	}
-	// Subsequent runs should be wrapped with the accumulated offset.
-	// B gets margin-left:12 and translateY(-3).
-	if !strings.Contains(out, `margin-left:12.00pt`) || !strings.Contains(out, `transform:translateY(-3.00pt)`) {
-		t.Fatalf("expected ADVANCE right/up offset applied to following run, got:\n%s", out)
-	}
-	// After \l 6, net horizontal is 12-6=6; vertical stays at 3 (up).
-	if !strings.Contains(out, `margin-left:6.00pt`) {
-		t.Fatalf("expected accumulated ADVANCE left offset to reduce margin, got:\n%s", out)
+	if strings.Contains(out, `margin-left:12.00pt`) || strings.Contains(out, `transform:translateY(-3.00pt)`) || strings.Contains(out, `margin-left:6.00pt`) {
+		t.Fatalf("renderer re-applied ADVANCE offsets instead of consuming physical geometry, got:\n%s", out)
 	}
 }
 
@@ -11350,6 +11346,89 @@ func TestHTMLLegacyFloatingTableFixtureUsesAbsoluteOverlay(t *testing.T) {
 	}
 }
 
+func TestHTMLLegacyColumnsStayInTwoPhysicalColumns(t *testing.T) {
+	path := "../../../testdata/doc/legacy-columns.doc"
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("optional legacy fixture is not available in this checkout")
+		}
+		t.Fatalf("stat fixture: %v", err)
+	}
+	doc, err := legacy.ParseDoc(path)
+	if err != nil {
+		t.Fatalf("ParseDoc: %v", err)
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	pages := regexp.MustCompile(`(?s)<section class="page".*?</section>`).FindAllString(string(out), -1)
+	if len(pages) != 3 {
+		t.Fatalf("pages = %d, want 3", len(pages))
+	}
+	wantBounds := [][2]string{
+		{"Column paragraph 40", "Column paragraph 27"},
+		{"Column paragraph 26", "Column paragraph 13"},
+		{"Column paragraph 12", "Column paragraph 1"},
+	}
+	tags := regexp.MustCompile(`<[^>]*>`)
+	headings := regexp.MustCompile(`Column paragraph \d+`)
+	for i, page := range pages {
+		if strings.Contains(page, "column-count:2") {
+			t.Errorf("page %d delegates physical columns to browser multicolumn flow", i+1)
+		}
+		if got := strings.Count(page, `class="word-column"`); got != 2 {
+			t.Errorf("page %d has %d physical columns, want 2", i+1, got)
+		}
+		text := tags.ReplaceAllString(page, "")
+		matches := headings.FindAllString(text, -1)
+		if len(matches) == 0 || matches[0] != wantBounds[i][0] || matches[len(matches)-1] != wantBounds[i][1] {
+			t.Errorf("page %d paragraph bounds = %v, want %v", i+1, matches, wantBounds[i])
+		}
+		if strings.Contains(text, "text.Multi-") {
+			t.Errorf("page %d lost a space across a wrapped line", i+1)
+		}
+	}
+}
+
+func TestHTMLLegacyLayoutStressUsesSourceBullets(t *testing.T) {
+	path := "../../../testdata/doc/legacy-layout-stress.doc"
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("optional legacy fixture is not available in this checkout")
+		}
+		t.Fatalf("stat fixture: %v", err)
+	}
+	doc, err := legacy.ParseDoc(path)
+	if err != nil {
+		t.Fatalf("ParseDoc: %v", err)
+	}
+	if len(doc.Paragraphs) == 0 || doc.Paragraphs[0].List == nil || doc.Paragraphs[0].List.Kind != "bullet" {
+		t.Fatal("Word 97 bullet list was not decoded from PlfLst/PlfLfo")
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	html := string(out)
+	if strings.Contains(html, "<ol") {
+		t.Error("bullet list rendered as an ordered list")
+	}
+	if !strings.Contains(html, `.word-physical-inline-list-marker { display: inline-block;`) {
+		t.Error("physical list markers are not owned by the first measured line")
+	}
+	if got := strings.Count(html, `word-physical-inline-list-marker`); got != 19 {
+		// One occurrence is the CSS class definition; the remaining 18 are markers.
+		t.Errorf("physical inline marker occurrences = %d, want 19", got)
+	}
+	if !strings.Contains(html, `font-size:16.0pt`) {
+		t.Error("legacy bullets should inherit the 16pt paragraph text size when LVL CHPX omits a size")
+	}
+	if strings.Contains(html, `word-list-marker word-physical-list-marker word-list-bullet`) {
+		t.Error("layout-owned legacy bullets should not be forced into one absolute gutter column")
+	}
+}
+
 func TestPageBodyKeepsFullPageBoxSoMainTextIsNotCroppedAtFooterBoundary(t *testing.T) {
 	doc := &resolve.Document{
 		Sections: []resolve.Section{{PageMargin: &resolve.PageMargin{Top: 1584, Bottom: 1584, Left: 1800, Right: 1800}}},
@@ -11543,7 +11622,7 @@ func TestHTMLHeaderFooterStoriesUseCanonicalPhysicalTabGeometry(t *testing.T) {
 	if strings.Contains(footerHTML, `display:inline-block;width:36.0pt`) {
 		t.Fatalf("footer fell back to semantic default-tab spacers: %s", out)
 	}
-	for _, want := range []string{">Author<", ">Page 1<", ">9/9/2026<"} {
+	for _, want := range []string{">Author<", ">Page<", ">1<", ">9/9/2026<"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("footer lost %s: %s", want, out)
 		}

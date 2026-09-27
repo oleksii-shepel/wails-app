@@ -31,3 +31,28 @@ func TestPhysicalSVGPaintKeepsOrdinaryViewportCanonical(t *testing.T) {
 		t.Fatalf("ordinary svg paint = %+v", svg)
 	}
 }
+
+func TestPhysicalSVGPaintOpensViewportForStrokeOverhang(t *testing.T) {
+	shape := &ir.Shape{
+		Kind:        ir.ShapeText,
+		Geometry:    "rect",
+		Bounds:      ir.Rect{W: 1270000, H: 635000},
+		LineColor:   "000000",
+		LineWidthPt: 3,
+		LineStyle:   &drawing.LineStyle{Width: 3, Color: "000000", Cap: drawing.LineCapRound, Join: drawing.LineJoinRound},
+	}
+	got := MaterializePhysicalVisualTree([]*ir.Shape{shape})
+	if len(got) != 1 {
+		t.Fatalf("physical visuals = %d, want 1", len(got))
+	}
+	if !got[0].Drawing.Paint.OverflowVisible {
+		t.Fatalf("stroke overhang must open outer paint overflow: %+v", got[0].Drawing.Paint)
+	}
+	svg := got[0].Drawing.Paint.SVG
+	if !svg.OverflowVisible {
+		t.Fatalf("stroke overhang must open svg viewport: %+v", svg)
+	}
+	if svg.FilterXPercent != 0 || svg.FilterYPercent != 0 || svg.FilterWPercent != 100 || svg.FilterHPercent != 100 {
+		t.Fatalf("stroke-only svg paint should not synthesize filter expansion: %+v", svg)
+	}
+}

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	fibPlfLfo = 20
-	fibPlfLst = 21
+	fibPlfLst = 73
+	fibPlfLfo = 74
 )
 
 type NumberingLevel struct {
@@ -47,6 +47,19 @@ func LoadNumberingCatalogReaderAt(table io.ReaderAt, tableSize int64, fib []byte
 		return nil
 	}
 	abstract, ok := parsePlfLst(lst)
+	if !ok {
+		// lcbPlfLst counts only cLst and the fixed-size LSTF records. The
+		// variable-length LVLs follow immediately and are commonly bounded by
+		// fcPlfLfo, so read that bounded span before rejecting the catalog.
+		lstFC, _, lstOK := layout.FcLcb(fib, fibPlfLst)
+		lfoFC, _, lfoOK := layout.FcLcb(fib, fibPlfLfo)
+		if lstOK && lfoOK && lfoFC > lstFC+len(lst) && int64(lfoFC) <= tableSize && lfoFC-lstFC <= 8<<20 {
+			full := make([]byte, lfoFC-lstFC)
+			if n, err := table.ReadAt(full, int64(lstFC)); n == len(full) && (err == nil || err == io.EOF) {
+				abstract, ok = parsePlfLst(full)
+			}
+		}
+	}
 	if !ok || len(abstract) == 0 {
 		return nil
 	}
@@ -119,6 +132,12 @@ func parseLVL(blob []byte, level int) (NumberingLevel, int, bool) {
 	pos += cbPapx
 	chpx := append([]byte(nil), blob[pos:pos+cbChpx]...)
 	pos += cbChpx
+	// Bullet XSTs contain a literal glyph (often Symbol U+F0B7). Some DOC
+	// producers zero rgbxchNums for these levels; treating offset zero as a
+	// number placeholder turns the bullet into "%1" and renders digits.
+	if nfc == 23 {
+		rgbxchNums = nil
+	}
 	text, consumed, ok := parseLevelXst(blob[pos:], rgbxchNums)
 	if !ok {
 		return NumberingLevel{}, 0, false

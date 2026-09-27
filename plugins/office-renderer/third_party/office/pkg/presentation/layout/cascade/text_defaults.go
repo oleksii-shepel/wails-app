@@ -11,21 +11,21 @@ import (
 // TextDefaults is the canonical effective paragraph/run default set produced by
 // the PresentationML text cascade before paragraph-local and run-local overrides.
 type TextDefaults struct {
-	Align                                                                                 string
-	MarginLeftEMU, MarginRightEMU, TextIndentEMU, DefaultTabSizeEMU                       *int
-	FontAlign, BulletColor, BulletFontFamily, BulletChar                                  string
-	BulletNone, BulletFontTx, BulletSpecified                                             bool
-	AutoNum                                                                               bool
-	AutoNumType                                                                           string
-	AutoNumStart, BulletSize, BulletSizePct                                               int
-	Bold, Italic                                                                          *bool
-	Underline, Strike, Caps                                                               string
-	Baseline                                                                              *int
-	FontSize                                                                              int
-	CharSpacing, Kern                                                                     *int
-	FontFamily, Color, Highlight                                                          string
-	SpaceBefore, SpaceAfter, SpaceBeforePct, SpaceAfterPct, LineSpacingPct, LineSpacingPt *int
-	TabStops                                                                              []ir.TabStop
+	Align                                                                                    string
+	MarginLeftEMU, MarginRightEMU, TextIndentEMU, DefaultTabSizeEMU                          *int
+	FontAlign, BulletColor, BulletFontFamily, BulletChar, BulletImageRelID, BulletImageScope string
+	BulletNone, BulletFontTx, BulletSpecified                                                bool
+	AutoNum                                                                                  bool
+	AutoNumType                                                                              string
+	AutoNumStart, BulletSize, BulletSizePct                                                  int
+	Bold, Italic                                                                             *bool
+	Underline, Strike, Caps                                                                  string
+	Baseline                                                                                 *int
+	FontSize                                                                                 int
+	CharSpacing, Kern                                                                        *int
+	FontFamily, Color, Highlight                                                             string
+	SpaceBefore, SpaceAfter, SpaceBeforePct, SpaceAfterPct, LineSpacingPct, LineSpacingPt    *int
+	TabStops                                                                                 []ir.TabStop
 }
 
 // EffectiveTextDefaults applies shape -> layout -> master-body -> master text
@@ -34,15 +34,31 @@ type TextDefaults struct {
 func EffectiveTextDefaults(shapeBody, layoutBody, masterBody *parts.TextBody, master *parts.SlideMaster, presentationStyle *parts.DMLTextListStyle, ph ir.PlaceholderKind, level int, slideColors, layoutColors, masterColors map[string]string, theme *ir.Theme) TextDefaults {
 	d := TextDefaults{}
 	if shapeBody != nil {
-		d = MergeTextDefaults(d, TextDefaultsFromListStyle(shapeBody.ListStyle, level, slideColors, theme))
+		v := TextDefaultsFromListStyle(shapeBody.ListStyle, level, slideColors, theme)
+		if v.BulletImageRelID != "" {
+			v.BulletImageScope = "slide"
+		}
+		d = MergeTextDefaults(d, v)
 	}
 	if layoutBody != nil {
-		d = MergeTextDefaults(d, TextDefaultsFromListStyle(layoutBody.ListStyle, level, layoutColors, theme))
+		v := TextDefaultsFromListStyle(layoutBody.ListStyle, level, layoutColors, theme)
+		if v.BulletImageRelID != "" {
+			v.BulletImageScope = "layout"
+		}
+		d = MergeTextDefaults(d, v)
 	}
 	if masterBody != nil {
-		d = MergeTextDefaults(d, TextDefaultsFromListStyle(masterBody.ListStyle, level, masterColors, theme))
+		v := TextDefaultsFromListStyle(masterBody.ListStyle, level, masterColors, theme)
+		if v.BulletImageRelID != "" {
+			v.BulletImageScope = "master"
+		}
+		d = MergeTextDefaults(d, v)
 	}
-	d = MergeTextDefaults(d, TextDefaultsFromMaster(master, ph, level, masterColors, theme))
+	vMaster := TextDefaultsFromMaster(master, ph, level, masterColors, theme)
+	if vMaster.BulletImageRelID != "" {
+		vMaster.BulletImageScope = "master"
+	}
+	d = MergeTextDefaults(d, vMaster)
 	// p:defaultTextStyle is the presentation-wide final text-style fallback.
 	// It must participate for ordinary shapes as well as table cells; otherwise
 	// placeholders whose master/layout omit a character property collapse to
@@ -91,6 +107,8 @@ func MergeTextDefaults(dst, src TextDefaults) TextDefaults {
 		dst.BulletSpecified = true
 		dst.BulletNone = src.BulletNone
 		dst.BulletChar = src.BulletChar
+		dst.BulletImageRelID = src.BulletImageRelID
+		dst.BulletImageScope = src.BulletImageScope
 		dst.AutoNum = src.AutoNum
 		dst.AutoNumType = src.AutoNumType
 		dst.AutoNumStart = src.AutoNumStart
@@ -161,7 +179,7 @@ func MergeTextDefaults(dst, src TextDefaults) TextDefaults {
 }
 
 func textDefaultsMarkerSpecified(d TextDefaults) bool {
-	return d.BulletSpecified || d.BulletNone || d.BulletChar != "" || d.AutoNum
+	return d.BulletSpecified || d.BulletNone || d.BulletChar != "" || d.BulletImageRelID != "" || d.AutoNum
 }
 
 func TextDefaultsFromMaster(master *parts.SlideMaster, ph ir.PlaceholderKind, level int, colors map[string]string, theme *ir.Theme) TextDefaults {
@@ -203,7 +221,7 @@ func textDefaultsFromStyleLevel(ls *parts.DMLTextStyleLevel, colors map[string]s
 	if ls == nil {
 		return TextDefaults{}
 	}
-	d := TextDefaults{Align: ls.Algn, MarginLeftEMU: ls.MarL, MarginRightEMU: ls.MarR, TextIndentEMU: ls.Indent, DefaultTabSizeEMU: ls.DefTabSz, FontAlign: ls.FontAlgn, BulletNone: ls.BuNone != nil, BulletFontTx: ls.BuFontTx != nil, BulletSpecified: ls.BuNone != nil || ls.BuChar != nil || ls.BuAutoNum != nil}
+	d := TextDefaults{Align: ls.Algn, MarginLeftEMU: ls.MarL, MarginRightEMU: ls.MarR, TextIndentEMU: ls.Indent, DefaultTabSizeEMU: ls.DefTabSz, FontAlign: ls.FontAlgn, BulletNone: ls.BuNone != nil, BulletFontTx: ls.BuFontTx != nil, BulletSpecified: ls.BuNone != nil || ls.BuChar != nil || ls.BuBlip != nil || ls.BuAutoNum != nil}
 	d.SpaceBefore, d.SpaceAfter = SpacingPoints(ls.SpcBef), SpacingPoints(ls.SpcAft)
 	d.SpaceBeforePct, d.SpaceAfterPct = SpacingPercentValue(ls.SpcBef), SpacingPercentValue(ls.SpcAft)
 	d.LineSpacingPct = SpacingPercent(ls.LnSpc)
@@ -214,6 +232,9 @@ func textDefaultsFromStyleLevel(ls *parts.DMLTextStyleLevel, colors map[string]s
 	}
 	if ls.BuNone == nil && ls.BuChar != nil {
 		d.BulletChar = ls.BuChar.Char
+	}
+	if ls.BuNone == nil && ls.BuBlip != nil {
+		d.BulletImageRelID = ls.BuBlip.Blip.Embed
 	}
 	if ls.BuNone == nil && ls.BuAutoNum != nil {
 		d.AutoNum = true

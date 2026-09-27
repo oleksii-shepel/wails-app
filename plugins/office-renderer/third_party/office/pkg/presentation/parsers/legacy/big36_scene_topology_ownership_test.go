@@ -12,7 +12,7 @@ func TestBig36ProductionTablesUseSceneOwnedTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	start := strings.Index(src, "func collectLegacyPptTableShapesFromScene")
+	start := strings.Index(src, "func collectLegacyPptTableShapesFromSceneForSlideWithOwnership")
 	end := strings.Index(src[start:], "func legacyPptGroupPathKey")
 	if start < 0 || end < 0 {
 		t.Fatal("scene table boundary not found")
@@ -32,7 +32,7 @@ func TestBig36ProductionGroupsDoNotUseRecursiveTableClassifier(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	start := strings.Index(src, "func buildLegacyPptGroupShapesFromScene")
+	start := strings.Index(src, "func buildLegacyPptGroupShapesFromSceneWithOwnership")
 	end := strings.Index(src[start:], "func parseLegacyPptSlideVisualsEventDriven")
 	if start < 0 || end < 0 {
 		t.Fatal("scene group boundary not found")

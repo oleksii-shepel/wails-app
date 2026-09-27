@@ -34,15 +34,11 @@ func loadCanonicalWord97Document(filename string, wordStream []byte, f *cfb.File
 	}
 	runs := adaptCanonicalWord97Runs(canonicalRuns)
 
-	visible := runs[:0]
-	for _, run := range runs {
-		if run.Format.Vanish != nil && *run.Format.Vanish {
-			continue
-		}
-		visible = append(visible, run)
-	}
-
-	input := word97BinaryDocumentInput(snapshot, visible)
+	// Preserve the complete Word97 run stream through paragraph assembly.
+	// CHPX Vanish is contextual formatting; discarding those runs here loses
+	// canonical piece-table characters before paragraph reconciliation can
+	// distinguish genuine hidden text from a mis-owned edge fragment.
+	input := word97BinaryDocumentInput(snapshot, runs)
 	doc := buildBinaryWordDocument(filename, input)
 	applyLegacyDocProperties(doc, loadLegacyDocProperties(f))
 

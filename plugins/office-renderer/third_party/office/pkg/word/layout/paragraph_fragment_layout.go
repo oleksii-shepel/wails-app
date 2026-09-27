@@ -12,12 +12,22 @@ type ParagraphLineLayout struct {
 // ParagraphSlotLayout is one horizontal text region within a physical line.
 // Coordinates are in layout points in the same flow coordinate space used by
 // the paragraph line planner.
-type ParagraphSlotLayout struct {
+type ParagraphRunLayout struct {
+	Run    resolve.Run
 	Left   float64
-	Right  float64
 	Top    float64
-	Bottom float64
-	Runs   []resolve.Run
+	Width  float64
+	Height float64
+	Leader string
+}
+
+type ParagraphSlotLayout struct {
+	Left           float64
+	Right          float64
+	Top            float64
+	Bottom         float64
+	Runs           []resolve.Run
+	PositionedRuns []ParagraphRunLayout
 }
 
 func paragraphLineLayouts(lines []paragraphPhysicalLine) []ParagraphLineLayout {
@@ -43,13 +53,25 @@ func paragraphLineLayouts(lines []paragraphPhysicalLine) []ParagraphLineLayout {
 	for i, line := range lines {
 		out[i].Slots = make([]ParagraphSlotLayout, len(line.Slots))
 		for j, slot := range line.Slots {
-			out[i].Slots[j] = ParagraphSlotLayout{
+			layoutSlot := ParagraphSlotLayout{
 				Left:   slot.Slot.Span.Left,
 				Right:  slot.Slot.Span.Right,
 				Top:    slot.Slot.Top - originY,
 				Bottom: slot.Slot.Bottom - originY,
 				Runs:   slot.Runs,
 			}
+			if slot.HasAdvance || slot.HasPositioned {
+				layoutSlot.PositionedRuns = make([]ParagraphRunLayout, 0, len(slot.Positioned))
+				lineHeight := slot.Slot.Bottom - slot.Slot.Top
+				for _, positioned := range slot.Positioned {
+					height := positioned.HeightPt
+					top := positionedRunFinalTop(positioned.Run, positioned.TopPt, height, lineHeight)
+					layoutSlot.PositionedRuns = append(layoutSlot.PositionedRuns, ParagraphRunLayout{
+						Run: positioned.Run, Left: positioned.LeftPt, Top: top, Width: positioned.WidthPt, Height: height, Leader: positioned.Leader,
+					})
+				}
+			}
+			out[i].Slots[j] = layoutSlot
 		}
 	}
 	return out

@@ -1,6 +1,7 @@
 package legacytoooxml
 
 import (
+	"office/pkg/ooxml/drawing"
 	"testing"
 
 	presentationir "office/pkg/presentation/ir"
@@ -322,5 +323,29 @@ func TestLayoutForSlideUsesExactLayoutOwnershipBeforeType(t *testing.T) {
 	got := c.layoutForSlide(&presentationir.Slide{Master: master, Layout: second, LayoutType: "blank"})
 	if got != c.layoutParts[second] {
 		t.Fatalf("layout = %p, want exact second layout %p", got, c.layoutParts[second])
+	}
+}
+
+func TestConvertImagePreservesCanonicalCropFillRectAndColorKey(t *testing.T) {
+	pres := &presentationir.Presentation{Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{
+		ID: 1, Kind: presentationir.ShapeImage, Bounds: presentationir.Rect{W: 1000, H: 1000},
+		ImageData: []byte{1, 2, 3}, ImageMIME: "image/png",
+		ImageCropLeft: .29646, ImageCropTop: .26402, ImageCropRight: .59293, ImageCropBottom: .58173,
+		ImageFillLeft: -.25, ImageFillTop: .10, ImageFillRight: -.15, ImageFillBottom: .20,
+		ImageEffects: []drawing.Effect{drawing.ClrChange{From: "FF0000", To: "FF0000", UseAlpha: true, ToAlpha: 0}},
+	}}}}}
+	pkg, err := Convert(pres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bf := pkg.Slides[0].Slide.CSld.SpTree.Pictures[0].BlipFill
+	if bf.SrcRect == nil || bf.SrcRect.L != 29646 || bf.SrcRect.T != 26402 || bf.SrcRect.R != 59293 || bf.SrcRect.B != 58173 {
+		t.Fatalf("srcRect = %#v", bf.SrcRect)
+	}
+	if bf.Stretch == nil || bf.Stretch.FillRect == nil || bf.Stretch.FillRect.L != -25000 || bf.Stretch.FillRect.T != 10000 || bf.Stretch.FillRect.R != -15000 || bf.Stretch.FillRect.B != 20000 {
+		t.Fatalf("fillRect = %#v", bf.Stretch)
+	}
+	if bf.Blip == nil || bf.Blip.ClrChange == nil || bf.Blip.ClrChange.From.SrgbClr == nil || bf.Blip.ClrChange.From.SrgbClr.Val != "FF0000" || bf.Blip.ClrChange.To.SrgbClr == nil || bf.Blip.ClrChange.To.SrgbClr.Alpha == nil || bf.Blip.ClrChange.To.SrgbClr.Alpha.Val != 0 {
+		t.Fatalf("clrChange = %#v", bf.Blip)
 	}
 }

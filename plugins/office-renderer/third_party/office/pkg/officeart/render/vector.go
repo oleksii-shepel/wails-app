@@ -219,28 +219,29 @@ func svgPathData(path ir.Path) string {
 			if b.Len() > 0 {
 				b.WriteByte(' ')
 			}
-			fmt.Fprintf(&b, "%s %s %s", op, num(cmd.Points[0].X), num(cmd.Points[0].Y))
+			b.WriteString(op)
+			for _, p := range cmd.Points {
+				fmt.Fprintf(&b, " %s %s", num(p.X), num(p.Y))
+			}
 		case "C":
-			if len(cmd.Points) < 3 {
-				continue
+			for i := 0; i+2 < len(cmd.Points); i += 3 {
+				if b.Len() > 0 {
+					b.WriteByte(' ')
+				}
+				fmt.Fprintf(&b, "C %s %s %s %s %s %s",
+					num(cmd.Points[i].X), num(cmd.Points[i].Y),
+					num(cmd.Points[i+1].X), num(cmd.Points[i+1].Y),
+					num(cmd.Points[i+2].X), num(cmd.Points[i+2].Y))
 			}
-			if b.Len() > 0 {
-				b.WriteByte(' ')
-			}
-			fmt.Fprintf(&b, "C %s %s %s %s %s %s",
-				num(cmd.Points[0].X), num(cmd.Points[0].Y),
-				num(cmd.Points[1].X), num(cmd.Points[1].Y),
-				num(cmd.Points[2].X), num(cmd.Points[2].Y))
 		case "Q":
-			if len(cmd.Points) < 2 {
-				continue
+			for i := 0; i+1 < len(cmd.Points); i += 2 {
+				if b.Len() > 0 {
+					b.WriteByte(' ')
+				}
+				fmt.Fprintf(&b, "Q %s %s %s %s",
+					num(cmd.Points[i].X), num(cmd.Points[i].Y),
+					num(cmd.Points[i+1].X), num(cmd.Points[i+1].Y))
 			}
-			if b.Len() > 0 {
-				b.WriteByte(' ')
-			}
-			fmt.Fprintf(&b, "Q %s %s %s %s",
-				num(cmd.Points[0].X), num(cmd.Points[0].Y),
-				num(cmd.Points[1].X), num(cmd.Points[1].Y))
 		case "Z":
 			if b.Len() > 0 {
 				b.WriteByte(' ')

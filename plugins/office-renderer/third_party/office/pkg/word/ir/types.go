@@ -1292,6 +1292,12 @@ type Shape struct {
 	// LegacyFlowOrder is the authoritative FSPA CP. It must not be replaced by
 	// OfficeArt drawing/z-order when packing consecutive SHAPE fields.
 	LegacyFlowOrder int
+	// LegacyUprightText marks Word binary shapes whose text must stay upright
+	// and horizontal inside the unrotated anchor rectangle while the shape
+	// outline itself is rotated/flipped. Word 97-2003 text boxes never rotate
+	// their text with the shape; desktop Word still honors that when opening
+	// legacy documents.
+	LegacyUprightText bool
 	// OfficeArt is the canonical cross-format drawing representation.
 	OfficeArt     *officeartir.Shape
 	Kind          string

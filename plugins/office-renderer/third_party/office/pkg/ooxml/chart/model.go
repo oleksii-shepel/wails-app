@@ -256,6 +256,20 @@ type Series struct {
 	LabelStyle *TextProperties
 }
 
+// SetSecondaryValueAxis marks whether this series is rendered against the
+// secondary value axis.
+func (s *Series) SetSecondaryValueAxis(v bool) {
+	if s != nil {
+		s.secondaryValueAxis = v
+	}
+}
+
+// UsesSecondaryValueAxis reports whether this series is bound to the secondary
+// value axis.
+func (s *Series) UsesSecondaryValueAxis() bool {
+	return s != nil && s.secondaryValueAxis
+}
+
 // Axis represents a chart axis configuration.
 type Axis struct {
 	// Title is the axis title.

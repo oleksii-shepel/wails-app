@@ -555,11 +555,11 @@ func TestParsePFExceptionSpaceBeforeAfterAbsolute(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePFException returned ok=false")
 	}
-	if !entry.HasSpaceBefore || entry.SpaceBefore != 200 || entry.SpaceBeforePct != 0 {
-		t.Fatalf("space before = abs:%d has:%v pct:%d, want 200/true/0", entry.SpaceBefore, entry.HasSpaceBefore, entry.SpaceBeforePct)
+	if !entry.HasSpaceBefore || entry.SpaceBefore != 2500 || entry.SpaceBeforePct != 0 {
+		t.Fatalf("space before = abs:%d has:%v pct:%d, want 2500/true/0", entry.SpaceBefore, entry.HasSpaceBefore, entry.SpaceBeforePct)
 	}
-	if !entry.HasSpaceAfter || entry.SpaceAfter != 100 || entry.SpaceAfterPct != 0 {
-		t.Fatalf("space after = abs:%d has:%v pct:%d, want 100/true/0", entry.SpaceAfter, entry.HasSpaceAfter, entry.SpaceAfterPct)
+	if !entry.HasSpaceAfter || entry.SpaceAfter != 1250 || entry.SpaceAfterPct != 0 {
+		t.Fatalf("space after = abs:%d has:%v pct:%d, want 1250/true/0", entry.SpaceAfter, entry.HasSpaceAfter, entry.SpaceAfterPct)
 	}
 }
 
@@ -599,8 +599,8 @@ func TestParsePFExceptionLineSpacingAbsolute(t *testing.T) {
 	if !ok {
 		t.Fatal("parsePFException returned ok=false")
 	}
-	if !entry.HasLineSpacing || entry.LineSpacingPt != 240 || entry.LineSpacingPct != 0 {
-		t.Fatalf("line spacing = has:%v pt:%d pct:%d, want true/240/0", entry.HasLineSpacing, entry.LineSpacingPt, entry.LineSpacingPct)
+	if !entry.HasLineSpacing || entry.LineSpacingPt != 3000 || entry.LineSpacingPct != 0 {
+		t.Fatalf("line spacing = has:%v pt:%d pct:%d, want true/3000/0", entry.HasLineSpacing, entry.LineSpacingPt, entry.LineSpacingPct)
 	}
 }
 
@@ -652,7 +652,7 @@ func TestParsePFExceptionBulletColorSchemeResolvesFromPalette(t *testing.T) {
 }
 
 func TestParsePFExceptionMarginAndIndent(t *testing.T) {
-	// bits 8 (leftMargin) + 9 (indent).  1000 master units × 127 = 127000 EMU.
+	// bits 8 (leftMargin) + 9 (indent). Master units are 1/8 point.
 	masks := uint32(1<<8 | 1<<9)
 	extra := append(marshalInt32LE(1000), marshalInt32LE(-500)...)
 	stpa := append(marshalUint32LE(masks), extra...)
@@ -663,14 +663,14 @@ func TestParsePFExceptionMarginAndIndent(t *testing.T) {
 	if !entry.HasMarginLeft {
 		t.Fatal("HasMarginLeft should be true")
 	}
-	if entry.MarginLeftEMU != 127000 {
-		t.Fatalf("MarginLeftEMU = %d, want 127000", entry.MarginLeftEMU)
+	if entry.MarginLeftEMU != legacyPptMasterUnitsToEMU(1000) {
+		t.Fatalf("MarginLeftEMU = %d, want %d", entry.MarginLeftEMU, legacyPptMasterUnitsToEMU(1000))
 	}
 	if !entry.HasTextIndent {
 		t.Fatal("HasTextIndent should be true")
 	}
-	if entry.TextIndentEMU != -63500 {
-		t.Fatalf("TextIndentEMU = %d, want -63500", entry.TextIndentEMU)
+	if entry.TextIndentEMU != legacyPptMasterUnitsToEMU(-500) {
+		t.Fatalf("TextIndentEMU = %d, want %d", entry.TextIndentEMU, legacyPptMasterUnitsToEMU(-500))
 	}
 }
 
@@ -1065,7 +1065,6 @@ func TestPFExceptionConsumesCombinedBulletFieldsInMSPPTStructureOrder(t *testing
 	}
 }
 
-
 func TestPFExceptionBulletPayloadIsConsumedButIgnoredWhenBulletFlagsDoNotValidateIt(t *testing.T) {
 	// All payload fields physically exist, but PFMasks only validates fHasBullet.
 	// MS-PPT requires bullet font/color/size to be semantically ignored unless
@@ -1104,7 +1103,6 @@ func TestPFExceptionPreservesExplicitNoBulletProvenance(t *testing.T) {
 	}
 }
 
-
 func TestAutoNumberSchemeStringUsesMSPPTEnumValues(t *testing.T) {
 	cases := map[uint16]string{
 		0x0000: "alphaLcPeriod",
@@ -1133,7 +1131,6 @@ func TestApplyTextPFException9ExplicitFalseClearsAutoNumber(t *testing.T) {
 	}
 }
 
-
 func TestPFExceptionPreservesExplicitZeroDefaultTabSizeProvenance(t *testing.T) {
 	data := binary.LittleEndian.AppendUint32(nil, 1<<15)
 	data = binary.LittleEndian.AppendUint16(data, 0)
@@ -1149,7 +1146,10 @@ func TestPFExceptionPreservesExplicitZeroDefaultTabSizeProvenance(t *testing.T) 
 func TestPFExceptionParsesAuthoredTabStopAlignmentAndPosition(t *testing.T) {
 	data := binary.LittleEndian.AppendUint32(nil, 1<<20)
 	data = binary.LittleEndian.AppendUint16(data, 4)
-	for _, tc := range []struct{ pos int16; typ uint16 }{
+	for _, tc := range []struct {
+		pos int16
+		typ uint16
+	}{
 		{100, 0}, {200, 1}, {300, 2}, {400, 3},
 	} {
 		data = binary.LittleEndian.AppendUint16(data, uint16(tc.pos))
@@ -1164,8 +1164,95 @@ func TestPFExceptionParsesAuthoredTabStopAlignmentAndPosition(t *testing.T) {
 		t.Fatalf("tab stops = %#v", got.TabStops)
 	}
 	for i, stop := range got.TabStops {
-		if stop.Algn != want[i] || stop.Pos != int64((i+1)*100*127) {
+		if stop.Algn != want[i] || stop.Pos != int64(legacyPptMasterUnitsToEMU((i+1)*100)) {
 			t.Fatalf("tab %d = %#v", i, stop)
+		}
+	}
+}
+
+func TestParseStyleTextPropAtomSpecPreservesEnabledInheritedBullet(t *testing.T) {
+	rawText := "Head\rItem"
+	// TextPFRun 0 covers "Head\r" and leaves bullet enablement unspecified.
+	var stpa []byte
+	stpa = binary.LittleEndian.AppendUint32(stpa, 5)
+	stpa = binary.LittleEndian.AppendUint16(stpa, 0)
+	stpa = binary.LittleEndian.AppendUint32(stpa, 0)
+	// TextPFRun 1 covers "Item" plus the implicit terminal CR. fHasBullet is
+	// explicitly true, but bulletChar is omitted and must therefore inherit.
+	stpa = binary.LittleEndian.AppendUint32(stpa, 5)
+	stpa = binary.LittleEndian.AppendUint16(stpa, 0)
+	stpa = binary.LittleEndian.AppendUint32(stpa, 1<<0)
+	stpa = binary.LittleEndian.AppendUint16(stpa, 0x0001)
+	// One unformatted TextCFRun covers the complete ten-character stream.
+	stpa = binary.LittleEndian.AppendUint32(stpa, 10)
+	stpa = binary.LittleEndian.AppendUint32(stpa, 0)
+
+	paras := parseStyleTextPropAtomSpecWithTheme(rawText, stpa, nil, nil)
+	if len(paras) != 2 {
+		t.Fatalf("paragraphs = %d, want 2", len(paras))
+	}
+	if paras[0].BulletSpecified || paras[0].BulletNone || paras[0].BulletChar != "" {
+		t.Fatalf("paragraph 0 bullet state = %#v, want unspecified", paras[0])
+	}
+	if !paras[1].BulletSpecified || paras[1].BulletNone || paras[1].BulletChar != "" {
+		t.Fatalf("paragraph 1 bullet state = specified:%v none:%v char:%q, want enabled + inherited glyph", paras[1].BulletSpecified, paras[1].BulletNone, paras[1].BulletChar)
+	}
+}
+
+func TestStyleTextPropCandidateDoesNotPenalizeIsolatedSymbolGlyphRuns(t *testing.T) {
+	spec := []*presentationir.Paragraph{{Runs: []*presentationir.Run{
+		{Text: "Completely described by "},
+		{Text: "\uf073", FontFamily: "Symbol"},
+		{Text: " and fd"},
+	}}}
+	legacy := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "Completely described by \uf073 and fd", FontSize: 1}}}}
+	got := chooseStyleTextPropCandidateForText("Completely described by \uf073 and fd", spec, legacy)
+	if len(got) != 1 || len(got[0].Runs) != 3 || got[0].Runs[1].FontFamily != "Symbol" {
+		t.Fatalf("valid mixed-font spec candidate lost: %#v", got)
+	}
+}
+
+func TestStyleTextPropCandidateAllowsSymbolRunWithPrivateUseGlyphAndLatinText(t *testing.T) {
+	spec := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "\uf0bc and its frequency-domain equivalent", FontFamily: "Symbol", FontSize: 2800, Color: "FFFFFF"}}}}
+	legacy := []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "\uf0bc and its frequency-domain equivalent"}}}}
+	got := chooseStyleTextPropCandidateForText("\uf0bc and its frequency-domain equivalent", spec, legacy)
+	if got[0].Runs[0].FontFamily != "Symbol" || got[0].Runs[0].FontSize != 2800 || got[0].Runs[0].Color != "FFFFFF" {
+		t.Fatalf("candidate = %#v, want valid Symbol spec run", got[0].Runs[0])
+	}
+}
+
+func TestParseStyleTextPropAtomSpecCountsImplicitTerminatorAfterAuthoredTrailingCR(t *testing.T) {
+	// TextBytesAtom already ends in an authored CR. Per TextHeaderAtom semantics,
+	// StyleTextPropAtom still counts one additional implicit terminating CR.
+	// This is the shape used by old PowerPoint text boxes that end with an empty
+	// paragraph; the final PF run must not be mistaken for the first CF run.
+	rawText := "\rSQM Algorithms\r\r(Algebraic\rfunctions of\rmonitor inputs)\r"
+	stpa := []byte{
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x01, 0x00, 0x46, 0x00,
+		0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x01, 0x00, 0x5a, 0x00,
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x01, 0x00, 0x50, 0x00,
+		0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x01, 0x00,
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x01, 0x00, 0x50, 0x00,
+		0x0f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
+	paras := parseStyleTextPropAtomSpecWithTheme(rawText, stpa, nil, map[uint8]string{0: "FFFFFF"})
+	if len(paras) != 7 {
+		t.Fatalf("paragraphs = %d, want 7 including implicit terminator", len(paras))
+	}
+	for i, p := range paras {
+		if p.Align != "ctr" {
+			t.Fatalf("paragraph %d align = %q, want ctr", i, p.Align)
+		}
+	}
+	if got := paras[1].Runs[0]; got.Text != "SQM Algorithms" || !got.BoldSet || !got.Bold || got.Color != "FFFFFF" {
+		t.Fatalf("title run = %+v, want bold white SQM Algorithms", got)
+	}
+	for _, idx := range []int{3, 4, 5} {
+		if got := paras[idx].Runs[0]; got.FontSize != 1800 || got.Color != "FFFFFF" {
+			t.Fatalf("paragraph %d run = %+v, want 18pt white", idx, got)
 		}
 	}
 }

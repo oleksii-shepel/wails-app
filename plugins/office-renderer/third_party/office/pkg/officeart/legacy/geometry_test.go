@@ -24,6 +24,7 @@ func TestShapeTypeToPresetUsesMSODRAWMSOSPTValues(t *testing.T) {
 		106: "cloudCallout",
 		109: "flowChartProcess",
 		135: "flowChartDelay",
+		184: "moon",
 	}
 	for id, want := range cases {
 		if got := ShapeTypeToPreset(id); got != want {

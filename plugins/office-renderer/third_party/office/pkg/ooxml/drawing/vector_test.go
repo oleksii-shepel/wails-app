@@ -1,6 +1,9 @@
 package drawing
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestBuildShapePrimitivesZeroSize(t *testing.T) {
 	prims, err := BuildShapePrimitives(ShapeGeometrySpec{Width: 0, Height: 10})
@@ -82,10 +85,10 @@ func TestBuildShapePrimitivesPresetFromGeometry(t *testing.T) {
 func TestBuildShapePrimitivesStrokeFallback(t *testing.T) {
 	stroke := &LineStyle{Color: "0000FF", Width: 2}
 	prims, err := BuildShapePrimitives(ShapeGeometrySpec{
-		Width:   100,
-		Height:  50,
-		Preset:  &PresetGeometry{Name: "rect"},
-		Stroke:  stroke,
+		Width:  100,
+		Height: 50,
+		Preset: &PresetGeometry{Name: "rect"},
+		Stroke: stroke,
 	})
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -134,13 +137,11 @@ func TestBuildShapePrimitivesCompoundLineNoFillColor(t *testing.T) {
 	}
 }
 
-
-
 func TestBuildConnectorPrimitivesStraight(t *testing.T) {
 	prims := BuildConnectorPrimitives(ConnectorSpec{
-		Type:        "straightConnector1",
-		BoundsX:     0, BoundsY: 0,
-		BoundsW:     100, BoundsH: 50,
+		Type:    "straightConnector1",
+		BoundsX: 0, BoundsY: 0,
+		BoundsW: 100, BoundsH: 50,
 		LineColor:   "000000",
 		LineWidthPt: 1,
 	})
@@ -154,9 +155,9 @@ func TestBuildConnectorPrimitivesStraight(t *testing.T) {
 
 func TestBuildConnectorPrimitivesCurved(t *testing.T) {
 	prims := BuildConnectorPrimitives(ConnectorSpec{
-		Type:        "curvedConnector2",
-		BoundsX:     0, BoundsY: 0,
-		BoundsW:     100, BoundsH: 50,
+		Type:    "curvedConnector2",
+		BoundsX: 0, BoundsY: 0,
+		BoundsW: 100, BoundsH: 50,
 		Adjustments: []int{50000},
 		LineColor:   "000000",
 		LineWidthPt: 1,
@@ -171,9 +172,9 @@ func TestBuildConnectorPrimitivesCurved(t *testing.T) {
 
 func TestBuildConnectorPrimitivesWithArrows(t *testing.T) {
 	prims := BuildConnectorPrimitives(ConnectorSpec{
-		Type:            "straightConnector1",
-		BoundsX:         0, BoundsY: 0,
-		BoundsW:         100, BoundsH: 50,
+		Type:    "straightConnector1",
+		BoundsX: 0, BoundsY: 0,
+		BoundsW: 100, BoundsH: 50,
 		LineColor:       "000000",
 		LineWidthPt:     1,
 		ArrowHead:       "triangle",
@@ -190,9 +191,9 @@ func TestBuildConnectorPrimitivesWithArrows(t *testing.T) {
 
 func TestBuildConnectorPrimitivesLineStyleFallback(t *testing.T) {
 	prims := BuildConnectorPrimitives(ConnectorSpec{
-		Type:        "straightConnector1",
-		BoundsX:     0, BoundsY: 0,
-		BoundsW:     100, BoundsH: 50,
+		Type:    "straightConnector1",
+		BoundsX: 0, BoundsY: 0,
+		BoundsW: 100, BoundsH: 50,
 		LineStyle:   &LineStyle{Color: "FF0000", Width: 2},
 		LineWidthPt: 0,
 	})
@@ -223,9 +224,9 @@ func TestBuildConnectorPrimitivesDefaultColor(t *testing.T) {
 
 func TestBuildConnectorPrimitivesMinWidth(t *testing.T) {
 	prims := BuildConnectorPrimitives(ConnectorSpec{
-		Type:        "straightConnector1",
-		BoundsX:     0, BoundsY: 0,
-		BoundsW:     100, BoundsH: 50,
+		Type:    "straightConnector1",
+		BoundsX: 0, BoundsY: 0,
+		BoundsW: 100, BoundsH: 50,
 		LineWidthPt: 0.1,
 	})
 	if prims[0].Style.StrokeWidth != 0.5 {
@@ -235,9 +236,9 @@ func TestBuildConnectorPrimitivesMinWidth(t *testing.T) {
 
 func TestBuildConnectorPrimitivesCompoundLine(t *testing.T) {
 	prims := BuildConnectorPrimitives(ConnectorSpec{
-		Type:        "straightConnector1",
-		BoundsX:     0, BoundsY: 0,
-		BoundsW:     100, BoundsH: 50,
+		Type:    "straightConnector1",
+		BoundsX: 0, BoundsY: 0,
+		BoundsW: 100, BoundsH: 50,
 		LineStyle:   &LineStyle{Color: "000000", Width: 4, Compound: true, CompoundType: "dbl"},
 		LineWidthPt: 4,
 	})
@@ -423,5 +424,80 @@ func TestArrowPrimitiveDefault(t *testing.T) {
 	_, ok := arrowPrimitive("unknownArrow", "med", "med", "000000", Point{X: 100, Y: 0}, Point{X: 0, Y: 0})
 	if ok {
 		t.Error("expected false for unknown arrow type in arrowPrimitive")
+	}
+}
+
+func TestBuildShapePrimitivesMaterializesFreeformLineEndArrow(t *testing.T) {
+	geom := &Geometry{Type: GeometryTypeCustom, Paths: []Path{{Commands: []PathCommand{
+		{Type: "M", Points: []Point{{X: 0, Y: 0}}},
+		{Type: "L", Points: []Point{{X: 50, Y: 25}}},
+		{Type: "L", Points: []Point{{X: 100, Y: 50}}},
+	}}}}
+	prims, err := BuildShapePrimitives(ShapeGeometrySpec{
+		Geometry: geom, Width: 100, Height: 50,
+		StrokeColor: "FFFF00", StrokeWidth: 3,
+		ArrowTail: "triangle", ArrowTailWidth: "med", ArrowTailLength: "lg",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prims) != 2 {
+		t.Fatalf("primitives = %d, want path + endpoint marker", len(prims))
+	}
+	marker := prims[1]
+	if marker.Kind != PrimitivePolyline || !marker.Closed || len(marker.Points) != 3 {
+		t.Fatalf("marker = %+v, want closed triangle", marker)
+	}
+	if marker.Style.FillColor != "FFFF00" {
+		t.Fatalf("marker color = %q, want FFFF00", marker.Style.FillColor)
+	}
+	pathEnd := prims[0].Path.Commands[len(prims[0].Path.Commands)-1].Points[0]
+	if marker.Points[0] != pathEnd {
+		t.Fatalf("marker tip = %+v, want normalized path end %+v", marker.Points[0], pathEnd)
+	}
+}
+
+func TestBuildShapePrimitivesUsesCurveTangentForFreeformArrow(t *testing.T) {
+	geom := &Geometry{Type: GeometryTypeCustom, Paths: []Path{{Commands: []PathCommand{
+		{Type: "M", Points: []Point{{X: 0, Y: 50}}},
+		{Type: "C", Points: []Point{{X: 20, Y: 0}, {X: 80, Y: 0}, {X: 100, Y: 50}}},
+	}}}}
+	prims, err := BuildShapePrimitives(ShapeGeometrySpec{
+		Geometry: geom, Width: 100, Height: 50,
+		StrokeColor: "000000", StrokeWidth: 2,
+		ArrowTail: "triangle", ArrowTailWidth: "med", ArrowTailLength: "med",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prims) != 2 || len(prims[1].Points) != 3 {
+		t.Fatalf("curve marker primitives = %+v", prims)
+	}
+	// The last cubic control point is horizontally left of the endpoint, so the
+	// triangle must point to the right rather than using the path's start point.
+	tip := prims[1].Points[0]
+	left, right := prims[1].Points[1], prims[1].Points[2]
+	pathEnd := prims[0].Path.Commands[len(prims[0].Path.Commands)-1].Points[2]
+	if tip != pathEnd || left.X >= tip.X || right.X >= tip.X {
+		t.Fatalf("curve endpoint marker does not follow terminal tangent: tip=%+v pathEnd=%+v left=%+v right=%+v", tip, pathEnd, left, right)
+	}
+}
+
+func TestBuildBentConnectorPrimitivesTrimsLargeArrowAcrossTerminalDogleg(t *testing.T) {
+	primitives := BuildConnectorPrimitives(ConnectorSpec{
+		Type: "bentConnector3", BoundsW: 100, BoundsH: 40,
+		Adjustments: []int{5000},
+		LineWidthPt: 2,
+		ArrowHead:   "triangle", ArrowHeadLength: "lg", ArrowHeadWidth: "lg",
+	})
+	if len(primitives) < 2 || primitives[0].Kind != PrimitivePolyline {
+		t.Fatalf("connector primitives = %#v", primitives)
+	}
+	points := primitives[0].Points
+	// The first dogleg is only 5pt wide while the 2pt/lg triangle is 12pt
+	// deep. The shaft therefore consumes the 5pt segment and continues 7pt
+	// down the next segment instead of clamping at the elbow.
+	if len(points) < 2 || math.Abs(points[0].X-5) > 1e-9 || math.Abs(points[0].Y-7) > 1e-9 {
+		t.Fatalf("trimmed bent connector starts at %#v, want (5,7)", points)
 	}
 }

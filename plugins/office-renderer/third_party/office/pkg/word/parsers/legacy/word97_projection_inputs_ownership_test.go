@@ -14,7 +14,7 @@ func TestWord97ProjectionUsesSingleBodyBuildInputBoundary(t *testing.T) {
 	}
 	src := string(data)
 	for _, required := range []string{
-		"input := word97BinaryDocumentInput(snapshot, visible)",
+		"input := word97BinaryDocumentInput(snapshot, runs)",
 		"buildBinaryWordDocument(filename, input)",
 		"word97.ApplySnapshotDiagnostics(doc, snapshot)",
 	} {

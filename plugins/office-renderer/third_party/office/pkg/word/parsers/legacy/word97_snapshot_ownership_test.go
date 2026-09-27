@@ -16,7 +16,7 @@ func TestLegacyWord97AdapterConsumesCanonicalSnapshotDirectly(t *testing.T) {
 		"word97.OpenSnapshotReaderAt(",
 		"word97.MaterializeRunRange(",
 		"word97.EnrichMaterializedRuns(canonicalRuns, opened.Metadata, snapshot.Context, f)",
-		"input := word97BinaryDocumentInput(snapshot, visible)",
+		"input := word97BinaryDocumentInput(snapshot, runs)",
 		"opened.Metadata",
 		"word97.ApplySnapshotDocumentState(doc, snapshot)",
 	} {

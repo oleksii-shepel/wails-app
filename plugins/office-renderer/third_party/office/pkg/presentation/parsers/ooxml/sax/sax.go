@@ -18,6 +18,7 @@ import (
 	"office/pkg/ooxml/drawingxml"
 	"office/pkg/ooxml/opc"
 	"office/pkg/ooxml/rels"
+	"office/pkg/presentation/parsers/ooxml/parts"
 	prel "office/pkg/presentation/parsers/ooxml/relationship"
 )
 
@@ -103,6 +104,7 @@ const (
 	EventSlideBackground        EventType = "slideBackground"
 	EventBackgroundStyleRef     EventType = "backgroundStyleRef"
 	EventBackgroundPicture      EventType = "backgroundPicture"
+	EventBackgroundFill         EventType = "backgroundFill"
 	EventSlideMasterVisibility  EventType = "slideMasterVisibility"
 	EventShapeAction            EventType = "shapeAction"
 	EventTableCellProps         EventType = "tableCellProperties"
@@ -176,7 +178,10 @@ type ThemeFillStyle struct {
 
 type LineProperties struct {
 	WidthEMU                        int64
+	HasWidth                        bool
 	Color                           VisualColor
+	NoFill                          bool
+	Fill                            ThemeFillStyle
 	Cap, Join, Dash, Compound       string
 	MiterLimit                      int
 	HeadType, HeadWidth, HeadLength string
@@ -200,22 +205,23 @@ type EffectProperties struct {
 // ParagraphProperties preserves authored DrawingML paragraph properties. Has*
 // flags distinguish an explicit zero/false value from inheritance.
 type ParagraphProperties struct {
-	Level                                                           int
-	HasLevel                                                        bool
-	Align                                                           string
-	MarginLeftEMU, MarginRightEMU, TextIndentEMU, DefaultTabSizeEMU int
-	HasMarginLeft, HasMarginRight, HasTextIndent, HasDefaultTabSize bool
-	FontAlign                                                       string
-	TextDirection                                                   string
-	TabStops                                                        []TabStop
-	BulletChar, AutoNumType, BulletFontFamily                       string
-	BulletColor                                                     VisualColor
-	AutoNumStart, BulletSize, BulletSizePct                         int
-	HasBullet, AutoNum, HasAutoNum, BulletFontTx                    bool
-	SpaceBefore, SpaceAfter, SpaceBeforePct, SpaceAfterPct          int
-	HasSpaceBefore, HasSpaceAfter                                   bool
-	LineSpacingPct, LineSpacingPt                                   int
-	HasLineSpacing                                                  bool
+	Level                                                                        int
+	HasLevel                                                                     bool
+	Align                                                                        string
+	MarginLeftEMU, MarginRightEMU, TextIndentEMU, DefaultTabSizeEMU              int
+	HasMarginLeft, HasMarginRight, HasTextIndent, HasDefaultTabSize              bool
+	FontAlign                                                                    string
+	TextDirection                                                                string
+	TabStops                                                                     []TabStop
+	BulletChar, BulletImageRelID, BulletImageMIME, AutoNumType, BulletFontFamily string
+	BulletImageData                                                              []byte
+	BulletColor                                                                  VisualColor
+	AutoNumStart, BulletSize, BulletSizePct                                      int
+	HasBullet, AutoNum, HasAutoNum, BulletFontTx                                 bool
+	SpaceBefore, SpaceAfter, SpaceBeforePct, SpaceAfterPct                       int
+	HasSpaceBefore, HasSpaceAfter                                                bool
+	LineSpacingPct, LineSpacingPt                                                int
+	HasLineSpacing                                                               bool
 }
 
 // TextBodyProperties preserves authored a:bodyPr facts.
@@ -242,6 +248,8 @@ type RunProperties struct {
 	BoldSet, ItalicSet, UnderlineSet, StrikeSet bool
 	FontSize                                    int
 	FontFamily                                  string
+	LatinFontFamily, EastAsiaFontFamily         string
+	ComplexFontFamily, SymbolFontFamily         string
 	Color, Highlight                            VisualColor
 	Baseline                                    int
 	Caps                                        string
@@ -270,6 +278,7 @@ type Event struct {
 	// Visual facts are populated by the corresponding visual event types.
 	Transform                                VisualTransform
 	Geometry                                 string
+	GeometryAdjustments                      []float64
 	GeometryData                             *drawing.Geometry
 	PlaceholderIdx                           int
 	PlaceholderHasCustomPrompt               bool
@@ -286,11 +295,14 @@ type Event struct {
 	RelID                                    string
 	LinkRelID                                string
 	CropLeft, CropTop, CropRight, CropBottom int
+	HasCrop                                  bool
+	ImageEffects                             []drawing.Effect
 
 	// Contextual part ownership is resolved before slide XML is consumed. These
 	// fields let downstream IR builders resolve authored relationship references
 	// without materializing the typed OOXML project graph.
 	LayoutPart                     string
+	LayoutType                     string
 	MasterPart                     string
 	ThemePart                      string
 	RelType                        string
@@ -336,7 +348,9 @@ type Event struct {
 	PictureTileTx, PictureTileTy                                         int64
 	PictureTileSx, PictureTileSy                                         int
 	PictureTileFlip, PictureTileAlign                                    string
+	HasPictureTile                                                       bool
 	PictureFillLeft, PictureFillTop, PictureFillRight, PictureFillBottom int
+	HasPictureFill                                                       bool
 }
 
 // Handler consumes SAX events.
@@ -592,6 +606,9 @@ func (c *walkContext) walk() error {
 			if err := c.walkBackgroundStyleRef(context.MasterPart, i, "master", emit); err != nil {
 				return err
 			}
+			if err := c.walkBackgroundDirectFill(context.MasterPart, i, "master", emit); err != nil {
+				return err
+			}
 			if err := c.walkBackgroundPicture(context.MasterPart, i, "master", emit); err != nil {
 				return err
 			}
@@ -603,12 +620,16 @@ func (c *walkContext) walk() error {
 			}
 		}
 		if context.LayoutPart != "" {
+			layoutType, err := c.readPartRootAttribute(context.LayoutPart, "type")
+			if err != nil {
+				return err
+			}
 			if rels, err := c.access.relationships(context.LayoutPart); err == nil {
 				if err := c.emitPartRelationships(context.LayoutPart, i, "layout", contextualRelationshipsFromEntries(rels), emit); err != nil {
 					return err
 				}
 			}
-			if err := emit(Event{Type: EventStartLayout, PartName: context.LayoutPart, SlideIndex: i, Scope: "layout"}); err != nil {
+			if err := emit(Event{Type: EventStartLayout, PartName: context.LayoutPart, SlideIndex: i, Scope: "layout", LayoutType: layoutType}); err != nil {
 				return err
 			}
 			if err := c.walkMasterShapeVisibilityPart(context.LayoutPart, i, "layout", emit); err != nil {
@@ -618,6 +639,9 @@ func (c *walkContext) walk() error {
 				return err
 			}
 			if err := c.walkBackgroundStyleRef(context.LayoutPart, i, "layout", emit); err != nil {
+				return err
+			}
+			if err := c.walkBackgroundDirectFill(context.LayoutPart, i, "layout", emit); err != nil {
 				return err
 			}
 			if err := c.walkBackgroundPicture(context.LayoutPart, i, "layout", emit); err != nil {
@@ -634,6 +658,9 @@ func (c *walkContext) walk() error {
 			return err
 		}
 		if err := c.walkBackgroundStyleRef(slideName, i, "slide", emit); err != nil {
+			return err
+		}
+		if err := c.walkBackgroundDirectFill(slideName, i, "slide", emit); err != nil {
 			return err
 		}
 		if err := c.walkBackgroundPicture(slideName, i, "slide", emit); err != nil {
@@ -1298,6 +1325,19 @@ func (c *walkContext) emitPartRelationships(partName string, slideIdx int, scope
 		if err := emit(Event{Type: EventRelationshipPayload, PartName: partName, SlideIndex: slideIdx, Scope: scope, RelID: rel.ID, RelType: rel.Type, TargetPart: rel.Target, Payload: payload, ContentType: contentTypeForPart(rel.Target)}); err != nil {
 			return err
 		}
+		// A chart part can in turn own an embedded workbook/package relationship.
+		// Emit that second-level relationship context while the chart part identity is
+		// still known so the IR builder can resolve formula-backed series when the
+		// chart XML has no cached points. This is generic OOXML ownership, not a
+		// presentation-fixture special case.
+		if strings.HasSuffix(canonicalRelationshipType(rel.Type), "/chart") {
+			chartRels, relErr := c.access.relationships(rel.Target)
+			if relErr == nil {
+				if err := c.emitPartRelationships(rel.Target, slideIdx, "chart", contextualRelationshipsFromEntries(chartRels), emit); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -1382,6 +1422,27 @@ func (c *walkContext) walkShapeTreePartScoped(partName string, slideIdx int, sco
 // walkMasterShapeVisibilityPart reads the part-local showMasterSp contract
 // without conflating layout metadata with slide metadata such as backgrounds or
 // transitions. Slide layouts can independently suppress their master's artwork.
+func (c *walkContext) readPartRootAttribute(partName, localName string) (string, error) {
+	rc, err := c.access.openPart(partName)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rc.Close() }()
+	dec := xml.NewDecoder(rc)
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return attrValue(se.Attr, localName), nil
+		}
+	}
+}
+
 func (c *walkContext) walkMasterShapeVisibilityPart(partName string, slideIdx int, scope string, emit func(Event) error) error {
 	rc, err := c.access.openPart(partName)
 	if err != nil {
@@ -1470,6 +1531,167 @@ func (c *walkContext) walkBackgroundStyleRef(partName string, slideIdx int, scop
 	}
 }
 
+// walkBackgroundDirectFill streams direct p:bg/p:bgPr solid/gradient/pattern/noFill
+// paint. Picture fills are handled separately because they require relationship payloads.
+func (c *walkContext) walkBackgroundDirectFill(partName string, slideIdx int, scope string, emit func(Event) error) error {
+	rc, err := c.access.openPart(partName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rc.Close() }()
+	dec := xml.NewDecoder(rc)
+	inBG, inBGPr := false, false
+	var kind string
+	var color VisualColor
+	var gradient GradientFill
+	var pattern PatternFill
+	var stop *GradientStop
+	patternSlot := ""
+	var active *VisualColor
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch se := tok.(type) {
+		case xml.StartElement:
+			local := se.Name.Local
+			switch local {
+			case "bg":
+				inBG = true
+			case "bgPr":
+				if inBG {
+					inBGPr = true
+				}
+			case "noFill", "solidFill", "gradFill", "pattFill":
+				if !inBGPr {
+					continue
+				}
+				kind = local
+				active = nil
+				if local == "gradFill" {
+					gradient = GradientFill{Flip: attrValue(se.Attr, "flip"), RotateWithShape: attrValue(se.Attr, "rotWithShape") == "1" || attrValue(se.Attr, "rotWithShape") == "true"}
+				}
+				if local == "pattFill" {
+					pattern = PatternFill{Preset: attrValue(se.Attr, "prst")}
+				}
+			case "gs":
+				if kind == "gradFill" {
+					gradient.Stops = append(gradient.Stops, GradientStop{Position: intAttrValue(se.Attr, "pos")})
+					stop = &gradient.Stops[len(gradient.Stops)-1]
+				}
+			case "lin":
+				if kind == "gradFill" {
+					gradient.Angle = intAttrValue(se.Attr, "ang")
+				}
+			case "path":
+				if kind == "gradFill" {
+					gradient.Path = attrValue(se.Attr, "path")
+				}
+			case "fillToRect":
+				if kind == "gradFill" {
+					gradient.FillToLeft = intAttrValue(se.Attr, "l")
+					gradient.FillToTop = intAttrValue(se.Attr, "t")
+					gradient.FillToRight = intAttrValue(se.Attr, "r")
+					gradient.FillToBottom = intAttrValue(se.Attr, "b")
+					gradient.HasFillToRect = true
+				}
+			case "fgClr", "bgClr":
+				if kind == "pattFill" {
+					patternSlot = local
+				}
+			case "srgbClr", "schemeClr", "sysClr", "prstClr":
+				if !inBGPr || kind == "" {
+					continue
+				}
+				v := attrValue(se.Attr, "val")
+				if local == "sysClr" && v == "" {
+					v = attrValue(se.Attr, "lastClr")
+				}
+				c := VisualColor{Kind: local, Value: v}
+				active = nil
+				if kind == "gradFill" && stop != nil {
+					stop.Color = c
+					active = &stop.Color
+				} else if kind == "pattFill" && patternSlot == "fgClr" {
+					pattern.Foreground = c
+					active = &pattern.Foreground
+				} else if kind == "pattFill" && patternSlot == "bgClr" {
+					pattern.Background = c
+					active = &pattern.Background
+				} else {
+					color = c
+					active = &color
+				}
+			case "alpha":
+				if active != nil {
+					active.Alpha = intAttrValue(se.Attr, "val")
+					active.HasAlpha = true
+				}
+			case "shade", "tint", "lumMod", "lumOff", "satMod", "satOff":
+				if active != nil {
+					v := intAttrValue(se.Attr, "val")
+					switch local {
+					case "shade":
+						active.Shade = v
+						active.HasShade = true
+					case "tint":
+						active.Tint = v
+						active.HasTint = true
+					case "lumMod":
+						active.LumMod = v
+						active.HasLumMod = true
+					case "lumOff":
+						active.LumOff = v
+						active.HasLumOff = true
+					case "satMod":
+						active.SatMod = v
+						active.HasSatMod = true
+					case "satOff":
+						active.SatOff = v
+						active.HasSatOff = true
+					}
+				}
+			}
+		case xml.EndElement:
+			switch se.Name.Local {
+			case "gs":
+				stop = nil
+			case "fgClr", "bgClr":
+				patternSlot = ""
+			case "noFill", "solidFill", "gradFill", "pattFill":
+				if !inBGPr || kind != se.Name.Local {
+					continue
+				}
+				ev := Event{Type: EventBackgroundFill, PartName: partName, SlideIndex: slideIdx, Scope: scope}
+				switch kind {
+				case "noFill":
+					ev.ThemeFill = ThemeFillStyle{Kind: "none"}
+				case "solidFill":
+					ev.ThemeFill = ThemeFillStyle{Kind: "solid", Color: color}
+				case "gradFill":
+					ev.ThemeFill = ThemeFillStyle{Kind: "gradient", Gradient: gradient}
+				case "pattFill":
+					ev.ThemeFill = ThemeFillStyle{Kind: "pattern", Pattern: pattern}
+				}
+				return emit(ev)
+			case "bgPr":
+				inBGPr = false
+			case "bg":
+				inBG = false
+			}
+		}
+	}
+}
+
+func intAttrValue(attrs []xml.Attr, local string) int {
+	v, _ := strconv.Atoi(attrValue(attrs, local))
+	return v
+}
+
 // walkBackgroundPicture streams a direct p:bg/p:bgPr/a:blipFill as a
 // part-owned background event. Background relationship IDs are local to the
 // slide/layout/master part, so they must never be resolved through a shape or
@@ -1518,6 +1740,7 @@ func (c *walkContext) walkBackgroundPicture(partName string, slideIdx int, scope
 				}
 			case "srcRect":
 				if inBlipFill {
+					ev.HasCrop = true
 					ev.CropLeft = intAttrValue(se.Attr, "l")
 					ev.CropTop = intAttrValue(se.Attr, "t")
 					ev.CropRight = intAttrValue(se.Attr, "r")
@@ -1525,6 +1748,7 @@ func (c *walkContext) walkBackgroundPicture(partName string, slideIdx int, scope
 				}
 			case "fillRect":
 				if inBlipFill {
+					ev.HasPictureFill = true
 					ev.PictureFillLeft = intAttrValue(se.Attr, "l")
 					ev.PictureFillTop = intAttrValue(se.Attr, "t")
 					ev.PictureFillRight = intAttrValue(se.Attr, "r")
@@ -1532,6 +1756,7 @@ func (c *walkContext) walkBackgroundPicture(partName string, slideIdx int, scope
 				}
 			case "tile":
 				if inBlipFill {
+					ev.HasPictureTile = true
 					ev.PictureTileTx, _ = strconv.ParseInt(attrValue(se.Attr, "tx"), 10, 64)
 					ev.PictureTileTy, _ = strconv.ParseInt(attrValue(se.Attr, "ty"), 10, 64)
 					ev.PictureTileSx = intAttrValue(se.Attr, "sx")
@@ -1824,12 +2049,19 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 		patternSlot string
 		line        LineProperties
 		target      string
+		parentPaint *paintCtx
 	}
 	type effectCtx struct {
 		shape *shapeCtx
 		value EffectProperties
 	}
 	var shapes []*shapeCtx
+	// A p:pic nested inside p:oleObj is the OLE presentation/preview image,
+	// not an independent slide shape. Keep the graphicFrame as the semantic
+	// owner so its a:blip is emitted against the OLE shape and can populate
+	// OLEIconData.
+	var oleObjectDepth int
+	var olePreviewPicDepth int
 	var paragraphs []bool
 	var tableStack []int
 	var textBuf strings.Builder
@@ -1861,6 +2093,29 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 	var effectStyleRef *VisualColor
 	var effectStyleRefIndex int
 	var activeVisualColor *VisualColor
+	// Office 2010+ compatibility extensions such as a14:hiddenFill,
+	// a14:hiddenLine and a14:hiddenEffects preserve editing-time fallback
+	// visuals. They are not authored shape paint and must never leak into the
+	// canonical shape event stream.
+	var hiddenVisualDepth int
+
+	// Markup-compatibility AlternateContent frequently wraps a semantic chart in
+	// mc:Choice and a picture preview in mc:Fallback. A streaming walker must
+	// select exactly one branch; walking both materializes the fallback picture
+	// after the chart and can visually cover the semantic chart.
+	type alternateContentState struct {
+		selected bool
+	}
+	var alternateContent []alternateContentState
+	alternateChoiceSupported := func(requires string) bool {
+		for _, token := range strings.Fields(strings.ToLower(strings.TrimSpace(requires))) {
+			switch token {
+			case "v", "a14", "a15", "a16", "a16cex", "p14", "p15", "p16", "thm15":
+				return false
+			}
+		}
+		return true
+	}
 
 	pushShape := func(kind string) {
 		shapes = append(shapes, &shapeCtx{kind: kind, depth: len(shapes), pending: true})
@@ -1940,7 +2195,8 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 	runPropertiesEmpty := func(r RunProperties) bool {
 		return !r.Bold && !r.Italic && !r.Underline && !r.Strike &&
 			!r.BoldSet && !r.ItalicSet && !r.UnderlineSet && !r.StrikeSet &&
-			r.FontSize == 0 && r.FontFamily == "" && r.Color.Value == "" && r.Highlight.Value == "" &&
+			r.FontSize == 0 && r.FontFamily == "" && r.LatinFontFamily == "" && r.EastAsiaFontFamily == "" &&
+			r.ComplexFontFamily == "" && r.SymbolFontFamily == "" && r.Color.Value == "" && r.Highlight.Value == "" &&
 			r.Baseline == 0 && r.Caps == "" && r.Language == "" && r.AltLanguage == "" &&
 			r.CharacterSpacing == 0 && r.Kerning == 0 && r.HyperlinkRelID == ""
 	}
@@ -1982,7 +2238,41 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 		switch se := tok.(type) {
 		case xml.StartElement:
 			local := se.Name.Local
+
+			// Select one mc:AlternateContent branch before normal shape handling.
+			// Unsupported extension choices are skipped wholesale; if no supported
+			// choice has been selected, the fallback branch is consumed instead.
+			switch local {
+			case "AlternateContent":
+				alternateContent = append(alternateContent, alternateContentState{})
+			case "Choice":
+				if len(alternateContent) > 0 {
+					state := &alternateContent[len(alternateContent)-1]
+					if state.selected || !alternateChoiceSupported(attr(se.Attr, "Requires")) {
+						if err := dec.Skip(); err != nil {
+							return err
+						}
+						continue
+					}
+					state.selected = true
+				}
+			case "Fallback":
+				if len(alternateContent) > 0 {
+					state := &alternateContent[len(alternateContent)-1]
+					if state.selected {
+						if err := dec.Skip(); err != nil {
+							return err
+						}
+						continue
+					}
+					state.selected = true
+				}
+			}
+
 			elements = append(elements, local)
+			if local == "hiddenFill" || local == "hiddenLine" || local == "hiddenEffects" {
+				hiddenVisualDepth++
+			}
 			switch local {
 			case "sldSz":
 				if slideIdx < 0 {
@@ -1993,6 +2283,10 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					}
 				}
 			case "sp", "pic", "cxnSp", "grpSp", "graphicFrame":
+				if local == "pic" && oleObjectDepth > 0 {
+					olePreviewPicDepth++
+					break
+				}
 				pushShape(local)
 			case "cNvPr":
 				if sh := peekShape(); sh != nil && sh.pending {
@@ -2062,11 +2356,19 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 				}
 			case "prstGeom":
 				if sh := peekShape(); sh != nil {
+					var pg drawingxml.PresetGeometry
+					if err := dec.DecodeElement(&pg, &se); err != nil {
+						return err
+					}
 					ev := baseEvent(EventGeometry, sh)
-					ev.Geometry = attr(se.Attr, "prst")
+					ev.Geometry = pg.Prst
+					if preset := pg.DrawingPresetGeometry(); preset != nil {
+						ev.GeometryAdjustments = append([]float64(nil), preset.Adjustments...)
+					}
 					if err := emit(ev); err != nil {
 						return err
 					}
+					elements = elements[:len(elements)-1]
 				}
 			case "custGeom":
 				if sh := peekShape(); sh != nil {
@@ -2083,7 +2385,7 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					elements = elements[:len(elements)-1]
 				}
 			case "noFill":
-				if runProps == nil {
+				if runProps == nil && hiddenVisualDepth == 0 {
 					if sh := peekShape(); sh != nil {
 						kind := EventNoFill
 						if parent() == "ln" {
@@ -2095,12 +2397,19 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 							}
 							return 0
 						}()}
+						if kind == EventLine {
+							paint.line.NoFill = true
+						}
 					}
 				}
 			case "gradFill":
-				if runProps == nil {
+				if runProps == nil && hiddenVisualDepth == 0 {
 					if sh := peekShape(); sh != nil {
+						parentPaint := paint
 						paint = &paintCtx{shape: sh, kind: EventGradientFill, target: paintTarget()}
+						if parentPaint != nil && parentPaint.kind == EventLine {
+							paint.parentPaint = parentPaint
+						}
 						paint.gradient.Flip = attr(se.Attr, "flip")
 						paint.gradient.RotateWithShape = boolAttr(se.Attr, "rotWithShape")
 					}
@@ -2120,9 +2429,13 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					paint.gradient.Path = attr(se.Attr, "path")
 				}
 			case "pattFill":
-				if runProps == nil {
+				if runProps == nil && hiddenVisualDepth == 0 {
 					if sh := peekShape(); sh != nil {
+						parentPaint := paint
 						paint = &paintCtx{shape: sh, kind: EventPatternFill, target: paintTarget()}
+						if parentPaint != nil && parentPaint.kind == EventLine {
+							paint.parentPaint = parentPaint
+						}
 						paint.pattern.Preset = attr(se.Attr, "prst")
 					}
 				}
@@ -2131,7 +2444,9 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					paint.patternSlot = local
 				}
 			case "solidFill":
-				if runProps != nil {
+				if hiddenVisualDepth > 0 {
+					// Hidden compatibility paint is metadata only.
+				} else if runProps != nil {
 					runColorDepth++
 				} else if sh := peekShape(); sh != nil {
 					if paint != nil && paint.kind == EventLine {
@@ -2156,20 +2471,28 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					fillStyleRefIndex, _ = strconv.Atoi(xmlAttr(se.Attr, "idx"))
 				}
 			case "ln", "lnL", "lnR", "lnT", "lnB":
-				if sh := peekShape(); sh != nil {
-					target := paintTarget()
-					if local == "lnL" {
-						target = "borderLeft"
-					} else if local == "lnR" {
-						target = "borderRight"
-					} else if local == "lnT" {
-						target = "borderTop"
-					} else if local == "lnB" {
-						target = "borderBottom"
+				if hiddenVisualDepth == 0 {
+					if sh := peekShape(); sh != nil {
+						target := paintTarget()
+						if local == "lnL" {
+							target = "borderLeft"
+						} else if local == "lnR" {
+							target = "borderRight"
+						} else if local == "lnT" {
+							target = "borderTop"
+						} else if local == "lnB" {
+							target = "borderBottom"
+						}
+						paint = &paintCtx{shape: sh, kind: EventLine, target: target, width: int64Attr(se.Attr, "w")}
+						paint.line.WidthEMU = paint.width
+						for _, a := range se.Attr {
+							if a.Name.Local == "w" {
+								paint.line.HasWidth = true
+								break
+							}
+						}
+						paint.line.Cap, paint.line.Compound = attr(se.Attr, "cap"), attr(se.Attr, "cmpd")
 					}
-					paint = &paintCtx{shape: sh, kind: EventLine, target: target, width: int64Attr(se.Attr, "w")}
-					paint.line.WidthEMU = paint.width
-					paint.line.Cap, paint.line.Compound = attr(se.Attr, "cap"), attr(se.Attr, "cmpd")
 				}
 			case "prstDash":
 				if paint != nil && paint.kind == EventLine {
@@ -2196,7 +2519,7 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 				// Effects nested in rPr/defRPr/endParaRPr belong to text, not
 				// to the containing presentation shape. Promoting those effects
 				// to Shape.Effects creates large shadowed placeholder rectangles.
-				if sh := peekShape(); sh != nil && runProps == nil {
+				if sh := peekShape(); sh != nil && runProps == nil && hiddenVisualDepth == 0 {
 					effect = &effectCtx{shape: sh}
 					effect.value.Kind = local
 					effect.value.BlurRad, effect.value.Dist, effect.value.Dir, effect.value.Rad = int64Attr(se.Attr, "blurRad"), int64Attr(se.Attr, "dist"), int64Attr(se.Attr, "dir"), int64Attr(se.Attr, "rad")
@@ -2287,6 +2610,33 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					}
 				}
 			case "blip":
+				if parent() == "buBlip" {
+					relID := attr(se.Attr, "embed")
+					switch {
+					case textStyleParagraph != nil:
+						textStyleParagraph.BulletImageRelID = relID
+						textStyleParagraph.HasBullet = true
+					case shapeListStyleParagraph != nil:
+						shapeListStyleParagraph.BulletImageRelID = relID
+						shapeListStyleParagraph.HasBullet = true
+					case paragraphPropsActive:
+						if sh := peekShape(); sh != nil {
+							ev := baseEvent(EventParagraphProps, sh)
+							ev.RelID = relID
+							ev.Paragraph = ParagraphProperties{BulletImageRelID: relID, HasBullet: true}
+							if err := emit(ev); err != nil {
+								return err
+							}
+						}
+					}
+					if err := dec.Skip(); err != nil {
+						return err
+					}
+					if len(elements) > 0 {
+						elements = elements[:len(elements)-1]
+					}
+					continue
+				}
 				if sh := peekShape(); sh != nil {
 					ev := baseEvent(EventBlip, sh)
 					for _, a := range se.Attr {
@@ -2297,13 +2647,22 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 							ev.LinkRelID = a.Value
 						}
 					}
+					// Decode the complete blip here so effects nested below a:blip are
+					// owned by the same semantic image event as its relationship.
+					var blip parts.Blip
+					if err := dec.DecodeElement(&blip, &se); err != nil {
+						return err
+					}
+					ev.ImageEffects = blip.DrawingEffects(nil)
 					if err := emit(ev); err != nil {
 						return err
 					}
+					elements = elements[:len(elements)-1]
 				}
 			case "srcRect":
 				if sh := peekShape(); sh != nil {
 					ev := baseEvent(EventBlip, sh)
+					ev.HasCrop = true
 					ev.CropLeft, ev.CropTop, ev.CropRight, ev.CropBottom = intAttr(se.Attr, "l"), intAttr(se.Attr, "t"), intAttr(se.Attr, "r"), intAttr(se.Attr, "b")
 					if err := emit(ev); err != nil {
 						return err
@@ -2312,6 +2671,7 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 			case "tile":
 				if sh := peekShape(); sh != nil {
 					ev := baseEvent(EventBlip, sh)
+					ev.HasPictureTile = true
 					ev.PictureTileTx, ev.PictureTileTy = int64Attr(se.Attr, "tx"), int64Attr(se.Attr, "ty")
 					ev.PictureTileSx, ev.PictureTileSy = intAttr(se.Attr, "sx"), intAttr(se.Attr, "sy")
 					ev.PictureTileFlip, ev.PictureTileAlign = attr(se.Attr, "flip"), attr(se.Attr, "algn")
@@ -2322,6 +2682,7 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 			case "fillRect":
 				if sh := peekShape(); sh != nil {
 					ev := baseEvent(EventBlip, sh)
+					ev.HasPictureFill = true
 					ev.PictureFillLeft, ev.PictureFillTop, ev.PictureFillRight, ev.PictureFillBottom = intAttr(se.Attr, "l"), intAttr(se.Attr, "t"), intAttr(se.Attr, "r"), intAttr(se.Attr, "b")
 					if err := emit(ev); err != nil {
 						return err
@@ -2551,12 +2912,22 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					}
 				}
 			case "tab":
-				// a:tab inside a:tabLst is a paragraph tab stop; p:tab is handled below.
-				if parent() == "tabLst" && peekShape() != nil {
-					ev := baseEvent(EventParagraphProps, peekShape())
-					ev.Paragraph.TabStops = []TabStop{{Pos: int64Attr(se.Attr, "pos"), Align: attr(se.Attr, "algn")}}
-					if err := emit(ev); err != nil {
-						return err
+				// a:tab inside a:tabLst is a paragraph tab stop. Keep tabs authored
+				// inside lvlNpPr on that list/text style so paragraphs inherit the
+				// actual PowerPoint stop instead of falling back to the default tab.
+				if parent() == "tabLst" {
+					stop := TabStop{Pos: int64Attr(se.Attr, "pos"), Align: attr(se.Attr, "algn")}
+					switch {
+					case shapeListStyleParagraph != nil:
+						shapeListStyleParagraph.TabStops = append(shapeListStyleParagraph.TabStops, stop)
+					case textStyleParagraph != nil:
+						textStyleParagraph.TabStops = append(textStyleParagraph.TabStops, stop)
+					case peekShape() != nil:
+						ev := baseEvent(EventParagraphProps, peekShape())
+						ev.Paragraph.TabStops = []TabStop{stop}
+						if err := emit(ev); err != nil {
+							return err
+						}
 					}
 				} else {
 					if err := emit(Event{Type: EventTab, PartName: partName, SlideIndex: slideIdx}); err != nil {
@@ -2565,7 +2936,21 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 				}
 			case "latin":
 				if runProps != nil {
-					runProps.FontFamily = attr(se.Attr, "typeface")
+					family := attr(se.Attr, "typeface")
+					runProps.LatinFontFamily = family
+					runProps.FontFamily = family
+				}
+			case "ea":
+				if runProps != nil {
+					runProps.EastAsiaFontFamily = attr(se.Attr, "typeface")
+				}
+			case "cs":
+				if runProps != nil {
+					runProps.ComplexFontFamily = attr(se.Attr, "typeface")
+				}
+			case "sym":
+				if runProps != nil {
+					runProps.SymbolFontFamily = attr(se.Attr, "typeface")
 				}
 			case "chart":
 				if sh := peekShape(); sh != nil {
@@ -2607,6 +2992,7 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					}
 				}
 			case "oleObj":
+				oleObjectDepth++
 				if sh := peekShape(); sh != nil {
 					ev := baseEvent(EventGraphicObject, sh)
 					ev.GraphicObjectKind = "ole"
@@ -2716,6 +3102,16 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					if err := emit(ev); err != nil {
 						return err
 					}
+					// Fields participate in the same paragraph/list-style character cascade
+					// as ordinary runs. PowerPoint commonly authors slide-number fields with
+					// only local size/bold/color and leaves the typeface in lvl1pPr/defRPr.
+					if activeParagraphStyle != nil {
+						ev := baseEvent(EventRunProps, peekShape())
+						ev.Run = activeParagraphStyle.Run
+						if err := emit(ev); err != nil {
+							return err
+						}
+					}
 				}
 			case "t":
 				captureText = true
@@ -2731,6 +3127,10 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 				activeVisualColor = nil
 			}
 			switch local {
+			case "AlternateContent":
+				if len(alternateContent) > 0 {
+					alternateContent = alternateContent[:len(alternateContent)-1]
+				}
 			case "pPr":
 				paragraphPropsActive = false
 				spacingTarget = ""
@@ -2787,6 +3187,13 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 			case "titleStyle", "bodyStyle", "otherStyle":
 				textStyleKind = ""
 			case "endParaRPr":
+				if runProps != nil {
+					ev := baseEvent(EventRunProps, peekShape())
+					ev.Run = *runProps
+					if err := emit(ev); err != nil {
+						return err
+					}
+				}
 				// endParaRPr is a text-property scope, not shape paint. Keep its
 				// solidFill/noFill children out of the shape visual event stream.
 				// Paragraph-default projection can consume these properties separately;
@@ -2823,13 +3230,18 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 				}
 			case "gradFill":
 				if paint != nil && paint.kind == EventGradientFill {
-					ev := baseEvent(EventGradientFill, paint.shape)
-					ev.PaintTarget = paint.target
-					ev.Gradient = paint.gradient
-					if err := emit(ev); err != nil {
-						return err
+					if parentPaint := paint.parentPaint; parentPaint != nil && parentPaint.kind == EventLine {
+						parentPaint.line.Fill = ThemeFillStyle{Kind: "gradient", Gradient: paint.gradient}
+						paint = parentPaint
+					} else {
+						ev := baseEvent(EventGradientFill, paint.shape)
+						ev.PaintTarget = paint.target
+						ev.Gradient = paint.gradient
+						if err := emit(ev); err != nil {
+							return err
+						}
+						paint = nil
 					}
-					paint = nil
 				}
 			case "gs":
 				if paint != nil && paint.kind == EventGradientFill {
@@ -2837,13 +3249,18 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 				}
 			case "pattFill":
 				if paint != nil && paint.kind == EventPatternFill {
-					ev := baseEvent(EventPatternFill, paint.shape)
-					ev.PaintTarget = paint.target
-					ev.Pattern = paint.pattern
-					if err := emit(ev); err != nil {
-						return err
+					if parentPaint := paint.parentPaint; parentPaint != nil && parentPaint.kind == EventLine {
+						parentPaint.line.Fill = ThemeFillStyle{Kind: "pattern", Pattern: paint.pattern}
+						paint = parentPaint
+					} else {
+						ev := baseEvent(EventPatternFill, paint.shape)
+						ev.PaintTarget = paint.target
+						ev.Pattern = paint.pattern
+						if err := emit(ev); err != nil {
+							return err
+						}
+						paint = nil
 					}
-					paint = nil
 				}
 			case "fgClr", "bgClr":
 				if paint != nil && paint.kind == EventPatternFill {
@@ -2922,7 +3339,15 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					}
 					effect = nil
 				}
+			case "oleObj":
+				if oleObjectDepth > 0 {
+					oleObjectDepth--
+				}
 			case "sp", "pic", "cxnSp", "grpSp", "graphicFrame":
+				if local == "pic" && olePreviewPicDepth > 0 {
+					olePreviewPicDepth--
+					break
+				}
 				sh := popShape()
 				if sh != nil && sh.started {
 					end := baseEvent(EventEndShape, sh)
@@ -2992,6 +3417,9 @@ func walkShapeTreeReader(r io.Reader, partName string, slideIdx int, emit func(E
 					}
 				}
 				fieldType = ""
+			}
+			if (se.Name.Local == "hiddenFill" || se.Name.Local == "hiddenLine" || se.Name.Local == "hiddenEffects") && hiddenVisualDepth > 0 {
+				hiddenVisualDepth--
 			}
 			if len(elements) > 0 {
 				elements = elements[:len(elements)-1]

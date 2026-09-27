@@ -28,3 +28,31 @@ func DashName(raw uint32) string {
 		return "solid"
 	}
 }
+
+// LineJoinFromOfficeArt maps MSOLINEJOIN to canonical line-join names.
+func LineJoinFromOfficeArt(raw uint32) string {
+	switch raw {
+	case 0:
+		return "bevel"
+	case 1:
+		return "miter"
+	case 2:
+		return "round"
+	default:
+		return "round"
+	}
+}
+
+// LineCapFromOfficeArt maps MSOLINECAP to canonical cap names.
+func LineCapFromOfficeArt(raw uint32) string {
+	switch raw {
+	case 0:
+		return "round"
+	case 1:
+		return "square"
+	case 2:
+		return "flat"
+	default:
+		return "flat"
+	}
+}

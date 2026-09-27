@@ -38,14 +38,14 @@ func TestClass10MixedRunMetricsConvergeInPhysicalLayout(t *testing.T) {
 	if ResolveFontAdvanceMetrics(symbol.Visual.FontFamily).Profile != "symbol" {
 		t.Fatalf("symbol font %q did not resolve to symbol physical metrics", symbol.Visual.FontFamily)
 	}
-	if symbol.Visual.FontSizePt != 24 || symbol.Visual.BaselineShiftPct != 30 {
-		t.Fatalf("symbol visual size/shift = %.3f/%.3f, want authored 24pt/+30%%", symbol.Visual.FontSizePt, symbol.Visual.BaselineShiftPct)
+	if math.Abs(symbol.Visual.FontSizePt-24*officeScriptFontScale) > .001 || symbol.Visual.BaselineShiftPct != 30 {
+		t.Fatalf("symbol visual size/shift = %.3f/%.3f, want %.3fpt/+30%%", symbol.Visual.FontSizePt, symbol.Visual.BaselineShiftPct, 24*officeScriptFontScale)
 	}
-	if symbol.AscentPt <= cjk.AscentPt {
-		t.Fatalf("shifted symbol ascent %.3f must contribute beyond unshifted CJK ascent %.3f", symbol.AscentPt, cjk.AscentPt)
+	if symbol.AscentPt >= cjk.AscentPt {
+		t.Fatalf("reduced script ascent %.3f must remain below unshifted CJK ascent %.3f", symbol.AscentPt, cjk.AscentPt)
 	}
-	if math.Abs(line.AscentPt-symbol.AscentPt) > .001 {
-		t.Fatalf("line ascent %.3f, want max shifted ascent %.3f", line.AscentPt, symbol.AscentPt)
+	if math.Abs(line.AscentPt-cjk.AscentPt) > .001 {
+		t.Fatalf("line ascent %.3f, want CJK ascent %.3f", line.AscentPt, cjk.AscentPt)
 	}
 	if math.Abs(line.HeightPt-(line.AscentPt+line.DescentPt)) > .001 {
 		t.Fatalf("line box %.3f != ascent+descent %.3f", line.HeightPt, line.AscentPt+line.DescentPt)
@@ -66,8 +66,8 @@ func TestClass10FrameScaleConvergesFontSizeKerningAndBaselineShift(t *testing.T)
 		t.Fatalf("physical layout = %#v", got.Lines)
 	}
 	v := got.Lines[0].Fragments[1]
-	if math.Abs(v.Visual.FontSizePt-12) > .001 {
-		t.Fatalf("scaled inherited font size = %.3fpt, want 12pt", v.Visual.FontSizePt)
+	if math.Abs(v.Visual.FontSizePt-12*officeScriptFontScale) > .001 {
+		t.Fatalf("scaled inherited script size = %.3fpt, want %.3fpt", v.Visual.FontSizePt, 12*officeScriptFontScale)
 	}
 	if !v.Visual.KerningSpecified || v.Visual.KerningEnabled {
 		t.Fatalf("18pt kern threshold at effective 12pt = specified %v enabled %v, want true/false",

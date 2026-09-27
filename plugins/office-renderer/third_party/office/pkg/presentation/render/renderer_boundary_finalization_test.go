@@ -45,7 +45,7 @@ func TestRendererConsumesCanonicalIRThroughSemanticSourceOnly(t *testing.T) {
 
 func TestRendererCanonicalShapeSelectorsAreSemanticOnly(t *testing.T) {
 	allowed := map[string]bool{
-		"ActionLink": true, "AnimStep": true, "AnimationTriggers": true,
+		"ActionLink": true, "AnimStep": true, "AnimationOnly": true, "AnimationTriggers": true,
 		"EmphasisEffects": true, "HyperlinkURL": true, "ID": true,
 		"ImageData": true, "ImageMIME": true,
 		"MediaData": true, "MediaKind": true, "MediaLinkURL": true,
@@ -85,16 +85,21 @@ func TestRendererCanonicalShapeSelectorsAreSemanticOnly(t *testing.T) {
 	}
 }
 
-
 func TestClass16TableAndChartRenderersUsePhysicalSemanticPlans(t *testing.T) {
 	data, err := os.ReadFile("html.go")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := string(data)
 	functionBody := func(name string) string {
 		start := strings.Index(body, "func "+name)
-		if start < 0 { return "" }
+		if start < 0 {
+			return ""
+		}
 		open := strings.Index(body[start:], "{")
-		if open < 0 { return "" }
+		if open < 0 {
+			return ""
+		}
 		open += start
 		depth := 0
 		for i := open; i < len(body); i++ {
@@ -103,14 +108,18 @@ func TestClass16TableAndChartRenderersUsePhysicalSemanticPlans(t *testing.T) {
 				depth++
 			case '}':
 				depth--
-				if depth == 0 { return body[start:i+1] }
+				if depth == 0 {
+					return body[start : i+1]
+				}
 			}
 		}
 		return ""
 	}
 	for _, name := range []string{"renderTableShape", "renderChartShape"} {
 		fn := functionBody(name)
-		if fn == "" { t.Fatalf("could not isolate %s", name) }
+		if fn == "" {
+			t.Fatalf("could not isolate %s", name)
+		}
 		for _, forbidden := range []string{"shape.Table", "shape.ChartData", "shape.ImageData"} {
 			if strings.Contains(fn, forbidden) {
 				t.Fatalf("%s re-derives canonical semantic data via %q", name, forbidden)
@@ -119,18 +128,23 @@ func TestClass16TableAndChartRenderersUsePhysicalSemanticPlans(t *testing.T) {
 	}
 }
 
-
 func TestClass17SlideRendererConsumesUnifiedPhysicalPaintOrder(t *testing.T) {
 	data, err := os.ReadFile("html.go")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := string(data)
 	if !strings.Contains(body, "renderPhysicalSlidePaintOrder(b, physicalSlide") {
 		t.Fatal("slide renderer does not delegate to unified physical paint-order serializer")
 	}
 	start := strings.Index(body, "func renderPhysicalSlidePaintOrder")
-	if start < 0 { t.Fatal("paint-order serializer not found") }
+	if start < 0 {
+		t.Fatal("paint-order serializer not found")
+	}
 	open := strings.Index(body[start:], "{")
-	if open < 0 { t.Fatal("paint-order serializer body not found") }
+	if open < 0 {
+		t.Fatal("paint-order serializer body not found")
+	}
 	open += start
 	depth := 0
 	end := -1
@@ -140,11 +154,18 @@ func TestClass17SlideRendererConsumesUnifiedPhysicalPaintOrder(t *testing.T) {
 			depth++
 		case '}':
 			depth--
-			if depth == 0 { end = i + 1; break }
+			if depth == 0 {
+				end = i + 1
+				break
+			}
 		}
-		if end >= 0 { break }
+		if end >= 0 {
+			break
+		}
 	}
-	if end < 0 { t.Fatal("paint-order serializer end not found") }
+	if end < 0 {
+		t.Fatal("paint-order serializer end not found")
+	}
 	fn := body[start:end]
 	if !strings.Contains(fn, "slide.PaintOrder") {
 		t.Fatal("serializer does not iterate unified physical paint order")
@@ -154,10 +175,11 @@ func TestClass17SlideRendererConsumesUnifiedPhysicalPaintOrder(t *testing.T) {
 	}
 }
 
-
 func TestClass18RendererDoesNotRecomputePhysicalClipVisibility(t *testing.T) {
 	data, err := os.ReadFile("html.go")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	body := string(data)
 	for _, forbidden := range []string{
 		"resolveClippedPhysicalPaintBounds",
@@ -169,7 +191,6 @@ func TestClass18RendererDoesNotRecomputePhysicalClipVisibility(t *testing.T) {
 		}
 	}
 }
-
 
 func TestClass18RendererConsumesPhysicalFullyClippedDecision(t *testing.T) {
 	data, err := os.ReadFile("html.go")
@@ -209,7 +230,6 @@ func TestClass18RendererConsumesPhysicalFullyClippedDecision(t *testing.T) {
 		t.Fatal("renderer does not consume layout-owned fully-clipped visibility decision")
 	}
 }
-
 
 func TestClass19RendererDispatchesOnPhysicalKind(t *testing.T) {
 	data, err := os.ReadFile("html.go")

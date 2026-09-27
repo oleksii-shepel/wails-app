@@ -539,23 +539,56 @@ func (pg *PresetGeometry) sunPath(width, height float64) Path {
 	return pg.starPath(width, height, 16, 0.7)
 }
 
-// moonPath creates a crescent moon shape.
+// moonPath creates the DrawingML moon preset. The geometry is adjustment-
+// sensitive: PowerPoint's default adj=50000 is materially wider than the
+// old fixed cubic approximation, especially for the very tall/narrow source
+// boxes produced when a moon is rotated into a shallow horizontal band.
+// Formulas mirror ECMA-376 presetShapeDefinitions.xml.
 func (pg *PresetGeometry) moonPath(width, height float64) Path {
-	cmds := []PathCommand{
-		{Type: "M", Points: []Point{{X: width * 0.62, Y: height * 0.04}}},
-		{Type: "C", Points: []Point{
-			{X: width * 0.18, Y: height * 0.08},
-			{X: width * 0.06, Y: height * 0.92},
-			{X: width * 0.62, Y: height * 0.96},
-		}},
-		{Type: "C", Points: []Point{
-			{X: width * 0.38, Y: height * 0.82},
-			{X: width * 0.36, Y: height * 0.18},
-			{X: width * 0.62, Y: height * 0.04},
-		}},
-		{Type: "Z"},
+	if width <= 0 || height <= 0 {
+		return Path{FillRule: "nonzero"}
 	}
-	return Path{Commands: cmds, FillRule: "nonzero"}
+	ss := math.Min(width, height)
+	a := pg.adjOrDefault(0, 0.5)
+	if a > 0.875 {
+		a = 0.875
+	}
+	g0 := ss * a
+	g0w := g0 * width / ss
+	g1 := ss - g0
+	if math.Abs(g1) < 1e-9 {
+		g1 = 1e-9
+	}
+	g2 := g0 * g0 / g1
+	g3 := ss * ss / g1
+	g5 := 2*g3 - g2
+	g6 := g5 - g0
+	g6w := g6 * width / ss
+	g8 := g5/2 - g0
+	dy1 := g8 * (height / 2) / ss
+	g17w := g6w - g0w
+	g18w := g17w / 2
+
+	// presetShapeDefinitions.xml authors the moon as two arcs that share the
+	// same endpoints: (r,b) -> (r,t) for the outer rim, then (r,t) -> (r,b)
+	// for the concave inner rim.  Earlier code tried to re-derive the second
+	// endpoint from stAng1/swAng1 using ordinary atan2 semantics.  DrawingML's
+	// guide `at2` convention differs, and that calculation could place the end
+	// point outside the authored box for tall/narrow moons (the common case when
+	// a moon is rotated into a shallow atmospheric band).  The endpoint is
+	// invariant in the preset definition, so materialize it directly and retain
+	// only the guide-derived radii.
+	outerStart := Point{X: width, Y: height}
+	outerEnd := Point{X: width, Y: 0}
+	rx := math.Abs(g18w)
+	ry := math.Abs(dy1)
+
+	return Path{Commands: []PathCommand{
+		{Type: "M", Points: []Point{outerStart}},
+		{Type: "A", Points: []Point{outerEnd}, Args: []float64{width, height / 2, 0, 0, 1}},
+		{Type: "A", Points: []Point{outerStart}, Args: []float64{rx, ry, 0, 0, 0}},
+		{Type: "Z"},
+	}, FillRule: "nonzero"}
 }
 
 // donutPath creates a ring shape with a transparent centre.
@@ -2222,20 +2255,32 @@ func (pg *PresetGeometry) starPath(width, height float64, points int, innerRatio
 // adj1 (Adjustments[0]) = body fraction of total length (0→1, default 0.6): where arrowhead starts.
 // adj2 (Adjustments[1]) = shaft height fraction (0→1, default 0.4).
 func (pg *PresetGeometry) arrowPath(width, height float64, angleDeg float64) Path {
-	// Build a right-pointing arrow, then rotate.
-	// adj1 = fraction of width where arrowhead starts (shaft ends).
-	bodyFrac := pg.adjOrDefault(0, 0.6)
-	shaftFrac := pg.adjOrDefault(1, 0.4)
-	headW := width * (1 - bodyFrac) // arrowhead occupies (1-adj1) of width from right
+	// Build the DrawingML rightArrow geometry, then rotate it for the basic
+	// directional variants. ECMA-376 defines adj1 as the shaft-height fraction
+	// and adj2 as arrow-head length measured against the short side. Keeping
+	// those semantics here is important because PowerPoint translates legacy
+	// OfficeArt arrow handles into exactly these canonical values.
+	shaftFrac := math.Max(0, math.Min(1, pg.adjOrDefault(0, 0.5)))
+	ss := math.Min(math.Abs(width), math.Abs(height))
+	if ss == 0 {
+		ss = math.Max(math.Abs(width), math.Abs(height))
+	}
+	maxHeadAdj := 0.0
+	if ss > 0 {
+		maxHeadAdj = math.Abs(width) / ss
+	}
+	headAdj := math.Max(0, math.Min(maxHeadAdj, pg.adjOrDefault(1, 0.5)))
+	headW := ss * headAdj
+	headX := width - headW
 	tailH := height * shaftFrac
 	tailY0 := (height - tailH) / 2
 	pts := [][2]float64{
 		{0, tailY0},
-		{width - headW, tailY0},
-		{width - headW, 0},
+		{headX, tailY0},
+		{headX, 0},
 		{width, height / 2},
-		{width - headW, height},
-		{width - headW, tailY0 + tailH},
+		{headX, height},
+		{headX, tailY0 + tailH},
 		{0, tailY0 + tailH},
 	}
 	pts = rotatePoints(pts, width, height, angleDeg)
@@ -2575,6 +2620,12 @@ type PathCommand struct {
 type Path struct {
 	Commands []PathCommand
 	FillRule string // "nonzero" or "evenodd"
+	// PaintFlagsSet preserves per-path OfficeArt paint semantics for custom geometry.
+	// DrawingML paths that do not author path-local paint flags leave this false and
+	// inherit the shape-level fill/stroke as before.
+	PaintFlagsSet bool
+	FillEnabled   bool
+	StrokeEnabled bool
 }
 
 // BoundingBox returns the bounding rectangle of a path.
@@ -2584,8 +2635,17 @@ func (p *Path) BoundingBox() Rect {
 	}
 
 	var points []Point
+	var current Point
+	haveCurrent := false
 	for _, cmd := range p.Commands {
 		points = append(points, cmd.Points...)
+		if cmd.Type == "A" && haveCurrent && len(cmd.Points) > 0 && len(cmd.Args) >= 5 {
+			points = append(points, svgArcEllipseBoundsPoints(current, cmd.Points[0], cmd.Args)...)
+		}
+		if len(cmd.Points) > 0 {
+			current = cmd.Points[len(cmd.Points)-1]
+			haveCurrent = true
+		}
 	}
 
 	if len(points) == 0 {
@@ -2616,6 +2676,57 @@ func (p *Path) BoundingBox() Rect {
 		Width:  maxX - minX,
 		Height: maxY - minY,
 	}
+}
+
+// svgArcEllipseBoundsPoints returns conservative extrema for an SVG endpoint
+// arc command.  Path.BoundingBox historically looked only at command points,
+// which collapses valid half-ellipses whose start/end share one coordinate
+// (for example the DrawingML moon preset) to zero width.  The path bbox is used
+// only as a geometric diagnostic today, so the whole supporting ellipse is a
+// safe conservative bound and avoids special-casing individual presets.
+func svgArcEllipseBoundsPoints(start, end Point, args []float64) []Point {
+	if len(args) < 5 {
+		return nil
+	}
+	rx, ry := math.Abs(args[0]), math.Abs(args[1])
+	if rx <= 0 || ry <= 0 || (start.X == end.X && start.Y == end.Y) {
+		return nil
+	}
+	phi := args[2] * math.Pi / 180
+	largeArc := args[3] != 0
+	sweep := args[4] != 0
+	cosPhi, sinPhi := math.Cos(phi), math.Sin(phi)
+	dx2 := (start.X - end.X) / 2
+	dy2 := (start.Y - end.Y) / 2
+	x1p := cosPhi*dx2 + sinPhi*dy2
+	y1p := -sinPhi*dx2 + cosPhi*dy2
+
+	lambda := x1p*x1p/(rx*rx) + y1p*y1p/(ry*ry)
+	if lambda > 1 {
+		s := math.Sqrt(lambda)
+		rx *= s
+		ry *= s
+	}
+	den := rx*rx*y1p*y1p + ry*ry*x1p*x1p
+	if den == 0 {
+		return nil
+	}
+	num := rx*rx*ry*ry - den
+	if num < 0 {
+		num = 0
+	}
+	coef := math.Sqrt(num / den)
+	if largeArc == sweep {
+		coef = -coef
+	}
+	cxp := coef * (rx * y1p / ry)
+	cyp := coef * (-ry * x1p / rx)
+	cx := cosPhi*cxp - sinPhi*cyp + (start.X+end.X)/2
+	cy := sinPhi*cxp + cosPhi*cyp + (start.Y+end.Y)/2
+
+	xExtent := math.Hypot(rx*cosPhi, ry*sinPhi)
+	yExtent := math.Hypot(rx*sinPhi, ry*cosPhi)
+	return []Point{{X: cx - xExtent, Y: cy - yExtent}, {X: cx + xExtent, Y: cy + yExtent}}
 }
 
 // Class 13: canonical flowchart preset families. These paths deliberately live

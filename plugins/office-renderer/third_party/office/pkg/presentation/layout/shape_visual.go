@@ -4,6 +4,7 @@ import (
 	"math"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/presentation/ir"
+	"office/pkg/render/metafile"
 	"sort"
 	"strconv"
 	"strings"
@@ -323,10 +324,10 @@ func ResolveFreeConnectorVisualPlan(shape *ir.Shape) FreeConnectorVisualPlan {
 		}
 	} else if strings.HasPrefix(shape.ConnectorType, "bentConnector") || strings.HasPrefix(shape.ConnectorType, "curvedConnector") {
 		// Solver-connected legacy PPT connectors carry resolved attachment points,
-		// but their authored preset still owns the elbow route. Re-materialize that
-		// route in the endpoint envelope instead of degrading every attached bent
-		// connector to a straight free connector. Endpoint direction determines the
-		// envelope flips because the solver points are already in slide space.
+		// but their authored preset still owns the elbow/curve route. Re-materialize
+		// that route in the endpoint envelope instead of degrading it to a straight
+		// free connector. The solver points are already in slide space, so endpoint
+		// direction supplies the preset flips.
 		left, right := math.Min(startPt.X, endPt.X), math.Max(startPt.X, endPt.X)
 		top, bottom := math.Min(startPt.Y, endPt.Y), math.Max(startPt.Y, endPt.Y)
 		routed := drawing.ConnectorWaypoints(shape.ConnectorType, left, top, right-left, bottom-top, shape.ConnectorAdjustments, endPt.X < startPt.X, endPt.Y < startPt.Y)
@@ -336,42 +337,62 @@ func ResolveFreeConnectorVisualPlan(shape *ir.Shape) FreeConnectorVisualPlan {
 	}
 	pts = append(pts, endPt)
 	originalStart, originalEnd := pts[0], pts[len(pts)-1]
-	// Bent/free polyline connectors can have a final segment shorter than the
-	// marker depth. Consume the trim across successive path segments so the
-	// shaft cannot double back underneath a large marker. CurvedConnector guide
-	// points are Bezier controls, not polyline vertices, so they retain the
-	// endpoint-only trim until curve subdivision owns arc-length trimming.
-	trimEndpoint := trimConnectorEndpoint
-	if !strings.HasPrefix(shape.ConnectorType, "curvedConnector") {
-		trimEndpoint = trimConnectorEndpointAcrossPolyline
+
+	// Curves need a different ownership rule from polylines. Marker trimming is
+	// distance along the authored Bezier, not a straight chord to the first
+	// control point. Build the untrimmed curve first, retain its endpoint
+	// tangents for marker orientation, then consume marker depth by arc length.
+	var originalCurves []CubicConnectorSegment
+	if (shape.ConnectorType == "curved" || shape.ConnectorType == "longCurve") && len(pts) == 2 {
+		c1, c2 := connectorCurveControlPoints(originalStart, originalEnd, shape.ConnectorType == "longCurve")
+		originalCurves = []CubicConnectorSegment{{Start: originalStart, Control1: c1, Control2: c2, End: originalEnd}}
+	} else if strings.HasPrefix(shape.ConnectorType, "curvedConnector") && len(pts) >= 4 {
+		originalCurves = materializePresetCurveSegments(pts)
 	}
+	if len(originalCurves) > 0 {
+		curves := append([]CubicConnectorSegment(nil), originalCurves...)
+		if shape.ArrowHead != "" {
+			curves = trimCubicConnectorSegments(curves, drawing.ArrowTrimDistanceForStroke(shape.ArrowHead, shape.ArrowHeadLength, stroke.WidthPt), true)
+		}
+		if shape.ArrowTail != "" {
+			curves = trimCubicConnectorSegments(curves, drawing.ArrowTrimDistanceForStroke(shape.ArrowTail, shape.ArrowTailLength, stroke.WidthPt), false)
+		}
+		plan := FreeConnectorVisualPlan{Composition: resolvePhysicalCompositionPlan(shape), Stroke: stroke, Curved: true, CurveSegments: curves}
+		if len(curves) > 0 {
+			plan.Control1 = curves[0].Control1
+			plan.Control2 = curves[len(curves)-1].Control2
+			plan.Points = make([]drawing.Point, 0, len(curves)+1)
+			plan.Points = append(plan.Points, curves[0].Start)
+			for _, seg := range curves {
+				plan.Points = append(plan.Points, seg.End)
+			}
+		} else {
+			// Two very large endpoint markers may consume the whole visible shaft.
+			// Marker paint still belongs to the authored tips even when there is no
+			// remaining Bezier segment to serialize.
+			plan.Points = []drawing.Point{originalStart, originalEnd}
+		}
+		startRef := originalCurves[0].Control1
+		endRef := originalCurves[len(originalCurves)-1].Control2
+		plan.StartArrow = drawing.ComputeArrowGeometryForStroke(shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength, stroke.WidthPt, originalStart, startRef)
+		plan.EndArrow = drawing.ComputeArrowGeometryForStroke(shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength, stroke.WidthPt, originalEnd, endRef)
+		return plan
+	}
+
+	// Marker orientation belongs to the authored path tangent, not to the shaft
+	// after endpoint trimming. On short bidirectional-arrow lines both trims can
+	// consume the entire shaft; retaining the original adjacent points keeps both
+	// marker geometries materializable even when the visible shaft collapses.
+	originalStartRef, originalEndRef := pts[1], pts[len(pts)-2]
 	if shape.ArrowHead != "" {
-		pts = trimEndpoint(pts, drawing.ArrowTrimDistanceForStroke(shape.ArrowHead, shape.ArrowHeadLength, stroke.WidthPt), false)
+		pts = trimConnectorEndpointAcrossPolyline(pts, drawing.ArrowTrimDistanceForStroke(shape.ArrowHead, shape.ArrowHeadLength, stroke.WidthPt), true)
 	}
 	if shape.ArrowTail != "" {
-		pts = trimEndpoint(pts, drawing.ArrowTrimDistanceForStroke(shape.ArrowTail, shape.ArrowTailLength, stroke.WidthPt), true)
+		pts = trimConnectorEndpointAcrossPolyline(pts, drawing.ArrowTrimDistanceForStroke(shape.ArrowTail, shape.ArrowTailLength, stroke.WidthPt), false)
 	}
 	plan := FreeConnectorVisualPlan{Composition: resolvePhysicalCompositionPlan(shape), Points: pts, Stroke: stroke}
-	var startRef, endRef drawing.Point
-	if len(pts) >= 2 {
-		startRef, endRef = pts[1], pts[len(pts)-2]
-	}
-	if (shape.ConnectorType == "curved" || shape.ConnectorType == "longCurve") && len(pts) == 2 {
-		plan.Curved = true
-		plan.Control1, plan.Control2 = connectorCurveControlPoints(pts[0], pts[1], shape.ConnectorType == "longCurve")
-		plan.CurveSegments = []CubicConnectorSegment{{Start: pts[0], Control1: plan.Control1, Control2: plan.Control2, End: pts[1]}}
-		startRef, endRef = plan.Control1, plan.Control2
-	} else if strings.HasPrefix(shape.ConnectorType, "curvedConnector") && len(pts) >= 4 {
-		plan.Curved = true
-		plan.CurveSegments = materializePresetCurveSegments(pts)
-		if len(plan.CurveSegments) > 0 {
-			plan.Control1 = plan.CurveSegments[0].Control1
-			plan.Control2 = plan.CurveSegments[len(plan.CurveSegments)-1].Control2
-			startRef, endRef = plan.Control1, plan.Control2
-		}
-	}
-	plan.EndArrow = drawing.ComputeArrowGeometryForStroke(shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength, stroke.WidthPt, originalEnd, endRef)
-	plan.StartArrow = drawing.ComputeArrowGeometryForStroke(shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength, stroke.WidthPt, originalStart, startRef)
+	plan.StartArrow = drawing.ComputeArrowGeometryForStroke(shape.ArrowHead, shape.ArrowHeadWidth, shape.ArrowHeadLength, stroke.WidthPt, originalStart, originalStartRef)
+	plan.EndArrow = drawing.ComputeArrowGeometryForStroke(shape.ArrowTail, shape.ArrowTailWidth, shape.ArrowTailLength, stroke.WidthPt, originalEnd, originalEndRef)
 	return plan
 }
 
@@ -400,6 +421,144 @@ func materializePresetCurveSegments(points []drawing.Point) []CubicConnectorSegm
 		out = append(out, CubicConnectorSegment{Start: p1, Control1: c1, Control2: c2, End: p2})
 	}
 	return out
+}
+
+// trimCubicConnectorSegments consumes marker depth by arc length while
+// preserving the authored Bezier shape. It may remove whole short cubic
+// segments before splitting the first/last surviving segment.
+func trimCubicConnectorSegments(in []CubicConnectorSegment, trim float64, fromStart bool) []CubicConnectorSegment {
+	out := append([]CubicConnectorSegment(nil), in...)
+	if len(out) == 0 || trim <= 0 {
+		return out
+	}
+	if fromStart {
+		for len(out) > 0 && trim > 0 {
+			segLen := cubicConnectorArcLength(out[0], 1)
+			if segLen <= 1e-9 {
+				out = out[1:]
+				continue
+			}
+			if trim >= segLen-1e-9 {
+				trim -= segLen
+				out = out[1:]
+				continue
+			}
+			t := cubicConnectorParameterAtArcLength(out[0], trim, true)
+			_, right := splitCubicConnectorSegment(out[0], t)
+			out[0] = right
+			return out
+		}
+		return out
+	}
+	for len(out) > 0 && trim > 0 {
+		i := len(out) - 1
+		segLen := cubicConnectorArcLength(out[i], 1)
+		if segLen <= 1e-9 {
+			out = out[:i]
+			continue
+		}
+		if trim >= segLen-1e-9 {
+			trim -= segLen
+			out = out[:i]
+			continue
+		}
+		t := cubicConnectorParameterAtArcLength(out[i], trim, false)
+		left, _ := splitCubicConnectorSegment(out[i], t)
+		out[i] = left
+		return out
+	}
+	return out
+}
+
+// cubicConnectorParameterAtArcLength returns t such that trim points of arc
+// length are removed from the selected endpoint. Binary search uses a stable
+// polyline approximation; connector marker geometry does not require a costly
+// exact elliptic integral and this is sub-pixel at presentation scale.
+func cubicConnectorParameterAtArcLength(seg CubicConnectorSegment, trim float64, fromStart bool) float64 {
+	full := cubicConnectorArcLength(seg, 1)
+	if trim <= 0 || full <= 0 {
+		if fromStart {
+			return 0
+		}
+		return 1
+	}
+	if trim >= full {
+		if fromStart {
+			return 1
+		}
+		return 0
+	}
+	lo, hi := 0.0, 1.0
+	for i := 0; i < 28; i++ {
+		mid := (lo + hi) / 2
+		var got float64
+		if fromStart {
+			got = cubicConnectorArcLength(seg, mid)
+		} else {
+			_, right := splitCubicConnectorSegment(seg, mid)
+			got = cubicConnectorArcLength(right, 1)
+		}
+		if got < trim {
+			if fromStart {
+				lo = mid
+			} else {
+				hi = mid
+			}
+		} else {
+			if fromStart {
+				hi = mid
+			} else {
+				lo = mid
+			}
+		}
+	}
+	return (lo + hi) / 2
+}
+
+func cubicConnectorArcLength(seg CubicConnectorSegment, t float64) float64 {
+	if t <= 0 {
+		return 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	// 64 chords are cheap for connector-sized curves and sufficiently accurate
+	// for marker trimming, including large arrowheads on short curves.
+	const steps = 64
+	prev := seg.Start
+	total := 0.0
+	for i := 1; i <= steps; i++ {
+		u := t * float64(i) / steps
+		p := cubicConnectorPoint(seg, u)
+		total += math.Hypot(p.X-prev.X, p.Y-prev.Y)
+		prev = p
+	}
+	return total
+}
+
+func cubicConnectorPoint(seg CubicConnectorSegment, t float64) drawing.Point {
+	u := 1 - t
+	b0 := u * u * u
+	b1 := 3 * u * u * t
+	b2 := 3 * u * t * t
+	b3 := t * t * t
+	return drawing.Point{
+		X: b0*seg.Start.X + b1*seg.Control1.X + b2*seg.Control2.X + b3*seg.End.X,
+		Y: b0*seg.Start.Y + b1*seg.Control1.Y + b2*seg.Control2.Y + b3*seg.End.Y,
+	}
+}
+
+func splitCubicConnectorSegment(seg CubicConnectorSegment, t float64) (CubicConnectorSegment, CubicConnectorSegment) {
+	lerp := func(a, b drawing.Point) drawing.Point {
+		return drawing.Point{X: a.X + (b.X-a.X)*t, Y: a.Y + (b.Y-a.Y)*t}
+	}
+	p01 := lerp(seg.Start, seg.Control1)
+	p12 := lerp(seg.Control1, seg.Control2)
+	p23 := lerp(seg.Control2, seg.End)
+	p012 := lerp(p01, p12)
+	p123 := lerp(p12, p23)
+	p := lerp(p012, p123)
+	return CubicConnectorSegment{Start: seg.Start, Control1: p01, Control2: p012, End: p}, CubicConnectorSegment{Start: p, Control1: p123, Control2: p23, End: seg.End}
 }
 
 func maxInt(a, b int) int {
@@ -628,6 +787,13 @@ type ImageSourceRectPlan struct {
 // crop rectangle and the final destination frame so crop, clipping and
 // transforms can be reasoned about without returning to canonical IR.
 type ImageVisualPlan struct {
+	// Renderer-ready image artifact. Browser-unsupported Office metafiles are
+	// normalized at the shared physical boundary so HTML and other serializers do
+	// not need parser-specific WMF/EMF handling.
+	MIME string
+	Data []byte
+	Alt  string
+
 	// Composition owns the authored picture frame, transform, shape effects and paint.
 	// FrameBounds below remains the fillRect destination frame inside it.
 	Composition  PhysicalCompositionPlan
@@ -673,8 +839,16 @@ func ResolvePhysicalTransformPlan(shape *ir.Shape) PhysicalTransformPlan {
 // ResolveImageVisualPlan owns picture crop/fill-rect materialization. Renderers
 // should not reinterpret ImageCrop*/ImageFill* independently.
 func resolveImageVisualPlanWithComposition(shape *ir.Shape, composition PhysicalCompositionPlan) ImageVisualPlan {
+	return resolveImageVisualPlanWithCompositionAndOptions(shape, composition, PhysicalMaterializeOptions{})
+}
+
+func resolveImageVisualPlanWithCompositionAndOptions(shape *ir.Shape, composition PhysicalCompositionPlan, opts PhysicalMaterializeOptions) ImageVisualPlan {
 	plan := ResolveImageVisualPlan(shape)
 	plan.Composition = composition
+	if shape != nil {
+		plan.Data, plan.MIME = physicalPresentationImageWithOptions(shape.ImageData, shape.ImageMIME, append([]metafile.FontFace(nil), opts.MetafileFonts...))
+		plan.Alt = shape.Name
+	}
 	return plan
 }
 
@@ -812,11 +986,13 @@ func ResolveShapeVisualPlan(shape *ir.Shape) ShapeVisualPlan {
 	geometry := ResolveGeometryVisualPlan(shape)
 	stroke := ResolveStrokeVisualPlan(shape.LineStyle, shape.LineColor, shape.LineWidthPt)
 	effects := ResolveEffectVisualPlan(shape.Effects)
-	useVector := shape.GeometryData != nil || (shape.Geometry != "" && shape.Geometry != "rect") || fillNeedsDefinition || stroke.NeedsVector
+	useVector := shape.GeometryData != nil || (shape.Geometry != "" && shape.Geometry != "rect") || fillNeedsDefinition || stroke.NeedsVector || shape.ArrowHead != "" || shape.ArrowTail != ""
 	spec := drawing.ShapeGeometrySpec{
 		Geometry: shape.GeometryData, Preset: &drawing.PresetGeometry{Name: preset, Adjustments: shape.GeometryAdjustments},
 		Width: width, Height: height, Fill: shape.Fill, FillColor: shape.FillColor,
 		Stroke: shape.LineStyle, StrokeColor: stroke.Color, StrokeWidth: stroke.WidthPt,
+		ArrowHead: shape.ArrowHead, ArrowHeadWidth: shape.ArrowHeadWidth, ArrowHeadLength: shape.ArrowHeadLength,
+		ArrowTail: shape.ArrowTail, ArrowTailWidth: shape.ArrowTailWidth, ArrowTailLength: shape.ArrowTailLength,
 	}
 	primitives, _ := drawing.BuildShapePrimitives(spec)
 	if fill.Gradient != nil && fill.Gradient.Kind == drawing.GradientTypePath && !strings.EqualFold(preset, "rect") && !strings.EqualFold(preset, "ellipse") {

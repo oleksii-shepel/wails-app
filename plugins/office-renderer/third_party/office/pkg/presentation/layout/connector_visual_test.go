@@ -63,10 +63,10 @@ func TestResolveFreeConnectorVisualPlanPreservesBentPresetRouteForSolverEndpoint
 	if len(got.Points) < 3 {
 		t.Fatalf("solver-connected bent connector collapsed to %d points: %#v", len(got.Points), got.Points)
 	}
-	// The arrow tangent must come from the final routed segment, not the
-	// diagonal start/end chord.
-	if got.EndArrow == nil {
-		t.Fatal("missing end arrow")
+	// The head arrow owns the first/start endpoint, so its tangent must come
+	// from the first routed segment rather than the diagonal start/end chord.
+	if got.StartArrow == nil {
+		t.Fatal("missing start arrow")
 	}
 }
 
@@ -99,7 +99,7 @@ func TestResolveFreeConnectorVisualPlanMaterializesSolverCurvedPresetAsBezier(t 
 	if seg.Start != got.Points[0] || seg.End != got.Points[len(got.Points)-1] {
 		t.Fatalf("cubic endpoints = %+v..%+v, want trimmed connector endpoints %+v..%+v", seg.Start, seg.End, got.Points[0], got.Points[len(got.Points)-1])
 	}
-	if got.EndArrow == nil {
+	if got.StartArrow == nil {
 		t.Fatal("missing arrow geometry")
 	}
 }
@@ -127,11 +127,11 @@ func TestResolveFreeConnectorVisualPlanOpenArrowKeepsShaftAtTip(t *testing.T) {
 		ArrowHeadWidth: "med", ArrowHeadLength: "med",
 	}
 	plan := ResolveFreeConnectorVisualPlan(shape)
-	if len(plan.Points) != 2 || plan.Points[1].X != 100 {
-		t.Fatalf("open-arrow shaft end = %#v, want authored 100pt tip", plan.Points)
+	if len(plan.Points) != 2 || plan.Points[0].X != 0 {
+		t.Fatalf("open-arrow shaft start = %#v, want authored 0pt tip", plan.Points)
 	}
-	if plan.EndArrow == nil || plan.EndArrow.Type != "arrow" {
-		t.Fatalf("open arrow geometry = %#v", plan.EndArrow)
+	if plan.StartArrow == nil || plan.StartArrow.Type != "arrow" {
+		t.Fatalf("open arrow geometry = %#v", plan.StartArrow)
 	}
 }
 
@@ -143,11 +143,11 @@ func TestResolveFreeConnectorVisualPlanFilledDiamondTrimsToBackVertex(t *testing
 		ArrowHeadWidth: "med", ArrowHeadLength: "med",
 	}
 	plan := ResolveFreeConnectorVisualPlan(shape)
-	if len(plan.Points) != 2 || plan.Points[1].X != 92 {
-		t.Fatalf("diamond shaft end = %#v, want 92pt back vertex", plan.Points)
+	if len(plan.Points) != 2 || plan.Points[0].X != 4 {
+		t.Fatalf("diamond shaft start = %#v, want 4pt back vertex", plan.Points)
 	}
-	if plan.EndArrow == nil || len(plan.EndArrow.PolyPts) != 4 || plan.EndArrow.PolyPts[2].X != 92 {
-		t.Fatalf("diamond geometry = %#v, want back vertex at 92pt", plan.EndArrow)
+	if plan.StartArrow == nil || len(plan.StartArrow.PolyPts) != 4 || plan.StartArrow.PolyPts[2].X != 4 {
+		t.Fatalf("diamond geometry = %#v, want back vertex at 4pt", plan.StartArrow)
 	}
 }
 
@@ -192,7 +192,7 @@ func TestConnectorArrowOrientationContractAcrossStraightBentAndCurvedRoutes(t *t
 	}
 }
 
-func TestClass8LargeEndArrowConsumesShortPolylineSegments(t *testing.T) {
+func TestClass8LargeTailArrowConsumesShortPolylineSegments(t *testing.T) {
 	shape := &ir.Shape{
 		ConnectorStart: &ir.Point{X: 0, Y: 0},
 		ConnectorEnd:   &ir.Point{X: 12700 * 100, Y: 0},
@@ -200,22 +200,22 @@ func TestClass8LargeEndArrowConsumesShortPolylineSegments(t *testing.T) {
 			{X: 0, Y: 0}, {X: 12700 * 90, Y: 0}, {X: 12700 * 100, Y: 0},
 		},
 		LineWidthPt: 3,
-		ArrowHead:   "triangle", ArrowHeadLength: "lg", ArrowHeadWidth: "lg",
+		ArrowTail:   "triangle", ArrowTailLength: "lg", ArrowTailWidth: "lg",
 	}
 	plan := ResolveFreeConnectorVisualPlan(shape)
 	if len(plan.Points) != 2 {
 		t.Fatalf("trimmed polyline points = %#v, want consumed short final segment", plan.Points)
 	}
-	// lg triangle depth is 12 * 3 = 36pt, so a 100pt endpoint trims to 64pt.
-	if math.Abs(plan.Points[len(plan.Points)-1].X-64) > 1e-9 {
-		t.Fatalf("shaft end = %#v, want 64pt after cross-segment trim", plan.Points[len(plan.Points)-1])
+	// lg triangle depth is 6 * 3 = 18pt, so a 100pt endpoint trims to 82pt.
+	if math.Abs(plan.Points[len(plan.Points)-1].X-82) > 1e-9 {
+		t.Fatalf("shaft end = %#v, want 82pt after cross-segment trim", plan.Points[len(plan.Points)-1])
 	}
 	if plan.EndArrow == nil || math.Abs(plan.EndArrow.Tip.X-100) > 1e-9 {
 		t.Fatalf("arrow tip moved while trimming shaft: %#v", plan.EndArrow)
 	}
 }
 
-func TestClass8LargeStartArrowConsumesShortPolylineSegments(t *testing.T) {
+func TestClass8LargeHeadArrowConsumesShortPolylineSegments(t *testing.T) {
 	shape := &ir.Shape{
 		ConnectorStart: &ir.Point{X: 0, Y: 0},
 		ConnectorEnd:   &ir.Point{X: 12700 * 100, Y: 0},
@@ -223,13 +223,64 @@ func TestClass8LargeStartArrowConsumesShortPolylineSegments(t *testing.T) {
 			{X: 0, Y: 0}, {X: 12700 * 10, Y: 0}, {X: 12700 * 100, Y: 0},
 		},
 		LineWidthPt: 3,
-		ArrowTail:   "triangle", ArrowTailLength: "lg", ArrowTailWidth: "lg",
+		ArrowHead:   "triangle", ArrowHeadLength: "lg", ArrowHeadWidth: "lg",
 	}
 	plan := ResolveFreeConnectorVisualPlan(shape)
-	if len(plan.Points) != 2 || math.Abs(plan.Points[0].X-36) > 1e-9 {
-		t.Fatalf("shaft start = %#v, want 36pt after cross-segment trim", plan.Points)
+	if len(plan.Points) != 2 || math.Abs(plan.Points[0].X-18) > 1e-9 {
+		t.Fatalf("shaft start = %#v, want 18pt after cross-segment trim", plan.Points)
 	}
 	if plan.StartArrow == nil || math.Abs(plan.StartArrow.Tip.X) > 1e-9 {
 		t.Fatalf("start arrow tip moved while trimming shaft: %#v", plan.StartArrow)
+	}
+}
+
+func TestClass8CurvedArrowTrimsByBezierArcLengthWithoutMovingAuthoredTangent(t *testing.T) {
+	shape := &ir.Shape{
+		ConnectorType:  "curved",
+		ConnectorStart: &ir.Point{X: 0, Y: 0},
+		ConnectorEnd:   &ir.Point{X: 12700 * 100, Y: 12700 * 60},
+		LineWidthPt:    3,
+		ArrowHead:      "triangle", ArrowHeadLength: "lg", ArrowHeadWidth: "lg",
+	}
+	plan := ResolveFreeConnectorVisualPlan(shape)
+	if !plan.Curved || len(plan.CurveSegments) != 1 || plan.StartArrow == nil {
+		t.Fatalf("curved arrow plan = %+v", plan)
+	}
+	seg := plan.CurveSegments[0]
+	// A 3pt large triangle consumes 18pt along the curve. The visible shaft
+	// must therefore start strictly inside the authored curve, but the marker
+	// tip and orientation still belong to the untrimmed endpoint/tangent.
+	if seg.Start.X <= 0 || seg.Start.Y < 0 {
+		t.Fatalf("trimmed curve start = %+v, want interior point", seg.Start)
+	}
+	if math.Abs(plan.StartArrow.Tip.X) > 1e-9 || math.Abs(plan.StartArrow.Tip.Y) > 1e-9 {
+		t.Fatalf("authored arrow tip moved: %+v", plan.StartArrow.Tip)
+	}
+	if plan.StartArrow.PolyPts == nil || len(plan.StartArrow.PolyPts) != 3 {
+		t.Fatalf("triangle marker geometry missing: %+v", plan.StartArrow)
+	}
+	// De Casteljau trimming preserves the original cubic locus. Rebuilding a
+	// curve from the shortened endpoint would keep Y=0 at control1 for this
+	// case; the split curve control must move with the trim instead.
+	if seg.Control1.X <= seg.Start.X {
+		t.Fatalf("trimmed cubic control did not advance with arc-length split: %+v", seg)
+	}
+}
+
+func TestClass8CurvedBidirectionalMarkersCanConsumeWholeShaftWithoutLosingPaint(t *testing.T) {
+	shape := &ir.Shape{
+		ConnectorType:  "curved",
+		ConnectorStart: &ir.Point{X: 0, Y: 0},
+		ConnectorEnd:   &ir.Point{X: 12700 * 20, Y: 0},
+		LineWidthPt:    3,
+		ArrowHead:      "triangle", ArrowHeadLength: "lg", ArrowHeadWidth: "lg",
+		ArrowTail: "triangle", ArrowTailLength: "lg", ArrowTailWidth: "lg",
+	}
+	plan := ResolveFreeConnectorVisualPlan(shape)
+	if plan.StartArrow == nil || plan.EndArrow == nil {
+		t.Fatalf("endpoint paint lost when markers consume shaft: %+v", plan)
+	}
+	if len(plan.CurveSegments) != 0 {
+		t.Fatalf("short curved shaft survived two 36pt trims: %+v", plan.CurveSegments)
 	}
 }

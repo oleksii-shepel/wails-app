@@ -1,6 +1,10 @@
 package sax_test
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/presentation/ir"
 	"office/pkg/presentation/parsers/ooxml/sax"
@@ -43,6 +47,68 @@ func TestBuildAuthoredSlidesBytesBuildsSourceOrderedNestedIR(t *testing.T) {
 	}
 }
 
+func TestBuildAuthoredSlidesPreservesSyntaxOnlyEmptyTextParagraph(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="empty geometry"/></p:nvSpPr><p:spPr><a:prstGeom prst="ellipse"/><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:p/></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slides) != 1 || len(slides[0].Shapes) != 1 {
+		t.Fatalf("slides = %#v", slides)
+	}
+	if got := slides[0].Shapes[0].Paragraphs; len(got) != 1 || got[0] == nil || len(got[0].Runs) != 1 || got[0].Runs[0].Text != "" {
+		t.Fatalf("syntax-only empty txBody paragraphs = %#v, want one empty paragraph-mark run", got)
+	}
+}
+
+func TestBuildAuthoredSlidesPreservesEndParaRPrForEmptyParagraph(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="empty paragraph mark"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="457200"/></a:xfrm><a:prstGeom prst="ellipse"/><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:lstStyle><a:defPPr><a:defRPr sz="2800"/></a:defPPr></a:lstStyle><a:p><a:endParaRPr sz="2000"/></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slides) != 1 {
+		t.Fatalf("slides = %#v", slides)
+	}
+	var target *ir.Shape
+	var walk func([]*ir.Shape)
+	walk = func(shapes []*ir.Shape) {
+		for _, shape := range shapes {
+			if shape == nil || target != nil {
+				continue
+			}
+			if len(shape.Paragraphs) != 0 {
+				target = shape
+				return
+			}
+			walk(shape.Children)
+		}
+	}
+	walk(slides[0].Shapes)
+	if target == nil {
+		t.Fatalf("slides = %#v, want one paragraph-bearing shape", slides)
+	}
+	got := target.Paragraphs
+	if len(got) != 1 || got[0] == nil || len(got[0].Runs) != 1 {
+		t.Fatalf("empty paragraph = %#v, want one paragraph-mark run", got)
+	}
+	if gotSize := got[0].Runs[0].FontSize; gotSize != 2000 {
+		t.Fatalf("paragraph-mark font size = %d, want endParaRPr size 2000", gotSize)
+	}
+}
+
 func TestContextualBuilderOwnsRichRunFieldsHyperlinksAndParagraphTabs(t *testing.T) {
 	data := buildPPTX(t, map[string]string{
 		"[Content_Types].xml":              `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
@@ -68,7 +134,7 @@ func TestContextualBuilderOwnsRichRunFieldsHyperlinksAndParagraphTabs(t *testing
 		t.Fatalf("hyperlink run = %#v", r)
 	}
 	f := p.Runs[1]
-	if f.Text != "7" || f.FieldKind != "slidenum" || !f.Italic {
+	if f.Text != "" || f.FieldKind != "slidenum" || !f.Italic {
 		t.Fatalf("field run = %#v", f)
 	}
 }
@@ -436,5 +502,213 @@ func TestContextualBuilderLoadsRelationshipPayloadsWithoutComposer(t *testing.T)
 	chart := pres.Slides[0].Shapes[1]
 	if chart.Kind != ir.ShapeChart || len(chart.ChartData) == 0 {
 		t.Fatalf("chart payload = %#v", chart)
+	}
+}
+
+func TestContextualBuilderResolvesScriptSpecificRunTypeface(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="text"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p>` +
+			`<a:r><a:rPr><a:latin typeface="Times New Roman"/><a:sym typeface="Symbol"/></a:rPr><a:t></a:t></a:r>` +
+			`<a:r><a:rPr><a:sym typeface="Math1"/></a:rPr><a:t>2</a:t></a:r>` +
+			`<a:r><a:rPr><a:latin typeface="Arial"/><a:sym typeface="Symbol"/></a:rPr><a:t>normal</a:t></a:r>` +
+			`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := slides[0].Shapes[0].Paragraphs[0].Runs
+	if len(runs) != 3 {
+		t.Fatalf("runs = %#v", runs)
+	}
+	if got := runs[0].FontFamily; got != "Symbol" {
+		t.Fatalf("PUA symbol family = %q, want Symbol", got)
+	}
+	if got := runs[1].FontFamily; got != "Math1" {
+		t.Fatalf("sym-only ASCII family = %q, want Math1", got)
+	}
+	if got := runs[2].FontFamily; got != "Arial" {
+		t.Fatalf("normal latin family = %q, want Arial", got)
+	}
+}
+
+func TestContextualBuilderDecodesSymbolPUAOperatorsAndDigits(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="text"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p>` +
+			`<a:r><a:rPr><a:latin typeface="Times New Roman"/><a:sym typeface="Symbol"/></a:rPr><a:t>  </a:t></a:r>` +
+			`<a:r><a:rPr><a:latin typeface="Times New Roman"/><a:sym typeface="Symbol"/></a:rPr><a:t> = </a:t></a:r>` +
+			`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := slides[0].Shapes[0].Paragraphs[0].Runs
+	if got := runs[0].Text; got != "Δ > 0" {
+		t.Fatalf("first text = %q, want %q", got, "Δ > 0")
+	}
+	if got := runs[1].Text; got != "Δ = 0" {
+		t.Fatalf("second text = %q, want %q", got, "Δ = 0")
+	}
+	for i, run := range runs {
+		if run.FontFamily != "Times New Roman" {
+			t.Fatalf("run %d family = %q, want Times New Roman", i, run.FontFamily)
+		}
+	}
+}
+
+func TestContextualBuilderMixedSymbolRunUsesSymbolOnlyForPUASlot(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="text"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p>` +
+			`<a:r><a:rPr><a:sym typeface="Symbol"/></a:rPr><a:t> and its frequency-domain equivalent</a:t></a:r>` +
+			`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := slides[0].Shapes[0].Paragraphs[0].Runs[0]
+	if run.Text != "… and its frequency-domain equivalent" {
+		t.Fatalf("text = %q", run.Text)
+	}
+	if run.FontFamily == "Symbol" {
+		t.Fatalf("mixed normal text retained Symbol family")
+	}
+}
+
+func TestContextualBuilderFieldsInheritParagraphListStyleTypeface(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="field"/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:defRPr sz="2400"><a:latin typeface="Times New Roman"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p><a:fld id="{1}" type="slidenum"><a:rPr sz="1200" b="1"/><a:t>1</a:t></a:fld></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := slides[0].Shapes[0].Paragraphs[0].Runs[0]
+	if r.FieldKind != "slidenum" || r.Text != "" || r.FontFamily != "Times New Roman" || r.FontSize != 1200 || !r.Bold {
+		t.Fatalf("field run = %#v", r)
+	}
+}
+
+func TestPass33ContextualBuilderInheritsShapeListStyleTabStops(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="tabbed"/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:tabLst><a:tab pos="227013" algn="l"/></a:tabLst><a:defRPr sz="2000"/></a:lvl1pPr></a:lstStyle><a:p><a:r><a:rPr sz="2000"/><a:t>\tvalue</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := slides[0].Shapes[0].Paragraphs[0]
+	if len(p.TabStops) != 1 || p.TabStops[0].Pos != 227013 || p.TabStops[0].Algn != "l" {
+		t.Fatalf("paragraph tab stops = %#v, want inherited 227013/l", p.TabStops)
+	}
+}
+
+func TestContextualBuilderDropsNoPaintWhitespaceConversionArtifacts(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree>
+			<p:sp><p:nvSpPr><p:cNvPr id="2" name="conversion spacer"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100" y="100"/><a:ext cx="20" cy="96"/></a:xfrm><a:prstGeom prst="rect"/><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t xml:space="preserve"> </a:t></a:r></a:p></p:txBody></p:sp>
+			<p:sp><p:nvSpPr><p:cNvPr id="3" name="real text"/></p:nvSpPr><p:spPr><a:prstGeom prst="rect"/><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Visible</a:t></a:r></a:p></p:txBody></p:sp>
+		</p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slides) != 1 || len(slides[0].Shapes) != 1 {
+		t.Fatalf("effective shapes = %#v, want only visible text shape", slides)
+	}
+	if got := slides[0].Shapes[0].ID; got != 3 {
+		t.Fatalf("remaining shape id = %d, want 3", got)
+	}
+}
+
+func TestBuildAuthoredSlidesMaterializesBlipTransparentColorKey(t *testing.T) {
+	var pngBuf bytes.Buffer
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	img.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
+	img.SetNRGBA(1, 0, color.NRGBA{B: 255, A: 255})
+	if err := png.Encode(&pngBuf, img); err != nil {
+		t.Fatal(err)
+	}
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":              `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/></Types>`,
+		"_rels/.rels":                      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":             `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels":  `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/_rels/slide1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="img" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>`,
+		"ppt/media/image1.png":             string(pngBuf.Bytes()),
+		"ppt/slides/slide1.xml":            `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:pic><p:nvPicPr><p:cNvPr id="2" name="keyed"/></p:nvPicPr><p:blipFill><a:blip r:embed="img"><a:clrChange><a:clrFrom><a:srgbClr val="FF0000"/></a:clrFrom><a:clrTo><a:srgbClr val="FF0000"><a:alpha val="0"/></a:srgbClr></a:clrTo></a:clrChange></a:blip><a:srcRect l="10000" t="20000" r="30000" b="40000"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`,
+	})
+	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := slides[0].Shapes[0]
+	if sh.ImageCropLeft != .1 || sh.ImageCropTop != .2 || sh.ImageCropRight != .3 || sh.ImageCropBottom != .4 {
+		t.Fatalf("crop = %v,%v,%v,%v", sh.ImageCropLeft, sh.ImageCropTop, sh.ImageCropRight, sh.ImageCropBottom)
+	}
+	if sh.ImageMIME != "image/png" || len(sh.ImageEffects) != 0 {
+		t.Fatalf("mime/effects = %q %#v", sh.ImageMIME, sh.ImageEffects)
+	}
+	decoded, err := png.Decode(bytes.NewReader(sh.ImageData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, a := decoded.At(0, 0).RGBA(); a != 0 {
+		t.Fatalf("red key alpha = %d, want 0", a)
+	}
+	if _, _, _, a := decoded.At(1, 0).RGBA(); a == 0 {
+		t.Fatal("non-keyed blue pixel became transparent")
+	}
+}
+
+func Test37625PictureBulletMaterializesRelationshipPayload(t *testing.T) {
+	data := buildPPTX(t, map[string]string{
+		"[Content_Types].xml":              `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`,
+		"_rels/.rels":                      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
+		"ppt/presentation.xml":             `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rIdSlide1"/></p:sldIdLst></p:presentation>`,
+		"ppt/_rels/presentation.xml.rels":  `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSlide1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
+		"ppt/slides/slide1.xml":            `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Body"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:pPr marL="343080" indent="-343080"><a:buSzPct val="113071"/><a:buBlip><a:blip r:embed="rIdBullet"/></a:buBlip></a:pPr><a:r><a:rPr sz="2800"/><a:t>The policy context</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+		"ppt/slides/_rels/slide1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdBullet" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bullet.png"/></Relationships>`,
+		"ppt/media/bullet.png":             "PNG-BULLET",
+	})
+	pres, err := sax.BuildContextualPresentationBytes(data, sax.Options{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	p := pres.Slides[0].Shapes[0].Paragraphs[0]
+	if got := string(p.BulletImageData); got != "PNG-BULLET" {
+		t.Fatalf("bullet image = %q", got)
+	}
+	if p.BulletImageMIME != "image/png" || p.BulletSizePct != 113071 {
+		t.Fatalf("bullet image props = mime %q size %d", p.BulletImageMIME, p.BulletSizePct)
+	}
+	if p.BulletNone || p.BulletChar != "" || p.AutoNum {
+		t.Fatalf("picture bullet lost exclusive marker semantics: %#v", p)
 	}
 }

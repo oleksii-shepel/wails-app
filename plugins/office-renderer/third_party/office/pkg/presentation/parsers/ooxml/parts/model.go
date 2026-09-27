@@ -2998,7 +2998,7 @@ type BlipDuotone struct {
 }
 
 type BlipColorChange struct {
-	UseAlpha bool            `xml:"useA,attr,omitempty"`
+	UseAlpha *bool           `xml:"useA,attr,omitempty"`
 	From     BlipColorChoice `xml:"clrFrom"`
 	To       BlipColorChoice `xml:"clrTo"`
 }
@@ -3057,7 +3057,11 @@ func (b *Blip) DrawingEffects(themeColors map[string]string) []drawing.Effect {
 	if b.ClrChange != nil {
 		from, fromAlpha := b.ClrChange.From.resolve(themeColors)
 		to, toAlpha := b.ClrChange.To.resolve(themeColors)
-		effects = append(effects, drawing.ClrChange{From: from, To: to, FromAlpha: fromAlpha, ToAlpha: toAlpha, UseAlpha: b.ClrChange.UseAlpha})
+		useAlpha := true // CT_ColorChangeEffect.useA defaults to true when omitted.
+		if b.ClrChange.UseAlpha != nil {
+			useAlpha = *b.ClrChange.UseAlpha
+		}
+		effects = append(effects, drawing.ClrChange{From: from, To: to, FromAlpha: fromAlpha, ToAlpha: toAlpha, UseAlpha: useAlpha})
 	}
 	if b.ClrRepl != nil {
 		color, _ := b.ClrRepl.resolve(themeColors)
@@ -3267,6 +3271,7 @@ type DMLTextStyleLevel struct {
 	SpcBef      *DMLSpacing           `xml:"spcBef"`
 	SpcAft      *DMLSpacing           `xml:"spcAft"`
 	BuChar      *BuChar               `xml:"buChar"`
+	BuBlip      *BuBlip               `xml:"buBlip"`
 	BuAutoNum   *BuAutoNum            `xml:"buAutoNum"`
 	BuNone      *struct{}             `xml:"buNone"`
 	BuClr       *ColorRef             `xml:"buClr>srgbClr"`
@@ -3411,6 +3416,7 @@ type DMLParaProps struct {
 	SpcBef      *DMLSpacing           `xml:"spcBef"`
 	SpcAft      *DMLSpacing           `xml:"spcAft"`
 	BuChar      *BuChar               `xml:"buChar"`
+	BuBlip      *BuBlip               `xml:"buBlip"`
 	BuAutoNum   *BuAutoNum            `xml:"buAutoNum"`
 	BuNone      *struct{}             `xml:"buNone"`
 	BuClr       *ColorRef             `xml:"buClr>srgbClr"`
@@ -3435,6 +3441,10 @@ type TabStop struct {
 // BuChar is an explicit bullet character (e.g. "●", "•").
 type BuChar struct {
 	Char string `xml:"char,attr"`
+}
+
+type BuBlip struct {
+	Blip Blip `xml:"blip"`
 }
 
 // BuAutoNum is an automatic numbering bullet (e.g. "1.", "a.", "i.").

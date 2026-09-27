@@ -43,3 +43,27 @@ func TestBIG39SemanticSceneOrdersGroupByItsAuthoredRootShape(t *testing.T) {
 		t.Fatalf("authored group order not preserved: %#v", got)
 	}
 }
+
+func TestBIG39EffectiveSlideCompositionKeepsCompleteLocalSceneInterleaved(t *testing.T) {
+	local := []*presentationir.Shape{
+		{Kind: presentationir.ShapeText, OriginalShapeID: 10, Name: "early text"},
+		{Kind: presentationir.ShapeConnector, OriginalShapeID: 20, Name: "middle line"},
+		{Kind: presentationir.ShapeText, OriginalShapeID: 30, Name: "covering text box"},
+	}
+	text, nonText := splitLegacyExtraShapes(local)
+	if len(text) != 2 || len(nonText) != 1 {
+		t.Fatalf("precondition split = text %d non-text %d", len(text), len(nonText))
+	}
+
+	// A complete event-driven scene is cloned as one ordered sequence. This is the
+	// effective-slide ownership contract: semantic families must not become z-order.
+	got := cloneLegacyExtraShapes(0, 1, local)
+	if len(got) != 3 {
+		t.Fatalf("clone count = %d, want 3", len(got))
+	}
+	for i, want := range []uint32{10, 20, 30} {
+		if got[i].OriginalShapeID != want {
+			t.Fatalf("shape %d original id = %d, want %d", i, got[i].OriginalShapeID, want)
+		}
+	}
+}

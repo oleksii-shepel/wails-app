@@ -15,12 +15,16 @@ import (
 	"unicode"
 
 	"office/pkg/diag"
+	"office/pkg/fontmetrics"
 	dml "office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/fontdata"
 	"office/pkg/ooxml/htmlasset"
 	drawingcss "office/pkg/render/drawingcss"
+	wordfontmetrics "office/pkg/word/fontmetrics"
+	"office/pkg/word/inlineposition"
 	resolve "office/pkg/word/ir"
 	"office/pkg/word/layout"
+	wordtextmetrics "office/pkg/word/textmetrics"
 )
 
 type HTMLImageMode string
@@ -94,6 +98,7 @@ func HTMLWithOptions(doc *resolve.Document, opts HTMLOptions) (string, []HTMLAss
 		doc:                 doc,
 		zIndexMap:           buildZIndexMap(doc),
 		embeddedFamilies:    buildEmbeddedFamilyIndex(doc),
+		fontMetrics:         buildWordFontMetricsCatalog(doc),
 		options:             opts.normalized(),
 		seqCounters:         make(map[string]int),
 		currentMergeRecord:  opts.MergeRecordIndex,
@@ -192,62 +197,67 @@ type headingPara struct {
 }
 
 type htmlRenderer struct {
-	pageTopFloatAnchor   *resolve.Paragraph
-	pageTopFloatImages   []*resolve.Image
-	renderedTopFloats    map[*resolve.Image]struct{}
-	doc                  *resolve.Document
-	embeddedFamilies     map[string]struct{}
-	options              HTMLOptions
-	assets               []HTMLAsset
-	nextImageIndex       int
-	nextFontIndex        int
-	nextWordArtIndex     int
-	buf                  bytes.Buffer
-	overlay              bytes.Buffer
-	behindOverlay        bytes.Buffer
-	listStack            []listFrame
-	currentParagraph     *resolve.Paragraph
-	pageIndex            int
-	sectionIndex         int
-	pageOpen             bool
-	pendingBreak         bool
-	pageWidthPt          float64
-	pageHeightPt         float64
-	marginTopPt          float64
-	marginLeftPt         float64
-	marginRightPt        float64
-	marginBottomPt       float64
-	columnCount          int
-	columnGapPt          float64
-	columnWidthsPt       []float64
-	columnGapsPt         []float64
-	columnSep            bool
-	basePageWidthPt      float64
-	basePageHeightPt     float64
-	baseMarginTopPt      float64
-	baseMarginLeftPt     float64
-	baseMarginRightPt    float64
-	baseMarginBottomPt   float64
-	baseColumnCount      int
-	baseColumnGapPt      float64
-	baseColumnWidthsPt   []float64
-	baseColumnGapsPt     []float64
-	baseColumnSep        bool
-	sectionTextDirection string // "tbRl", "btLr", or "" (default lrTb)
-	sectionBidi          bool   // section-level RTL layout (w:bidi)
-	sectionVerticalAlign string // "top", "center", "both", "bottom", or "" (default top)
-	pageBorders          *resolve.PageBorders
-	docGrid              *resolve.DocGrid // section document grid (for snap-to-grid)
-	zIndexMap            map[int64]int    // raw relativeHeight → normalized sequential z-index
+	pageTopFloatAnchor *resolve.Paragraph
+	pageTopFloatImages []*resolve.Image
+	renderedTopFloats  map[*resolve.Image]struct{}
+	doc                *resolve.Document
+	embeddedFamilies   map[string]struct{}
+	fontMetrics        *fontmetrics.Catalog
+	options            HTMLOptions
+	assets             []HTMLAsset
+	nextImageIndex     int
+	nextFontIndex      int
+	nextWordArtIndex   int
+	buf                bytes.Buffer
+	overlay            bytes.Buffer
+	behindOverlay      bytes.Buffer
+	listStack          []listFrame
+	currentParagraph   *resolve.Paragraph
+	// physicalInlineListMarker is true while a layout-owned paragraph fragment
+	// renders its marker inside the first physical line. This keeps centered
+	// Word bullets attached to their text instead of forcing every marker into
+	// one page-wide gutter column.
+	physicalInlineListMarker bool
+	pageIndex                int
+	sectionIndex             int
+	pageOpen                 bool
+	pendingBreak             bool
+	pageWidthPt              float64
+	pageHeightPt             float64
+	marginTopPt              float64
+	marginLeftPt             float64
+	marginRightPt            float64
+	marginBottomPt           float64
+	columnCount              int
+	columnGapPt              float64
+	columnWidthsPt           []float64
+	columnGapsPt             []float64
+	columnSep                bool
+	physicalColumnPage       bool
+	basePageWidthPt          float64
+	basePageHeightPt         float64
+	baseMarginTopPt          float64
+	baseMarginLeftPt         float64
+	baseMarginRightPt        float64
+	baseMarginBottomPt       float64
+	baseColumnCount          int
+	baseColumnGapPt          float64
+	baseColumnWidthsPt       []float64
+	baseColumnGapsPt         []float64
+	baseColumnSep            bool
+	sectionTextDirection     string // "tbRl", "btLr", or "" (default lrTb)
+	sectionBidi              bool   // section-level RTL layout (w:bidi)
+	sectionVerticalAlign     string // "top", "center", "both", "bottom", or "" (default top)
+	pageBorders              *resolve.PageBorders
+	docGrid                  *resolve.DocGrid // section document grid (for snap-to-grid)
+	zIndexMap                map[int64]int    // raw relativeHeight → normalized sequential z-index
 	// Tab rendering state (reset per paragraph).
 	tabStops      []resolve.TabStop
 	tabDefault    int // default tab interval in twips
 	tabIndex      int
 	tabEstimatedX float64 // estimated current inline position in points
-	// ADVANCE offset state (reset per paragraph). Positive advanceH = shift right;
-	// positive advanceV = shift up (matches Word \u semantics).
-	advanceH            float64
-	advanceV            float64
+	// ADVANCE offset state (reset per paragraph).
+	advanceState        inlineposition.AdvanceState
 	debugStyleColors    bool // set by HTMLDebug; tints paragraphs by resolved style ID
 	pages               []layout.Page
 	showFormattingMarks bool // render visible glyphs for tabs, paragraph marks, etc.
@@ -370,6 +380,7 @@ func (r *htmlRenderer) render() (string, []HTMLAsset, error) {
 			page := r.pages[i]
 			r.pageIndex = i
 			r.sectionIndex = page.SectionIndex
+			r.physicalColumnPage = r.doc.Source != nil && pageHasPhysicalColumns(page)
 			r.applyGeometry(page.Geometry)
 			r.columnSep = page.Section.Columns != nil && page.Section.Columns.Sep
 			r.applyLineNumbering(page.Section.LineNumbering)
@@ -515,6 +526,8 @@ td, th { padding: 2pt 4pt; vertical-align: top; }
 ul, ol { padding: 0; margin: 0; }
 li { line-height: 1.2; }
 .word-list-marker { display: inline-block; min-width: 2.2em; margin-left: -2.2em; padding-right: 0.35em; text-align: right; white-space: nowrap; }
+.word-physical-list-marker { position: absolute; right: calc(100%% + 3pt); left: auto; top: 0; width: max-content; min-width: 0; margin-left: 0; padding-right: 0; }
+.word-physical-inline-list-marker { display: inline-block; min-width: 0; margin: 0 3pt 0 0; padding: 0; white-space: nowrap; vertical-align: baseline; }
 a { color: inherit; text-decoration: inherit; }
 .floating-textbox { position: absolute; z-index: 2; overflow: visible; line-height: 1.2; }
 .floating-textbox p, .floating-textbox h1, .floating-textbox h2, .floating-textbox h3, .floating-textbox h4, .floating-textbox h5, .floating-textbox h6 { margin: 0; line-height: inherit; }
@@ -967,6 +980,9 @@ func (r *htmlRenderer) documentBodyStyleAttr() string {
 }
 
 func (r *htmlRenderer) hasExplicitPhysicalColumns() bool {
+	if r.physicalColumnPage && r.columnCount > 1 {
+		return true
+	}
 	return hasExplicitPhysicalColumns(layout.PageGeometry{
 		ColumnCount:     r.columnCount,
 		ColumnGapPt:     r.columnGapPt,
@@ -1988,16 +2004,20 @@ func (r *htmlRenderer) renderPageBlocks(page layout.Page) {
 			r.closeFieldContainer()
 			r.openFieldIndex = -1
 		}
-		if pageBodySectionNeedsWrapper(page.Geometry, box.Geometry) {
+		gridGeom := box.Geometry
+		if r.physicalColumnPage {
+			gridGeom = physicalColumnGridGeometry(gridGeom)
+		}
+		if pageBodySectionNeedsWrapper(page.Geometry, gridGeom) {
 			if !sectionWrapperOpen || !samePageBodySectionGeometry(currentWrappedGeom, box.Geometry) {
 				closeSectionWrapper()
-				fmt.Fprintf(&r.buf, "<div class=\"page-body-section\"%s>\n", pageBodySectionStyleAttr(box.Geometry))
+				fmt.Fprintf(&r.buf, "<div class=\"page-body-section\"%s>\n", pageBodySectionStyleAttr(gridGeom))
 				sectionWrapperOpen = true
 				currentWrappedGeom = box.Geometry
 			}
-			if hasExplicitPhysicalColumns(box.Geometry) && (!columnWrapperOpen || currentWrappedColumn != box.Column) {
+			if hasExplicitPhysicalColumns(gridGeom) && (!columnWrapperOpen || currentWrappedColumn != box.Column) {
 				closeColumnWrapper()
-				fmt.Fprintf(&r.buf, "<div class=\"word-column\" data-word-column=\"%d\"%s>\n", box.Column, pageBodyColumnStyleAttr(box.Geometry, box.Column))
+				fmt.Fprintf(&r.buf, "<div class=\"word-column\" data-word-column=\"%d\"%s>\n", box.Column, pageBodyColumnStyleAttr(gridGeom, box.Column))
 				columnWrapperOpen = true
 				currentWrappedColumn = box.Column
 			}
@@ -2081,6 +2101,37 @@ func (r *htmlRenderer) renderPageBlocks(page layout.Page) {
 		r.closeFieldContainer()
 		r.openFieldIndex = -1
 	}
+}
+
+// pageHasPhysicalColumns selects the layout-owned column grid only where text
+// has already been paginated into physical fragments. Browser multicolumn flow
+// would otherwise redistribute those fragments and can create a third column.
+func pageHasPhysicalColumns(page layout.Page) bool {
+	for _, box := range page.Blocks {
+		if box.Geometry.ColumnCount > 1 && box.Fragment != nil && len(box.Fragment.Lines) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func physicalColumnGridGeometry(geom layout.PageGeometry) layout.PageGeometry {
+	if geom.ColumnCount <= 1 || hasExplicitPhysicalColumns(geom) {
+		return geom
+	}
+	width := geom.ColumnWidthPt
+	if width <= 0 {
+		width = (geom.Width - geom.MarginLeft - geom.MarginRight - float64(geom.ColumnCount-1)*geom.ColumnGapPt) / float64(geom.ColumnCount)
+	}
+	if width <= 0 {
+		return geom
+	}
+	geom.ColumnWidthsPt = make([]float64, geom.ColumnCount)
+	for i := range geom.ColumnWidthsPt {
+		geom.ColumnWidthsPt[i] = width
+	}
+	geom.ExplicitColumns = true
+	return geom
 }
 
 func samePageBodySectionGeometry(left, right layout.PageGeometry) bool {
@@ -2842,8 +2893,7 @@ func (r *htmlRenderer) renderParagraphSegmentContent(p *resolve.Paragraph, runs 
 	r.currentParagraph = p
 	r.resetTabState(p)
 	defer r.clearTabState()
-	r.advanceH = 0
-	r.advanceV = 0
+	r.advanceState.Reset(r.tabEstimatedX)
 	r.renderPageTopFlowImagesForCurrentParagraph()
 	if renderContent != nil {
 		renderContent()
@@ -2957,26 +3007,21 @@ func (r *htmlRenderer) renderListItemSegmentContent(p *resolve.Paragraph, runs [
 	// same Word hanging-indent coordinate system as the item text instead of
 	// delegating marker geometry to the browser. Marker run styling is isolated
 	// to the marker so symbol-font bullets (Wingdings/Symbol) keep their glyph.
-	marker := ""
-	if tag == "ol" {
-		marker = r.paragraphNumbers[p.Index]
-		if marker == "" {
-			marker = r.paragraphLevelNum[p.Index]
-		}
-	} else {
-		marker = bulletMarkerText(list, p.Numbering)
-	}
-	if marker != "" {
-		markerStyle := ""
-		if p.Numbering != nil && p.Numbering.RunFormat != nil {
-			markerStyle = r.runFormatToMarkerCSS(*p.Numbering.RunFormat)
-		}
+	marker, bullet := r.resolvedListMarker(p)
+	if marker != "" && !r.physicalInlineListMarker {
+		markerStyle := r.listMarkerStyle(p, runs)
 		markerClass := "word-list-marker"
-		if tag == "ul" {
+		// Physical paragraph slots that cannot host an inline marker keep the
+		// legacy gutter fallback. The normal physical paragraph path paints the
+		// marker inside its first measured line instead.
+		if strings.Contains(extraStyle, "position:relative") {
+			markerClass += " word-physical-list-marker"
+		}
+		if bullet {
 			markerClass += " word-list-bullet"
 		}
 		ariaHidden := ""
-		if tag == "ul" {
+		if bullet {
 			ariaHidden = ` aria-hidden="true"`
 		}
 		if markerStyle != "" {
@@ -2994,8 +3039,7 @@ func (r *htmlRenderer) renderListItemSegmentContent(p *resolve.Paragraph, runs [
 	r.currentParagraph = p
 	r.resetTabState(p)
 	defer r.clearTabState()
-	r.advanceH = 0
-	r.advanceV = 0
+	r.advanceState.Reset(r.tabEstimatedX)
 	r.renderPageTopFlowImagesForCurrentParagraph()
 	if renderContent != nil {
 		renderContent()
@@ -3215,8 +3259,7 @@ func (r *htmlRenderer) renderNoteStory(story resolve.Story) {
 	for _, block := range story.Blocks {
 		switch block.Kind {
 		case "paragraph":
-			r.advanceH = 0
-			r.advanceV = 0
+			r.advanceState.Reset(r.tabEstimatedX)
 			r.renderRuns(block.Paragraph.Runs)
 		case "table":
 			r.renderTable(block.Table)
@@ -3225,8 +3268,7 @@ func (r *htmlRenderer) renderNoteStory(story resolve.Story) {
 	// Fallback for stories without a Blocks slice.
 	if len(story.Blocks) == 0 {
 		for _, p := range story.Paragraphs {
-			r.advanceH = 0
-			r.advanceV = 0
+			r.advanceState.Reset(r.tabEstimatedX)
 			r.renderRuns(p.Runs)
 		}
 	}
@@ -4074,9 +4116,8 @@ func (r *htmlRenderer) renderRuns(runs []resolve.Run) {
 			// Tabs are semantic layout content even when the paragraph has no custom
 			// stops. renderTabAligned falls back to the document/default 0.5-inch
 			// interval, so never let an ordinary-flow tab fall through to renderRun.
-			nextWidth := r.peekAheadTextWidth(runs, i+1)
-			align := r.nextTabAlignment()
-			r.renderTabAligned(align, nextWidth)
+			fieldWidth, decimalPrefix := r.peekAheadTabFieldMetrics(runs, i+1)
+			r.renderTabAligned(fieldWidth, decimalPrefix)
 			continue
 		}
 		// Handle ADVANCE field: update offset state and emit a zero-size marker.
@@ -4100,7 +4141,7 @@ func (r *htmlRenderer) renderRuns(runs []resolve.Run) {
 			r.emitInlineMoveBoundary(imr, true)
 		}
 		// Apply accumulated ADVANCE offset to this run.
-		if r.advanceH != 0 || r.advanceV != 0 {
+		if r.advanceState.HorizontalPt != 0 || r.advanceState.VerticalPt != 0 {
 			r.openAdvanceOffsetWrapper()
 			r.renderRun(run)
 			r.closeAdvanceOffsetWrapper()
@@ -6100,6 +6141,18 @@ func textBoxViewportSize(widthPt, heightPt, pageWidthPt, pageHeightPt float64) (
 	return w, h
 }
 
+func trimTerminalEmptyTextBoxBlocks(blocks []resolve.Block) []resolve.Block {
+	end := len(blocks)
+	for end > 0 {
+		b := blocks[end-1]
+		if b.Paragraph == nil || !paragraphIsEmptyOrAnchorOnly(b.Paragraph.Runs) {
+			break
+		}
+		end--
+	}
+	return blocks[:end]
+}
+
 func (r *htmlRenderer) renderTextBoxContentHTML(tb *resolve.TextBox, widthPt, heightPt float64) string {
 	var content bytes.Buffer
 
@@ -6127,10 +6180,11 @@ func (r *htmlRenderer) renderTextBoxContentHTML(tb *resolve.TextBox, widthPt, he
 		ColumnCount:   1,
 		ColumnWidthPt: tbContentW,
 	}
+	blocks := trimTerminalEmptyTextBoxBlocks(tb.Blocks)
 	r.withOutputBuffer(&content, func() {
-		r.withLocalLayout(tb.Blocks, geom, func(_ []layout.BlockBox) {
+		r.withLocalLayout(blocks, geom, func(_ []layout.BlockBox) {
 			r.withLineNumberingSuppressed(func() {
-				r.renderBlocks(tb.Blocks)
+				r.renderBlocks(blocks)
 			})
 			r.closeAllLists()
 			if r.overlay.Len() > 0 {
@@ -6223,7 +6277,7 @@ func (r *htmlRenderer) writeTextBoxElement(tb *resolve.TextBox, styleAttrs []str
 
 // textBoxInnerStyles returns CSS style declarations for the inner content
 // wrapper of a text box. It handles vertical alignment (anchor), horizontal
-// centering (anchorCtr), text rotation, and upright text.
+// alignment, text rotation, and upright text. Paragraphs retain horizontal alignment.
 func textBoxInnerStyles(tb *resolve.TextBox) []string {
 	var styles []string
 	switch tb.Anchor {
@@ -6231,9 +6285,6 @@ func textBoxInnerStyles(tb *resolve.TextBox) []string {
 		styles = append(styles, "display:grid", "align-items:center", "height:100%")
 	case "bottom":
 		styles = append(styles, "display:grid", "align-items:end", "height:100%")
-	}
-	if tb.AnchorCenter {
-		styles = append(styles, "text-align:center")
 	}
 	if tb.NumCol > 1 {
 		styles = append(styles, fmt.Sprintf("column-count:%d", tb.NumCol))
@@ -8914,6 +8965,21 @@ func (r *htmlRenderer) renderShapeText(shape *resolve.Shape, widthPt, heightPt f
 	}
 
 	styles := shapeTextBoxStyles(tb)
+	if shape.LegacyFlowAnchor && tb.Vert == "vert" {
+		// OfficeArt's vertical text flow is sideways Latin text, not upright
+		// glyphs in a CSS vertical writing mode.
+		styles = removeCSSDeclaration(styles, "writing-mode:")
+		styles = removeCSSDeclaration(styles, "text-orientation:")
+		transform := "rotate(-90deg)"
+		if shape.LegacyUprightText {
+			transform += " " + legacyUprightTextTransformCSS(shape)
+		}
+		styles = append(styles, "transform:"+transform, "transform-origin:50% 50%")
+	} else if shape.LegacyUprightText {
+		// Word 97-era text boxes rotate their outline around the anchor
+		// rectangle, but leave their text horizontal in that rectangle.
+		styles = append(styles, "transform:"+legacyUprightTextTransformCSS(shape), "transform-origin:50% 50%")
+	}
 	fmt.Fprintf(&r.buf, `<div class="shape-text" style=%q>`, strings.Join(styles, ";"))
 
 	contentHTML := r.renderTextBoxContentHTML(tb, widthPt, heightPt)
@@ -8926,6 +8992,26 @@ func (r *htmlRenderer) renderShapeText(shape *resolve.Shape, widthPt, heightPt f
 		r.buf.WriteString(`</div>`)
 	}
 	r.buf.WriteString(`</div>`)
+}
+
+// legacyUprightTextTransformCSS cancels the OfficeArt outline transform on a
+// nested legacy textbox. The outline transform is scale(s), then rotate(r), so
+// the nested text uses its inverse in reverse order.
+func legacyUprightTextTransformCSS(shape *resolve.Shape) string {
+	if shape == nil {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if shape.RotationDeg != 0 {
+		parts = append(parts, fmt.Sprintf("rotate(%.2fdeg)", -shape.RotationDeg))
+	}
+	if shape.FlipV {
+		parts = append(parts, "scaleY(-1)")
+	}
+	if shape.FlipH {
+		parts = append(parts, "scaleX(-1)")
+	}
+	return strings.Join(parts, " ")
 }
 
 // shapeTextBoxStyles returns the text-layout CSS for a textbox hosted by a
@@ -9027,6 +9113,16 @@ func replaceCSSDeclaration(styles []string, prefix, replacement string) []string
 		}
 	}
 	return append(styles, replacement)
+}
+
+func removeCSSDeclaration(styles []string, prefix string) []string {
+	out := styles[:0]
+	for _, style := range styles {
+		if !strings.HasPrefix(style, prefix) {
+			out = append(out, style)
+		}
+	}
+	return out
 }
 
 func (r *htmlRenderer) shapeFloatBox(shape *resolve.Shape) (layout.FloatBox, bool) {
@@ -9831,25 +9927,10 @@ func (r *htmlRenderer) resolveFieldInstruction(run resolve.Run) string {
 }
 
 func (r *htmlRenderer) applyAdvanceField(run resolve.Run) {
-	offsets := parseAdvanceOffsets(r.resolveFieldInstruction(run))
-
-	if offsets.hasAbsX {
-		// \x sets absolute horizontal position from the left edge.
-		r.advanceH = offsets.absX - r.tabEstimatedX
-		r.tabEstimatedX = offsets.absX
-	} else {
-		delta := offsets.right - offsets.left
-		r.advanceH += delta
-		r.tabEstimatedX += delta
-	}
-
-	if offsets.hasAbsY {
-		// \y sets line-relative vertical position (positive = down).
-		// advanceV uses positive = up, so negate.
-		r.advanceV = -offsets.absY
-	} else {
-		r.advanceV += offsets.up - offsets.down
-	}
+	offsets := inlineposition.ParseAdvance(r.resolveFieldInstruction(run))
+	r.advanceState.InlineXPt = r.tabEstimatedX
+	r.advanceState.Apply(offsets)
+	r.tabEstimatedX = r.advanceState.InlineXPt
 
 	// Emit a zero-size semantic marker for debugging/accessibility.
 	fmt.Fprintf(&r.buf, `<span class="word-field word-field-advance" aria-hidden="true"></span>`)
@@ -9857,11 +9938,11 @@ func (r *htmlRenderer) applyAdvanceField(run resolve.Run) {
 
 func (r *htmlRenderer) openAdvanceOffsetWrapper() {
 	var styles []string
-	if r.advanceH != 0 {
-		styles = append(styles, fmt.Sprintf("margin-left:%.2fpt", r.advanceH))
+	if r.advanceState.HorizontalPt != 0 {
+		styles = append(styles, fmt.Sprintf("margin-left:%.2fpt", r.advanceState.HorizontalPt))
 	}
-	if r.advanceV != 0 {
-		styles = append(styles, fmt.Sprintf("transform:translateY(%.2fpt)", -r.advanceV))
+	if r.advanceState.VerticalPt != 0 {
+		styles = append(styles, fmt.Sprintf("transform:translateY(%.2fpt)", -r.advanceState.VerticalPt))
 	}
 	fmt.Fprintf(&r.buf, `<span style=%q>`, strings.Join(styles, ";"))
 }
@@ -9908,17 +9989,6 @@ type seqControl struct {
 	totalCount        bool // \n — display total number of items
 	mergeFormat       bool // \* merge-format — adopt surrounding paragraph numbering format
 	charFormat        bool // \* char-format — apply previous run's character formatting
-}
-
-type advanceOffsets struct {
-	left    float64
-	right   float64
-	up      float64
-	down    float64
-	absX    float64
-	hasAbsX bool
-	absY    float64
-	hasAbsY bool
 }
 
 func parseSeqControl(instr string) seqControl {
@@ -10018,47 +10088,6 @@ func parseSeqControl(instr string) seqControl {
 		}
 	}
 	return control
-}
-
-func parseAdvanceOffsets(instr string) advanceOffsets {
-	var offsets advanceOffsets
-	instr = strings.TrimSpace(instr)
-	upper := strings.ToUpper(instr)
-	if !strings.HasPrefix(upper, "ADVANCE") {
-		return offsets
-	}
-	rest := strings.TrimSpace(instr[len("ADVANCE"):])
-	for {
-		rest = strings.TrimSpace(rest)
-		if !strings.HasPrefix(rest, `\`) {
-			break
-		}
-		rest = strings.TrimSpace(rest[1:])
-		switchName, tail := extractFieldToken(rest)
-		if switchName == "" {
-			break
-		}
-		valueToken, next := extractFieldToken(tail)
-		value := parseFieldFloat(valueToken)
-		switch strings.ToUpper(switchName) {
-		case "L":
-			offsets.left = value
-		case "R":
-			offsets.right = value
-		case "U":
-			offsets.up = value
-		case "D":
-			offsets.down = value
-		case "X":
-			offsets.hasAbsX = true
-			offsets.absX = value
-		case "Y":
-			offsets.hasAbsY = true
-			offsets.absY = value
-		}
-		rest = next
-	}
-	return offsets
 }
 
 func extractFieldToken(s string) (token, rest string) {
@@ -13642,6 +13671,10 @@ func buildEmbeddedFamilyIndex(doc *resolve.Document) map[string]struct{} {
 	return index
 }
 
+func buildWordFontMetricsCatalog(doc *resolve.Document) *fontmetrics.Catalog {
+	return wordfontmetrics.BuildCatalog(doc)
+}
+
 func (r *htmlRenderer) writeEmbeddedFontCSS() {
 	if r == nil || r.doc == nil {
 		return
@@ -13859,69 +13892,31 @@ func (r *htmlRenderer) clearTabState() {
 }
 
 func (r *htmlRenderer) renderTab() {
-	r.renderTabAligned("left", 0)
+	r.renderTabAligned(0, 0)
 }
 
-func (r *htmlRenderer) nextTabAlignment() string {
+func (r *htmlRenderer) renderTabAligned(fieldWidth, decimalPrefix float64) {
 	if r.tabStops == nil && r.currentParagraph != nil {
 		r.resetTabState(r.currentParagraph)
 	}
-	for _, stop := range r.tabStops {
-		if twipsToPoints(stop.Pos) > r.tabEstimatedX+0.1 {
-			return stop.Algn
-		}
-	}
-	return "left"
-}
-
-func (r *htmlRenderer) renderTabAligned(align string, nextTextWidth float64) {
-	if r.tabStops == nil && r.currentParagraph != nil {
-		r.resetTabState(r.currentParagraph)
-	}
-	defaultPt := twipsToPoints(r.tabDefault)
-	var nextX float64
-	found := false
-	var leader string
-	for _, stop := range r.tabStops {
-		x := twipsToPoints(stop.Pos)
-		if x > r.tabEstimatedX+0.1 {
-			nextX = x
-			found = true
-			leader = stop.Leader
-			break
-		}
-	}
-	if !found {
-		nextX = math.Ceil(r.tabEstimatedX/defaultPt) * defaultPt
-		if nextX <= r.tabEstimatedX+0.1 {
-			nextX += defaultPt
-		}
-	}
-
-	width := nextX - r.tabEstimatedX
-	switch align {
-	case "right":
-		width -= nextTextWidth
-	case "center":
-		width -= nextTextWidth / 2
-	case "decimal":
-		// Approximate: assume decimal point is near the middle of the text.
-		width -= nextTextWidth / 2
-	}
+	stop := inlineposition.NextTabStop(r.tabStops, r.tabEstimatedX, r.tabDefault)
+	width := inlineposition.AlignedTabAdvance(stop, r.tabEstimatedX, fieldWidth, decimalPrefix)
 	if width <= 0 {
-		width = defaultPt
+		width = inlineposition.AlignedTabAdvance(
+			inlineposition.NextTabStop(nil, r.tabEstimatedX, r.tabDefault),
+			r.tabEstimatedX, 0, 0,
+		)
 	}
-
-	leaderStyle := tabLeaderCSS(leader)
+	leaderStyle := tabLeaderCSS(stop.Leader)
 	if r.showFormattingMarks {
-		// Render tab as a visible arrow with a trailing border line.
 		fmt.Fprintf(&r.buf, `<span style="display:inline-block;width:%.1fpt;border-bottom:1px dotted #888;color:#888;font-size:0.75em;white-space:nowrap">→</span>`, width)
 	} else if leaderStyle != "" {
 		fmt.Fprintf(&r.buf, `<span style="display:inline-block;width:%.1fpt;%s"></span>`, width, leaderStyle)
 	} else {
 		fmt.Fprintf(&r.buf, `<span style="display:inline-block;width:%.1fpt"></span>`, width)
 	}
-	r.tabEstimatedX = nextX
+	r.tabEstimatedX += width
+	r.advanceState.InlineXPt = r.tabEstimatedX
 	r.tabIndex++
 }
 
@@ -13941,108 +13936,45 @@ func tabLeaderCSS(leader string) string {
 	}
 }
 
-func (r *htmlRenderer) peekAheadTextWidth(runs []resolve.Run, startIdx int) float64 {
+func (r *htmlRenderer) peekAheadTabFieldMetrics(runs []resolve.Run, startIdx int) (fieldWidth, decimalPrefix float64) {
+	decimalFound := false
 	for i := startIdx; i < len(runs); i++ {
 		run := runs[i]
 		if run.Kind == "tab" || run.Kind == "break" {
 			break
 		}
-		if run.Text != "" && run.Kind != "image" && run.Kind != "chart" && run.Kind != "shape" && run.Kind != "textbox" {
-			return r.estimateTextWidthForRun(run.Text, run.Format)
+		if run.Text == "" || run.Kind == "image" || run.Kind == "chart" || run.Kind == "shape" || run.Kind == "textbox" {
+			continue
+		}
+		text := strings.ReplaceAll(run.Text, "\n", "")
+		fieldWidth += r.estimateTextWidthForRun(text, run.Format)
+		if !decimalFound {
+			if cut := strings.IndexAny(text, ".,"); cut >= 0 {
+				decimalPrefix += r.estimateTextWidthForRun(text[:cut], run.Format)
+				decimalFound = true
+			} else {
+				decimalPrefix += r.estimateTextWidthForRun(text, run.Format)
+			}
 		}
 	}
-	return 0
+	return fieldWidth, decimalPrefix
+}
+
+func (r *htmlRenderer) peekAheadTextWidth(runs []resolve.Run, startIdx int) float64 {
+	w, _ := r.peekAheadTabFieldMetrics(runs, startIdx)
+	return w
 }
 
 // estimateTextWidthForRun returns a better width estimate using per-character
 // Unicode width factors (borrowed from the layout engine). This makes tab-stop
 // alignment significantly more accurate for mixed-script text.
 func (r *htmlRenderer) estimateTextWidthForRun(text string, format resolve.RunFormat) float64 {
-	fontSizePt := 12.0
-	if format.FontSize != nil && *format.FontSize > 0 {
-		fontSizePt = float64(*format.FontSize) / 2.0
-	} else if r.doc.DefaultRunFormat.FontSize != nil && *r.doc.DefaultRunFormat.FontSize > 0 {
-		fontSizePt = float64(*r.doc.DefaultRunFormat.FontSize) / 2.0
+	defaultSizePt := 12.0
+	if r != nil && r.doc != nil && r.doc.DefaultRunFormat.FontSize != nil && *r.doc.DefaultRunFormat.FontSize > 0 {
+		defaultSizePt = float64(*r.doc.DefaultRunFormat.FontSize) / 2.0
 	}
-	fontName := preferredRunFontName(format)
-	mono := isFontMonospace(fontName)
-	scale := fontWidthScale(fontName)
-	var total float64
-	for _, ch := range strings.ReplaceAll(text, "\n", "") {
-		total += charWidthFactor(ch, mono) * fontSizePt * scale
-	}
-	return total
-}
-
-// charWidthFactor returns an approximate width factor for a rune relative to
-// the font size. CJK characters are full-width (~1.0×), narrow glyphs ~0.28×,
-// uppercase ~0.62×, digits ~0.55×, and everything else ~0.45×.
-func charWidthFactor(ch rune, monospace bool) float64 {
-	if monospace {
-		return 0.6
-	}
-	switch {
-	case ch >= 0x4E00 && ch <= 0x9FFF,
-		ch >= 0x3000 && ch <= 0x303F,
-		ch >= 0xF900 && ch <= 0xFAFF,
-		ch >= 0xFF00 && ch <= 0xFFEF:
-		return 1.0
-	case ch == 'i', ch == 'l', ch == '1', ch == '!', ch == '|',
-		ch == '.', ch == ',', ch == ';', ch == ':', ch == '\'', ch == '`':
-		return 0.28
-	case ch >= 'A' && ch <= 'Z',
-		ch >= 0xC0 && ch <= 0xD6,
-		ch >= 0xD8 && ch <= 0xDE:
-		return 0.62
-	case ch >= '0' && ch <= '9':
-		return 0.55
-	default:
-		return 0.45
-	}
-}
-
-func isFontMonospace(name string) bool {
-	if name == "" {
-		return false
-	}
-	lower := strings.ToLower(name)
-	for _, m := range []string{
-		"courier", "consolas", "lucida console", "monaco", "menlo",
-		"source code pro", "fira mono", "fira code", "inconsolata",
-		"roboto mono", "dejavu sans mono", "liberation mono", "anonymous pro",
-		"cascadia code", "cascadia mono", "jetbrains mono", "hack",
-	} {
-		if strings.Contains(lower, m) {
-			return true
-		}
-	}
-	return false
-}
-
-func fontWidthScale(name string) float64 {
-	if name == "" {
-		return 1.0
-	}
-	lower := strings.ToLower(name)
-	for _, family := range []string{"calibri", "arial", "aptos", "segoe", "helvetica", "verdana", "tahoma"} {
-		if strings.Contains(lower, family) {
-			return 0.92
-		}
-	}
-	return 1.0
-}
-
-func preferredRunFontName(format resolve.RunFormat) string {
-	if format.FontASCII != "" {
-		return format.FontASCII
-	}
-	if format.FontHAnsi != "" {
-		return format.FontHAnsi
-	}
-	if format.FontEastAsia != "" {
-		return format.FontEastAsia
-	}
-	return format.FontCS
+	width, _ := wordtextmetrics.RunWidthPt(r.fontMetrics, format, strings.ReplaceAll(text, "\n", ""), defaultSizePt)
+	return width
 }
 
 func (r *htmlRenderer) pageBorderStyleAttr() string {
@@ -14263,6 +14195,54 @@ func replaceQuotedLiterals(word string) string {
 // runFormatToMarkerCSS extracts marker-compatible CSS properties from a run
 // format (color, font-family, font-size, font-weight, font-style) for use on
 // a list-item element. Returns empty string when no relevant properties are set.
+func (r *htmlRenderer) resolvedListMarker(p *resolve.Paragraph) (string, bool) {
+	if p == nil || p.List == nil {
+		return "", false
+	}
+	if p.List.Kind == "ordered" {
+		marker := r.paragraphNumbers[p.Index]
+		if marker == "" {
+			marker = r.paragraphLevelNum[p.Index]
+		}
+		return marker, false
+	}
+	return bulletMarkerText(p.List, p.Numbering), true
+}
+
+func listMarkerFallbackFontSizePt(p *resolve.Paragraph, runs []resolve.Run) float64 {
+	for _, run := range runs {
+		if strings.TrimSpace(run.Text) == "" {
+			continue
+		}
+		if run.Format.FontSize != nil && *run.Format.FontSize > 0 {
+			return float64(*run.Format.FontSize) / 2.0
+		}
+	}
+	if p != nil && p.DefaultRunFormat != nil && p.DefaultRunFormat.FontSize != nil && *p.DefaultRunFormat.FontSize > 0 {
+		return float64(*p.DefaultRunFormat.FontSize) / 2.0
+	}
+	return 0
+}
+
+func (r *htmlRenderer) listMarkerStyle(p *resolve.Paragraph, runs []resolve.Run) string {
+	style := ""
+	if p != nil && p.Numbering != nil && p.Numbering.RunFormat != nil {
+		style = r.runFormatToMarkerCSS(*p.Numbering.RunFormat)
+	}
+	// Legacy LVL CHPX frequently omits the marker size. Word then uses the
+	// paragraph's effective text size. Falling back to the document default
+	// makes a 16pt list render with a visibly undersized 12pt bullet.
+	if !strings.Contains(style, "font-size:") {
+		if sizePt := listMarkerFallbackFontSizePt(p, runs); sizePt > 0 {
+			if style != "" {
+				style += ";"
+			}
+			style += fmt.Sprintf("font-size:%.1fpt", sizePt)
+		}
+	}
+	return style
+}
+
 func (r *htmlRenderer) runFormatToMarkerCSS(f resolve.RunFormat) string {
 	var parts []string
 	if f.Color != "" {

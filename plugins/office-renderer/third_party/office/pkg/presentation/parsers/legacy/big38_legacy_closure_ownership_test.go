@@ -75,7 +75,7 @@ func TestBIG38ProductionHasNoSupersededMasterCompositionEntrypoints(t *testing.T
 		"func (s legacyPptVisualScene) textMetas(",
 		"collectLegacyPptTextShapesFromEvents(",
 		"s.dispatch.containers.officeArtEvents()",
-		"collectLegacyPptTableShapesFromScene(",
+		"collectLegacyPptTableShapesFromSceneForSlideWithOwnership(",
 	} {
 		if !strings.Contains(visualSrc, required) {
 			t.Fatalf("BIG38 semantic scene lost authoritative visual ownership %q", required)

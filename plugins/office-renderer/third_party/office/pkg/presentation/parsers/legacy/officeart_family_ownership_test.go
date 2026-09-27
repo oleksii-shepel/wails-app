@@ -18,7 +18,7 @@ func TestLegacyTextAndTableFamiliesUseOfficeArtSceneEvents(t *testing.T) {
 	// sequence rather than independent binary traversals.
 	for _, required := range []string{
 		"collectLegacyPptTextShapesFromEvents(s.dispatch.containers.officeArtEvents()",
-		"collectLegacyPptTableShapesFromScene(s.dispatch.containers",
+		"collectLegacyPptTableShapesFromSceneForSlideWithOwnership(s.dispatch.containers",
 	} {
 		if !strings.Contains(src, required) {
 			t.Fatalf("semantic visual scene must contain %q", required)

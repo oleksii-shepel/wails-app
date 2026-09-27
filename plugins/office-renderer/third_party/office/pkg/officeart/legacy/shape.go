@@ -24,28 +24,51 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 		return nil
 	}
 
+	adjustments, adjustmentPresent := DecodeGeometryAdjustmentSlots(node.Properties)
 	shape := &ir.Shape{
 		ID:   node.ShapeID,
 		Kind: ir.ShapeAuto,
 		Geometry: ir.Geometry{
-			Kind:   ir.GeometryPreset,
-			Preset: ShapeTypeToPreset(node.ShapeType),
+			Kind:              ir.GeometryPreset,
+			Preset:            ShapeTypeToPreset(node.ShapeType),
+			Adjustments:       adjustments,
+			AdjustmentPresent: adjustmentPresent,
 		},
 		Transform: ir.Transform{
-			FlipV: node.Flags&0x40 != 0,
-			FlipH: node.Flags&0x80 != 0,
+			FlipH: node.Flags&0x40 != 0,
+			FlipV: node.Flags&0x80 != 0,
 		},
 		Source: ir.SourceRef{
 			Record:  escher.RecordSpContainer,
 			ShapeID: node.ShapeID,
 		},
 	}
-	if custom := DecodeCustomGeometry(node.Properties); custom.Kind == ir.GeometryCustom {
+	// A picture frame remains a picture semantically even when the host has not
+	// supplied the BStore payload yet. DOC commonly resolves the shared BLIP
+	// separately from DggInfo; losing picture ownership here makes picture-frame
+	// FSPs look like empty text/rect shapes and prevents the Word adapter from
+	// attaching the recovered image.
+	if _, ok := PictureRef(node.Properties); ok && !node.HasClientTextbox && len(node.Children) == 0 {
+		shape.Kind = ir.ShapePicture
+	}
+
+	if node.ShapeType == 19 { // mso_sptArc has special sector-box geometry semantics.
+		if arc := DecodeArcGeometry(node.Properties); arc.Kind == ir.GeometryCustom {
+			shape.Geometry = arc
+		}
+	} else if custom := DecodeCustomGeometry(node.Properties); custom.Kind == ir.GeometryCustom {
 		shape.Geometry = custom
 	}
 	if node.HasClientTextbox {
 		shape.Kind = ir.ShapeTextBox
 		shape.Text = &ir.TextBody{}
+		// A ClientTextbox without an explicit AutoShape preset is still a
+		// rectangular text frame.  PowerPoint's PPTX conversion materializes
+		// these as prstGeom="rect"; keeping an empty preset in OfficeArt IR
+		// creates a format-only geometry difference with no semantic meaning.
+		if shape.Geometry.Kind == ir.GeometryPreset && shape.Geometry.Preset == "" {
+			shape.Geometry.Preset = "rect"
+		}
 	}
 
 	contextResolve := contextualOfficeArtColorResolver(node.Properties, resolve)
@@ -57,6 +80,25 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 		// OfficeArt text boxes/placeholders are transparent unless fFilled is
 		// explicitly authored. A cached/default fillColor alone is not paint.
 		shape.Fill.Kind = ir.FillNone
+	} else if visual.HasFillType && visual.FillType == 1 && (visual.HasFillColor || visual.HasFillBackColor) {
+		// msofillPattern stores two authored colors: fillColor is the pattern
+		// foreground and fillBackColor is the background. Treating fillType=1
+		// as an ordinary solid fill collapses the pattern to its foreground
+		// (commonly black), which is especially visible on legacy PPT pulse /
+		// highlight rectangles whose authored background is yellow. Preserve the
+		// two-color semantic in canonical OfficeArt IR; hosts that cannot recover
+		// the original pattern bitmap can still paint the correct background.
+		foreground, background := visual.FillColor, visual.FillBackColor
+		if foreground == "" {
+			foreground = background
+		}
+		if background == "" {
+			background = foreground
+		}
+		shape.Fill.Kind = ir.FillPattern
+		shape.Fill.Color = background
+		shape.Fill.Alpha = 1
+		shape.Fill.Pattern = &ir.PatternFill{Foreground: foreground, Background: background}
 	} else if visual.HasFillType && visual.FillType >= 4 && visual.FillType <= 8 && visual.HasFillColor && visual.HasFillBackColor {
 		gradientType := legacyGradientType(visual.FillType)
 		angle := visual.FillAngleDeg
@@ -82,7 +124,29 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 		shape.Fill.Kind = ir.FillSolid
 		shape.Fill.Color = visual.FillColor
 		shape.Fill.Alpha = 1
+		if visual.HasFillOpacity {
+			shape.Fill.Alpha = visual.FillOpacity
+		}
+	} else if !node.HasClientTextbox && (!visual.HasFill || visual.FillEnabled) {
+		// OfficeArt AutoShapes are filled by default.  The default fill color is
+		// white even when neither fillColor nor fFilled is repeated in the local
+		// FOPT.  Preserve that default for area geometry; line/connector families
+		// are normalized to no-fill below.  This is important for tiny authored
+		// primitives (for example indicator lamps) whose only local properties are
+		// geometry/position and which otherwise disappear against dark artwork.
+		shape.Fill.Kind = ir.FillSolid
+		shape.Fill.Color = "FFFFFF"
+		shape.Fill.Alpha = 1
 	}
+	// Line/connector geometries have no area fill. Binary OfficeArt often omits
+	// an explicit fillStyleBooleanProperties record for them, while PowerPoint's
+	// PPTX conversion materializes the same semantic as a:noFill. Publish the
+	// semantic value here so downstream presentation IR does not depend on source
+	// syntax (nil fill in PPT versus explicit noFill in DrawingML).
+	if shape.Fill.Kind == "" && (node.ShapeType == 20 || (node.ShapeType >= 32 && node.ShapeType <= 40)) {
+		shape.Fill.Kind = ir.FillNone
+	}
+
 	if visual.HasLine && !visual.LineEnabled {
 		shape.Line.Visible = false
 	} else {
@@ -98,9 +162,72 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 		if visual.HasLineDash {
 			shape.Line.Dash = visual.LineDash
 		}
+		if visual.HasLineJoin {
+			shape.Line.Join = visual.LineJoin
+		}
+		if visual.HasLineCap {
+			shape.Line.Cap = visual.LineCap
+		}
 		if visual.HasLineOpacity {
 			shape.Line.Visible = true
 			shape.Line.Alpha = visual.LineOpacity
+		}
+		if visual.HasStartArrow {
+			shape.Line.Visible = true
+			width, length := string(visual.StartArrowWidth), string(visual.StartArrowLength)
+			if visual.StartArrow != ArrowNone {
+				if width == "" {
+					width = "med"
+				}
+				if length == "" {
+					length = "med"
+				}
+			}
+			shape.Line.StartArrow = ir.Arrow{Type: string(visual.StartArrow), Width: width, Length: length}
+		}
+		if visual.HasEndArrow {
+			shape.Line.Visible = true
+			width, length := string(visual.EndArrowWidth), string(visual.EndArrowLength)
+			if visual.EndArrow != ArrowNone {
+				if width == "" {
+					width = "med"
+				}
+				if length == "" {
+					length = "med"
+				}
+			}
+			shape.Line.EndArrow = ir.Arrow{Type: string(visual.EndArrow), Width: width, Length: length}
+		}
+		// OfficeArt lineJoinStyle defaults to round. Preserve the format default
+		// in shared IR instead of inheriting DrawingML's generic miter fallback.
+		if shape.Line.Join == "" {
+			shape.Line.Join = "round"
+		}
+		if shape.Line.Cap == "" {
+			shape.Line.Cap = "flat"
+		}
+
+		// OfficeArt's lineWidth default is 9525 EMU (0.75 pt).  Preserve that
+		// default in canonical OfficeArt IR whenever a stroke is visible but no
+		// explicit lineWidth property was authored.  Leaving WidthPt at zero made
+		// downstream renderers invent their own generic 1 pt default, which caused
+		// PPT/DOC/XLS shapes to disagree with equivalent DrawingML shapes.
+		if shape.Line.Visible && shape.Line.WidthPt <= 0 {
+			shape.Line.WidthPt = 0.75
+		}
+		// OfficeArt line color/opacity defaults are black and fully opaque. A
+		// width, dash or arrow property can make a line visible without carrying
+		// either property explicitly; leaving Color empty or Alpha at Go's zero
+		// value made canonical PPT IR disagree with the equivalent DrawingML that
+		// PowerPoint writes on save, and could make shared renderers treat a real
+		// stroke as transparent. Preserve an explicitly authored zero opacity.
+		if shape.Line.Visible {
+			if shape.Line.Color == "" {
+				shape.Line.Color = "000000"
+			}
+			if !visual.HasLineOpacity {
+				shape.Line.Alpha = 1
+			}
 		}
 	}
 
@@ -452,8 +579,16 @@ func legacyGradientStops(fore, back string, visual VisualProperties) []ir.Gradie
 		return []ir.GradientStop{{Position: 0, Color: back, Alpha: 1}, {Position: 1, Color: fore, Alpha: 1}}
 	}
 	position := math.Abs(float64(focus)) / 100.0
-	if focus > 0 {
-		return []ir.GradientStop{{Position: 0, Color: fore, Alpha: 1}, {Position: position, Color: back, Alpha: 1}, {Position: 1, Color: fore, Alpha: 1}}
+	outer, inner := fore, back
+	if focus < 0 {
+		outer, inner = back, fore
 	}
-	return []ir.GradientStop{{Position: 0, Color: back, Alpha: 1}, {Position: position, Color: fore, Alpha: 1}, {Position: 1, Color: back, Alpha: 1}}
+	// OfficeArt axial shades reverse the color roles when the authored angle is
+	// negative.  This is not the same as reversing the final stop list: the
+	// outer color remains mirrored at both ends.  PowerPoint uses this form for
+	// reflected backgrounds (for example fillFocus=50 with a negative angle).
+	if visual.HasFillAngle && visual.FillAngleDeg < 0 {
+		outer, inner = inner, outer
+	}
+	return []ir.GradientStop{{Position: 0, Color: outer, Alpha: 1}, {Position: position, Color: inner, Alpha: 1}, {Position: 1, Color: outer, Alpha: 1}}
 }

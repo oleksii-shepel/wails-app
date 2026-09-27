@@ -66,16 +66,17 @@ func resolveOleObjectFrame(frame *parts.OleObjectFrame, resources project.SlideR
 		return nil
 	}
 	shape := &Shape{
-		ID:              frame.ID,
-		OriginalShapeID: uint32(frame.ID),
-		Name:            frame.Name,
-		Kind:            ShapeOleObject,
-		Bounds:          cascade.RectFromTransform(frame.Xfrm),
-		RotationDeg:     cascade.RotationDegrees(frame.Xfrm),
-		FlipH:           frame.Xfrm != nil && frame.Xfrm.FlipH,
-		FlipV:           frame.Xfrm != nil && frame.Xfrm.FlipV,
-		OLEObjectName:   frame.ObjectName,
-		OLEObjectProgID: frame.ProgID,
+		ID:                frame.ID,
+		OriginalShapeID:   uint32(frame.ID),
+		Name:              frame.Name,
+		Kind:              ShapeOleObject,
+		Geometry:          "rect",
+		Bounds:            cascade.RectFromTransform(frame.Xfrm),
+		RotationDeg:       cascade.RotationDegrees(frame.Xfrm),
+		FlipH:             frame.Xfrm != nil && frame.Xfrm.FlipH,
+		FlipV:             frame.Xfrm != nil && frame.Xfrm.FlipV,
+		OLEObjectName:     frame.ObjectName,
+		OLEObjectProgID:   frame.ProgID,
 	}
 	if part, ok := resources.OLE[normalizeRelID(frame.RelID)]; ok {
 		shape.OLEObjectData = part.Data

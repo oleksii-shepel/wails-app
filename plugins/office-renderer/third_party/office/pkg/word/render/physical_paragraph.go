@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"html"
 	"math"
 
 	resolve "office/pkg/word/ir"
@@ -24,7 +25,28 @@ func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox) {
 	// renderParagraphSegmentContent, but the item body now comes from the same
 	// physical slots that pagination measured.
 	runs := physicalFragmentRuns(box.Fragment)
+	if r.doc != nil && r.doc.Source != nil && box.Geometry.ColumnCount > 1 {
+		// Legacy Word's column text reflows within each assigned column. Rendering
+		// physical slots as absolute rows prevents that wrapping and duplicates
+		// rows when CSS advances a fragment to its next column.
+		r.renderParagraphSegmentContent(
+			p,
+			runs,
+			!box.Fragment.IsContinuation,
+			box.Fragment.IsContinuation,
+			!box.Fragment.IsLast,
+			box.Fragment.IsContinuation,
+			box.Fragment.IsContinuation,
+			false,
+			"",
+			func() { r.renderRuns(runs) },
+		)
+		return
+	}
 	extraStyle := fmt.Sprintf("position:relative;height:%.2fpt;min-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0", box.Height, box.Height)
+	savedInlineMarker := r.physicalInlineListMarker
+	r.physicalInlineListMarker = p.List != nil && !box.Fragment.IsContinuation
+	defer func() { r.physicalInlineListMarker = savedInlineMarker }()
 	r.renderParagraphSegmentContent(
 		p,
 		runs,
@@ -49,12 +71,30 @@ func physicalFragmentRuns(fragment *layout.ParagraphFragment) []resolve.Run {
 		return nil
 	}
 	var runs []resolve.Run
-	for _, line := range fragment.Lines {
+	for lineIndex, line := range fragment.Lines {
+		if lineIndex > 0 && len(runs) > 0 && physicalLineNeedsSpace(runs, line) {
+			runs = append(runs, resolve.Run{Kind: "run", Text: " ", Format: runs[len(runs)-1].Format})
+		}
 		for _, slot := range line.Slots {
 			runs = append(runs, slot.Runs...)
 		}
 	}
 	return runs
+}
+
+func physicalLineNeedsSpace(previous []resolve.Run, next layout.ParagraphLineLayout) bool {
+	last := previous[len(previous)-1].Text
+	if last == "" || last[len(last)-1] == ' ' || last[len(last)-1] == '-' {
+		return false
+	}
+	for _, slot := range next.Slots {
+		for _, run := range slot.Runs {
+			if run.Text != "" {
+				return run.Text[0] != ' '
+			}
+		}
+	}
+	return false
 }
 
 func (r *htmlRenderer) renderPhysicalFloatingAnchors(p *resolve.Paragraph) {
@@ -102,9 +142,102 @@ func (r *htmlRenderer) renderPhysicalParagraphSlots(box layout.BlockBox) {
 			left := slot.Left - columnLeft
 			top := topInset + slot.Top - originTop
 			fmt.Fprintf(&r.buf, `<span class="word-physical-slot" data-line="%d" data-slot="%d" style="position:absolute;left:%.2fpt;top:%.2fpt;width:%.2fpt;height:%.2fpt;line-height:%.2fpt;white-space:nowrap;overflow:visible">`, lineIndex, slotIndex, left, top, width, height, height)
-			r.renderRuns(slot.Runs)
+			if lineIndex == 0 && slotIndex == 0 && r.physicalInlineListMarker && !fragment.IsContinuation {
+				r.renderPhysicalInlineListMarker(box.Block.Paragraph, slot.Runs)
+			}
+			if len(slot.PositionedRuns) > 0 {
+				if canRenderPhysicalRunsSequentially(slot.PositionedRuns) {
+					r.renderPhysicalSequentialRuns(slot.PositionedRuns)
+				} else {
+					r.renderPhysicalPositionedRuns(slot.PositionedRuns, height)
+				}
+			} else {
+				r.renderRuns(slot.Runs)
+			}
 			r.buf.WriteString(`</span>`)
 		}
+	}
+}
+
+// canRenderPhysicalRunsSequentially identifies the common tabbed-line case:
+// the layout engine fixed the line and supplies one horizontal tab gap, but
+// the text itself has no explicit offsets. Rendering each word at estimated
+// x-coordinates lets browser glyph advances eat the intervening spaces.
+func (r *htmlRenderer) renderPhysicalInlineListMarker(p *resolve.Paragraph, runs []resolve.Run) {
+	marker, bullet := r.resolvedListMarker(p)
+	if marker == "" {
+		return
+	}
+	className := "word-list-marker word-physical-inline-list-marker"
+	if bullet {
+		className += " word-list-bullet"
+	}
+	ariaHidden := ""
+	if bullet {
+		ariaHidden = ` aria-hidden="true"`
+	}
+	style := r.listMarkerStyle(p, runs)
+	if style != "" {
+		fmt.Fprintf(&r.buf, `<span class=%q style=%q%s>%s</span>`, className, style, ariaHidden, html.EscapeString(marker))
+		return
+	}
+	fmt.Fprintf(&r.buf, `<span class=%q%s>%s</span>`, className, ariaHidden, html.EscapeString(marker))
+}
+
+func canRenderPhysicalRunsSequentially(runs []layout.ParagraphRunLayout) bool {
+	if len(runs) == 0 || math.Abs(runs[0].Left) > 0.01 {
+		return false
+	}
+	for _, placed := range runs {
+		if placed.Run.FieldKind == "ADVANCE" || math.Abs(placed.Top) > 0.01 || physicalInlineObject(placed.Run) {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *htmlRenderer) renderPhysicalSequentialRuns(runs []layout.ParagraphRunLayout) {
+	for _, placed := range runs {
+		if placed.Run.Kind == "tab" {
+			if placed.Width > 0 {
+				leaderStyle := tabLeaderCSS(placed.Leader)
+				if leaderStyle != "" {
+					fmt.Fprintf(&r.buf, `<span class="word-physical-tab" aria-hidden="true" data-leader=%q style="display:inline-block;width:%.2fpt;height:%.2fpt;%s"></span>`, placed.Leader, placed.Width, placed.Height, leaderStyle)
+				} else {
+					fmt.Fprintf(&r.buf, `<span class="word-physical-tab" aria-hidden="true" style="display:inline-block;width:%.2fpt;height:%.2fpt"></span>`, placed.Width, placed.Height)
+				}
+			}
+			continue
+		}
+		r.renderRun(layoutOwnedVerticalRun(placed.Run, placed.Height))
+	}
+}
+
+func (r *htmlRenderer) renderPhysicalPositionedRuns(runs []layout.ParagraphRunLayout, lineHeight float64) {
+	for _, placed := range runs {
+		run := placed.Run
+		if run.FieldKind == "ADVANCE" {
+			fmt.Fprintf(&r.buf, `<span class="word-field word-field-advance" aria-hidden="true" data-layout-owned="true" style="position:absolute;left:%.2fpt;top:%.2fpt;width:0;height:0"></span>`, placed.Left, placed.Top)
+			continue
+		}
+		if run.Kind == "tab" {
+			if placed.Width > 0 {
+				leaderStyle := tabLeaderCSS(placed.Leader)
+				if leaderStyle != "" {
+					fmt.Fprintf(&r.buf, `<span class="word-physical-tab" aria-hidden="true" data-leader=%q style="position:absolute;left:%.2fpt;top:%.2fpt;width:%.2fpt;height:%.2fpt;%s"></span>`, placed.Leader, placed.Left, placed.Top, placed.Width, lineHeight, leaderStyle)
+				} else {
+					fmt.Fprintf(&r.buf, `<span class="word-physical-tab" aria-hidden="true" style="position:absolute;left:%.2fpt;top:%.2fpt;width:%.2fpt;height:%.2fpt"></span>`, placed.Left, placed.Top, placed.Width, lineHeight)
+				}
+			}
+			continue
+		}
+		style := fmt.Sprintf("position:absolute;left:%.2fpt;top:%.2fpt;white-space:nowrap", placed.Left, placed.Top)
+		if placed.Width > 0 && placed.Height > 0 && physicalInlineObject(run) {
+			style += fmt.Sprintf(";width:%.2fpt;height:%.2fpt", placed.Width, placed.Height)
+		}
+		fmt.Fprintf(&r.buf, `<span class="word-physical-run" style=%q>`, style)
+		r.renderRun(layoutOwnedVerticalRun(run, placed.Height))
+		r.buf.WriteString(`</span>`)
 	}
 }
 
@@ -147,4 +280,36 @@ func rendererColumnLeftPt(geom layout.PageGeometry, column int) float64 {
 		return x
 	}
 	return geom.MarginLeft + float64(column)*(geom.ColumnWidthPt+geom.ColumnGapPt)
+}
+
+func physicalInlineObject(run resolve.Run) bool {
+	switch run.Kind {
+	case "image", "chart", "textbox", "shape", "olePlaceholder":
+		return true
+	default:
+		return false
+	}
+}
+
+func layoutOwnedVerticalRun(run resolve.Run, physicalHeightPt float64) resolve.Run {
+	f := run.Format
+	if f.VertAlignVal == "superscript" || f.VertAlignVal == "subscript" {
+		if physicalHeightPt > 0 {
+			v := int(math.Round(physicalHeightPt * 2))
+			f.FontSize = &v
+			if f.FontSizeCS != nil {
+				vc := v
+				f.FontSizeCS = &vc
+			}
+		} else if f.FontSize != nil && *f.FontSize > 0 {
+			v := int(math.Round(float64(*f.FontSize) * 0.65))
+			f.FontSize = &v
+		}
+		f.VertAlignVal = ""
+	}
+	// Physical layout already owns w:position. Clearing it prevents the generic
+	// run renderer from applying a second CSS vertical-align offset.
+	f.Position = nil
+	run.Format = f
+	return run
 }

@@ -47,8 +47,11 @@ func TestTextBoxInnerStylesCentersVertically(t *testing.T) {
 		t.Fatalf("outer shape box duplicated inner alignment: %q", outer)
 	}
 	inner := strings.Join(textBoxInnerStyles(tb), ";")
-	if !strings.Contains(inner, "align-items:center") || !strings.Contains(inner, "text-align:center") {
+	if !strings.Contains(inner, "align-items:center") {
 		t.Fatalf("inner css=%q", inner)
+	}
+	if strings.Contains(inner, "text-align:center") {
+		t.Fatalf("vertical anchor must not override paragraph horizontal alignment: %q", inner)
 	}
 }
 
@@ -59,5 +62,16 @@ func TestShapeTextBoxStylesDoesNotApplyShapeRotationAgain(t *testing.T) {
 	css := strings.Join(shapeTextBoxStyles(tb), ";")
 	if strings.Contains(css, "45.00deg") {
 		t.Fatalf("shape rotation leaked into inner textbox css=%q", css)
+	}
+}
+
+func TestTrimTerminalEmptyTextBoxBlocks(t *testing.T) {
+	blocks := []resolve.Block{
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "visible"}}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{}},
+	}
+	got := trimTerminalEmptyTextBoxBlocks(blocks)
+	if len(got) != 1 {
+		t.Fatalf("trimmed blocks=%d, want 1", len(got))
 	}
 }

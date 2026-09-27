@@ -615,8 +615,11 @@ func NormalizePoint(p Point, width, height float64) Point {
 // NormalizePath normalizes all points in a path from shape coordinates to absolute coordinates.
 func NormalizePath(path Path, width, height float64) Path {
 	normalized := Path{
-		Commands: make([]PathCommand, len(path.Commands)),
-		FillRule: path.FillRule,
+		Commands:      make([]PathCommand, len(path.Commands)),
+		FillRule:      path.FillRule,
+		PaintFlagsSet: path.PaintFlagsSet,
+		FillEnabled:   path.FillEnabled,
+		StrokeEnabled: path.StrokeEnabled,
 	}
 
 	for i, cmd := range path.Commands {

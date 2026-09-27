@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"office/pkg/fontmetrics"
 	ir "office/pkg/presentation/ir"
 )
 
@@ -59,6 +60,11 @@ type FontAdvanceMetrics struct {
 	// Physical mixed-run lines compose maxima on each side independently instead
 	// of taking the tallest run as one undifferentiated scalar.
 	AscentShare, DescentShare float64
+	// FaceAscent/FaceDescent are the real font ascent/descent in em units, as a
+	// browser resolves them. They differ from LineBoxScale (Office's single-line
+	// advance) and are what decides where a glyph baseline actually lands inside
+	// an emitted line box. Zero means unknown: baseline anchoring is skipped.
+	FaceAscent, FaceDescent float64
 }
 
 // FontFallbackClass is the canonical metric/fallback family shared by physical
@@ -151,6 +157,7 @@ func ResolveFontAdvanceMetrics(family string) FontAdvanceMetrics {
 		m.Lower, m.Upper, m.Digit, m.Punct, m.Space = .50, .667, .556, .278, .278
 		m.NarrowLower, m.WideLower, m.NarrowUpper, m.WideUpper = .222, .833, .278, .944
 		m.LineBoxScale = 1.117
+		m.FaceAscent, m.FaceDescent = .905, .212
 		if strings.Contains(f, "narrow") {
 			// Keep the canonical Arial glyph table and scale the final advances.
 			// Scaling only the fallback fields does not affect ASCII because
@@ -162,7 +169,9 @@ func ResolveFontAdvanceMetrics(family string) FontAdvanceMetrics {
 		m.Lower, m.Upper, m.Digit, m.Punct, m.Space = .444, .667, .50, .278, .25
 		m.NarrowLower, m.WideLower, m.NarrowUpper, m.WideUpper = .278, .778, .333, .889
 		m.LineBoxScale = 1.20
-		m.AscentShare, m.DescentShare = .78, .22
+		// Times New Roman OS/2 winAscent 1825 / winDescent 443 over 2048 upem.
+		m.AscentShare, m.DescentShare = .8046, .1954
+		m.FaceAscent, m.FaceDescent = .891, .216
 	case strings.Contains(f, "wingdings"), strings.Contains(f, "webdings"), f == "symbol":
 		// Legacy PPT commonly selects symbol faces through symbolFontRef.  Their
 		// private-use glyphs are effectively em-cell advances; measuring them as
@@ -209,6 +218,10 @@ func LayoutParagraphLines(p *ir.Paragraph, metrics ParagraphMetrics, fontScale f
 }
 
 func layoutParagraphLinesWithMarker(p *ir.Paragraph, metrics ParagraphMetrics, fontScale float64, markerText string, markerFontPt float64, markerFontFamily string, markerGapPt float64) ParagraphLineLayout {
+	return layoutParagraphLinesWithMarkerAndCatalog(p, metrics, fontScale, markerText, markerFontPt, markerFontFamily, markerGapPt, nil)
+}
+
+func layoutParagraphLinesWithMarkerAndCatalog(p *ir.Paragraph, metrics ParagraphMetrics, fontScale float64, markerText string, markerFontPt float64, markerFontFamily string, markerGapPt float64, catalog *fontmetrics.Catalog) ParagraphLineLayout {
 	if p == nil {
 		return ParagraphLineLayout{}
 	}
@@ -227,7 +240,7 @@ func layoutParagraphLinesWithMarker(p *ir.Paragraph, metrics ParagraphMetrics, f
 		if markerFontPt <= 0 {
 			markerFontPt = paragraphBaseFontPt(p, fontScale)
 		}
-		firstWidth -= measurePlainTextWidthPt(markerText, markerFontPt, markerFontFamily, false, false) + markerGapPt
+		firstWidth -= measurePlainTextWidthPtWithCatalog(markerText, markerFontPt, markerFontFamily, false, false, catalog) + markerGapPt
 	}
 	firstWidth = math.Max(0, firstWidth)
 
@@ -297,10 +310,10 @@ func layoutParagraphLinesWithMarker(p *ir.Paragraph, metrics ParagraphMetrics, f
 	appendWrappedToken := func(run *ir.Run, token string, lineH float64) {
 		for _, r := range token {
 			part := string(r)
-			w := measureRunTextWidthPt(part, run, runFontPt(run, p, fontScale)) + leadingRunCharacterSpacingPt(run)
+			w := measureRunTextWidthPtWithCatalog(part, run, runFontPt(run, p, fontScale), catalog) + leadingRunCharacterSpacingPt(run)
 			if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+w > lim {
 				flush(false, "wrap")
-				w = measureRunTextWidthPt(part, run, runFontPt(run, p, fontScale))
+				w = measureRunTextWidthPtWithCatalog(part, run, runFontPt(run, p, fontScale), catalog)
 			}
 			// If one glyph itself is wider than an empty line, keep it on that
 			// line and let the following glyph wrap. Creating an empty physical
@@ -319,8 +332,17 @@ func layoutParagraphLinesWithMarker(p *ir.Paragraph, metrics ParagraphMetrics, f
 			continue
 		}
 		if token == "\t" {
-			fieldWidth, decimalPrefix := followingTabFieldMetrics(tokens, tokenIndex+1, p, fontScale)
+			fieldWidth, decimalPrefix := followingTabFieldMetricsWithCatalog(tokens, tokenIndex+1, p, fontScale, catalog)
 			tw := nextAlignedTabAdvancePt(line.WidthPt, p, fontPt, fieldWidth, decimalPrefix)
+			// Binary PPT commonly persists a leading tab on a non-bulleted
+			// continuation paragraph that also carries a hanging indent. The
+			// hanging indent already moves the first-line origin left; advancing to
+			// the next global tab stop a second time can add 70-110pt and manufacture
+			// extra wraps. In PowerPoint that leading tab simply returns the cursor
+			// to the paragraph's normal text edge.
+			if line.WidthPt == 0 && markerText == "" && metrics.TextIndentPt < 0 {
+				tw = math.Min(tw, -metrics.TextIndentPt)
+			}
 			if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+tw+fieldWidth > lim {
 				flush(false, "wrap")
 				tw = nextAlignedTabAdvancePt(line.WidthPt, p, fontPt, fieldWidth, decimalPrefix)
@@ -328,10 +350,10 @@ func layoutParagraphLinesWithMarker(p *ir.Paragraph, metrics ParagraphMetrics, f
 			appendFrag(run, token, tw, lineH)
 			continue
 		}
-		tw := measureRunTextWidthPt(token, run, fontPt) + leadingRunCharacterSpacingPt(run)
+		tw := measureRunTextWidthPtWithCatalog(token, run, fontPt, catalog) + leadingRunCharacterSpacingPt(run)
 		if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+tw > lim && strings.TrimSpace(token) != "" {
 			flush(false, "wrap")
-			tw = measureRunTextWidthPt(token, run, fontPt)
+			tw = measureRunTextWidthPtWithCatalog(token, run, fontPt, catalog)
 		}
 		if lim := currentLimit(); lim > 0 && tw > lim && strings.TrimSpace(token) != "" {
 			appendWrappedToken(run, token, lineH)
@@ -366,6 +388,13 @@ func paragraphPhysicalBaselineExtentsPt(fontPt float64, family string, metrics P
 		a, d = .80, .20
 	}
 	t := a + d
+	// Percentage line spacing compresses the box above the baseline: PowerPoint
+	// keeps the face's natural descent and absorbs the reduction in the ascent.
+	if natural := paragraphPhysicalLineHeightPt(fontPt, family, ParagraphMetrics{LineHeightScale: 1}); natural > 0 {
+		if descent := natural * d / t; descent > 0 && descent < h {
+			return h - descent, descent
+		}
+	}
 	return h * a / t, h * d / t
 }
 
@@ -432,11 +461,21 @@ func runFontFamily(r *ir.Run, p *ir.Paragraph) string {
 	return paragraphBaseFontFamily(p)
 }
 
+const officeScriptFontScale = .65
+
 func runFontPt(r *ir.Run, p *ir.Paragraph, scale float64) float64 {
+	fontPt := paragraphBaseFontPt(p, scale)
 	if r != nil && r.FontSize > 0 {
-		return float64(r.FontSize) / 100 * scale
+		fontPt = float64(r.FontSize) / 100 * scale
 	}
-	return paragraphBaseFontPt(p, scale)
+	// PowerPoint paints explicit script runs at a reduced effective size. Keep
+	// that reduction in the shared physical metric path: wrapping, line
+	// extents, and emitted run styles must agree. The canonical run retains its
+	// authored point size and baseline displacement unchanged.
+	if r != nil && (r.Superscript || r.Subscript) {
+		fontPt *= officeScriptFontScale
+	}
+	return fontPt
 }
 
 func splitWrapTokens(s string) []string {
@@ -469,6 +508,10 @@ func splitWrapTokens(s string) []string {
 }
 
 func measureRunTextWidthPt(s string, r *ir.Run, fontPt float64) float64 {
+	return measureRunTextWidthPtWithCatalog(s, r, fontPt, nil)
+}
+
+func measureRunTextWidthPtWithCatalog(s string, r *ir.Run, fontPt float64, catalog *fontmetrics.Catalog) float64 {
 	family := ""
 	bold, italic := false, false
 	if r != nil {
@@ -476,7 +519,7 @@ func measureRunTextWidthPt(s string, r *ir.Run, fontPt float64) float64 {
 		bold = r.Bold
 		italic = r.Italic
 	}
-	w := measurePlainTextWidthPt(s, fontPt, family, bold, italic)
+	w := measurePlainTextWidthPtWithCatalog(s, fontPt, family, bold, italic, catalog)
 	if r != nil && r.CharSpacing != 0 {
 		n := utf8.RuneCountInString(s)
 		if n > 1 {
@@ -485,7 +528,35 @@ func measureRunTextWidthPt(s string, r *ir.Run, fontPt float64) float64 {
 	}
 	return w
 }
+func decodedSymbolText(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Co, r) {
+			return false
+		}
+	}
+	return s != ""
+}
+
 func measurePlainTextWidthPt(s string, fontPt float64, family string, bold, italic bool) float64 {
+	return measurePlainTextWidthPtWithCatalog(s, fontPt, family, bold, italic, nil)
+}
+
+func measurePlainTextWidthPtWithCatalog(s string, fontPt float64, family string, bold, italic bool, catalog *fontmetrics.Catalog) float64 {
+	if catalog != nil {
+		measurementFamily := family
+		// Legacy Symbol runs are decoded before layout, but the canonical run can
+		// still retain FontFamily=Symbol. Measuring normalized ASCII/Unicode with
+		// the physical Symbol face re-introduces the old full-cell advances and can
+		// create a wrap that PowerPoint never had (for example "= 733 nsec").
+		// Use the same Times-compatible face that the HTML serializer falls back to
+		// for decoded textual Symbol content. Private-use glyphs remain Symbol.
+		if ResolveFontAdvanceMetrics(family).Profile == "symbol" && decodedSymbolText(s) {
+			measurementFamily = "Times New Roman"
+		}
+		if width, ok := catalog.MeasureText(s, measurementFamily, bold, italic, fontPt); ok {
+			return width
+		}
+	}
 	m := ResolveFontAdvanceMetrics(family)
 	scale := 1.0
 	if bold {
@@ -504,12 +575,37 @@ func runeAdvanceFactor(r rune, m FontAdvanceMetrics) float64 {
 	if m.Profile == "symbol" && (unicode.Is(unicode.Co, r) || unicode.Is(unicode.Sm, r) || unicode.Is(unicode.Sc, r) || unicode.Is(unicode.Sk, r) || unicode.Is(unicode.So, r)) {
 		return m.Wide
 	}
+	// Legacy Symbol runs are often decoded to ordinary Unicode before layout.
+	// Once decoded, ASCII digits/letters and Greek letters are rendered through
+	// the browser's math/serif fallback, not as full-em private-use Symbol cells.
+	// Keep full-em treatment for actual symbol/private-use glyphs above, but use
+	// Times-compatible advances for normalized textual content. This prevents
+	// equations/labels from wrapping one word too early.
+	metricProfile := m.Profile
+	if m.Profile == "symbol" && !unicode.Is(unicode.Co, r) {
+		metricProfile = "times"
+	}
 	// Standard Office fonts have highly non-uniform Latin advances. Use exact
 	// canonical factors for the common ASCII repertoire before falling back to
 	// script/category classes. This keeps wrapping deterministic without asking
 	// the browser or host font engine to make layout decisions.
-	if f, ok := standardLatinAdvanceFactor(r, m.Profile); ok {
+	if f, ok := standardLatinAdvanceFactor(r, metricProfile); ok {
 		return f
+	}
+	if m.Profile == "symbol" && metricProfile == "times" {
+		tm := ResolveFontAdvanceMetrics("Times New Roman")
+		switch {
+		case unicode.IsSpace(r):
+			return tm.Space
+		case unicode.IsUpper(r):
+			return tm.Upper
+		case unicode.IsLower(r):
+			return tm.Lower
+		case unicode.IsDigit(r):
+			return tm.Digit
+		case unicode.IsPunct(r):
+			return tm.Punct
+		}
 	}
 	switch {
 	case unicode.IsSpace(r):
@@ -625,6 +721,10 @@ func paragraphLayoutTokens(p *ir.Paragraph) []paragraphLayoutToken {
 }
 
 func followingTabFieldMetrics(tokens []paragraphLayoutToken, start int, p *ir.Paragraph, fontScale float64) (width, decimalPrefix float64) {
+	return followingTabFieldMetricsWithCatalog(tokens, start, p, fontScale, nil)
+}
+
+func followingTabFieldMetricsWithCatalog(tokens []paragraphLayoutToken, start int, p *ir.Paragraph, fontScale float64, catalog *fontmetrics.Catalog) (width, decimalPrefix float64) {
 	seenDecimal := false
 	for i := start; i < len(tokens); i++ {
 		t := tokens[i]
@@ -633,7 +733,7 @@ func followingTabFieldMetrics(tokens []paragraphLayoutToken, start int, p *ir.Pa
 		}
 		fontPt := runFontPt(t.run, p, fontScale)
 		for _, r := range t.text {
-			w := measureRunTextWidthPt(string(r), t.run, fontPt)
+			w := measureRunTextWidthPtWithCatalog(string(r), t.run, fontPt, catalog)
 			width += w
 			if !seenDecimal {
 				if r == '.' || r == ',' {
@@ -698,9 +798,36 @@ func finalizePhysicalTextLineFragments(line *PhysicalTextLine) {
 	for i := range line.Fragments {
 		f := &line.Fragments[i]
 		if f.AscentPt > 0 || f.DescentPt > 0 {
-			f.TopOffsetPt = math.Max(0, line.AscentPt-f.AscentPt)
+			f.TopOffsetPt = physicalBaselineTopOffsetPt(line.AscentPt, f.AscentPt, f.DescentPt, f.Visual.FontSizePt, fragmentFontFamily(f))
 		}
 	}
+}
+
+func fragmentFontFamily(f *TextFragment) string {
+	if f == nil {
+		return ""
+	}
+	if strings.TrimSpace(f.Visual.FontFamily) != "" {
+		return f.Visual.FontFamily
+	}
+	if f.Run != nil {
+		return f.Run.FontFamily
+	}
+	return ""
+}
+
+// physicalBaselineTopOffsetPt places an emitted line-box child so its glyph
+// baseline lands on the layout-owned baseline. Serializers emit the box with a
+// fixed height/line-height, so the consumer would otherwise centre the face's
+// own ascent/descent inside that box and silently move the baseline.
+func physicalBaselineTopOffsetPt(lineAscentPt, boxAscentPt, boxDescentPt, fontPt float64, family string) float64 {
+	fm := ResolveFontAdvanceMetrics(family)
+	boxHeightPt := boxAscentPt + boxDescentPt
+	if fm.FaceAscent > 0 && fm.FaceDescent > 0 && fontPt > 0 && boxHeightPt > 0 {
+		faceBaselinePt := (boxHeightPt-(fm.FaceAscent+fm.FaceDescent)*fontPt)/2 + fm.FaceAscent*fontPt
+		return lineAscentPt - faceBaselinePt
+	}
+	return math.Max(0, lineAscentPt-boxAscentPt)
 }
 
 // LayoutParagraphAuthoredLines materializes only source-authored line breaks.

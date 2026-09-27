@@ -13,9 +13,17 @@ func TestCanonicalVisibleRunsRestoresWhitespaceWithoutMovingFormatting(t *testin
 	}}
 	runs := CanonicalVisibleRuns(p)
 	got := ""
-	for _, run := range runs { if !runHidden(run) { got += run.Text } }
-	if got != p.Text { t.Fatalf("visible text = %q, want %q", got, p.Text) }
-	if runs[1].Text != "  " { t.Fatalf("hidden run changed to %q", runs[1].Text) }
+	for _, run := range runs {
+		if !runHidden(run) {
+			got += run.Text
+		}
+	}
+	if got != p.Text {
+		t.Fatalf("visible text = %q, want %q", got, p.Text)
+	}
+	if runs[1].Text != "  " {
+		t.Fatalf("hidden run changed to %q", runs[1].Text)
+	}
 }
 
 func TestCanonicalVisibleRunsKeepsTabsSemantic(t *testing.T) {
@@ -23,11 +31,31 @@ func TestCanonicalVisibleRunsKeepsTabsSemantic(t *testing.T) {
 		{Kind: "run", Text: "Column1"}, {Kind: "tab"}, {Kind: "run", Text: "Column2"}, {Kind: "tab"}, {Kind: "run", Text: "Column3"},
 	}}
 	runs := CanonicalVisibleRuns(p)
-	if runs[1].Kind != "tab" || runs[3].Kind != "tab" { t.Fatalf("semantic tabs were lost: %#v", runs) }
+	if runs[1].Kind != "tab" || runs[3].Kind != "tab" {
+		t.Fatalf("semantic tabs were lost: %#v", runs)
+	}
 }
 
 func TestCanonicalVisibleRunsDoesNotReconcileDifferentCharacters(t *testing.T) {
 	p := &Paragraph{Text: "Alpha Beta", Runs: []Run{{Kind: "run", Text: "Alpha Zeta"}}}
 	runs := CanonicalVisibleRuns(p)
-	if got := runs[0].Text; got != "Alpha Zeta" { t.Fatalf("text = %q, want original run text", got) }
+	if got := runs[0].Text; got != "Alpha Zeta" {
+		t.Fatalf("text = %q, want original run text", got)
+	}
+}
+
+func TestCanonicalVisibleRunsRepairsExactMissingLegacyPrefix(t *testing.T) {
+	p := &Paragraph{Text: "Legacy DOC fixture", Runs: []Run{{Text: "gacy DOC fixture"}}}
+	got := CanonicalVisibleRuns(p)
+	if len(got) != 1 || got[0].Text != "Legacy DOC fixture" {
+		t.Fatalf("visible runs = %#v", got)
+	}
+}
+
+func TestCanonicalVisibleRunsDoesNotRepairArbitraryMismatch(t *testing.T) {
+	p := &Paragraph{Text: "Expected text", Runs: []Run{{Text: "Different text"}}}
+	got := CanonicalVisibleRuns(p)
+	if len(got) != 1 || got[0].Text != "Different text" {
+		t.Fatalf("arbitrary mismatch was rewritten: %#v", got)
+	}
 }

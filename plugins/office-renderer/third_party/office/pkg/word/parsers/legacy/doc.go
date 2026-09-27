@@ -1617,6 +1617,18 @@ func parseLegacyListMarker(line string) (string, *wordir.ListMarker) {
 	return trimmed, nil
 }
 
+func legacyListBodyPrefixBytes(line, body string) int {
+	if body == "" {
+		return len(line)
+	}
+	leftTrimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+	leading := len(line) - len(leftTrimmed)
+	if pos := strings.Index(leftTrimmed, body); pos >= 0 {
+		return leading + pos
+	}
+	return 0
+}
+
 func inferLegacyListLevel(line string) int {
 	indentUnits := 0
 	spaces := 0
@@ -5033,11 +5045,16 @@ func buildLegacyParagraphFromRuns(index int, lineRuns []binaryWordRun, bookmarks
 	trimmedRuns := trimDocRunsWhitespace(lineRuns)
 	trimmedFull := joinDocRunsText(trimmedRuns)
 	text, list := parseLegacyListMarker(trimmedFull)
-	// skipBytes is the byte count of the list-marker prefix in trimmedFull.
-	// Because parseLegacyListMarker trims the remainder, text is always a
-	// trailing substring of trimmedFull so len(trimmedFull)-len(text) works.
-	skipBytes := len(trimmedFull) - len(text)
-	bodyRuns := skipDocRunsBytes(trimmedRuns, skipBytes)
+	bodyRuns := trimmedRuns
+	if list != nil {
+		// Remove only the actual list-marker prefix. The old length-difference
+		// shortcut also counted trailing whitespace stripped by
+		// parseLegacyListMarker, then removed that count from the *front* of the
+		// run stream. With trailing spaces before an inline shape this could turn
+		// "Legacy" into "gacy".
+		skipBytes := legacyListBodyPrefixBytes(trimmedFull, text)
+		bodyRuns = skipDocRunsBytes(trimmedRuns, skipBytes)
+	}
 	// Use the ParagraphFormat from the first run; all runs in a paragraph share
 	// the same PAPx so the first is representative.
 	var paraFormat wordir.ParagraphFormat
@@ -6082,12 +6099,12 @@ func splitDocRunsIntoLines(runs []binaryWordRun) [][]binaryWordRun {
 		text = strings.ReplaceAll(text, "\u0007", "\t")
 		text = strings.ReplaceAll(text, "\r\n", "\n")
 		text = strings.ReplaceAll(text, "\r", "\n")
-		if !strings.ContainsRune(text, '\u000C') {
-			if r.ParaFormat.InTable || r.LegacyInTableHint || r.NativeCellMarks || r.LegacyRowMarkHint {
-				text = strings.ReplaceAll(text, "\u000B", "")
-			} else {
-				text = strings.ReplaceAll(text, "\u000B", " ")
-			}
+		if !strings.ContainsRune(text, '\u000C') && (r.ParaFormat.InTable || r.LegacyInTableHint || r.NativeCellMarks || r.LegacyRowMarkHint) {
+			// Table/control projections can surface VT as a structural marker.
+			// Outside tables, U+000B is Word's manual line break and must stay
+			// in the stream so the boundary pass below can materialize the next
+			// physical line instead of joining it to the preceding heading.
+			text = strings.ReplaceAll(text, "\u000B", "")
 		}
 		// Drop non-printable, non-whitespace characters.
 		var buf strings.Builder
@@ -6110,7 +6127,7 @@ func splitDocRunsIntoLines(runs []binaryWordRun) [][]binaryWordRun {
 			continue
 		}
 
-		if !strings.ContainsAny(text, "\n\f") {
+		if !strings.ContainsAny(text, "\n\u000B\f") {
 			copyRun := r
 			copyRun.Text = text
 			current = append(current, copyRun)
@@ -6367,6 +6384,91 @@ func reconcileLegacyRunWhitespace(runs []wordir.Run, canonical string) []wordir.
 	return out
 }
 
+// restoreLegacyHiddenEdgeText repairs a narrow legacy CHPX failure mode where
+// the first or last characters of the canonical piece-table text are assigned
+// Vanish/SpecVanish even though the paragraph text itself contains them.  Only
+// an exact hidden prefix or suffix is restored; hidden text in the middle stays
+// hidden.  This keeps the piece stream authoritative without masking arbitrary
+// FC/CHPX disagreements.
+func restoreLegacyHiddenEdgeText(runs []wordir.Run, canonical string) []wordir.Run {
+	if len(runs) == 0 || canonical == "" {
+		return runs
+	}
+	visible := func(rs []wordir.Run) string {
+		var b strings.Builder
+		for _, run := range rs {
+			if legacyRunIsHidden(run) {
+				continue
+			}
+			switch run.Kind {
+			case "tab":
+				b.WriteByte('\t')
+			case "", "hyperlink":
+				b.WriteString(run.Text)
+			}
+		}
+		return b.String()
+	}
+	projected := visible(runs)
+	if projected == canonical {
+		return runs
+	}
+	out := append([]wordir.Run(nil), runs...)
+	clearHidden := func(i int) {
+		out[i].Format.Vanish = nil
+		out[i].Format.SpecVanish = nil
+	}
+	if strings.HasSuffix(canonical, projected) {
+		missing := strings.TrimSuffix(canonical, projected)
+		var edge strings.Builder
+		var idx []int
+		for i, run := range out {
+			if !legacyRunIsHidden(run) {
+				break
+			}
+			if run.Kind != "" && run.Kind != "hyperlink" {
+				break
+			}
+			edge.WriteString(run.Text)
+			idx = append(idx, i)
+		}
+		if edge.String() == missing {
+			for _, i := range idx {
+				clearHidden(i)
+			}
+			return out
+		}
+	}
+	if strings.HasPrefix(canonical, projected) {
+		missing := strings.TrimPrefix(canonical, projected)
+		var edge strings.Builder
+		var idx []int
+		for i := len(out) - 1; i >= 0; i-- {
+			run := out[i]
+			if !legacyRunIsHidden(run) {
+				break
+			}
+			if run.Kind != "" && run.Kind != "hyperlink" {
+				break
+			}
+			edge.WriteString(run.Text)
+			idx = append(idx, i)
+		}
+		// suffix runs were visited backwards; rebuild in document order.
+		var ordered strings.Builder
+		for i := len(idx) - 1; i >= 0; i-- {
+			ordered.WriteString(out[idx[i]].Text)
+		}
+		if ordered.String() == missing {
+			for _, i := range idx {
+				clearHidden(i)
+			}
+			return out
+		}
+	}
+	return runs
+}
+
 // reconcileLegacyVisibleRunWhitespace reconciles whitespace against the runs
 // that actually participate in layout/rendering. Word binary formatting tables
 // can isolate spaces into a run that later resolves as Vanish/SpecVanish. When
@@ -6377,7 +6479,7 @@ func reconcileLegacyVisibleRunWhitespace(runs []wordir.Run, canonical string) []
 	if len(runs) == 0 || canonical == "" {
 		return runs
 	}
-	out := append([]wordir.Run(nil), runs...)
+	out := restoreLegacyHiddenEdgeText(runs, canonical)
 	changed := false
 	for i := range out {
 		if !legacyRunIsHidden(out[i]) {

@@ -6,7 +6,7 @@ import (
 	officeartescher "office/pkg/officeart/legacy/escher"
 )
 
-func TestParseLegacyPptFOPTPropertiesTransformPreservesPPTArrowEnums(t *testing.T) {
+func TestParseLegacyPptFOPTPropertiesTransformUsesSharedOfficeArtArrowEnums(t *testing.T) {
 	props := []officeartescher.Property{
 		{ID: officeartescher.PropLineStartArrow, Value: 2},
 		{ID: officeartescher.PropLineStartArrowWidth, Value: 3},
@@ -19,13 +19,13 @@ func TestParseLegacyPptFOPTPropertiesTransformPreservesPPTArrowEnums(t *testing.
 	var got legacyPptShapeTransform
 	parseLegacyPptFOPTPropertiesTransform(props, nil, &got)
 
-	if got.ArrowTail != "triangle" || got.ArrowTailWidth != "lg" || got.ArrowTailLength != "sm" {
-		t.Fatalf("tail arrow = (%q,%q,%q), want (triangle,lg,sm)",
-			got.ArrowTail, got.ArrowTailWidth, got.ArrowTailLength)
-	}
-	if got.ArrowHead != "stealth" || got.ArrowHeadWidth != "sm" || got.ArrowHeadLength != "lg" {
-		t.Fatalf("head arrow = (%q,%q,%q), want (stealth,sm,lg)",
+	if got.ArrowHead != "stealth" || got.ArrowHeadWidth != "med" || got.ArrowHeadLength != "med" {
+		t.Fatalf("head/start arrow = (%q,%q,%q), want (stealth,med,med)",
 			got.ArrowHead, got.ArrowHeadWidth, got.ArrowHeadLength)
+	}
+	if got.ArrowTail != "oval" || got.ArrowTailWidth != "med" || got.ArrowTailLength != "med" {
+		t.Fatalf("tail/end arrow = (%q,%q,%q), want (oval,med,med)",
+			got.ArrowTail, got.ArrowTailWidth, got.ArrowTailLength)
 	}
 }
 
@@ -42,7 +42,7 @@ func TestParseLegacyPptFOPTPropertiesTransformKeepsSharedNonArrowVisuals(t *test
 	if got.LineWidthEMU != 25400 {
 		t.Fatalf("LineWidthEMU = %d, want 25400", got.LineWidthEMU)
 	}
-	if got.ArrowTail != "triangle" {
-		t.Fatalf("ArrowTail = %q, want triangle", got.ArrowTail)
+	if got.ArrowHead != "stealth" {
+		t.Fatalf("ArrowHead = %q, want stealth", got.ArrowHead)
 	}
 }

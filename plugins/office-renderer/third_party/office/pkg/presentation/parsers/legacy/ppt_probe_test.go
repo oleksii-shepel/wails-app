@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"office/pkg/ooxml/cfb"
+	presentationir "office/pkg/presentation/ir"
 )
 
 func TestProbePowerPointGeneratedNotesDateFixture(t *testing.T) {
@@ -59,7 +60,8 @@ func TestProbePowerPointGeneratedNotesDateFixture(t *testing.T) {
 		} else {
 			t.Logf("notes persist id=%d type=0x%04x version=0x%x instance=%d", persistID, record.Type, record.Version, record.Instance)
 		}
-		shapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil)
+		scene := collectLegacyPptVisualScene(payload)
+		shapes := buildLegacyPptTextShapesFromMetas(scene.textMetas(fontTable, colorScheme, nil), legacySlideText{PersistID: persistID})
 		t.Logf("parsed note-persist shapes = %#v", shapes)
 		if len(texts) > 0 || persistID == ctx.notesPersistIDs[0] {
 			walkPptRecords(payload, func(record pptRecord, childPayload []byte) {
@@ -126,9 +128,19 @@ func TestProbeLegacyTableFixtures(t *testing.T) {
 				continue
 			}
 			t.Logf("%s persist=%d type=0x%04x version=0x%x instance=%d", name, persistID, record.Type, record.Version, record.Instance)
-			textShapes := collectLegacyPptVisualScene(payload).textShapes(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil)
-			tableShapes := collectLegacyPptVisualScene(payload).tables(fontTable, colorScheme, nil)
-			t.Logf("%s persist=%d textShapes=%d tableShapes=%d", name, persistID, len(textShapes), len(tableShapes))
+			projection := collectLegacyPptVisualScene(payload).completeProjection(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil, nil, nil, nil)
+			textCount, tableCount := 0, 0
+			for _, shape := range projection.Shapes {
+				if shape == nil {
+					continue
+				}
+				if shape.Kind == presentationir.ShapeTable {
+					tableCount++
+				} else if len(shape.Paragraphs) != 0 {
+					textCount++
+				}
+			}
+			t.Logf("%s persist=%d textShapes=%d tableShapes=%d", name, persistID, textCount, tableCount)
 			dumpPptRecordTree(t, payload, 1, 2)
 			for pos := 0; pos+8 <= len(payload); {
 				child, childPayload, next, ok := readPptRecord(payload, pos)

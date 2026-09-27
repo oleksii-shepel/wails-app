@@ -5,7 +5,10 @@ import (
 	"sort"
 	"strings"
 
+	sharedfontmetrics "office/pkg/fontmetrics"
+	"office/pkg/word/inlineposition"
 	resolve "office/pkg/word/ir"
+	wordtextmetrics "office/pkg/word/textmetrics"
 )
 
 const (
@@ -793,8 +796,8 @@ func Paginate(doc *resolve.Document) []Page {
 					if legacyFlowSequence == nil || legacyFlowPage != currentPage || legacyFlowColumn != currentColumn {
 						legacyFlowSequence = &legacyShapeFlowState{
 							left:  columnLeftPt(geom, currentColumn),
-							width: columnWidthPt(geom, currentColumn),
-							y:     currentY + geom.MarginTop + height,
+							width: columnWidthPt(geom, currentColumn) - geom.MarginLeft,
+							y:     legacyShapeFlowInitialY(block.Paragraph.Runs, currentY+geom.MarginTop, height),
 						}
 						if legacyFlowSequence.width <= 0 {
 							legacyFlowSequence.width = geom.Width - geom.MarginLeft - geom.MarginRight
@@ -2498,12 +2501,15 @@ func appendParagraphFloatsWithLegacyFlowState(floats []FloatBox, runs []resolve.
 	legacyFlow := sharedLegacyFlow
 	if legacyFlow == nil {
 		legacyFlow = &legacyShapeFlowState{
-			left:  columnLeftPt(geom, column),
-			width: columnWidthPt(geom, column),
-			y:     paraPageY + paraHeight,
+			left: columnLeftPt(geom, column),
+			// Word's legacy SHAPE-field packer measures its usable row from the
+			// page's left margin, rather than using the complete column width.
+			// This oddity is observable in Word 2021's compatibility layout.
+			width: columnWidthPt(geom, column) - geom.MarginLeft,
+			y:     legacyShapeFlowInitialY(runs, paraPageY, paraHeight),
 		}
 		if legacyFlow.width <= 0 {
-			legacyFlow.width = geom.Width - geom.MarginLeft - geom.MarginRight
+			legacyFlow.width = geom.Width - 2*geom.MarginLeft - geom.MarginRight
 		}
 	}
 	legacyFlowPositions := legacyShapeFlowPositions(runs, legacyFlow)
@@ -2596,11 +2602,45 @@ func legacyShapeFlowPositions(runs []resolve.Run, state *legacyShapeFlowState) m
 }
 
 type legacyShapeFlowState struct {
-	left   float64
-	width  float64
-	cursor float64
-	y      float64
-	rowH   float64
+	left        float64
+	width       float64
+	cursor      float64
+	y           float64
+	rowH        float64
+	nextGap     float64
+	rowBreakGap float64
+}
+
+const legacyShapeFlowGapPt = 3
+
+// legacyShapeFlowAnchorLineInsetPt is the Word 97 anchor-character line
+// inset. A SHAPE field is anchored to that line's text position, not the
+// browser fallback paragraph-box bottom.
+const legacyShapeFlowAnchorLineInsetPt = 5
+
+func legacyShapeFlowAnchorY(paraPageY, paraHeight float64) float64 {
+	return paraPageY + math.Max(0, paraHeight-legacyShapeFlowAnchorLineInsetPt)
+}
+
+// legacyShapeFlowInitialY chooses the anchor-line origin for Word binary SHAPE
+// fields. Ordinary legacy shapes use the historical anchor-character line
+// position. An OfficeArt group is different: its FSPGR members already carry a
+// complete local coordinate domain and Word aligns that enclosing group box to
+// the top of the anchor paragraph. Applying the ordinary line-bottom inset to a
+// group shifts every member downward (and, before group-domain normalization,
+// can send negative children above the page).
+func legacyShapeFlowInitialY(runs []resolve.Run, paraPageY, paraHeight float64) float64 {
+	for i := range runs {
+		shape := runs[i].Shape
+		if runs[i].Kind != "shape" || shape == nil || !shape.Floating || !shape.LegacyFlowAnchor {
+			continue
+		}
+		if shape.Kind == "group" {
+			return paraPageY
+		}
+		break
+	}
+	return legacyShapeFlowAnchorY(paraPageY, paraHeight)
 }
 
 func (s *legacyShapeFlowState) place(shape *resolve.Shape, widthPt, heightPt float64) (float64, float64) {
@@ -2609,34 +2649,64 @@ func (s *legacyShapeFlowState) place(shape *resolve.Shape, widthPt, heightPt flo
 	}
 	localX := emuToPoints(shape.X)
 	localY := emuToPoints(shape.Y)
-	advanceX := widthPt
-	if localX > 0 {
-		advanceX += localX
+	shapeAdvance := legacyShapeFlowAdvance(shape, widthPt, heightPt, localX)
+	gap := 0.0
+	if s.cursor > 0 {
+		gap = s.nextGap
+		if gap <= 0 {
+			gap = legacyShapeFlowGapPt
+		}
 	}
+	advanceX := gap + shapeAdvance
 
+	// FSPA local Y is a displacement within the current anchor row. It does
+	// not start a row by itself; only horizontal exhaustion does.
 	if s.cursor > 0 && s.width > 0 && s.cursor+advanceX > s.width {
 		s.cursor = 0
-		s.y += s.rowH
+		rowGap := s.rowBreakGap
+		if rowGap <= 0 {
+			rowGap = legacyShapeFlowGapPt
+		}
+		s.y += s.rowH + rowGap
 		s.rowH = 0
+		s.rowBreakGap = 0
+		gap = 0
+		advanceX = shapeAdvance
 	}
 
-	x := s.left + s.cursor + localX
+	x := s.left + s.cursor + gap + localX
 	y := s.y + localY
 
-	// Rotation can extend beyond the unrotated Spa rectangle. Reserve the
-	// actual lower bound in the anchor-flow row so the next row does not
-	// collide with a rotated shape.
+	// A later anchor row must start below the visible outline. This matters for
+	// rotated OfficeArt rectangles: their visual bottom can extend well below
+	// the unrotated FSPA rectangle and otherwise overlaps the next row.
 	rowBottom := localY + heightPt
-	if poly := rotatedRectPolygon(s.cursor+localX, localY, widthPt, heightPt, shape.RotationDeg); len(poly) > 0 {
-		if _, _, _, bottom, ok := polygonBounds(poly); ok && bottom > rowBottom {
-			rowBottom = bottom
-		}
+	if shape != nil && shape.RotationDeg != 0 {
+		_, _, _, bottom := transformedDrawingBounds(FloatBox{Width: widthPt, Height: heightPt}, shape.RotationDeg)
+		rowBottom = math.Max(rowBottom, localY+bottom)
 	}
 	if rowBottom > s.rowH {
 		s.rowH = rowBottom
 	}
+	// Word keeps a displaced FSPA rectangle's local offset on both sides of
+	// that shape: after it in the row, and before the following anchor row.
+	s.nextGap = legacyShapeFlowGapPt + 2*math.Max(0, localX)
+	s.rowBreakGap = math.Max(s.rowBreakGap, legacyShapeFlowGapPt+2*math.Max(0, localY))
 	s.cursor += advanceX
 	return x, y
+}
+
+// legacyShapeFlowAdvance reserves the visual right edge of a rotated legacy
+// shape, so it cannot overlap the following shape in the same row.
+func legacyShapeFlowAdvance(shape *resolve.Shape, widthPt, heightPt, localX float64) float64 {
+	advance := widthPt
+	if shape != nil && shape.RotationDeg != 0 {
+		_, _, right, _ := transformedDrawingBounds(FloatBox{Width: widthPt, Height: heightPt}, shape.RotationDeg)
+		advance = math.Max(advance, localX+right)
+	} else if localX > 0 {
+		advance += localX
+	}
+	return advance
 }
 
 // relativeObjectSizePt resolves wp14:sizeRelH/wp14:sizeRelV against the
@@ -2931,9 +3001,12 @@ func paragraphInlineImageHeightPt(p *resolve.Paragraph) float64 {
 type paragraphRenderToken struct {
 	run            resolve.Run
 	widthPt        float64
+	heightPt       float64
 	fontSizePt     float64
 	forceLineBreak bool
 	tab            bool
+	advance        bool
+	advanceOffsets inlineposition.AdvanceOffsets
 	// separated records whether Word source text contains collapsible
 	// whitespace before this token. The legacy rectangular estimator leaves
 	// this false and keeps its historical implicit-space behavior; spatial
@@ -3034,7 +3107,8 @@ func fieldRenderWidthText(run resolve.Run) string {
 }
 
 func runNeedsWholeToken(run resolve.Run) bool {
-	return run.FieldKind != "" ||
+	return (run.Format.FitTextWidth != nil && *run.Format.FitTextWidth > 0) ||
+		run.FieldKind != "" ||
 		len(run.Fields) > 0 ||
 		run.Kind == "hyperlink" ||
 		run.Kind == "horzRule" ||
@@ -3055,30 +3129,15 @@ func runNeedsWholeToken(run resolve.Run) bool {
 }
 
 func runWordWidthPt(format resolve.RunFormat, rawWord string, defaultSizePt float64) (float64, float64) {
-	fontSizePt := defaultSizePt
-	if format.FontSize != nil && *format.FontSize > 0 {
-		fontSizePt = float64(*format.FontSize) / 2.0
-	}
-	fontName := preferredRunFontName(format)
-	monospace := isFontMonospace(fontName)
-	widthScale := fontWidthScale(fontName)
-	text := rawWord
-	if format.Caps != nil && *format.Caps {
-		text = strings.ToUpper(text)
-	}
-	widthPt := 0.0
-	runeCount := 0
-	for _, ch := range text {
-		widthPt += charWidthFactor(ch, monospace) * fontSizePt * widthScale
-		runeCount++
-	}
-	// CSS letter-spacing is part of the rendered advance but historically was
-	// omitted from pagination. Preserve the authored twentieths-of-a-point value
-	// between adjacent glyphs so layout and HTML wrap the same words.
-	if format.CharacterSpacing != nil && *format.CharacterSpacing != 0 && runeCount > 1 {
-		widthPt += float64(*format.CharacterSpacing) / 20.0 * float64(runeCount-1)
-	}
-	return widthPt, fontSizePt
+	return wordtextmetrics.RunWidthPt(nil, format, rawWord, defaultSizePt)
+}
+
+func runWordWidthPtWithCatalog(catalog *sharedfontmetrics.Catalog, format resolve.RunFormat, rawWord string, defaultSizePt float64) (float64, float64) {
+	return wordtextmetrics.RunWidthPt(catalog, format, rawWord, defaultSizePt)
+}
+
+func runInterWordSpaceWidthPt(catalog *sharedfontmetrics.Catalog, format resolve.RunFormat, defaultSizePt, previousFontSizePt float64) float64 {
+	return wordtextmetrics.InterWordSpaceWidthPt(catalog, format, defaultSizePt, previousFontSizePt)
 }
 
 func interWordSpaceWidthPt(previousFontSizePt, currentFontSizePt, defaultSizePt float64) float64 {
@@ -3098,13 +3157,35 @@ func interWordSpaceWidthPt(previousFontSizePt, currentFontSizePt, defaultSizePt 
 // whitespace sequence is represented as one inter-word separation. Tabs remain
 // first-class runs and are intentionally left to the tab-stop pass.
 func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragraphRenderToken {
+	return paragraphSpatialRenderTokensWithContext(p, defaultSizePt, paragraphFlowContext{})
+}
+
+func paragraphSpatialRenderTokensWithContext(p *resolve.Paragraph, defaultSizePt float64, ctx paragraphFlowContext) []paragraphRenderToken {
 	if p == nil {
 		return nil
 	}
-	tokens := make([]paragraphRenderToken, 0, len(p.Runs))
+	runs := resolve.CanonicalVisibleRuns(p)
+	tokens := make([]paragraphRenderToken, 0, len(runs))
 	pendingSpace := false
 	haveText := false
-	for _, run := range p.Runs {
+	for _, run := range runs {
+		// Binary DOC group anchors can surface as synthetic OLE placeholders.
+		// They are non-rendering anchors, not inline "Embedded Object" text.
+		if run.Kind == "olePlaceholder" && run.OLEPreview == nil {
+			continue
+		}
+		if run.FieldKind == "ADVANCE" {
+			instr := strings.TrimSpace(run.FieldInstr)
+			if instr == "" {
+				instr = strings.TrimSpace(run.FieldArg)
+			}
+			tokens = append(tokens, paragraphRenderToken{
+				run: run, fontSizePt: defaultSizePt, advance: true,
+				advanceOffsets: inlineposition.ParseAdvance(instr),
+			})
+			pendingSpace = false
+			continue
+		}
 		switch run.Kind {
 		case "break":
 			switch run.BreakType {
@@ -3116,37 +3197,33 @@ func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) [
 				haveText = false
 			}
 			continue
-		case "image":
-			if run.Image == nil || run.Image.Floating {
+		case "image", "chart", "textbox", "shape", "olePlaceholder":
+			if wpt, hpt, ok := inlineObjectExtentPt(run); ok {
+				if wpt <= 0 {
+					wpt = 1
+				}
+				if hpt <= 0 {
+					hpt = defaultSizePt
+				}
+				tokens = append(tokens, paragraphRenderToken{
+					run: run, widthPt: wpt, heightPt: hpt, fontSizePt: defaultSizePt,
+					separated: pendingSpace && haveText,
+				})
+				pendingSpace = false
+				haveText = true
 				continue
 			}
-			wpt := emuToPoints(run.Image.Width)
-			if wpt <= 0 {
-				wpt = 1
+			if run.Kind == "image" || run.Kind == "chart" || run.Kind == "textbox" || run.Kind == "shape" {
+				continue
 			}
-			tokens = append(tokens, paragraphRenderToken{
-				run: run, widthPt: wpt, fontSizePt: defaultSizePt,
-				separated: pendingSpace && haveText,
-			})
-			pendingSpace = false
-			haveText = true
-			continue
 		case "footnoteRef", "endnoteRef", "commentRef":
 			tokens = append(tokens, paragraphRenderToken{
-				run: run, widthPt: defaultSizePt * 0.8, fontSizePt: defaultSizePt,
+				run: run, widthPt: defaultSizePt * 0.8, heightPt: defaultSizePt, fontSizePt: defaultSizePt,
 				separated: pendingSpace && haveText,
 			})
 			pendingSpace = false
 			haveText = true
 			continue
-		case "textbox":
-			if run.TextBox == nil || run.TextBox.Floating {
-				continue
-			}
-		case "shape":
-			if run.Shape == nil || run.Shape.Floating {
-				continue
-			}
 		case "tab":
 			tokens = append(tokens, paragraphRenderToken{
 				run: run, fontSizePt: defaultSizePt, tab: true,
@@ -3158,9 +3235,9 @@ func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) [
 
 		if run.Text == "" {
 			if fieldText := fieldRenderWidthText(run); fieldText != "" || runNeedsWholeToken(run) {
-				wpt, fontSizePt := runWordWidthPt(run.Format, fieldText, defaultSizePt)
+				wpt, fontSizePt := runWordWidthPtWithCatalog(ctx.FontMetrics, run.Format, fieldText, defaultSizePt)
 				tokens = append(tokens, paragraphRenderToken{
-					run: run, widthPt: wpt, fontSizePt: fontSizePt,
+					run: run, widthPt: wpt, heightPt: fontSizePt, fontSizePt: fontSizePt,
 					separated: pendingSpace && haveText,
 				})
 				pendingSpace = false
@@ -3169,9 +3246,9 @@ func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) [
 			continue
 		}
 		if runNeedsWholeToken(run) {
-			wpt, fontSizePt := runWordWidthPt(run.Format, run.Text, defaultSizePt)
+			wpt, fontSizePt := runWordWidthPtWithCatalog(ctx.FontMetrics, run.Format, run.Text, defaultSizePt)
 			tokens = append(tokens, paragraphRenderToken{
-				run: run, widthPt: wpt, fontSizePt: fontSizePt,
+				run: run, widthPt: wpt, heightPt: fontSizePt, fontSizePt: fontSizePt,
 				separated: pendingSpace && haveText,
 			})
 			pendingSpace = false
@@ -3185,11 +3262,11 @@ func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) [
 				return
 			}
 			rawWord := string(runes[wordStart:end])
-			wpt, fontSizePt := runWordWidthPt(run.Format, rawWord, defaultSizePt)
+			wpt, fontSizePt := runWordWidthPtWithCatalog(ctx.FontMetrics, run.Format, rawWord, defaultSizePt)
 			tokenRun := run
 			tokenRun.Text = rawWord
 			tokens = append(tokens, paragraphRenderToken{
-				run: tokenRun, widthPt: wpt, fontSizePt: fontSizePt,
+				run: tokenRun, widthPt: wpt, heightPt: fontSizePt, fontSizePt: fontSizePt,
 				separated: pendingSpace && haveText,
 			})
 			pendingSpace = false
@@ -3207,6 +3284,12 @@ func paragraphSpatialRenderTokens(p *resolve.Paragraph, defaultSizePt float64) [
 			}
 			if wordStart < 0 {
 				wordStart = i
+			}
+			// A hard hyphen is a Word line-break opportunity. Keep it on the
+			// preceding token while allowing the following syllable to start a
+			// new physical line without inventing an inter-word space.
+			if p.Source != nil && ch == '-' && i+1 < len(runes) && runes[i+1] != ' ' {
+				flushWord(i + 1)
 			}
 		}
 		flushWord(len(runes))
@@ -3794,86 +3877,6 @@ func commonWrapSide(exclusions []lineExclusion) string {
 		}
 	}
 	return common
-}
-
-// charWidthFactor returns the approximate advance width of a Unicode character
-// as a fraction of the nominal font point size.
-//
-// These constants are calibrated for common proportional Latin fonts.
-// CJK ideographs are full-width (≈1.0×); narrow Latin glyphs (i, l, 1) are
-// narrower (≈0.28×); uppercase letters average ≈0.62× and lowercase ≈0.45×.
-func charWidthFactor(ch rune, monospace bool) float64 {
-	if monospace {
-		return 0.6
-	}
-	switch {
-	// CJK unified ideographs and fullwidth forms
-	case ch >= 0x4E00 && ch <= 0x9FFF,
-		ch >= 0x3000 && ch <= 0x303F,
-		ch >= 0xF900 && ch <= 0xFAFF,
-		ch >= 0xFF00 && ch <= 0xFFEF:
-		return 1.0
-	// Narrow glyphs: i, l, 1, !, |, punctuation
-	case ch == 'i', ch == 'l', ch == '1', ch == '!', ch == '|',
-		ch == '.', ch == ',', ch == ';', ch == ':', ch == '\'', ch == '`':
-		return 0.28
-	// Uppercase Latin and common extended uppercase
-	case ch >= 'A' && ch <= 'Z',
-		ch >= 0xC0 && ch <= 0xD6,
-		ch >= 0xD8 && ch <= 0xDE:
-		return 0.62
-	// Digits
-	case ch >= '0' && ch <= '9':
-		return 0.55
-	// Default: lowercase and other Latin-range characters
-	default:
-		return 0.45
-	}
-}
-
-// isFontMonospace returns true when the font name is a known monospace typeface.
-func isFontMonospace(name string) bool {
-	if name == "" {
-		return false
-	}
-	lower := strings.ToLower(name)
-	for _, m := range []string{
-		"courier", "consolas", "lucida console", "monaco", "menlo",
-		"source code pro", "fira mono", "fira code", "inconsolata",
-		"roboto mono", "dejavu sans mono", "liberation mono", "anonymous pro",
-		"cascadia code", "cascadia mono", "jetbrains mono", "hack",
-	} {
-		if strings.Contains(lower, m) {
-			return true
-		}
-	}
-	return false
-}
-
-func preferredRunFontName(format resolve.RunFormat) string {
-	if format.FontASCII != "" {
-		return format.FontASCII
-	}
-	if format.FontHAnsi != "" {
-		return format.FontHAnsi
-	}
-	if format.FontEastAsia != "" {
-		return format.FontEastAsia
-	}
-	return format.FontCS
-}
-
-func fontWidthScale(name string) float64 {
-	if name == "" {
-		return 1.0
-	}
-	lower := strings.ToLower(name)
-	for _, family := range []string{"calibri", "arial", "aptos", "segoe", "helvetica", "verdana", "tahoma"} {
-		if strings.Contains(lower, family) {
-			return 0.92
-		}
-	}
-	return 1.0
 }
 
 func paragraphContentWidthPt(p *resolve.Paragraph, geom PageGeometry) float64 {

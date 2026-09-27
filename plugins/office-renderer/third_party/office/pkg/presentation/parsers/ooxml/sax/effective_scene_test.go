@@ -91,11 +91,11 @@ func TestContextualBuilderHonorsSlideShowMasterShapesFalse(t *testing.T) {
 		t.Fatalf("slides = %d, want 1", len(slides))
 	}
 	got := slides[0].Shapes
-	if len(got) != 2 {
-		t.Fatalf("effective shapes = %d, want layout + slide only", len(got))
+	if len(got) != 1 {
+		t.Fatalf("effective shapes = %d, want slide-local paint only", len(got))
 	}
-	if got[0].Name != "layout-decoration" || got[1].Name != "slide-local" {
-		t.Fatalf("effective shapes = %q, %q; master artwork must be suppressed", got[0].Name, got[1].Name)
+	if got[0].Name != "slide-local" {
+		t.Fatalf("effective shape = %q; slide showMasterSp=0 must suppress inherited layout/master artwork", got[0].Name)
 	}
 	if len(slides[0].Master.Shapes) != 1 {
 		t.Fatalf("master template graph changed: %d shapes", len(slides[0].Master.Shapes))

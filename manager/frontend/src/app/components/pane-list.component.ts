@@ -350,7 +350,6 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
   visibleEntries: FileInfo[] = [];
   visibleRowVms: VisibleRowVm[] = [];
   private rowVmCache = new Map<string, VisibleRowVm>();
-  private pathToVirtualIndex = new Map<string, number>();
 
   private virtualStart = 0;
   private virtualEnd = 0;
@@ -541,10 +540,6 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   private refreshDerivedEntries(): void {
     this.cachedVirtualEntries = this.parentEntry ? this.entries.slice(1) : this.entries;
-    this.pathToVirtualIndex.clear();
-    this.cachedVirtualEntries.forEach((entry, index) => {
-      this.pathToVirtualIndex.set(entry.path, index);
-    });
 
     // The row VM cache only needs aggressive pruning after navigation or a
     // major dataset replacement. Avoid allocating another full-directory Set
@@ -567,7 +562,7 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   private rebuildVisibleEntries(): void {
     this.visibleEntries = this.virtualEnabled
-      ? this.cachedVirtualEntries.slice(this.virtualStart, this.virtualEnd)
+      ? Array.from(this.virtualCollection.renderedItems())
       : this.entries;
     this.rebuildVisibleRowVms();
   }
@@ -636,7 +631,6 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
       columns: 1,
     });
     this.virtualCollection.setLogicalCount(itemCount);
-    this.virtualCollection.populate(0, this.cachedVirtualEntries, itemCount);
 
     const changed = this.virtualCollection.updateViewport({
       scrollTop: contentScrollTop,
@@ -649,6 +643,15 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.virtualEnd = window.end;
 
     if (changed || forceRebuild) {
+      const residentOffset = window.enabled ? window.start : 0;
+      const residentEntries = window.enabled
+        ? this.cachedVirtualEntries.slice(window.start, window.end)
+        : this.cachedVirtualEntries;
+      this.virtualCollection.populate(
+        residentOffset,
+        residentEntries,
+        itemCount,
+      );
       this.rebuildVisibleEntries();
     }
     return changed || forceRebuild;
@@ -813,14 +816,20 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
     return null;
   }
 
+  private findVirtualIndex(path: string): number {
+    const residentIndex = this.virtualCollection.indexOfIdentity(path);
+    if (residentIndex >= 0) return residentIndex;
+    return this.cachedVirtualEntries.findIndex(entry => entry.path === path);
+  }
+
   private startRenameByPath(path: string): void {
     if (!path || path === PARENT_ENTRY_PATH) return;
 
     const host = this.paneContentRef?.nativeElement;
     if (host) {
       if (this.virtualEnabled) {
-        const idx = this.pathToVirtualIndex.get(path);
-        if (idx !== undefined) {
+        const idx = this.findVirtualIndex(path);
+        if (idx >= 0) {
           const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
           const targetTop = idx * this.rowHeight;
           const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
@@ -869,8 +878,8 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
       return;
     }
     if (this.virtualEnabled) {
-      const idx = this.pathToVirtualIndex.get(path);
-      if (idx !== undefined) {
+      const idx = this.findVirtualIndex(path);
+      if (idx >= 0) {
         const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
         const itemTop = parentOffset + idx * this.rowHeight;
         const itemBottom = itemTop + this.rowHeight;

@@ -483,7 +483,6 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private thumbnailLoadingPaths = new Set<string>();
   private lastThumbnailBandKey = '';
   private idleThumbnailHandle: number | null = null;
-  private pathToEntryIndex = new Map<string, number>();
   private columnsMeasureRAF: number | null = null; // Coalesce column measurements
 
   private anchorPath: string | null = null;
@@ -588,7 +587,7 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (!path) return;
     const host = this.gridContainerRef?.nativeElement;
     if (!host) return;
-    const idx = this.pathToEntryIndex.get(path) ?? -1;
+    const idx = this.findEntryIndex(path);
     if (idx < 0) return;
     if (this.virtualEnabled) {
       const row = Math.floor(idx / Math.max(1, this.cachedVirtualColumns));
@@ -672,7 +671,7 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     const host = this.gridContainerRef?.nativeElement;
     if (host) {
       if (this.virtualEnabled) {
-        const idx = this.pathToEntryIndex.get(path) ?? -1;
+        const idx = this.findEntryIndex(path);
         if (idx >= 0) {
           const row = Math.floor(idx / Math.max(1, this.cachedVirtualColumns));
           const targetTop = row * this.rowHeight;
@@ -985,7 +984,6 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       columns,
     });
     this.virtualCollection.setLogicalCount(this.entries.length);
-    this.virtualCollection.populate(0, this.entries, this.entries.length);
 
     const changed = this.virtualCollection.updateViewport({
       scrollTop,
@@ -997,6 +995,15 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.virtualStart = window.start;
     this.virtualEnd = window.end;
     if (changed || forceRebuild) {
+      const residentOffset = window.enabled ? window.start : 0;
+      const residentEntries = window.enabled
+        ? this.entries.slice(window.start, window.end)
+        : this.entries;
+      this.virtualCollection.populate(
+        residentOffset,
+        residentEntries,
+        this.entries.length,
+      );
       this.rebuildVisibleEntries();
       this.prewarmVisibleCollisionResolutions();
     }
@@ -1200,15 +1207,19 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.idleThumbnailHandle = null;
   }
 
+  private findEntryIndex(path: string): number {
+    const residentIndex = this.virtualCollection.indexOfIdentity(path);
+    if (residentIndex >= 0) return residentIndex;
+    return this.entries.findIndex(entry => entry.path === path);
+  }
+
   private rebuildDerivedEntries(): void {
-    this.pathToEntryIndex.clear();
-    this.entries.forEach((entry, index) => this.pathToEntryIndex.set(entry.path, index));
     this.rebuildVisibleEntries();
   }
 
   private rebuildVisibleEntries(): void {
     this.visibleEntriesCache = this.virtualEnabled
-      ? this.entries.slice(this.virtualStart, this.virtualEnd)
+      ? Array.from(this.virtualCollection.renderedItems())
       : this.entries;
   }
 

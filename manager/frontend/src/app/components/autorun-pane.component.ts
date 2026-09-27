@@ -8362,14 +8362,12 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
     const active = this.activeTab;
     const scrollTop = this.paneViewHost?.getScrollTop() ?? 0;
     if (active && active.kind === 'dir') {
-      const updated: Extract<Tab, { kind: 'dir' }> = {
-        ...active,
-        scrollTop: Math.max(0, scrollTop),
-      };
-      this.tabs = this.tabs.map(tab => tab.id === updated.id ? updated : tab);
+      // Scroll position is session state, not rendered tab state. Keep the
+      // existing tab object/array stable so a scroll frame does not dirty the
+      // whole pane tree.
+      active.scrollTop = Math.max(0, scrollTop);
     }
     this.viewportChange.emit(this.viewportSnapshot());
-    this.cdr.markForCheck();
   }
 
   onContentScroll(event: Event): void {

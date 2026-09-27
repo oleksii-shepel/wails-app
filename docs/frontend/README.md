@@ -28,6 +28,7 @@ All view components must support the same file-manager operations and route them
 | New folder (F7) | ✅ | ✅ | ✅ | ✅ |
 | Delete selected (F8 / Delete) | ✅ | ✅ | ✅ | ✅ |
 | Drag & drop copy/move (Ctrl/Cmd = copy) | ✅ | ✅ | ✅ | ✅ |
+| Keyboard cursor movement + follow (scroll into view) | ✅ | ✅ | ✅ | ✅ |
 
 ### Shortcut Baseline
 
@@ -43,6 +44,8 @@ All view components must support the same file-manager operations and route them
 ### Implementation Rule
 
 If a new operation is added to one view, wire it through `file-view-container` and `file-pane` so list/grid/details/tree stay behaviorally equivalent.
+
+Cursor movement and cursor-follow scrolling are owned by the pane view host: panes compute cursor steps from `getSelectableEntries()` (which returns the rendered visible tree nodes for tree view) and scroll via `scrollToCursorPath()`, which dispatches to the active view's `scrollToPath` or, for the tree, `focusTreeNode`. Tree Left/Right (collapse/expand/parent) likewise go through the host (`expandTreeNode`/`collapseTreeNode`/`isTreeNodeExpanded`) so the rendered hierarchy stays the single source of truth.
 
 ## Boundary Rules
 

@@ -37,7 +37,19 @@ describe('pane cursor follows rendered order', () => {
       const end = source.indexOf('private syncCursorFromSelection', start);
       const body = source.slice(start, end);
 
-      expect(body).toContain("this.paneViewHost?.getSelectableEntries('__parent__', true)");
+      expect(body).toContain("this.paneViewHost?.getSelectableEntries('__parent__',");
+    }
+
+    // Full-view panes must not gate the shared host behind a tree exclusion —
+    // the tree cursor moves through the rendered hierarchy too.
+    for (const name of ['autorun-pane.component.ts', 'directory-pane.component.ts']) {
+      const source = read(name);
+      const start = source.indexOf('private selectableEntries(): FileInfo[]');
+      const end = source.indexOf('private syncCursorFromSelection', start);
+      const body = source.slice(start, end);
+
+      expect(body).toContain("this.paneViewHost?.getSelectableEntries('__parent__', this.viewMode !== 'tree')");
+      expect(body).not.toContain('if (this.viewMode !== \'tree\') {');
     }
   });
 

@@ -696,6 +696,27 @@ export class PaneViewHostComponent implements OnChanges, OnDestroy, AfterViewIni
     }
   }
 
+  expandTreeNode(path: string): void {
+    try {
+      this.treeComponent?.expandNode(path);
+    } catch {
+      // best-effort only
+    }
+  }
+
+  collapseTreeNode(path: string): void {
+    try {
+      this.treeComponent?.collapseNode(path);
+    } catch {
+      // best-effort only
+    }
+  }
+
+  /** Focus the tree scroll container (keyboard cursor highlight dependency). */
+  focusTreeContainer(): void {
+    this.treeComponent?.focusContainer();
+  }
+
   getApproxPageSize(): number {
     return this.runtimeController.getApproxPageSize(this.runtimeHost);
   }

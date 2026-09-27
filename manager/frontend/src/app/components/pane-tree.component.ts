@@ -1738,7 +1738,18 @@ export class PaneTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   focusNode(path: string): void {
     this.focusedNodePath = path;
+    // Cursor parity with the other views: focusing a node from the outside
+    // (pane cursor navigation) must also bring it into the viewport.
+    const node = this.findNodeByPath(this.nodes, path);
+    if (node) {
+      this.ensureVisible(node);
+    }
     this.cdr.markForCheck();
+  }
+
+  /** Focus the scroll container so the focused-node cursor shows its strong style. */
+  focusContainer(): void {
+    this.treeContainer?.nativeElement?.focus({ preventScroll: true });
   }
 
   centerNode(path: string): void {

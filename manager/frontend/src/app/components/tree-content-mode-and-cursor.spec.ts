@@ -5,7 +5,7 @@ const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url
 describe('Tree content modes and cursor parity', () => {
   const directory = read('directory-pane.component.ts');
   const paneTree = read('pane-tree.component.ts');
-  const container = read('file-view-container.component.ts');
+  const container = read('pane-view-host.component.ts');
   const controller = read('file-view-tree.controller.ts');
 
   it('offers all and folders as explicit Directory tree content modes', () => {

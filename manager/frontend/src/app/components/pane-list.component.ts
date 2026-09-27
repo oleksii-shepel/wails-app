@@ -850,7 +850,12 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
       }
     } else {
       const el = host.querySelector<HTMLElement>(`.file-list-row[data-path="${CSS.escape(path)}"]`);
-      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (!el) return;
+      // Cursor visibility is a vertical concern. A list row can be wider than
+      // the viewport, so scrollIntoView must not consume the horizontal inset.
+      const scrollLeft = host.scrollLeft;
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      host.scrollLeft = scrollLeft;
     }
   }
 

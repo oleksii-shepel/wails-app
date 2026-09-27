@@ -1766,16 +1766,19 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const target =
-      this.activeTab?.kind !== 'dir'
-        ? this.paneRoot?.nativeElement
-        : this.viewMode === 'tree'
-          ? this.treeViewport?.nativeElement
-          : this.viewMode === 'details'
-            ? this.paneRoot?.nativeElement
-          : this.listViewport?.nativeElement;
+    if (this.activeTab?.kind !== 'dir') {
+      this.paneRoot?.nativeElement?.focus({ preventScroll: true });
+      return;
+    }
 
-    target?.focus({ preventScroll: true });
+    // The tree keyboard cursor renders its strong style only while the tree
+    // container holds DOM focus; the flat views keep pane-root focus.
+    if (this.viewMode === 'tree') {
+      this.paneViewHost?.focusTreeContainer();
+      return;
+    }
+
+    this.paneRoot?.nativeElement?.focus({ preventScroll: true });
   }
 
   async canNavigateToLocation(path: string): Promise<boolean> {
@@ -3625,51 +3628,65 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
   }
 
   async treeLeft(): Promise<void> {
-    if (this.viewMode !== 'tree') return;
+    if (this.viewMode !== 'tree' || !this.isDirectoryTab) return;
     this.markUserInteraction();
-    const rows = this.treeRows;
-    const index = rows.findIndex(row => row.entry.path === this.cursorPath);
-    if (index < 0) return;
-    const row = rows[index];
 
-    if (row.expandable && row.expanded) {
-      this.treeExpandedPaths.delete(row.entry.path);
-      this.invalidateTreeRows();
+    const host = this.paneViewHost;
+    if (!host) return;
+
+    const nodes = host.getVisibleTreeNodes();
+    const cursorPath = this.cursorPath ?? host.getTreeFocusedPath();
+    const index = nodes.findIndex(node => node.path === cursorPath);
+    if (index < 0) return;
+    const node = nodes[index];
+
+    // The synthetic root (level -1) has no parent to collapse into.
+    if ((node.level ?? 0) < 0) return;
+
+    if (node.expandable && host.isTreeNodeExpanded(node.path)) {
+      host.collapseTreeNode(node.path);
+      this.lastAction = `collapse: ${node.name}`;
       this.syncActiveDirSessionState();
       this.cdr.markForCheck();
       return;
     }
 
-    if (row.depth === 0) return;
+    const parent = node.parent;
+    if (!parent || (parent.level ?? -1) < 0) return;
 
-    for (let i = index - 1; i >= 0; i -= 1) {
-      if (rows[i].depth === row.depth - 1) {
-        this.setSingleSelection(rows[i].entry);
-        this.ensureCursorVisible();
-        this.cdr.markForCheck();
-        return;
-      }
-    }
+    this.setSingleSelection(parent);
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
   }
 
   async treeRight(): Promise<void> {
-    if (this.viewMode !== 'tree') return;
+    if (this.viewMode !== 'tree' || !this.isDirectoryTab) return;
     this.markUserInteraction();
-    const rows = this.treeRows;
-    const index = rows.findIndex(row => row.entry.path === this.cursorPath);
+
+    const host = this.paneViewHost;
+    if (!host) return;
+
+    const nodes = host.getVisibleTreeNodes();
+    const cursorPath = this.cursorPath ?? host.getTreeFocusedPath();
+    const index = nodes.findIndex(node => node.path === cursorPath);
     if (index < 0) return;
-    const row = rows[index];
+    const node = nodes[index];
 
-    if (!row.expandable) return;
+    if (!node.expandable) return;
 
-    if (!row.expanded) {
-      await this.toggleTreeRow(row);
+    if (!host.isTreeNodeExpanded(node.path)) {
+      // Expanding routes through the rendered tree so lazy child loading and
+      // the visible hierarchy stay in sync.
+      host.expandTreeNode(node.path);
+      this.lastAction = `expand: ${node.name}`;
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
       return;
     }
 
-    const child = rows[index + 1];
-    if (child && child.depth === row.depth + 1) {
-      this.setSingleSelection(child.entry);
+    const child = nodes[index + 1];
+    if (child && (child.level ?? 0) === (node.level ?? 0) + 1) {
+      this.setSingleSelection(child);
       this.ensureCursorVisible();
       this.cdr.markForCheck();
     }
@@ -4711,16 +4728,9 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
     const entries = this.selectableEntries();
     if (entries.length === 0) return;
 
-    const viewport =
-      this.viewMode === 'tree'
-        ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement;
-
-    const rowHeight = this.viewMode === 'grid' ? 110 : 28;
-    const pageSize = Math.max(
-      1,
-      Math.floor((viewport?.clientHeight ?? 280) / rowHeight),
-    );
+    // Page size comes from the rendered viewport via the shared view host
+    // (rows for list/details/tree, rows × columns for the grid).
+    const pageSize = Math.max(1, this.paneViewHost?.getApproxPageSize() ?? 10);
 
     const currentIndex = this.cursorPath
       ? entries.findIndex(entry => entry.path === this.cursorPath)
@@ -4800,10 +4810,11 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
   }
 
   private selectableEntries(): FileInfo[] {
-    if (this.viewMode !== 'tree') {
-      const rendered = this.paneViewHost?.getSelectableEntries('__parent__', true);
-      if (rendered?.length) return rendered;
-    }
+    // The pane view host owns the rendered order for every view, including the
+    // tree (visible nodes in hierarchy order). Only fall back to local
+    // projections when the shared host has nothing rendered yet.
+    const rendered = this.paneViewHost?.getSelectableEntries('__parent__', this.viewMode !== 'tree');
+    if (rendered?.length) return rendered;
 
     return this.viewMode === 'tree'
       ? this.treeRows.map(row => row.entry)
@@ -9391,71 +9402,9 @@ export class AutorunPaneComponent implements OnInit, OnDestroy {
   private ensureCursorVisible(): void {
     if (!this.cursorPath || typeof document === 'undefined') return;
 
-    if (this.viewMode === 'details') {
-      this.paneViewHost?.scrollToCursorPath(this.cursorPath);
-      return;
-    }
-
-    const viewport =
-      this.viewMode === 'tree'
-        ? this.treeViewport?.nativeElement
-        : this.listViewport?.nativeElement;
-
-    if (viewport) {
-      const index =
-        this.viewMode === 'tree'
-          ? this.treeRows.findIndex(row => row.entry.path === this.cursorPath)
-          : this.visibleEntries.findIndex(entry => entry.path === this.cursorPath);
-
-      if (index >= 0) {
-        const virtual =
-          this.viewMode === 'tree'
-            ? this.treeVirtualWindow
-            : this.listVirtualWindow;
-
-        if (
-          virtual.enabled &&
-          (index < virtual.start || index >= virtual.end)
-        ) {
-          if (this.viewMode === 'grid') {
-            const columns = Math.max(1, virtual.columns);
-            const row = Math.floor(index / columns);
-            viewport.scrollTop = row * this.gridRowExtent;
-          } else {
-            viewport.scrollTop =
-              index *
-              (this.viewMode === 'tree'
-                ? this.treeRowExtent
-                : this.listRowExtent);
-          }
-
-          this.updateVirtualViewport(viewport);
-          this.cdr.detectChanges();
-        }
-      }
-    }
-
-    const escaped =
-      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-        ? CSS.escape(this.cursorPath)
-        : this.cursorPath.replace(/["\\]/g, '\\$&');
-
-    queueMicrotask(() => {
-      const host =
-        this.viewMode === 'tree'
-          ? this.treeViewport?.nativeElement
-          : this.listViewport?.nativeElement;
-
-      const cursorElement = host
-        ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`);
-      if (!host || !cursorElement) return;
-
-      // Cursor visibility is a vertical concern. A Details/List row can be wider
-      // than the viewport, so scrollIntoView must not consume the normal left/right
-      // row inset by nudging the horizontal scroll position after expand/collapse.
-      const scrollLeft = host.scrollLeft;
-      cursorElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      host.scrollLeft = scrollLeft;
-    });
+    // The shared pane view host owns every renderer (list/grid/details/tree)
+    // and dispatches per view: scrollToPath for the flat views, focusTreeNode
+    // for the tree. It also preserves the horizontal row inset while scrolling.
+    this.paneViewHost?.scrollToCursorPath(this.cursorPath);
   }
 }

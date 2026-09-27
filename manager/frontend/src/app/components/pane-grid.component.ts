@@ -145,6 +145,25 @@ import {
     .grid-info app-file-entry {
       min-width: 0;
       max-width: 100%;
+    }
+
+    /* app-file-entry is a custom element and therefore inline by default.
+       Grid must own its cell geometry instead of relying on an inline host
+       containing a block child, otherwise the track can collapse to a line box
+       while the icon/name keep painting into the following row. */
+    .grid-info {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
+      flex: 1 1 auto;
+      overflow: hidden;
+    }
+
+    .grid-info app-file-entry {
+      display: block;
+      flex: 0 0 auto;
+      width: 100%;
       overflow: hidden;
     }
 
@@ -165,8 +184,10 @@ import {
       min-height: 0;
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
+      --grid-row-gap: var(--vsc-padding-md);
+      grid-auto-rows: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));
       align-content: start;
-      gap: var(--vsc-padding-md);
+      gap: var(--grid-row-gap);
       padding: var(--vsc-padding-md);
       overflow-y: auto;
       overflow-x: hidden;
@@ -198,10 +219,8 @@ import {
       top: var(--vsc-padding-md);
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
-      /* Keep DOM row geometry identical to the virtual scroll model.
-         --grid-row-pitch is the full row pitch, including the grid gap. */
-      --grid-row-gap: var(--vsc-padding-md);
-      grid-auto-rows: calc(var(--grid-row-pitch) - var(--grid-row-gap));
+      /* Virtual and ordinary Grid use the exact same row geometry. */
+      grid-auto-rows: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));
       align-content: start;
       gap: var(--grid-row-gap);
       padding: 0 var(--vsc-padding-md);
@@ -209,11 +228,10 @@ import {
     }
 
     .grid-window.virtual-window .grid-item {
-      box-sizing: border-box;
-      height: 100%;
       min-height: 0;
-      overflow: hidden;
+      height: 100%;
     }
+
 
     .selection-rect {
       position: absolute;
@@ -230,7 +248,11 @@ import {
       padding: 6px;
       border-radius: var(--vsc-border-radius);
       cursor: pointer;
-      height: fit-content;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));
+      height: auto;
+      overflow: hidden;
       transition:
         background-color var(--vsc-transition-fast),
         border-color var(--vsc-transition-fast),
@@ -262,8 +284,8 @@ import {
       }
       
       &.parent-dir {
-        opacity: 0.7;
-        
+        /* Keep cursor/selection chrome identical to ordinary entries.
+           Muting belongs to the entry content, not the grid cell. */
         .grid-name {
           font-style: italic;
         }
@@ -398,12 +420,12 @@ import {
 
     :host-context(.compact-mode) {
       .file-grid {
+        --grid-row-gap: var(--vsc-padding-sm);
         grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
-        gap: var(--vsc-padding-sm);
+        gap: var(--grid-row-gap);
       }
 
       .grid-window.virtual-window {
-        --grid-row-gap: var(--vsc-padding-sm);
         grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
         gap: var(--grid-row-gap);
       }

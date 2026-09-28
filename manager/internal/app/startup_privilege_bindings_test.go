@@ -1,11 +1,11 @@
 //go:build bindings
 
-package main
+package app
 
 import "testing"
 
 func TestBindingsModeNeverRelaunchesElevated(t *testing.T) {
-	handled, err := maybeRelaunchElevatedForStartup()
+	handled, err := MaybeRelaunchElevatedForStartup()
 	if err != nil {
 		t.Fatalf("bindings startup elevation returned an error: %v", err)
 	}

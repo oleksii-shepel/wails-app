@@ -1,3 +1,5 @@
+//go:build !bindings
+
 package app
 
 import (

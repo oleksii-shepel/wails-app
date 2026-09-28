@@ -33,7 +33,7 @@ func main() {
 	// When the last restored workspace requires elevated access (for example a
 	// registry:// pane on Windows), relaunch before opening the main window so
 	// the first visible restore uses the correct address.
-	if handled, err := maybeRelaunchElevatedForStartup(); handled {
+	if handled, err := internalapp.MaybeRelaunchElevatedForStartup(); handled {
 		if err != nil {
 			println("Startup elevation error:", err.Error())
 			os.Exit(1)

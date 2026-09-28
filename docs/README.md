@@ -147,7 +147,7 @@ When no explicit root is provided, the persistent store now defaults to a hidden
 
 ## Live Development
 
-To run in live development mode on Windows, use `npm run dev:app` from the workspace root. The wrapper launches `wails dev` in `manager/` with `-ldflags "-H windowsgui"` so the dev executable remains a GUI app during elevated relaunches.
+To run in live development mode on Windows, use `npm run dev:app` from the workspace root. The wrapper launches `wails dev` in `manager/` with `-ldflags "-H windowsgui"` so the dev executable remains a GUI app during elevated relaunches. When elevation is needed, Aether relaunches a temporary copy of the Wails `*-dev.exe` binary; this prevents the elevated app from locking Wails' rebuild target on the next development start.
 
 On non-Windows platforms, `wails dev` in the project directory remains fine.
 

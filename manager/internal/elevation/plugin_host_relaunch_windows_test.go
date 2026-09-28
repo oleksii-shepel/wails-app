@@ -54,3 +54,36 @@ func TestRelaunchSupportsGuiAndConsolePaths(t *testing.T) {
 		t.Fatal("relaunch must preserve hidden fallback for console-subsystem builds")
 	}
 }
+
+func TestDevelopmentExecutableIsCopiedBeforeElevation(t *testing.T) {
+	source := t.TempDir() + `\wails-app-dev.exe`
+	contents := []byte("development executable")
+	if err := os.WriteFile(source, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !isDevelopmentExecutable(source) {
+		t.Fatal("expected Wails development executable to be recognised")
+	}
+
+	target, err := copyDevelopmentExecutable(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(target) })
+	if target == source {
+		t.Fatal("expected elevated development executable to be a separate copy")
+	}
+	actual, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actual) != string(contents) {
+		t.Fatalf("copied executable contents = %q, want %q", actual, contents)
+	}
+}
+
+func TestProductionExecutableIsNotRecognisedAsDevelopmentBinary(t *testing.T) {
+	if isDevelopmentExecutable(`C:\Apps\Aether.exe`) {
+		t.Fatal("production executable must not use the development-copy path")
+	}
+}

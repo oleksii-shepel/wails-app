@@ -4,8 +4,10 @@ package elevation
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -24,6 +26,16 @@ func RelaunchCurrentProcessElevated() error {
 	if err != nil {
 		return fmt.Errorf("resolve current executable: %w", err)
 	}
+	// Wails rebuilds and removes its *-dev.exe output on every `wails dev`
+	// invocation. An elevated instance keeps that file locked, preventing the
+	// next development session from starting. Elevate a private temp copy
+	// instead, leaving Wails free to replace its own output.
+	if isDevelopmentExecutable(exePath) {
+		exePath, err = copyDevelopmentExecutable(exePath)
+		if err != nil {
+			return err
+		}
+	}
 
 	quoted := make([]string, 0, len(os.Args)-1)
 	for _, arg := range os.Args[1:] {
@@ -39,6 +51,44 @@ func RelaunchCurrentProcessElevated() error {
 		return relaunchConsoleBinaryElevated(exePath, argLine)
 	}
 	return relaunchGUIBinaryElevated(exePath, argLine)
+}
+
+func isDevelopmentExecutable(exePath string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.Base(exePath)), "-dev.exe")
+}
+
+func copyDevelopmentExecutable(source string) (string, error) {
+	sourceFile, err := os.Open(source)
+	if err != nil {
+		return "", fmt.Errorf("open development executable: %w", err)
+	}
+	defer sourceFile.Close()
+
+	dir := filepath.Join(os.TempDir(), "aether-elevated-dev")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create elevated development directory: %w", err)
+	}
+
+	targetFile, err := os.CreateTemp(dir, "wails-app-dev-*.exe")
+	if err != nil {
+		return "", fmt.Errorf("create elevated development executable: %w", err)
+	}
+	target := targetFile.Name()
+	defer func() {
+		if targetFile != nil {
+			targetFile.Close()
+			os.Remove(target)
+		}
+	}()
+
+	if _, err := io.Copy(targetFile, sourceFile); err != nil {
+		return "", fmt.Errorf("copy development executable for elevation: %w", err)
+	}
+	if err := targetFile.Close(); err != nil {
+		return "", fmt.Errorf("close elevated development executable: %w", err)
+	}
+	targetFile = nil
+	return target, nil
 }
 
 func relaunchGUIBinaryElevated(exePath, argLine string) error {

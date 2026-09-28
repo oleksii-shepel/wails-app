@@ -44,7 +44,7 @@ type VisibleRowVm = {
   template: `
     <div
       #paneContent
-      class="pane-content"
+      class="pane-content app-scroll-surface"
       [class.virtual]="virtualEnabled"
       [class.drop-target-bg]="isBackgroundDropTarget"
       (mousedown)="onListMouseDown($event)"

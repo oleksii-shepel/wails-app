@@ -1,23 +1,26 @@
 import { readFileSync } from 'node:fs';
 
-describe('shared pane view scroll boundary', () => {
+describe('pane view scroll boundary policy', () => {
   const globalStyles = readFileSync(new URL('../../styles.scss', import.meta.url), 'utf8');
-  const sources = [
-    readFileSync(new URL('./pane-list.component.ts', import.meta.url), 'utf8'),
-    readFileSync(new URL('./pane-grid.component.ts', import.meta.url), 'utf8'),
-    readFileSync(new URL('./pane-details.component.ts', import.meta.url), 'utf8'),
-    readFileSync(new URL('./pane-tree.component.ts', import.meta.url), 'utf8'),
+  const components = [
+    './pane-list.component.ts',
+    './pane-grid.component.ts',
+    './pane-details.component.ts',
+    './pane-tree.component.ts',
   ];
 
-  it('defines overscroll and scroll timing once as the application default', () => {
+  it('defines the boundary policy only on explicit scroll owners', () => {
+    expect(globalStyles).toContain(':where(.app-scroll-surface)');
     expect(globalStyles).toContain('overscroll-behavior: none;');
     expect(globalStyles).toContain('scroll-behavior: auto;');
+    expect(globalStyles).not.toMatch(/\*\s*\{[^}]*overscroll-behavior:\s*none/s);
   });
 
-  it('keeps pane scrolling native and only declares the view-specific pan axis', () => {
-    for (const source of sources) {
+  for (const component of components) {
+    it(`${component} marks its actual scroll container`, () => {
+      const source = readFileSync(new URL(component, import.meta.url), 'utf8');
+      expect(source).toContain('app-scroll-surface');
       expect(source).toContain('touch-action: pan-y;');
-      expect(source).not.toContain("addEventListener('wheel'");
-    }
-  });
+    });
+  }
 });

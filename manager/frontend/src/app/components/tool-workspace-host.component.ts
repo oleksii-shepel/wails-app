@@ -261,7 +261,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <ng-container [ngSwitch]="surface.surfaceId">
-          <section *ngSwitchCase="'search-workspace'" class="search-surface">
+          <section *ngSwitchCase="'search-workspace'" class="search-surface app-scroll-surface">
             <div class="surface-meta">
               <span>{{ text(surface, 'query') }}</span>
               <span>{{ text(surface, 'rootPath') }}</span>
@@ -289,7 +289,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
             </div>
           </section>
 
-          <section *ngSwitchCase="'compare-workspace'" class="compare-surface">
+          <section *ngSwitchCase="'compare-workspace'" class="compare-surface app-scroll-surface">
             <div class="compare-paths">
               <span [title]="text(surface, 'leftPath')">
                 {{ text(surface, 'leftPath') }}
@@ -323,7 +323,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
             </div>
           </section>
 
-          <section *ngSwitchCase="'compare-summary'" class="summary-surface">
+          <section *ngSwitchCase="'compare-summary'" class="summary-surface app-scroll-surface">
             <div
               class="summary-card"
               *ngFor="let item of array(surface, 'items'); trackBy: trackSummary">

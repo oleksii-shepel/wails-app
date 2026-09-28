@@ -36,7 +36,7 @@ import { InputEngineService } from '../services/input-engine.service';
         </button>
       </div>
 
-      <div class="ws-list">
+      <div class="ws-list app-scroll-surface">
         <div
           *ngFor="let workspace of workspaces; let i = index"
           class="ws-item"

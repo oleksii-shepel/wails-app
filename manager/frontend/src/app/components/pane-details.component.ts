@@ -125,7 +125,7 @@ interface DetailsRowVm {
       
       <div
         #detailsBody
-        class="details-body"
+        class="details-body app-scroll-surface"
         [class.drop-target-bg]="isBackgroundDropTarget"
         role="rowgroup"
         (mousedown)="onBodyMouseDown($event)"

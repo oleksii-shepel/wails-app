@@ -3,11 +3,14 @@
 
 * {
   box-sizing: border-box;
+}
 
-  /* Default scroll-surface contract. These properties only affect elements
-     that actually become scroll containers, so every view gets the same
-     boundary behavior without view-specific wheel handlers. Component styles
-     can still override either property when a surface intentionally differs. */
+/* Shared scroll-surface contract.
+   Apply this class to the element that actually owns scrolling. Do not put
+   overscroll-behavior on every element: nested overflow:hidden containers can
+   become scroll-chain boundaries in WebView2 and prevent wheel input from
+   reaching the real scroll owner. */
+:where(.app-scroll-surface) {
   overscroll-behavior: none;
   scroll-behavior: auto;
 }

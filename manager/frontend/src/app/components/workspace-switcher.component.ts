@@ -245,7 +245,7 @@ interface WorkspaceSwitcherItem {
             (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
-        <div class="workspace-list" role="listbox" aria-label="Workspaces">
+        <div class="workspace-list app-scroll-surface" role="listbox" aria-label="Workspaces">
           <div
             *ngIf="edit?.kind === 'create'"
             class="workspace workspace-edit-row selected"

@@ -37,7 +37,7 @@ import {
   template: `
     <div
       #gridContainer
-      class="file-grid"
+      class="file-grid app-scroll-surface"
       [class.virtual]="virtualEnabled"
       [style.--grid-row-pitch]="rowHeight + 'px'"
       [class.drop-target-bg]="isBackgroundDropTarget"

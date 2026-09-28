@@ -52,7 +52,7 @@ export interface DropTarget {
   template: `
     <div
       #treeContainer
-      class="file-tree-container"
+      class="file-tree-container app-scroll-surface"
       role="tree"
       tabindex="0"
       [class.focused]="paneActive && isFocused"

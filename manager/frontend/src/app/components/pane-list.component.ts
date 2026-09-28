@@ -163,6 +163,7 @@ type VisibleRowVm = {
       flex: 1;
       overflow-y: auto;
       overflow-x: auto;
+      touch-action: pan-y;
       padding: 0;
       background: var(--vsc-editor-background);
       min-height: 0;

@@ -191,6 +191,7 @@ import {
       padding: var(--vsc-padding-md);
       overflow-y: auto;
       overflow-x: hidden;
+      touch-action: pan-y;
       background: var(--vsc-editor-background);
     }
 

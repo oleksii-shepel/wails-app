@@ -454,6 +454,7 @@ interface WorkspaceSwitcherItem {
     .workspace-list {
       min-height: 0;
       overflow: auto;
+      touch-action: pan-y;
       padding: 4px;
     }
 

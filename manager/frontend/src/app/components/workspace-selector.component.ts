@@ -161,6 +161,7 @@ import { InputEngineService } from '../services/input-engine.service';
     .ws-list {
       max-height: 280px;
       overflow-y: auto;
+      touch-action: pan-y;
       padding: var(--vsc-padding-xs) 0;
     }
 

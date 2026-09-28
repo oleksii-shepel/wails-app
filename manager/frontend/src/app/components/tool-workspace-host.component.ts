@@ -667,7 +667,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
-      overscroll-behavior: none;
+      touch-action: pan-y;
     }
 
     .surface-meta,
@@ -750,7 +750,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       gap: 8px;
       padding: 8px;
       overflow: auto;
-      overscroll-behavior: none;
+      touch-action: pan-y;
     }
 
     .summary-card {

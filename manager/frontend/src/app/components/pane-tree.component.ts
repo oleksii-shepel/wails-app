@@ -192,6 +192,7 @@ export interface DropTarget {
     .file-tree-container {
       position: relative;
       overflow: auto;
+      touch-action: pan-y;
       background: var(--vsc-editor-background);
       font-family: var(--vsc-font-family);
       font-size: var(--vsc-font-size);

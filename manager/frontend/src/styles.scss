@@ -3,6 +3,13 @@
 
 * {
   box-sizing: border-box;
+
+  /* Default scroll-surface contract. These properties only affect elements
+     that actually become scroll containers, so every view gets the same
+     boundary behavior without view-specific wheel handlers. Component styles
+     can still override either property when a surface intentionally differs. */
+  overscroll-behavior: none;
+  scroll-behavior: auto;
 }
 
 /* Application-wide WebView2 scrollbar contract.

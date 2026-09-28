@@ -501,6 +501,7 @@ interface DetailsRowVm {
       margin: 0;
       overflow-y: auto;
       overflow-x: hidden;
+      touch-action: pan-y;
       contain: layout paint;
     }
     

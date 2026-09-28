@@ -98,6 +98,8 @@ const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
 };
 
 const CHORD_TIMEOUT_MS = 1800;
+const SCROLL_SURFACE_SELECTOR = '.app-scroll-surface';
+const SCROLL_SURFACE_EXTRA_FACTOR = 0.15;
 
 
 @Injectable({
@@ -771,7 +773,63 @@ export class InputEngineService {
       this.handleMouseEvent('mouseup', event);
       this.mouseDragState = null;
     }, listenerOptions);
-    document.addEventListener('wheel', (event) => this.handleMouseEvent('wheel', event), wheelOptions);
+    document.addEventListener('wheel', (event) => {
+      this.boostPlainScrollSurfaceWheel(event);
+      this.handleMouseEvent('wheel', event);
+    }, wheelOptions);
+  }
+
+  private boostPlainScrollSurfaceWheel(event: WheelEvent): void {
+    // Keep command gestures (Ctrl+Wheel viewer zoom, Shift+Wheel horizontal
+    // navigation, etc.) exact. Plain scrolling gets only a small additive
+    // boost while the browser still performs its native scroll.
+    if (
+      event.defaultPrevented ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target instanceof Element
+      ? event.target.closest(SCROLL_SURFACE_SELECTOR)
+      : null;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const unitX = event.deltaMode === 1
+      ? 16
+      : event.deltaMode === 2
+        ? Math.max(1, target.clientWidth)
+        : 1;
+    const unitY = event.deltaMode === 1
+      ? 16
+      : event.deltaMode === 2
+        ? Math.max(1, target.clientHeight)
+        : 1;
+
+    const deltaX = event.deltaX * unitX;
+    const deltaY = event.deltaY * unitY;
+
+    if (Math.abs(deltaY) >= Math.abs(deltaX) && target.scrollHeight > target.clientHeight) {
+      const maxScrollTop = Math.max(0, target.scrollHeight - target.clientHeight);
+      target.scrollTop = Math.max(
+        0,
+        Math.min(maxScrollTop, target.scrollTop + deltaY * SCROLL_SURFACE_EXTRA_FACTOR),
+      );
+      return;
+    }
+
+    if (deltaX !== 0 && target.scrollWidth > target.clientWidth) {
+      const maxScrollLeft = Math.max(0, target.scrollWidth - target.clientWidth);
+      target.scrollLeft = Math.max(
+        0,
+        Math.min(maxScrollLeft, target.scrollLeft + deltaX * SCROLL_SURFACE_EXTRA_FACTOR),
+      );
+    }
   }
 
   private beginMouseDrag(event: MouseEvent): void {

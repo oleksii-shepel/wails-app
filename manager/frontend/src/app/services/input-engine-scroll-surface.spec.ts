@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 describe('scroll surface wheel tuning', () => {
   const source = readFileSync(new URL('./input-engine.service.ts', import.meta.url), 'utf8');
 
-  it('gives plain app scroll surfaces a small additive wheel boost', () => {
+  it('gives plain app scroll surfaces a 20% additive wheel boost', () => {
     expect(source).toContain("const SCROLL_SURFACE_SELECTOR = '.app-scroll-surface';");
-    expect(source).toContain('const SCROLL_SURFACE_EXTRA_FACTOR = 0.15;');
+    expect(source).toContain('const SCROLL_SURFACE_EXTRA_FACTOR = 0.20;');
     expect(source).toContain('this.boostPlainScrollSurfaceWheel(event);');
     expect(source).toContain('target.scrollTop + deltaY * SCROLL_SURFACE_EXTRA_FACTOR');
   });

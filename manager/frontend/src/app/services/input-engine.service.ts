@@ -99,7 +99,9 @@ const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
 
 const CHORD_TIMEOUT_MS = 1800;
 const SCROLL_SURFACE_SELECTOR = '.app-scroll-surface';
-const SCROLL_SURFACE_EXTRA_FACTOR = 0.15;
+// Native browser scrolling plus this additive delta yields a 1.20x rate for
+// ordinary app scroll surfaces, without affecting modifier-wheel gestures.
+const SCROLL_SURFACE_EXTRA_FACTOR = 0.20;
 
 
 @Injectable({

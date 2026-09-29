@@ -1213,7 +1213,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .entry.cursor {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+      box-shadow: none;
       background: color-mix(
         in srgb,
         var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
@@ -1276,7 +1276,27 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .entry.cursor.selected {
-      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
+      box-shadow: none;
+    }
+
+    /* Match the shared Details cursor in every Environment view. */
+    .pane.active-pane .entry.cursor,
+    .pane.active-pane .tree-row.cursor {
+      box-shadow:
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    .pane.active-pane .entry.cursor.selected,
+    .pane.active-pane .tree-row.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
     }
 
     .icon {

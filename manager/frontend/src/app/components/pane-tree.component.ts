@@ -222,7 +222,6 @@ export interface DropTarget {
 
     .file-tree-container.focused .tree-node.focused-node {
       box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
         inset 0 0 0 1px color-mix(
           in srgb,
           var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
@@ -253,7 +252,7 @@ export interface DropTarget {
     }
 
     .tree-node.focused-node {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+      box-shadow: none;
       background: color-mix(
         in srgb,
         var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,

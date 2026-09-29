@@ -79,7 +79,8 @@ import { schemeOf } from './pane-renderer-registry.service';
     .row{min-height:30px;width:auto;min-width:0;justify-self:stretch;padding:2px 0;border-radius:3px;font-size:11px;cursor:default}
     .row:hover{background:var(--vsc-list-hover-background)}
     .row.selected{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground,var(--vsc-foreground))}
-    .row.cursor{box-shadow:inset 0 0 0 1px var(--vsc-focus-border,var(--vsc-accent-blue))}
+    .row.cursor{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-focus-border)) 42%,transparent);background:color-mix(in srgb,var(--vsc-list-hover-background,var(--vsc-list-hover-background)) 75%,transparent)}
+    .row.cursor.selected{background:color-mix(in srgb,var(--vsc-list-active-background,var(--vsc-list-selected-emphasis)) 82%,var(--vsc-accent-blue,var(--vsc-focus-border)) 18%)}
     .name,.field{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .field{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .row.selected .field{color:inherit}

@@ -217,13 +217,30 @@ function truncateFileName(name: string, maxLength: number): string {
 
       }
 
-      /* TC-style cursor: position indicator separate from marks */
+      /* Keep List's keyboard cursor visually identical to Details. */
+      &.cursor {
+        box-shadow:
+          inset 0 0 0 1px color-mix(
+            in srgb,
+            var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+            transparent
+          );
+      }
+
       &.cursor:not(.selected) {
-        background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
-        border-left-color: var(--vsc-accent-blue);
+        background: color-mix(
+          in srgb,
+          var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+          transparent
+        );
       }
 
       &.cursor.selected {
+        background: color-mix(
+          in srgb,
+          var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+        );
         outline: none;
       }
 

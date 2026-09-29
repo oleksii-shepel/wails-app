@@ -11,8 +11,8 @@ describe('Details cursor matches List view', () => {
     expect(source).toContain('var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%');
   });
 
-  it('uses the same active-pane left accent and selected emphasis', () => {
-    expect(source).toContain('inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border))');
+  it('uses the same active-pane focus edge and selected emphasis', () => {
+    expect(source).toContain('inset 0 0 0 1px color-mix(');
     expect(source).toContain('var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%');
   });
 });

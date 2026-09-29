@@ -269,13 +269,35 @@ import {
         border-color: var(--vsc-accent-blue);
       }
 
+      /* Keep Grid's keyboard cursor visually identical to Details. */
+      &.cursor {
+        box-shadow:
+          inset 0 0 0 1px color-mix(
+            in srgb,
+            var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+            transparent
+          );
+      }
+
       &.cursor:not(.selected) {
-        background: color-mix(in srgb, var(--vsc-list-hover-background) 65%, transparent);
-        box-shadow: inset 0 0 0 1px var(--vsc-focus-border);
+        background: color-mix(
+          in srgb,
+          var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+          transparent
+        );
 
         .grid-name {
           color: var(--vsc-foreground-bright);
         }
+      }
+
+      &.cursor.selected {
+        background: color-mix(
+          in srgb,
+          var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+        );
+        outline: none;
       }
       
       &.directory {

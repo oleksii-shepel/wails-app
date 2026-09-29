@@ -350,7 +350,6 @@ interface DetailsRowVm {
 
     :host-context(.pane.active-pane) .details-row.cursor {
       box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
         inset 0 0 0 1px color-mix(
           in srgb,
           var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
@@ -395,7 +394,7 @@ interface DetailsRowVm {
             var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
             transparent
           );
-          box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+          box-shadow: none;
         }
         
         &.cursor.selected {
@@ -426,8 +425,8 @@ interface DetailsRowVm {
 
     .details-body .details-row {
       width: auto;
-      margin-left: 8px;
-      margin-right: 8px;
+      margin-left: 4px;
+      margin-right: 4px;
     }
 
     .drop-indicator {

@@ -940,7 +940,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .tree-row.cursor {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+      box-shadow: none;
       background: color-mix(
         in srgb,
         var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
@@ -949,7 +949,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .tree-row.cursor.selected {
-      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
+      box-shadow: none;
     }
 
     .tree-expander {
@@ -1139,7 +1139,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .entry.cursor {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+      box-shadow: none;
       background: color-mix(
         in srgb,
         var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
@@ -1202,7 +1202,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .entry.cursor.selected {
-      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
+      box-shadow: none;
     }
 
     /*
@@ -1220,7 +1220,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .pane:not(.active-pane) .entry.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
+      box-shadow: inset 0 0 0 1px color-mix(
         in srgb,
         var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
@@ -1228,7 +1228,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .pane:not(.active-pane) .tree-row.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
+      box-shadow: inset 0 0 0 1px color-mix(
         in srgb,
         var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
@@ -1237,7 +1237,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .pane.active-pane .entry.cursor {
       box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
         inset 0 0 0 1px color-mix(
           in srgb,
           var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
@@ -1255,7 +1254,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .pane.active-pane .tree-row.cursor {
       box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
         inset 0 0 0 1px color-mix(
           in srgb,
           var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,

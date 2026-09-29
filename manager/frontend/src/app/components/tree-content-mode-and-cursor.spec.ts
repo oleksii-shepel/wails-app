@@ -22,12 +22,12 @@ describe('Tree content modes and cursor parity', () => {
     expect(controller).toContain("host.treeContentMode === 'all' || entry.type === FileType.DIRECTORY");
   });
 
-  it('uses the same rounded left-accent cursor language as other pane views', () => {
+  it('uses the same rounded focus-edge cursor language as other pane views', () => {
     expect(directory).toContain('border-radius: 3px;');
-    expect(directory).toContain('inset 3px 0 0 var(--vsc-accent-blue');
+    expect(directory).toContain('inset 0 0 0 1px color-mix(');
     expect(directory).not.toContain('.pane.active-pane .tree-row.cursor {\n      outline:');
     expect(paneTree).toContain('border-radius: 3px;');
-    expect(paneTree).toContain('inset 3px 0 0 var(--vsc-accent-blue');
+    expect(paneTree).toContain('inset 0 0 0 1px color-mix(');
   });
 
   it('binds the tree focus cursor to the pane program cursor', () => {

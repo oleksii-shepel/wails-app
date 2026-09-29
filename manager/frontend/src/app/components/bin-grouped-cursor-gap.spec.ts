@@ -21,7 +21,7 @@ describe('Bin grouped cursor and name/location layout', () => {
       'var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%',
     );
     expect(source).toContain(
-      'inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border))',
+      'inset 0 0 0 1px color-mix(',
     );
   });
 

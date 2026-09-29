@@ -1613,7 +1613,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     }
 
     .entry.cursor {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+      box-shadow: none;
       background: color-mix(
         in srgb,
         var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
@@ -1676,7 +1676,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     }
 
     .entry.cursor.selected {
-      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
+      box-shadow: none;
     }
 
     /*
@@ -1694,7 +1694,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     }
 
     .pane:not(.active-pane) .entry.cursor {
-      box-shadow: inset 2px 0 0 color-mix(
+      box-shadow: inset 0 0 0 1px color-mix(
         in srgb,
         var(--vsc-foreground-dim, var(--vsc-border-bright)) 58%,
         transparent
@@ -1711,7 +1711,6 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 
     .pane.active-pane .entry.cursor {
       box-shadow:
-        inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border)),
         inset 0 0 0 1px color-mix(
           in srgb,
           var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
@@ -1728,9 +1727,20 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     }
 
     .pane.active-pane .tree-row.cursor {
-      outline: 1px solid var(--vsc-accent-blue, var(--vsc-focus-border));
-      outline-offset: -1px;
-      box-shadow: inset 3px 0 0 var(--vsc-accent-blue, var(--vsc-focus-border));
+      box-shadow:
+        inset 0 0 0 1px color-mix(
+          in srgb,
+          var(--vsc-accent-blue, var(--vsc-focus-border)) 42%,
+          transparent
+        );
+    }
+
+    .pane.active-pane .tree-row.cursor.selected {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-active-background, var(--vsc-list-selected-emphasis)) 82%,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 18%
+      );
     }
 
     .icon {

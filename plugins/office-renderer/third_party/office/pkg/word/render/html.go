@@ -538,6 +538,7 @@ td, th { padding: 2pt 4pt; vertical-align: top; }
 ul, ol { padding: 0; margin: 0; }
 li { line-height: 1.2; }
 .word-list-marker { display: inline-block; min-width: 2.2em; margin-left: -2.2em; padding-right: 0.35em; text-align: right; white-space: nowrap; }
+li > ul, li > ol { padding-top: var(--word-list-item-flow-height, 0pt); }
 .word-physical-list-marker { position: absolute; right: calc(100%% + 3pt); left: auto; top: 0; width: max-content; min-width: 0; margin-left: 0; padding-right: 0; }
 .word-physical-inline-list-marker { display: inline-block; min-width: 0; margin: 0 3pt 0 0; padding: 0; white-space: nowrap; vertical-align: baseline; }
 a { color: inherit; text-decoration: inherit; }
@@ -1423,12 +1424,13 @@ func (r *htmlRenderer) initParagraphNumbers() {
 					// prevents deep labels from collapsing to a stale current-level value.
 					if strings.Contains(template, "%") {
 						fullNum = substituteNumberTemplate(template, numID, counters, formats)
-					} else if p.Numbering.Text != "" && !strings.Contains(p.Numbering.Text, "%") {
-						fullNum = p.Numbering.Text
 					} else {
-						if template == "" {
-							template = "%" + strconv.Itoa(level+1)
-						}
+						// Numbering.Text may be an eagerly resolved marker copied from the
+						// source (for example "3."). Reusing that literal for every
+						// paragraph freezes an ordered list at one number. Ordered markers
+						// are sequence state, so reconstruct the current-level template
+						// whenever no semantic placeholder template is available.
+						template = "%" + strconv.Itoa(level+1)
 						fullNum = substituteNumberTemplate(template, numID, counters, formats)
 					}
 					// Some older DOC producers store only the punctuation suffix in the

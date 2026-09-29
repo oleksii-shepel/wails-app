@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	sharedfontmetrics "office/pkg/fontmetrics"
 	resolve "office/pkg/word/ir"
@@ -18,7 +19,7 @@ func RunWidthPt(catalog *sharedfontmetrics.Catalog, format resolve.RunFormat, ra
 		text = strings.ToUpper(text)
 	}
 	widthPt := NaturalWidthPt(catalog, format, text, defaultSizePt)
-	runeCount := len([]rune(text))
+	runeCount := utf8.RuneCountInString(text)
 	if format.CharacterSpacing != nil && *format.CharacterSpacing != 0 && runeCount > 1 {
 		widthPt += float64(*format.CharacterSpacing) / TwipsPerPoint * float64(runeCount-1)
 	}
@@ -36,7 +37,8 @@ func NaturalWidthPt(catalog *sharedfontmetrics.Catalog, format resolve.RunFormat
 		return 0
 	}
 	type segment struct {
-		family, text        string
+		family              string
+		text                []rune
 		size                float64
 		bold, italic, pairs bool
 	}
@@ -55,16 +57,16 @@ func NaturalWidthPt(catalog *sharedfontmetrics.Catalog, format resolve.RunFormat
 		if len(segments) > 0 {
 			last := &segments[len(segments)-1]
 			if last.family == family && last.size == size && last.bold == bold && last.italic == italic && last.pairs == pairs {
-				last.text += string(out)
+				last.text = append(last.text, out)
 				continue
 			}
 		}
-		segments = append(segments, segment{family: family, text: string(out), size: size, bold: bold, italic: italic, pairs: pairs})
+		segments = append(segments, segment{family: family, text: []rune{out}, size: size, bold: bold, italic: italic, pairs: pairs})
 	}
 	width := 0.0
 	for _, seg := range segments {
 		if catalog != nil && seg.family != "" {
-			if measured, ok := catalog.MeasureTextWithPairs(seg.text, seg.family, seg.bold, seg.italic, seg.size, seg.pairs); ok {
+			if measured, ok := catalog.MeasureTextWithPairs(string(seg.text), seg.family, seg.bold, seg.italic, seg.size, seg.pairs); ok {
 				width += measured
 				continue
 			}

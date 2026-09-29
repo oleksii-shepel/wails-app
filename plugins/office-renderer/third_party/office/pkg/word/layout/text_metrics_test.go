@@ -233,3 +233,21 @@ func TestPhysicalLinesMarkExplicitBreakTopologyAsSpatial(t *testing.T) {
 		t.Fatal("explicit line break must retain physical topology")
 	}
 }
+
+func TestParagraphSpacingCollapsesAdjacentBeforeAndAfter(t *testing.T) {
+	prevAfter := 240     // 12pt
+	currentBefore := 360 // 18pt
+	prev := &resolve.Paragraph{Format: resolve.ParagraphFormat{SpacingAfter: &prevAfter}}
+	current := &resolve.Paragraph{Format: resolve.ParagraphFormat{SpacingBefore: &currentBefore}}
+
+	// The preceding block already owns 12pt. The current block contributes only
+	// the remaining 6pt so the inter-paragraph gap is max(12pt, 18pt), not 30pt.
+	if got, want := ParagraphSpacingBefore(&resolve.Document{}, current, prev, PageGeometry{}, false), 6.0; got != want {
+		t.Fatalf("collapsed spacing-before = %.2f, want %.2f", got, want)
+	}
+
+	currentBefore = 120 // 6pt, fully covered by the preceding 12pt after-space.
+	if got := ParagraphSpacingBefore(&resolve.Document{}, current, prev, PageGeometry{}, false); got != 0 {
+		t.Fatalf("covered spacing-before = %.2f, want 0", got)
+	}
+}

@@ -2240,9 +2240,11 @@ func resolvedParagraphSpacingAfterPt(doc *resolve.Document, p *resolve.Paragraph
 	return 0
 }
 
-// ParagraphSpacingBefore returns the space-before contribution of p (not including
-// the previous paragraph's space-after). Callers sum Before + After across adjacent
-// paragraphs to get the correct Word-model additive gap.
+// ParagraphSpacingBefore returns only the additional space-before contribution
+// that is not already owned by the preceding paragraph's space-after. Word does
+// not add adjacent paragraph spacing values: the effective inter-paragraph gap is
+// the larger of previous space-after and current space-before. Because the previous
+// block already owns its space-after, this block contributes only the remainder.
 func ParagraphSpacingBefore(doc *resolve.Document, p, prev *resolve.Paragraph, geom PageGeometry, atFlowStart bool) float64 {
 	if p == nil || atFlowStart {
 		return 0
@@ -2250,7 +2252,15 @@ func ParagraphSpacingBefore(doc *resolve.Document, p, prev *resolve.Paragraph, g
 	if ContextualSpacingSuppresses(p, prev) {
 		return 0
 	}
-	return resolvedParagraphSpacingBeforePt(doc, p, geom)
+	before := resolvedParagraphSpacingBeforePt(doc, p, geom)
+	if prev == nil {
+		return before
+	}
+	previousAfter := resolvedParagraphSpacingAfterPt(doc, prev, geom)
+	if previousAfter >= before {
+		return 0
+	}
+	return before - previousAfter
 }
 
 // ParagraphSpacingAfter returns the space-after contribution of p.

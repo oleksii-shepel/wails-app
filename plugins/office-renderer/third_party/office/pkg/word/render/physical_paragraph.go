@@ -44,6 +44,14 @@ func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox) {
 		return
 	}
 	extraStyle := fmt.Sprintf("position:relative;height:%.2fpt;min-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0", box.Height, box.Height)
+	if p.List != nil {
+		// A list item may own a deeper list in the semantic HTML tree. Its own
+		// physical row is absolutely positioned, so a fixed CSS height would make
+		// the child list overflow the parent and overlap the next sibling. Keep the
+		// measured row as a minimum, let descendants extend the item, and expose the
+		// row height so the nested list starts below the absolute physical row.
+		extraStyle = fmt.Sprintf("position:relative;min-height:%.2fpt;--word-list-item-flow-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0", box.Height, box.Height)
+	}
 	savedInlineMarker := r.physicalInlineListMarker
 	r.physicalInlineListMarker = p.List != nil && !box.Fragment.IsContinuation
 	defer func() { r.physicalInlineListMarker = savedInlineMarker }()

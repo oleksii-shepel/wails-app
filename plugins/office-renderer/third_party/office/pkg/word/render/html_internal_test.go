@@ -1833,3 +1833,38 @@ func TestPhysicalInlineImageConsumesLayoutOwnedVerticalBox(t *testing.T) {
 		}
 	}
 }
+
+func TestHTMLOrderedListsDoNotFreezeOnResolvedLiteralMarker(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 1, Runs: []resolve.Run{{Text: "First"}}, List: &resolve.ListMarker{Kind: "ordered", Level: 0, Format: "decimal"}, Numbering: &resolve.Numbering{NumID: 3, Level: 0, Start: 1, Format: "decimal", Text: "3."}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 2, Runs: []resolve.Run{{Text: "Second"}}, List: &resolve.ListMarker{Kind: "ordered", Level: 0, Format: "decimal"}, Numbering: &resolve.Numbering{NumID: 3, Level: 0, Start: 1, Format: "decimal", Text: "3."}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 3, Runs: []resolve.Run{{Text: "Third"}}, List: &resolve.ListMarker{Kind: "ordered", Level: 0, Format: "decimal"}, Numbering: &resolve.Numbering{NumID: 3, Level: 0, Start: 1, Format: "decimal", Text: "3."}}},
+	}}
+	out, err := HTML(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{">1.</span>", ">2.</span>", ">3.</span>"} {
+		if !strings.Contains(out, marker) {
+			t.Fatalf("missing sequential marker %q:\n%s", marker, out)
+		}
+	}
+}
+
+func TestHTMLPhysicalNestedListReservesParentRowBeforeChildren(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 1, Runs: []resolve.Run{{Text: "Parent"}}, List: &resolve.ListMarker{Kind: "bullet", Level: 0}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 2, Runs: []resolve.Run{{Text: "Child"}}, List: &resolve.ListMarker{Kind: "bullet", Level: 1}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 3, Runs: []resolve.Run{{Text: "Sibling"}}, List: &resolve.ListMarker{Kind: "bullet", Level: 0}}},
+	}}
+	out, err := HTML(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `--word-list-item-flow-height:`) {
+		t.Fatalf("physical list item must expose its measured row height:\n%s", out)
+	}
+	if !strings.Contains(out, `li > ul, li > ol { padding-top: var(--word-list-item-flow-height, 0pt); }`) {
+		t.Fatalf("nested list must start below its owning physical row")
+	}
+}

@@ -101,7 +101,8 @@ func render(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return wordrender.HTML(doc)
+		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{FastPreview: true})
+		return html, err
 	case "xls":
 		book, err := sheetlegacy.ParseXls(path)
 		if err != nil {
@@ -128,7 +129,8 @@ func render(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return wordrender.HTML(doc)
+		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{FastPreview: true})
+		return html, err
 	case "xlsx":
 		pkg, err := opc.Open(path)
 		if err != nil {

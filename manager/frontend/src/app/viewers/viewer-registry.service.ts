@@ -2,6 +2,7 @@ import { Injectable, Type, inject } from '@angular/core';
 import { ContributionRegistry } from '../plugin/contribution-registry';
 import { ViewerSurfaceComponent } from '../surfaces/viewer/viewer-surface.component';
 import { AudioViewerComponent } from './builtins/audio-viewer.component';
+import { PdfViewerComponent } from './builtins/pdf-viewer.component';
 import { ViewerContribution, ViewerRequest } from './viewer-contribution';
 import { DocumentRendererRegistryService } from './document-renderer-registry.service';
 
@@ -120,13 +121,10 @@ export class ViewerRegistryService {
     });
 
     this.register({
-      id: 'office',
-      title: 'Document Viewer',
-      score: (req) => {
-        const ext = extLower(previewPath(req));
-        return ['pdf', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'].includes(ext) ? 45 : 0;
-      },
-      load: async () => (await import('./builtins/office-viewer.component')).OfficeViewerComponent,
+      id: 'pdf',
+      title: 'PDF Viewer',
+      score: req => extLower(previewPath(req)) === 'pdf' ? 65 : 0,
+      load: () => PdfViewerComponent,
     });
 
     this.register({

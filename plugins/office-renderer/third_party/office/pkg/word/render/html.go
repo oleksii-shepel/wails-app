@@ -46,6 +46,10 @@ type HTMLOptions struct {
 	ExternalImageDir string
 	FontMode         HTMLFontMode
 	ExternalFontDir  string
+	// FastPreview renders the document's semantic flow without pagination or
+	// physical-line projection. It is intended for interactive previews where
+	// time-to-first-render matters more than page-exact placement.
+	FastPreview bool
 	// ShowFormattingMarks renders normally invisible characters (tab arrows,
 	// paragraph marks, page-break indicators) as visible glyphs.
 	ShowFormattingMarks bool
@@ -348,7 +352,11 @@ func (r *htmlRenderer) render() (string, []HTMLAsset, error) {
 	// renderShapeTo to place all floating objects in the page overlay at
 	// accurate coordinates instead of relying on CSS position:relative on
 	// anchor paragraphs.
-	r.initLayoutMaps()
+	if r.options.FastPreview {
+		r.initFastPreviewLayout()
+	} else {
+		r.initLayoutMaps()
+	}
 	r.initBookmarkScopes()
 	r.textAnimations = docCollectTextAnimations(r.doc)
 	if len(r.pages) > 0 {
@@ -369,7 +377,11 @@ func (r *htmlRenderer) render() (string, []HTMLAsset, error) {
 	r.buf.WriteString("<div class=\"document\">\n")
 	r.renderDiagnostics()
 	r.renderProtectionNotice()
-	if len(r.pages) == 0 {
+	if r.options.FastPreview {
+		r.ensurePage()
+		r.renderBlocks(r.doc.Blocks)
+		r.finishPage()
+	} else if len(r.pages) == 0 {
 		r.ensurePage()
 		r.finishPage()
 	} else {
@@ -719,6 +731,7 @@ func (opts HTMLOptions) normalized() HTMLOptions {
 		ExternalImageDir:        imageDir,
 		FontMode:                fontMode,
 		ExternalFontDir:         fontDir,
+		FastPreview:             opts.FastPreview,
 		ShowFormattingMarks:     opts.ShowFormattingMarks,
 		MergeData:               opts.MergeData,
 		MergeRecords:            opts.MergeRecords,
@@ -1837,6 +1850,28 @@ func (r *htmlRenderer) initLayoutMaps() {
 			r.collectBookmarkPagesFromBlocks([]resolve.Block{*bb.Block}, page.Number)
 		}
 	}
+}
+
+// initFastPreviewLayout supplies a stable browser page without running the
+// expensive Word pagination engine. Float placement falls back to normal HTML
+// flow, which keeps previews responsive for large documents.
+func (r *htmlRenderer) initFastPreviewLayout() {
+	r.pages = nil
+	r.floatByImage = make(map[*resolve.Image]layout.FloatBox)
+	r.floatByTextBox = make(map[*resolve.TextBox]layout.FloatBox)
+	r.floatByShape = make(map[*resolve.Shape]layout.FloatBox)
+	r.floatByLegacyShapeID = make(map[uint32]layout.FloatBox)
+	r.floatByFramePara = make(map[*resolve.Paragraph]layout.FloatBox)
+	r.floatByTable = make(map[*resolve.Table]layout.FloatBox)
+	r.paraBoxes = make(map[int]layout.BlockBox)
+	r.paraHeights = make(map[int]float64)
+	r.bookmarkPages = make(map[string]int)
+	r.sectionPageCounts = make(map[int]int)
+	r.applyGeometry(layout.PageGeometry{
+		Width: 612, Height: 792,
+		MarginTop: 72, MarginRight: 72, MarginBottom: 72, MarginLeft: 72,
+		ColumnCount: 1, ColumnWidthPt: 468,
+	})
 }
 
 func (r *htmlRenderer) applyGeometry(geom layout.PageGeometry) {

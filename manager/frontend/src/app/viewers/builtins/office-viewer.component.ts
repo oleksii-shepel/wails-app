@@ -15,7 +15,16 @@ import { ViewerArchiveContext } from '../viewer-archive-context';
 import { VIEWER_BASE_STYLES, VIEWER_PRODUCTION_CHROME_STYLES } from './builtin-viewer.shared';
 import { PdfViewerComponent } from './pdf-viewer.component';
 
-type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 'unsupported';
+type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 'unsupported' | 'plugin-required';
+
+// These formats are previewed by the Office Renderer plugin. Keep the legacy
+// PDF conversion path out of this component so an explicitly selected legacy
+// viewer cannot silently bypass the plugin.
+const PLUGIN_RENDERED_EXTENSIONS = new Set([
+  'doc', 'docx', 'docm', 'dotx', 'dotm',
+  'xls', 'xlsx', 'xlsm', 'xltx', 'xltm', 'xlam',
+  'ppt', 'pptx', 'pptm', 'ppsx', 'ppsm', 'potx', 'potm',
+]);
 
 @Component({
   selector: 'app-office-viewer',
@@ -68,6 +77,13 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
               <li>Linux: <code>sudo apt install libreoffice</code></li>
             </ul>
           </div>
+        </div>
+
+        <div *ngIf="kind === 'plugin-required'" class="state-container state-error">
+          <div class="state-icon">⚠️</div>
+          <div class="state-label">Office Renderer plugin required</div>
+          <div class="error-detail">{{ error }}</div>
+          <div class="state-sub">Enable the Office Document Renderer plugin in Settings, then reopen this document.</div>
         </div>
 
         <div *ngIf="kind === 'error'" class="state-container state-error">
@@ -270,6 +286,14 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
       this.error = '';
       this.conversionElapsedMs = 0;
       this.pdfPath = this.targetPath;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (PLUGIN_RENDERED_EXTENSIONS.has(this.fileExt)) {
+      this.kind = 'plugin-required';
+      this.error = `.${this.fileExt} previews use the Office Document Renderer plugin instead of LibreOffice conversion.`;
+      this.conversionElapsedMs = 0;
       this.cdr.markForCheck();
       return;
     }

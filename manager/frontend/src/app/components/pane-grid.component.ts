@@ -106,8 +106,8 @@ import {
           <div class="grid-info" *ngIf="!draggingPaths.has(entry.path)">
             <app-file-entry
               [entry]="entry"
-              [selected]="paneActive && isSelected(entry)"
-              [cursor]="paneActive && isCursor(entry)"
+              [selected]="false"
+              [cursor]="false"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
               [colorizeByMime]="colorizeByMime"
               [thumbnailSrc]="thumbnailFor(entry.path)"
@@ -156,7 +156,7 @@ import {
       flex-direction: column;
       align-items: stretch;
       width: 100%;
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       overflow: hidden;
     }
 
@@ -183,9 +183,10 @@ import {
       flex: 1 1 0%;
       min-height: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
       --grid-row-gap: var(--vsc-padding-md);
-      grid-auto-rows: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));
+      --grid-cell-size: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));
+      grid-template-columns: repeat(auto-fill, var(--grid-cell-size));
+      grid-auto-rows: var(--grid-cell-size);
       align-content: start;
       gap: var(--grid-row-gap);
       padding: var(--vsc-padding-md);
@@ -219,9 +220,9 @@ import {
       right: 0;
       top: var(--vsc-padding-md);
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
       /* Virtual and ordinary Grid use the exact same row geometry. */
-      grid-auto-rows: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));
+      grid-template-columns: repeat(auto-fill, var(--grid-cell-size));
+      grid-auto-rows: var(--grid-cell-size);
       align-content: start;
       gap: var(--grid-row-gap);
       padding: 0 var(--vsc-padding-md);
@@ -246,6 +247,7 @@ import {
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
       padding: 6px;
       border-radius: var(--vsc-border-radius);
       cursor: pointer;
@@ -444,12 +446,10 @@ import {
     :host-context(.compact-mode) {
       .file-grid {
         --grid-row-gap: var(--vsc-padding-sm);
-        grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
         gap: var(--grid-row-gap);
       }
 
       .grid-window.virtual-window {
-        grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
         gap: var(--grid-row-gap);
       }
       

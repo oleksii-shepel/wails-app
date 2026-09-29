@@ -8,7 +8,9 @@ describe('pane grid row geometry', () => {
     expect(grid).toContain('readonly rowHeight = 124');
     expect(grid).toContain(`[style.--grid-row-pitch]="rowHeight + 'px'"`);
     expect(grid).toContain('--grid-row-gap: var(--vsc-padding-md)');
-    expect(grid).toContain('grid-auto-rows: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap))');
+    expect(grid).toContain('--grid-cell-size: calc(var(--grid-row-pitch, 124px) - var(--grid-row-gap));');
+    expect(grid).toContain('grid-template-columns: repeat(auto-fill, var(--grid-cell-size));');
+    expect(grid).toContain('grid-auto-rows: var(--grid-cell-size);');
     expect(grid).toContain('--grid-row-gap: var(--vsc-padding-sm)');
   });
 
@@ -16,7 +18,7 @@ describe('pane grid row geometry', () => {
     expect(grid).toContain('.grid-info app-file-entry');
     expect(grid).toContain('display: block');
     expect(grid).toContain('.grid-info {');
-    expect(grid).toContain('flex: 1 1 auto');
+    expect(grid).toContain('flex: 0 1 auto');
     expect(grid).toContain('flex-direction: column');
   });
 
@@ -34,7 +36,7 @@ describe('pane grid row geometry', () => {
       fileEntry.indexOf('&.parent-dir {'),
       fileEntry.indexOf('.file-info { flex: 1;'),
     );
-    expect(parentBlock).not.toContain('border-left-color: transparent !important');
+    expect(parentBlock).not.toContain('border-left-color');
     expect(parentBlock).not.toContain('&.cursor');
     expect(parentBlock).not.toContain('opacity: 0.65;\n        border');
     expect(parentBlock).toContain('.file-info { opacity: 0.65; }');

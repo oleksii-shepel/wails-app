@@ -198,21 +198,12 @@ function truncateFileName(name: string, maxLength: number): string {
       transition: all var(--vsc-transition-fast);
       user-select: none;
       min-height: 28px;
-      border-left: 3px solid transparent;
       position: relative; /* Add positioning context */
       color: var(--vsc-foreground);
 
       &.selected {
         background: var(--vsc-list-active-background);
         color: var(--vsc-list-active-foreground);
-        /* Fix border positioning */
-        border-left-color: var(--vsc-accent-blue);
-        border-left-width: 3px;
-        border-left-style: solid;
-        /* Ensure border aligns perfectly */
-        margin-left: 0;
-        padding-left: var(--vsc-padding-md); /* Keep consistent padding */
-
         .file-details { color: var(--vsc-list-active-foreground-dim); }
 
       }

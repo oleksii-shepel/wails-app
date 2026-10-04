@@ -2,6 +2,8 @@ package legacytoooxml
 
 import (
 	"fmt"
+	"math"
+	"path"
 	"strings"
 
 	"office/pkg/ooxml/chart"
@@ -730,6 +732,28 @@ func (c *converter) convertImage(img *wordir.Image) wordparts.RunContent {
 		BlipFill: &wordparts.BlipFill{
 			Blip: &wordparts.Blip{Embed: relID},
 		},
+	}
+	// Picture corrections are semantic IR state; writing them back keeps a saved
+	// document's brightness/contrast/grayscale/bi-level identical to the source.
+	blip := picture.BlipFill.Blip
+	if img.Brightness > 0 || img.Contrast > 0 {
+		bright, contrast := wordir.PictureLumPercentages(img.Brightness, img.Contrast)
+		if bright != 0 || contrast != 0 {
+			blip.Lum = &wordparts.BlipLum{Bright: bright, Contrast: contrast}
+		}
+	}
+	if img.Grayscale {
+		blip.Grayscale = &struct{}{}
+	}
+	if img.BiLevel {
+		threshold := img.BiLevelThreshold
+		if threshold <= 0 {
+			threshold = 50000
+		}
+		blip.BiLevel = &wordparts.BlipBiLevel{Thresh: threshold}
+	}
+	if img.HasAlpha {
+		blip.AlphaMod = &wordparts.BlipAlpha{Val: int(math.Round(img.Alpha * 100000))}
 	}
 	if img.Tile {
 		picture.BlipFill.Tile = &drawingxml.Tile{}
@@ -1821,18 +1845,23 @@ func (c *converter) convertSectionHeadersFooters(doc *wordir.Document, s *wordir
 	}
 }
 
-func (c *converter) ensureHeaderPart(doc *wordir.Document, partName string) string {
-	if partName == "" {
+func (c *converter) ensureHeaderPart(doc *wordir.Document, storyKey string) string {
+	if storyKey == "" {
 		return ""
 	}
+	partName := c.headerFooterPartName(storyKey, "header", func(name string) bool {
+		_, exists := c.pkg.Headers[name]
+		return exists
+	})
+	target := c.headerFooterRelTarget(partName)
 	rels := c.pkg.EnsurePartRelationships(c.pkg.MainPartName)
 	for _, rel := range rels.Relationships {
-		if rel.Target == partName {
+		if rel.Target == target {
 			return rel.ID
 		}
 	}
 	// Convert the story content if it exists.
-	if story, ok := doc.Headers[partName]; ok {
+	if story, ok := doc.Headers[storyKey]; ok {
 		if _, exists := c.pkg.Headers[partName]; !exists {
 			c.pkg.Headers[partName] = c.convertStoryToHeader(story)
 		}
@@ -1841,22 +1870,54 @@ func (c *converter) ensureHeaderPart(doc *wordir.Document, partName string) stri
 	c.pkg.UpsertRelationship(c.pkg.MainPartName, &wordparts.Relationship{
 		ID:     rid,
 		Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
-		Target: partName,
+		Target: target,
 	})
 	return rid
 }
 
-func (c *converter) ensureFooterPart(doc *wordir.Document, partName string) string {
-	if partName == "" {
+// headerFooterPartName returns the package part name a header/footer story is
+// written to. OOXML sources key stories by their real part name, but legacy DOC
+// stories use synthetic keys ("legacy-header-s1-default") and editor-authored
+// ones use the story type ("default"). Word needs a real part name, so synthetic
+// keys are mapped onto the conventional word/headerN.xml sequence.
+func (c *converter) headerFooterPartName(storyKey, kind string, taken func(string) bool) string {
+	if isPackagePartName(storyKey) {
+		return storyKey
+	}
+	dir := path.Dir(c.pkg.MainPartName)
+	if dir == "." || dir == "/" {
+		dir = "word"
+	}
+	for index := 1; ; index++ {
+		name := fmt.Sprintf("%s/%s%d.xml", dir, kind, index)
+		if !taken(name) {
+			return name
+		}
+	}
+}
+
+// isPackagePartName reports whether a header/footer story key is already a real
+// package part name rather than a synthetic story identifier.
+func isPackagePartName(name string) bool {
+	return strings.HasSuffix(name, ".xml") && strings.Contains(name, "/")
+}
+
+func (c *converter) ensureFooterPart(doc *wordir.Document, storyKey string) string {
+	if storyKey == "" {
 		return ""
 	}
+	partName := c.headerFooterPartName(storyKey, "footer", func(name string) bool {
+		_, exists := c.pkg.Footers[name]
+		return exists
+	})
+	target := c.headerFooterRelTarget(partName)
 	rels := c.pkg.EnsurePartRelationships(c.pkg.MainPartName)
 	for _, rel := range rels.Relationships {
-		if rel.Target == partName {
+		if rel.Target == target {
 			return rel.ID
 		}
 	}
-	if story, ok := doc.Footers[partName]; ok {
+	if story, ok := doc.Footers[storyKey]; ok {
 		if _, exists := c.pkg.Footers[partName]; !exists {
 			c.pkg.Footers[partName] = c.convertStoryToFooter(story)
 		}
@@ -1865,9 +1926,28 @@ func (c *converter) ensureFooterPart(doc *wordir.Document, partName string) stri
 	c.pkg.UpsertRelationship(c.pkg.MainPartName, &wordparts.Relationship{
 		ID:     rid,
 		Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer",
-		Target: partName,
+		Target: target,
 	})
 	return rid
+}
+
+// headerFooterRelTarget converts a header/footer part name into the target a
+// relationship from the main document part must use. The stream reader keys
+// stories by their absolute package part name ("word/header1.xml"), while an
+// OPC relationship target is resolved against the source part's directory, so
+// the directory prefix has to be dropped or the saved package points at
+// "word/word/header1.xml".
+func (c *converter) headerFooterRelTarget(partName string) string {
+	name := strings.TrimPrefix(partName, "/")
+	main := c.pkg.MainPartName
+	if main == "" {
+		return name
+	}
+	dir := path.Dir(main)
+	if dir == "." || dir == "/" {
+		return name
+	}
+	return strings.TrimPrefix(name, dir+"/")
 }
 
 func (c *converter) convertStoryToHeader(story wordir.Story) *wordparts.Header {

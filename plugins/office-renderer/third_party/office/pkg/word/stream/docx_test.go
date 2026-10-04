@@ -123,6 +123,25 @@ func TestDOCXSourcePromotesFormattingAndSectionsIntoLayoutSession(t *testing.T) 
 	}
 }
 
+func TestDOCXSourcePromotesParagraphMarkRunProperties(t *testing.T) {
+	body := `<w:p><w:pPr><w:rPr><w:rFonts w:ascii="Cambria"/><w:sz w:val="32"/></w:rPr></w:pPr></w:p>` +
+		`<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>`
+	data := makeDOCXBodyFixture(t, body)
+	source := NewDOCXSource(bytes.NewReader(data), int64(len(data)), DOCXOptions{})
+	session := NewLayoutSession(1, 0)
+	if err := source.Walk(session); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	doc := session.Document()
+	if doc == nil || len(doc.Paragraphs) != 1 {
+		t.Fatalf("paragraphs = %#v, want one", doc)
+	}
+	mark := doc.Paragraphs[0].DefaultRunFormat
+	if mark == nil || mark.FontASCII != "Cambria" || mark.FontSize == nil || *mark.FontSize != 32 {
+		t.Fatalf("paragraph mark = %#v, want 16pt Cambria from w:pPr/w:rPr", mark)
+	}
+}
+
 func TestDOCXPaginateStopsBeforeLaterUnsupportedContent(t *testing.T) {
 	body := `<w:p><w:r><w:t>page one</w:t><w:br w:type="page"/></w:r></w:p>` +
 		`<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:t>must not be read</w:t></w:r></w:p>`

@@ -68,27 +68,27 @@ func DecodeCHPX(grpprl []byte, fontNames []string) CHPXEntry {
 				v := toggle(op[0])
 				out.Format.Strike = &v
 			}
-		case 0x083A:
+		case 0x0838:
 			if len(op) > 0 {
 				v := toggle(op[0])
 				out.Format.Outline = &v
 			}
-		case 0x083B:
+		case 0x0839:
 			if len(op) > 0 {
 				v := toggle(op[0])
 				out.Format.Shadow = &v
 			}
-		case 0x083C:
+		case 0x083A:
 			if len(op) > 0 {
 				v := toggle(op[0])
 				out.Format.SmallCaps = &v
 			}
-		case 0x083D:
+		case 0x083B:
 			if len(op) > 0 {
 				v := toggle(op[0])
 				out.Format.Caps = &v
 			}
-		case 0x083E:
+		case 0x083C:
 			if len(op) > 0 {
 				v := toggle(op[0])
 				out.Format.Vanish = &v

@@ -8,6 +8,9 @@ import "office/pkg/word/parsers/ooxml/parts"
 type RenderMetadata struct {
 	Document  Document
 	Numbering map[int]map[int]Numbering
+	// themeColors is the resolved theme palette (accent1, text1, …) used when
+	// table and run styles reference themeColor/themeFill. Nil without a theme.
+	themeColors map[string]string
 }
 
 // BuildRenderMetadata resolves document-wide formatting metadata from the
@@ -26,6 +29,7 @@ func BuildRenderMetadata(styles *parts.Styles, numbering *parts.Numbering, theme
 		applyClrSchemeMapping(themeColors, settings.ColorSchemeMapping)
 	}
 
+	meta.themeColors = themeColors
 	styleIndex, defaultParagraphStyleID := buildStyleIndex(styles, themeFonts, themeColors)
 	resolveStyleInheritance(styleIndex)
 	defaultParagraphFormat := buildDefaultParagraphFormat(styles)
@@ -120,10 +124,32 @@ func (m *RenderMetadata) ResolveRunFormat(paragraphRunBase RunFormat, styleID st
 	base := cloneRunFormat(paragraphRunBase)
 	if m != nil && styleID != "" {
 		if style, ok := m.Document.CharacterStyles[styleID]; ok {
-			base = mergeRunFormat(base, style.Format)
+			// Merge only what the character style and its own chain define. The
+			// index stores each character style with the document defaults baked
+			// in as a base, but a character style must not override the
+			// paragraph's run properties for fields it never sets: Word keeps a
+			// 10pt EndnoteText body at 10pt when a run only carries the
+			// reference character style, and inflating it to the document
+			// default changes that paragraph's line height.
+			base = mergeRunFormat(base, characterStyleDefinedFormat(style, m.Document.CharacterStyles))
 		}
 	}
 	return mergeRunFormat(base, direct)
+}
+
+// characterStyleDefinedFormat returns what a character style contributes
+// itself, without the document default run format the style index uses as a
+// base for effective lookup.
+func characterStyleDefinedFormat(style CharacterStyle, index map[string]CharacterStyle) RunFormat {
+	var defined RunFormat
+	for i := len(style.StylePath) - 1; i >= 0; i-- {
+		current, ok := index[style.StylePath[i]]
+		if !ok {
+			continue
+		}
+		defined = mergeRunFormat(defined, current.RawRunFormat)
+	}
+	return defined
 }
 
 // ResolveParagraphNumbering resolves either a direct numPr reference or the
@@ -153,4 +179,59 @@ func (m *RenderMetadata) ResolveParagraphNumbering(styleID string, direct *Numbe
 	}
 	numbering := resolved
 	return &numbering, buildListMarker(resolved)
+}
+
+// TableConditionalTypes returns the w:tblStylePr condition selectors that apply
+// to the cell at (rowIdx, colIdx) under the table's w:tblLook flags. Callers
+// that assemble tables outside the materialized reader (the streaming bridge)
+// use it so conditional table styling resolves identically.
+func TableConditionalTypes(rowIdx, totalRows, colIdx, totalCols int, look *parts.TableLook) []string {
+	return tableConditionalTypes(rowIdx, totalRows, colIdx, totalCols, look)
+}
+
+// ConditionalTableOverlay merges every tblStylePr entry matching types into a
+// single cell/run/paragraph overlay. The result layers on top of the table
+// style's base formatting and below direct cell properties.
+func ConditionalTableOverlay(styles []ConditionalTableStyle, types []string) (TableCellFormat, RunFormat, ParagraphFormat) {
+	return buildConditionalOverlay(styles, types)
+}
+
+// MergeTableCellFormat layers overlay on base. Exported for the streaming table
+// bridge, which resolves styles after its cells are already built.
+func MergeTableCellFormat(base, overlay TableCellFormat) TableCellFormat {
+	return mergeTableCellFormat(base, overlay)
+}
+
+// MergeTableFormat layers overlay on base.
+func MergeTableFormat(base, overlay TableFormat) TableFormat {
+	return mergeTableFormat(base, overlay)
+}
+
+// MergeRunFormat layers overlay on base.
+func MergeRunFormat(base, overlay RunFormat) RunFormat {
+	return mergeRunFormat(base, overlay)
+}
+
+// MergeParagraphFormat layers overlay on base.
+func MergeParagraphFormat(base, overlay ParagraphFormat) ParagraphFormat {
+	return mergeParagraphFormat(base, overlay)
+}
+
+// TableFormatFromProperties converts direct w:tblPr properties to the IR model.
+func TableFormatFromProperties(p *parts.TableProperties, themeColors map[string]string) TableFormat {
+	return tableFormatFromProperties(p, themeColors)
+}
+
+// TableCellFormatFromProperties converts direct w:tcPr properties to the IR model.
+func TableCellFormatFromProperties(p *parts.TableCellProperties, themeColors map[string]string) TableCellFormat {
+	return tableCellFormatFromProperties(p, themeColors)
+}
+
+// ThemeColorIndex exposes the theme palette used when resolving themeColor and
+// themeFill references in table styles.
+func (m *RenderMetadata) ThemeColorIndex() map[string]string {
+	if m == nil {
+		return nil
+	}
+	return m.themeColors
 }

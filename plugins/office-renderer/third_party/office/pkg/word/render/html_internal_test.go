@@ -1220,7 +1220,7 @@ func TestHTMLPrintCSSHidesInteractiveNoteChrome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `@media print { .diagnostics, .note-backlink, .comment-ref, aside.notes .comments { display:none !important; } }`) {
+	if !strings.Contains(out, `@media print { .diagnostics, .note-backlink, .comment-ref, aside.notes .comments, .page-num { display:none !important; } }`) {
 		t.Fatalf("missing print-only suppression for interactive note/comment chrome: %s", out)
 	}
 }
@@ -1311,7 +1311,7 @@ func TestHTMLBulletListsUseExplicitWordMarkerAndDisableNativeMarker(t *testing.T
 	if !strings.Contains(out, `list-style-type:none`) {
 		t.Fatalf("bullet list item should disable native browser marker: %s", out)
 	}
-	if !strings.Contains(out, `class="word-list-marker word-list-bullet" aria-hidden="true">•</span>`) {
+	if !strings.Contains(out, `class="word-list-marker word-physical-inline-list-marker word-list-bullet" aria-hidden="true">•</span>`) {
 		t.Fatalf("explicit Word bullet marker missing: %s", out)
 	}
 }
@@ -1391,13 +1391,23 @@ func TestSamePageBodySectionGeometryAcceptsEquivalentExplicitColumns(t *testing.
 }
 
 func TestHTMLStylesIncludeFootnoteSeparator(t *testing.T) {
-	doc := &resolve.Document{}
+	doc := &resolve.Document{
+		Sections:  []resolve.Section{{PageSize: &resolve.PageSize{Width: 12240, Height: 15840}, PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440}}},
+		Footnotes: map[int]resolve.Story{7: {Blocks: []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "Footnote seven"}}}}}}},
+		Blocks:    []resolve.Block{{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Text: "Body"}, {Kind: "footnoteRef", NoteID: 7}}}}},
+	}
 	html, err := HTML(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(html, ".page-footnotes::before") || !strings.Contains(html, "border-top: 0.75pt solid #000") {
-		t.Fatalf("footnote separator CSS missing")
+	// The separator is a layout block carrying Word's own rule geometry. A CSS
+	// ::before rule would draw a second line and push the note body off the
+	// geometry the layout reserved for it.
+	if strings.Contains(html, "page-footnotes::before {") {
+		t.Fatalf("footnote separator must come from layout, not CSS:\n%s", html)
+	}
+	if !strings.Contains(html, `class="page-footnotes"`) || !strings.Contains(html, "border-top:0.75pt solid #444444") {
+		t.Fatalf("footnote separator rule missing:\n%s", html)
 	}
 }
 
@@ -1643,9 +1653,13 @@ func TestPhysicalParagraphFragmentUsesSlotGeometryInsteadOfFlattenedRuns(t *test
 		Height:   24,
 		Fragment: &layout.ParagraphFragment{
 			SpatialRendering: true,
+			// Line slots are fragment-local (paragraphLineLayouts rebases them to
+			// the first physical line); OriginY preserves the measured page-absolute
+			// flow Y so the renderer can recover the 4pt spacing-before as padding.
+			OriginY: 96,
 			Lines: []layout.ParagraphLineLayout{{Slots: []layout.ParagraphSlotLayout{
-				{Left: 82, Right: 122, Top: 96, Bottom: 108, Runs: []resolve.Run{{Kind: "run", Text: "left"}}},
-				{Left: 172, Right: 222, Top: 96, Bottom: 108, Runs: []resolve.Run{{Kind: "run", Text: "right"}}},
+				{Left: 82, Right: 122, Top: 0, Bottom: 12, Runs: []resolve.Run{{Kind: "run", Text: "left"}}},
+				{Left: 172, Right: 222, Top: 0, Bottom: 12, Runs: []resolve.Run{{Kind: "run", Text: "right"}}},
 			}}},
 			IsLast: true,
 		},
@@ -1674,9 +1688,12 @@ func TestPhysicalParagraphContinuationRebasesVerticalGeometry(t *testing.T) {
 		SpatialRendering: true,
 		IsContinuation:   true,
 		IsLast:           true,
+		// A continuation starts at the top of its page content area, so its
+		// origin is box.Y + MarginTop with no spacing-before.
+		OriginY: 72,
 		Lines: []layout.ParagraphLineLayout{
-			{Slots: []layout.ParagraphSlotLayout{{Left: 72, Right: 172, Top: 700, Bottom: 712, Runs: []resolve.Run{{Kind: "run", Text: "one"}}}}},
-			{Slots: []layout.ParagraphSlotLayout{{Left: 72, Right: 172, Top: 712, Bottom: 724, Runs: []resolve.Run{{Kind: "run", Text: "two"}}}}},
+			{Slots: []layout.ParagraphSlotLayout{{Left: 72, Right: 172, Top: 0, Bottom: 12, Runs: []resolve.Run{{Kind: "run", Text: "one"}}}}},
+			{Slots: []layout.ParagraphSlotLayout{{Left: 72, Right: 172, Top: 12, Bottom: 24, Runs: []resolve.Run{{Kind: "run", Text: "two"}}}}},
 		},
 	}
 	box := layout.BlockBox{
@@ -1688,7 +1705,7 @@ func TestPhysicalParagraphContinuationRebasesVerticalGeometry(t *testing.T) {
 	}
 
 	r := &htmlRenderer{doc: &resolve.Document{}}
-	r.renderPhysicalParagraphFragment(box)
+	r.renderPhysicalParagraphFragment(box, []layout.BlockBox{box}, 0)
 	got := r.buf.String()
 	if !strings.Contains(got, `left:0.00pt;top:0.00pt;width:100.00pt;height:12.00pt;line-height:12.00pt`) ||
 		!strings.Contains(got, `left:0.00pt;top:12.00pt;width:100.00pt;height:12.00pt`) {
@@ -1730,7 +1747,7 @@ func TestPhysicalParagraphContinuationDoesNotRepeatFloatingAnchor(t *testing.T) 
 		},
 	}
 	r := &htmlRenderer{doc: &resolve.Document{}}
-	r.renderPhysicalParagraphFragment(box)
+	r.renderPhysicalParagraphFragment(box, []layout.BlockBox{box}, 0)
 	got := r.buf.String()
 	if strings.Contains(got, "<img") || strings.Contains(got, "floating-image") {
 		t.Fatalf("continuation fragment repeated floating anchor: %s", got)
@@ -1776,7 +1793,7 @@ func TestPhysicalPositionedRunsConsumeAdvanceGeometryWithoutReapplyingField(t *t
 		Height:   14, Fragment: fragment,
 	}
 	r := &htmlRenderer{doc: &resolve.Document{}}
-	r.renderPhysicalParagraphFragment(box)
+	r.renderPhysicalParagraphFragment(box, []layout.BlockBox{box}, 0)
 	got := r.buf.String()
 	for _, want := range []string{
 		`data-layout-owned="true"`,
@@ -1804,7 +1821,7 @@ func TestPhysicalPositionedRunsConsumeLayoutOwnedSuperscriptAndPosition(t *testi
 	}}}}}
 	box := layout.BlockBox{Block: &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{}}, Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1}, Height: 14, Fragment: fragment}
 	r := &htmlRenderer{doc: &resolve.Document{}}
-	r.renderPhysicalParagraphFragment(box)
+	r.renderPhysicalParagraphFragment(box, []layout.BlockBox{box}, 0)
 	got := r.buf.String()
 	if strings.Contains(got, "<sup") || strings.Contains(got, "vertical-align:3.0pt") {
 		t.Fatalf("renderer re-applied vertical semantics already owned by physical layout: %s", got)
@@ -1825,9 +1842,13 @@ func TestPhysicalInlineImageConsumesLayoutOwnedVerticalBox(t *testing.T) {
 	}}}}}
 	box := layout.BlockBox{Block: &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{}}, Geometry: layout.PageGeometry{MarginLeft: 72, MarginTop: 72, ColumnCount: 1}, Height: 14, Fragment: fragment}
 	r := &htmlRenderer{doc: &resolve.Document{}}
-	r.renderPhysicalParagraphFragment(box)
+	r.renderPhysicalParagraphFragment(box, []layout.BlockBox{box}, 0)
 	got := r.buf.String()
-	for _, want := range []string{`left:10.00pt`, `top:6.00pt`, `width:20.00pt;height:8.00pt`} {
+	// Layout owns the object's x offset and size. Its vertical position comes
+	// from the text baseline the browser advances, which is where Word rests an
+	// inline picture; pinning it to the line box instead would sink it below
+	// the surrounding text.
+	for _, want := range []string{`display:inline-block`, `margin-left:10.00pt`, `width:20.00pt;height:8.00pt`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("layout-owned inline object rendering missing %q: %s", want, got)
 		}

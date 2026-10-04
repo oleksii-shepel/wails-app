@@ -100,8 +100,9 @@ func gradientSVGDefinition(fill drawing.GradientFill, id string) string {
 			color = "000000"
 		}
 		fmt.Fprintf(&b, `<stop offset="%.2f%%" stop-color="#%s"`, clampUnit(stop.Position)*100.0, color)
-		if stop.Alpha > 0 && stop.Alpha < 1.0 {
-			fmt.Fprintf(&b, ` stop-opacity="%.4f"`, stop.Alpha)
+		// Stops carry explicit alpha (parsers default to 1), so 0 is fully transparent.
+		if stop.Alpha < 1.0 {
+			fmt.Fprintf(&b, ` stop-opacity="%.4f"`, math.Max(0, stop.Alpha))
 		}
 		b.WriteString(`/>`)
 	}

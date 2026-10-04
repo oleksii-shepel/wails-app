@@ -109,7 +109,7 @@ func (l *docxCommentLoader) loadAll() error {
 			}
 			continue
 		}
-		story, err := parseDOCXNoteStory(dec, start)
+		story, err := parseDOCXNoteStory(dec, start, 0)
 		if err != nil {
 			return err
 		}

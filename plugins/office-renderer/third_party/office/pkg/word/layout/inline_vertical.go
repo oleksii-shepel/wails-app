@@ -54,11 +54,16 @@ func inlineObjectRun(run resolve.Run) bool {
 	}
 }
 
+// inlineObjectExtentPt reports the in-flow box an inline object occupies. For
+// pictures the box is the DrawingML bounding box: wp:effectExtent grows the
+// shape's extent into the space Word advances over, so an image with a left
+// effect extent both starts further right and pushes the following text
+// further right than its bare extent suggests.
 func inlineObjectExtentPt(run resolve.Run) (widthPt, heightPt float64, ok bool) {
 	switch run.Kind {
 	case "image", "chart":
 		if run.Image != nil && !run.Image.Floating {
-			return emuToPoints(run.Image.Width), emuToPoints(run.Image.Height), true
+			return emuToPoints(run.Image.Width + run.Image.EffectExtentL + run.Image.EffectExtentR), inlineImageBoxHeightPt(run.Image), true
 		}
 	case "textbox":
 		if run.TextBox != nil && !run.TextBox.Floating {
@@ -74,6 +79,12 @@ func inlineObjectExtentPt(run resolve.Run) (widthPt, heightPt float64, ok bool) 
 		}
 	}
 	return 0, 0, false
+}
+
+// inlineImageBoxHeightPt is the vertical DrawingML bounding box of an inline
+// picture: wp:effectExtent t/b grow the line just as l/r grow its advance.
+func inlineImageBoxHeightPt(img *resolve.Image) float64 {
+	return emuToPoints(img.Height + img.EffectExtentT + img.EffectExtentB)
 }
 
 func runNeedsVerticalPositioning(run resolve.Run) bool {

@@ -674,7 +674,7 @@ func TestAdvanceMaterializesFollowingRunIntoPhysicalGeometry(t *testing.T) {
 		t.Fatalf("B top offset = %.2fpt, want -3pt", b.TopPt)
 	}
 
-	public := paragraphLineLayouts(flow.Lines)
+	public := paragraphLineLayouts(flow.Lines, 0)
 	if len(public) != 1 || len(public[0].Slots) != 1 || len(public[0].Slots[0].PositionedRuns) == 0 {
 		t.Fatalf("renderer-facing positioned runs missing: %#v", public)
 	}
@@ -707,7 +707,7 @@ func TestTabLeaderTransfersToPhysicalPositionedGeometry(t *testing.T) {
 	}
 	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
 	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
-	public := paragraphLineLayouts(flow.Lines)
+	public := paragraphLineLayouts(flow.Lines, 0)
 	if len(public) != 1 || len(public[0].Slots) != 1 {
 		t.Fatalf("layout topology = %#v", public)
 	}
@@ -738,7 +738,7 @@ func TestInlineImageTransfersToPhysicalPositionedGeometry(t *testing.T) {
 	}}
 	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 20, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
 	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
-	public := paragraphLineLayouts(flow.Lines)
+	public := paragraphLineLayouts(flow.Lines, 0)
 	placed := public[0].Slots[0].PositionedRuns
 	if len(placed) == 0 {
 		t.Fatal("inline-image slot did not export positioned runs")
@@ -767,7 +767,7 @@ func TestSuperscriptAndPositionBecomePhysicalTopOffsets(t *testing.T) {
 	}}
 	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
 	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
-	public := paragraphLineLayouts(flow.Lines)
+	public := paragraphLineLayouts(flow.Lines, 0)
 	placed := public[0].Slots[0].PositionedRuns
 	if len(placed) == 0 {
 		t.Fatal("vertical-formatted text did not promote slot to positioned geometry")
@@ -804,7 +804,7 @@ func TestInlineObjectsOwnVerticalHeightAndBottomAlignment(t *testing.T) {
 	}}
 	plan := paragraphLinePlan{Bands: []lineBand{{Top: 0, Bottom: 14, Spans: []lineSpan{{Left: 0, Right: 200}}}}}
 	flow := breakParagraphAcrossSlots(p, plan.SlotPlan(), 10)
-	public := paragraphLineLayouts(flow.Lines)
+	public := paragraphLineLayouts(flow.Lines, 0)
 	placed := public[0].Slots[0].PositionedRuns
 	want := map[string][2]float64{
 		"image":          {8, 6},

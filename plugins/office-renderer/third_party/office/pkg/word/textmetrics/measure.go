@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	sharedfontmetrics "office/pkg/fontmetrics"
+	wordfontmetrics "office/pkg/word/fontmetrics"
 	resolve "office/pkg/word/ir"
 )
 
@@ -65,8 +66,11 @@ func NaturalWidthPt(catalog *sharedfontmetrics.Catalog, format resolve.RunFormat
 	}
 	width := 0.0
 	for _, seg := range segments {
-		if catalog != nil && seg.family != "" {
-			if measured, ok := catalog.MeasureTextWithPairs(string(seg.text), seg.family, seg.bold, seg.italic, seg.size, seg.pairs); ok {
+		// A family the catalog does not know is one the browser cannot use
+		// either: it falls through the CSS stack to a substitute face. Measure
+		// with that same face so laid-out word positions match painted glyphs.
+		if family := wordfontmetrics.ResolveFamily(catalog, seg.family, seg.bold, seg.italic); family != "" {
+			if measured, ok := catalog.MeasureTextWithPairs(string(seg.text), family, seg.bold, seg.italic, seg.size, seg.pairs); ok {
 				width += measured
 				continue
 			}

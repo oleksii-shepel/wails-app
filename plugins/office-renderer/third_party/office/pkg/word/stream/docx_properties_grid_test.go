@@ -17,13 +17,21 @@ func TestParagraphFormatFromSAXUsesWordSnapToGridDefaultAndOptOut(t *testing.T) 
 	}
 }
 
-func TestSectionFromSAXNormalizesLinePitchOnlyDocGrid(t *testing.T) {
+func TestSectionFromSAXKeepsLinePitchOnlyDocGridInactive(t *testing.T) {
+	// w:docGrid/@w:type defaults to "default", which means no grid: a bare
+	// w:linePitch does not make Word snap lines to the pitch. Treating it as an
+	// active line grid makes pages denser than the source document.
 	pitch := 360
 	got := sectionFromSAX(wordsax.SectionProperties{DocGridLinePitch: &pitch})
 	if got.DocGrid == nil {
 		t.Fatal("DocGrid nil")
 	}
-	if got.DocGrid.LinePitch != 360 || got.DocGrid.Type != "lines" {
-		t.Fatalf("DocGrid = %+v, want linePitch=360 type=lines", got.DocGrid)
+	if got.DocGrid.LinePitch != 360 || got.DocGrid.Type != "" {
+		t.Fatalf("DocGrid = %+v, want linePitch=360 with no active grid type", got.DocGrid)
+	}
+
+	got = sectionFromSAX(wordsax.SectionProperties{DocGridType: "lines", DocGridLinePitch: &pitch})
+	if got.DocGrid == nil || got.DocGrid.Type != "lines" {
+		t.Fatalf("explicit w:type=lines must stay active: %+v", got.DocGrid)
 	}
 }

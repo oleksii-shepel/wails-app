@@ -15,6 +15,7 @@ import (
 	officeartdml "office/pkg/officeart/ooxml/drawingml"
 	"office/pkg/ooxml/chart"
 	dml "office/pkg/ooxml/drawing"
+	"office/pkg/ooxml/fontdata"
 	"office/pkg/word/parsers/ooxml/parts"
 
 	"office/pkg/ooxml/drawingxml"
@@ -23,6 +24,7 @@ import (
 	"office/pkg/ooxml/smartart"
 	smartartrender "office/pkg/ooxml/smartart/render"
 	"office/pkg/ooxml/xmltree"
+	wordir "office/pkg/word/ir"
 )
 
 // fieldFrame tracks the state of a single complex field while parsing runs.
@@ -2283,6 +2285,8 @@ func normalizeTable(ctx *resolveCtx, table *parts.Table) Table {
 
 	// Look up base table format and conditional formatting from the table style.
 	var baseFormat TableFormat
+	var baseRunFormat RunFormat
+	var baseParaFormat ParagraphFormat
 	var tblStyleProps []ConditionalTableStyle
 	var tblLook *parts.TableLook
 	styleName := ""
@@ -2300,6 +2304,11 @@ func normalizeTable(ctx *resolveCtx, table *parts.Table) Table {
 			if ts.TableFormat != nil {
 				baseFormat = *ts.TableFormat
 			}
+			// A table style can also define paragraph and run properties that
+			// apply to every paragraph/run in the table. Keep those as the
+			// baseline underneath tblStylePr conditional formatting.
+			baseRunFormat = cloneRunFormat(ts.RunFormat)
+			baseParaFormat = cloneParagraphFormat(ts.Format)
 			tblStyleProps = ts.TableStyles
 		}
 	}
@@ -2319,7 +2328,7 @@ func normalizeTable(ctx *resolveCtx, table *parts.Table) Table {
 	totalCols := len(out.Format.ColumnWidths)
 
 	for rowIdx, row := range table.Rows {
-		normalizedRow := normalizeTableRow(ctx, row, rowIdx, totalRows, totalCols, tblStyleProps, tblLook)
+		normalizedRow := normalizeTableRow(ctx, row, rowIdx, totalRows, totalCols, baseRunFormat, baseParaFormat, tblStyleProps, tblLook)
 		for _, cell := range normalizedRow.Cells {
 			if out.Text != "" && cell.Text != "" {
 				out.Text += " | "
@@ -2332,7 +2341,7 @@ func normalizeTable(ctx *resolveCtx, table *parts.Table) Table {
 	return out
 }
 
-func normalizeTableRow(ctx *resolveCtx, row *parts.TableRow, rowIdx int, totalRows int, totalCols int, tblStyleProps []ConditionalTableStyle, look *parts.TableLook) TableRow {
+func normalizeTableRow(ctx *resolveCtx, row *parts.TableRow, rowIdx int, totalRows int, totalCols int, baseRunFormat RunFormat, baseParaFormat ParagraphFormat, tblStyleProps []ConditionalTableStyle, look *parts.TableLook) TableRow {
 	var out TableRow
 	if row == nil {
 		return out
@@ -2388,7 +2397,7 @@ func normalizeTableRow(ctx *resolveCtx, row *parts.TableRow, rowIdx int, totalRo
 
 	colIdx := 0
 	for _, cell := range row.Cells {
-		out.Cells = append(out.Cells, normalizeTableCell(ctx, cell, rowIdx, totalRows, colIdx, totalCols, tblStyleProps, look))
+		out.Cells = append(out.Cells, normalizeTableCell(ctx, cell, rowIdx, totalRows, colIdx, totalCols, baseRunFormat, baseParaFormat, tblStyleProps, look))
 		span := 1
 		if cell != nil && cell.Properties != nil && cell.Properties.GridSpan != nil {
 			span = cell.Properties.GridSpan.Val
@@ -2401,7 +2410,7 @@ func normalizeTableRow(ctx *resolveCtx, row *parts.TableRow, rowIdx int, totalRo
 	return out
 }
 
-func normalizeTableCell(ctx *resolveCtx, cell *parts.TableCell, rowIdx int, totalRows int, colIdx int, totalCols int, tblStyleProps []ConditionalTableStyle, look *parts.TableLook) TableCell {
+func normalizeTableCell(ctx *resolveCtx, cell *parts.TableCell, rowIdx int, totalRows int, colIdx int, totalCols int, baseRunFormat RunFormat, baseParaFormat ParagraphFormat, tblStyleProps []ConditionalTableStyle, look *parts.TableLook) TableCell {
 	var out TableCell
 	if cell == nil {
 		return out
@@ -2419,18 +2428,22 @@ func normalizeTableCell(ctx *resolveCtx, cell *parts.TableCell, rowIdx int, tota
 		}
 	}
 
-	// Apply tblStylePr conditional overlays so normalizeParagraph picks them up.
-	var prevRunFmt *RunFormat
-	var prevParaFmt *ParagraphFormat
+	// Table-style paragraph/run properties apply to the whole table. Conditional
+	// tblStylePr properties overlay that baseline for the current cell. This must
+	// happen before direct paragraph/run properties are normalized.
+	var prevRunFmt = ctx.conditionalRunFmt
+	var prevParaFmt = ctx.conditionalParaFmt
+	runOverlay := cloneRunFormat(baseRunFormat)
+	paraOverlay := cloneParagraphFormat(baseParaFormat)
 	if len(tblStyleProps) > 0 {
 		types := tableConditionalTypes(rowIdx, totalRows, colIdx, totalCols, look)
-		cellOverlay, runOverlay, paraOverlay := buildConditionalOverlay(tblStyleProps, types)
+		cellOverlay, conditionalRun, conditionalPara := buildConditionalOverlay(tblStyleProps, types)
 		out.Format = mergeTableCellFormat(out.Format, cellOverlay)
-		prevRunFmt = ctx.conditionalRunFmt
-		prevParaFmt = ctx.conditionalParaFmt
-		ctx.conditionalRunFmt = &runOverlay
-		ctx.conditionalParaFmt = &paraOverlay
+		runOverlay = mergeRunFormat(runOverlay, conditionalRun)
+		paraOverlay = mergeParagraphFormat(paraOverlay, conditionalPara)
 	}
+	ctx.conditionalRunFmt = &runOverlay
+	ctx.conditionalParaFmt = &paraOverlay
 
 	if cell.Properties != nil {
 		out.Format = mergeTableCellFormat(out.Format, tableCellFormatFromProperties(cell.Properties, ctx.themeColors))
@@ -2447,10 +2460,8 @@ func normalizeTableCell(ctx *resolveCtx, cell *parts.TableCell, rowIdx int, tota
 	}
 	out.Paragraphs, out.Tables, out.Blocks, out.Text = normalizeContentBlocks(ctx, blocks, paragraphs, tables)
 
-	if len(tblStyleProps) > 0 {
-		ctx.conditionalRunFmt = prevRunFmt
-		ctx.conditionalParaFmt = prevParaFmt
-	}
+	ctx.conditionalRunFmt = prevRunFmt
+	ctx.conditionalParaFmt = prevParaFmt
 
 	return out
 }
@@ -3351,11 +3362,11 @@ func resolveDrawing(ctx *resolveCtx, drawing *parts.Drawing) *Image {
 				blip := pic.BlipFill.Blip
 				if blip.Lum != nil {
 					// DrawingML a:lum stores signed percentage adjustments where 0 is
-					// unchanged. Normalize to the renderer's CSS-style multipliers.
-					img.Brightness = math.Max(0, 1+float64(blip.Lum.Bright)/100000.0)
-					img.Contrast = math.Max(0, 1+float64(blip.Lum.Contrast)/100000.0)
+					// unchanged. Map them onto the picture corrections Word paints.
+					img.Brightness, img.Contrast = wordir.PictureLumCorrection(blip.Lum.Bright, blip.Lum.Contrast)
 				}
-				if blip.AlphaMod != nil && blip.AlphaMod.Val > 0 {
+				if blip.AlphaMod != nil {
+					img.HasAlpha = true
 					img.Alpha = float64(blip.AlphaMod.Val) / 100000.0
 				}
 				if blip.Grayscale != nil {
@@ -3685,7 +3696,20 @@ func resolveConditionalTableStyles(raw []*parts.TableStyleProps, themeColors map
 		if tsp == nil {
 			continue
 		}
-		cts := ConditionalTableStyle{Type: tsp.Type}
+		typeName := tsp.Type
+		// WordprocessingML spells the band conditions band1Horz/band2Horz and
+		// band1Vert/band2Vert. The canonical IR uses band1H/band2H/band1V/band2V.
+		switch typeName {
+		case "band1Horz":
+			typeName = "band1H"
+		case "band2Horz":
+			typeName = "band2H"
+		case "band1Vert":
+			typeName = "band1V"
+		case "band2Vert":
+			typeName = "band2V"
+		}
+		cts := ConditionalTableStyle{Type: typeName}
 		if tsp.CellProps != nil {
 			cts.CellFormat = tableCellFormatFromProperties(tsp.CellProps, themeColors)
 		}
@@ -7009,6 +7033,18 @@ func buildNumberingIndex(numbering *parts.Numbering, themeFonts map[string]strin
 	}
 
 	abstractByID := make(map[int]*parts.AbstractNum, len(numbering.AbstractNums))
+	pictureBullets := make(map[int]*Image, len(numbering.NumPicBullets))
+	for _, pictureBullet := range numbering.NumPicBullets {
+		if pictureBullet == nil || pictureBullet.Media == nil || len(pictureBullet.Media.Data) == 0 {
+			continue
+		}
+		pictureBullets[pictureBullet.ID] = &Image{
+			MIMEType: pictureBullet.Media.ContentType,
+			Data:     append([]byte(nil), pictureBullet.Media.Data...),
+			Width:    int64(math.Round(pictureBullet.WidthPt * 12700)),
+			Height:   int64(math.Round(pictureBullet.HeightPt * 12700)),
+		}
+	}
 	for _, abstract := range numbering.AbstractNums {
 		if abstract == nil {
 			continue
@@ -7055,6 +7091,9 @@ func buildNumberingIndex(numbering *parts.Numbering, themeFonts map[string]strin
 			if level.RunProps != nil {
 				rf := runFormatFromPropertiesWithTheme(level.RunProps, themeFonts, themeColors)
 				entry.RunFormat = &rf
+			}
+			if level.PictureBulletID != nil {
+				entry.PictureBullet = pictureBullets[level.PictureBulletID.Val]
 			}
 			levels[level.Level] = entry
 		}
@@ -7134,6 +7173,7 @@ func buildListMarker(numbering Numbering) *ListMarker {
 		Start:    numbering.Start,
 		Format:   numbering.Format,
 		Template: numbering.Text,
+		Picture:  numbering.PictureBullet,
 	}
 	if marker.Start == 0 {
 		marker.Start = 1
@@ -7189,6 +7229,12 @@ func buildStyleIndex(styles *parts.Styles, themeFonts map[string]string, themeCo
 				tf := tableFormatFromProperties(style.TableProps, themeColors)
 				entry.TableFormat = &tf
 			}
+			// A table style also carries the paragraph and run properties its
+			// cells use. Keep what the style itself declares so consumers can
+			// layer it over the cell's own formatting instead of forcing the
+			// document defaults onto every cell paragraph.
+			entry.RawFormat = paragraphFormatFromProperties(style.ParaProps, themeColors)
+			entry.RawRunFormat = runFormatFromPropertiesWithTheme(style.RunProps, themeFonts, themeColors)
 			entry.TableStyles = resolveConditionalTableStyles(style.TableStyles, themeColors)
 			index[entry.ID] = entry
 			continue
@@ -8081,6 +8127,14 @@ func applyThemeFontFamilyToRun(run *Run, family string) {
 	}
 }
 
+// ResolveEmbeddedFonts lifts loaded font parts into the semantic document
+// model. Embedded faces stay usable for layout measurement and @font-face
+// output: Word's ODTTF obfuscation is undone here so consumers never need the
+// font key.
+func ResolveEmbeddedFonts(fonts []*parts.EmbeddedFontData) []*EmbeddedFont {
+	return resolveEmbeddedFonts(fonts)
+}
+
 func resolveEmbeddedFonts(fonts []*parts.EmbeddedFontData) []*EmbeddedFont {
 	out := make([]*EmbeddedFont, 0, len(fonts))
 	for _, font := range fonts {
@@ -8097,7 +8151,10 @@ func resolveEmbeddedFonts(fonts []*parts.EmbeddedFontData) []*EmbeddedFont {
 				Weight:      weight,
 				Style:       style,
 				ContentType: part.ContentType,
-				Data:        part.Data,
+				// Word stores embedded faces ODTTF-obfuscated; the semantic IR
+				// carries the usable font so renderers and metrics agree with the
+				// authoring application without re-deriving the key.
+				Data: fontdata.Deobfuscate(part.Data, part.FontKey),
 			})
 		}
 		appendFace(font.Regular, 400, "normal")

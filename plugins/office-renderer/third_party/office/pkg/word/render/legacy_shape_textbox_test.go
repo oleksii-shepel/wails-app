@@ -38,9 +38,11 @@ func TestShapeTextBoxStylesCarriesNoWrapAndVerticalFlow(t *testing.T) {
 }
 
 func TestTextBoxInnerStylesCentersVertically(t *testing.T) {
+	// A vertical anchor is not a horizontal one: horizontal centring is
+	// a:bodyPr@anchorCtr, which
+	// TestShapeTextBoxOuterStylesDoNotDuplicateInnerAlignment covers.
 	tb := &resolve.TextBox{
-		Anchor:       "center",
-		AnchorCenter: true,
+		Anchor: "center",
 	}
 	outer := strings.Join(shapeTextBoxStyles(tb), ";")
 	if strings.Contains(outer, "align-items:center") || strings.Contains(outer, "text-align:center") {

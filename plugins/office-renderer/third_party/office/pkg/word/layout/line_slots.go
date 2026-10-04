@@ -142,12 +142,20 @@ type paragraphSlotFlow struct {
 type paragraphFlowContext struct {
 	DefaultTabStopTwips int
 	FontMetrics         *sharedfontmetrics.Catalog
+	// ContentLeftPt is the page-absolute X of the paragraph content's left
+	// edge. Tab stops are authored relative to that edge, while slot spans
+	// are page-absolute, so tab placement must rebase the cursor before
+	// comparing against stops.
+	ContentLeftPt float64
 }
 
-func paragraphFlowContextForDocument(doc *resolve.Document) paragraphFlowContext {
+func paragraphFlowContextForDocument(doc *resolve.Document, contentLeftPt ...float64) paragraphFlowContext {
 	ctx := paragraphFlowContext{DefaultTabStopTwips: defaultWordTabStopTwips, FontMetrics: wordfontmetrics.BuildCatalog(doc)}
 	if doc != nil && doc.DefaultTabStop > 0 {
 		ctx.DefaultTabStopTwips = doc.DefaultTabStop
+	}
+	if len(contentLeftPt) > 0 {
+		ctx.ContentLeftPt = contentLeftPt[0]
 	}
 	return ctx
 }
@@ -259,8 +267,12 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 		physicalCount = 1
 	}
 	flow := paragraphSlotFlow{Lines: make([]paragraphPhysicalLine, physicalCount)}
+	// Lines start empty, so their metric starts empty too: a line's advance
+	// follows the runs actually placed on it, and lines that receive no run keep
+	// the default through the caller's own fallback. Seeding every line with the
+	// document default would floor a 10pt note body at 11pt.
 	for i := range flow.Lines {
-		flow.Lines[i].Metric.maxFontSizePt = defaultSizePt
+		flow.Lines[i].Metric.maxFontSizePt = 0
 	}
 
 	if p == nil {
@@ -290,9 +302,7 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 
 	ensureLine := func(line int) {
 		for line >= len(flow.Lines) {
-			flow.Lines = append(flow.Lines, paragraphPhysicalLine{
-				Metric: paragraphLineMetric{maxFontSizePt: defaultSizePt},
-			})
+			flow.Lines = append(flow.Lines, paragraphPhysicalLine{})
 		}
 		for line >= len(slotsByLine) {
 			nextLine := len(slotsByLine)
@@ -308,11 +318,16 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 
 	lineIndex, slotIndex := 0, 0
 	currentWidth, previousFontSize := 0.0, 0.0
+	// An inline object carries no font of its own, so the inter-word separation
+	// before it must be measured with the format of the text it follows.
+	var previousFormat resolve.RunFormat
+	havePreviousFormat := false
 	var advanceState inlineposition.AdvanceState
 	advanceState.Reset(0)
 	advanceSlot := func() {
 		slotIndex++
 		currentWidth, previousFontSize = math.Max(0, advanceState.HorizontalPt), 0
+		havePreviousFormat = false
 		advanceState.InlineXPt = currentWidth
 		for {
 			ensureLine(lineIndex)
@@ -341,6 +356,7 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				lineIndex++
 				slotIndex = 0
 				currentWidth, previousFontSize = math.Max(0, advanceState.HorizontalPt), 0
+				havePreviousFormat = false
 				advanceState.InlineXPt = currentWidth
 				ensureLine(lineIndex)
 			}
@@ -358,6 +374,8 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 			advanceState.Apply(token.advanceOffsets)
 			currentWidth = advanceState.InlineXPt
 			previousFontSize = 0
+			havePreviousFormat = false
+			mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token)
 			continue
 		}
 		if token.tab {
@@ -367,11 +385,14 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 					lineIndex++
 					slotIndex = 0
 					currentWidth, previousFontSize = 0, 0
+					havePreviousFormat = false
 					continue
 				}
 				slot := slotsByLine[lineIndex][slotIndex]
-				currentX := slot.Span.Left + currentWidth
-				advance, tabStop := alignedTabPlacementPt(p, tokens, tokenIndex, currentX-slot.Span.Left, ctx, defaultSizePt)
+				// Tab stops are authored relative to the paragraph content's
+				// left edge; slot spans are page-absolute.
+				currentX := slot.Span.Left + currentWidth - ctx.ContentLeftPt
+				advance, tabStop := alignedTabPlacementPt(p, tokens, tokenIndex, currentX, ctx, defaultSizePt)
 				if currentWidth == 0 || currentWidth+advance <= slot.Width()+0.01 {
 					for len(flow.Lines[lineIndex].Slots) <= slotIndex {
 						i := len(flow.Lines[lineIndex].Slots)
@@ -385,7 +406,8 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 					owner.HasPositioned = true
 					currentWidth += advance
 					advanceState.InlineXPt = currentWidth
-					previousFontSize = token.fontSizePt
+					previousFontSize, previousFormat = token.fontSizePt, token.run.Format
+					havePreviousFormat = true
 					break
 				}
 				advanceSlot()
@@ -398,6 +420,7 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				lineIndex++
 				slotIndex = 0
 				currentWidth, previousFontSize = 0, 0
+				havePreviousFormat = false
 				continue
 			}
 			if slotIndex >= len(slotsByLine[lineIndex]) {
@@ -411,7 +434,7 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 			// renderer-facing slot: the following content is already positioned on
 			// the next physical line, so rendering a <br> here would apply the break
 			// a second time inside the absolutely positioned slot.
-			mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token, defaultSizePt)
+			mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token)
 			lineIndex++
 			slotIndex = 0
 			currentWidth, previousFontSize = math.Max(0, advanceState.HorizontalPt), 0
@@ -431,7 +454,13 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				advanceSlot()
 				continue
 			}
-			space := runInterWordSpaceWidthPt(ctx.FontMetrics, token.run.Format, defaultSizePt, previousFontSize)
+			spaceFormat := token.run.Format
+			if inlineObjectRun(token.run) && havePreviousFormat {
+				// The separation before an inline object is authored in the text
+				// run it follows, so it takes that run's font metrics.
+				spaceFormat = previousFormat
+			}
+			space := runInterWordSpaceWidthPt(ctx.FontMetrics, spaceFormat, defaultSizePt, previousFontSize)
 			needsSpace := currentWidth > 0 && token.separated
 			needed := token.widthPt
 			if needsSpace {
@@ -460,8 +489,9 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 				}
 				currentWidth += token.widthPt
 				advanceState.InlineXPt = currentWidth
-				previousFontSize = token.fontSizePt
-				mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token, defaultSizePt)
+				previousFontSize, previousFormat = token.fontSizePt, token.run.Format
+				havePreviousFormat = true
+				mergeRenderTokenMetric(&flow.Lines[lineIndex].Metric, token)
 				break
 			}
 			advanceSlot()
@@ -475,11 +505,19 @@ func breakParagraphAcrossSlotsWithContext(p *resolve.Paragraph, plan paragraphSl
 		}
 	}
 	flow.Lines = flow.Lines[:lastUsed+1]
+
 	return flow
 }
 
-func mergeRenderTokenMetric(dst *paragraphLineMetric, token paragraphRenderToken, defaultSizePt float64) {
-	dst.maxFontSizePt = math.Max(dst.maxFontSizePt, math.Max(defaultSizePt, token.fontSizePt))
+// mergeRenderTokenMetric folds one placed token into its line's metric. A line's
+// advance follows the largest run actually placed on it; the document default is
+// only the seed for lines with no run at all. Keeping the default as a floor
+// would measure a 10pt note body at the 11pt default, which changes that
+// paragraph's line pitch and every page break after it.
+func mergeRenderTokenMetric(dst *paragraphLineMetric, token paragraphRenderToken) {
+	if token.fontSizePt > dst.maxFontSizePt {
+		dst.maxFontSizePt = token.fontSizePt
+	}
 	if inlineObjectRun(token.run) && token.heightPt > 0 {
 		dst.maxInlineHeightPt = math.Max(dst.maxInlineHeightPt, token.heightPt)
 	}
@@ -533,7 +571,7 @@ func buildParagraphFlowPlan(
 	defaultSizePt float64,
 ) paragraphFlowPlan {
 	lines := paragraphLinePlanForFlow(firstLeft, firstWidth, continuationLeft, continuationWidth, startY, lineHeights, fallbackHeight, exclusions)
-	slotFlow := breakParagraphAcrossSlotsWithContext(paragraph, lines.SlotPlan(), defaultSizePt, paragraphFlowContext{})
+	slotFlow := breakParagraphAcrossSlotsWithContext(paragraph, lines.SlotPlan(), defaultSizePt, paragraphFlowContext{ContentLeftPt: continuationLeft})
 	return paragraphFlowPlan{Lines: lines, PhysicalLines: slotFlow.Lines}
 }
 
@@ -550,6 +588,12 @@ func convergedParagraphFlowPlan(
 	ctx := paragraphFlowContext{}
 	if len(flowContext) > 0 {
 		ctx = flowContext[0]
+	}
+	// Tab stops are authored relative to the left text margin. Slot spans are
+	// page-absolute, so the caller supplies the margin origin; when none is
+	// supplied, fall back to the continuation line's left edge.
+	if ctx.ContentLeftPt <= 0 {
+		ctx.ContentLeftPt = continuationLeft
 	}
 	heights := append([]float64(nil), initialHeights...)
 	var metrics []paragraphLineMetric

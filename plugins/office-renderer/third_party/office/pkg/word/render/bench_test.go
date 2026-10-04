@@ -55,38 +55,61 @@ func BenchmarkDocxPipeline(b *testing.B) {
 // These are soft upper-bound checks rather than strict benchmarks; the goal is to
 // catch catastrophic regressions in CI without requiring -bench flags.
 func TestDocxPipelinePerformanceGuardrails(t *testing.T) {
+	// Budgets are ratios against a calibration fixture measured in this same
+	// process, not wall-clock seconds: the suite runs packages in parallel and
+	// CI hardware varies, so absolute seconds would fail on load alone. A
+	// genuine algorithmic regression slows the fixture relative to the
+	// calibration and still trips the alarm.
+	const calibrationFixture = "sample-files.com-basic-text.docx"
 	cases := []struct {
-		name    string
-		budgetS float64 // wall-clock budget in seconds per full pipeline run
+		name        string
+		ratioBudget float64 // multiple of the calibration pipeline's runtime
 	}{
-		{"sample-files.com-basic-text.docx", 2.0},
-		{"sample-files.com-large-document.docx", 5.0},
-		{"sample-files.com-table-document.docx", 3.0},
+		{calibrationFixture, 8},
+		{"sample-files.com-large-document.docx", 60},
+		{"sample-files.com-table-document.docx", 8},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			path := benchRepoPath("testdata", "docx", tc.name)
-			start := time.Now()
-			pkg, err := opc.Open(path)
-			if err != nil {
-				t.Skipf("fixture not available: %v", err)
+			before := pipelineSeconds(t, calibrationFixture)
+			elapsed := pipelineSeconds(t, tc.name)
+			after := pipelineSeconds(t, calibrationFixture)
+			calibration := before
+			if after > calibration {
+				calibration = after
 			}
-			wordPkg, err := parts.LoadPackage(pkg)
-			if err != nil {
-				t.Fatalf("load: %v", err)
-			}
-			doc, err := resolve.ResolvePackage(wordPkg)
-			if err != nil {
-				t.Fatalf("resolve: %v", err)
-			}
-			if _, err := render.HTML(doc); err != nil {
-				t.Fatalf("render: %v", err)
-			}
-			elapsed := time.Since(start).Seconds()
-			if elapsed > tc.budgetS {
-				t.Errorf("pipeline took %.2fs, budget %.2fs — potential performance regression", elapsed, tc.budgetS)
+			budget := calibration * tc.ratioBudget
+			t.Logf("pipeline %s took %.3fs; calibration %.3fs; budget %.3fs (%.0fx)",
+				tc.name, elapsed, calibration, budget, tc.ratioBudget)
+			if elapsed > budget {
+				t.Errorf("pipeline took %.2fs, budget %.2fs (%.0f x %.3fs calibration) — potential performance regression",
+					elapsed, budget, tc.ratioBudget, calibration)
 			}
 		})
 	}
+}
+
+// pipelineSeconds opens, resolves and renders one fixture, returning the
+// wall-clock time. It skips the test when the fixture is unavailable.
+func pipelineSeconds(t *testing.T, name string) float64 {
+	t.Helper()
+	path := benchRepoPath("testdata", "docx", name)
+	start := time.Now()
+	pkg, err := opc.Open(path)
+	if err != nil {
+		t.Skipf("fixture not available: %v", err)
+	}
+	wordPkg, err := parts.LoadPackage(pkg)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	doc, err := resolve.ResolvePackage(wordPkg)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if _, err := render.HTML(doc); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	return time.Since(start).Seconds()
 }

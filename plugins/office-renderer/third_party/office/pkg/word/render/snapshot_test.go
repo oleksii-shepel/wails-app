@@ -23,6 +23,11 @@ func TestDocxHTMLSnapshots(t *testing.T) {
 		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".docx") {
 			continue
 		}
+		// Word drops an owner lock file next to an open document. Skip it so a
+		// fixture open in the editor does not break the corpus run.
+		if strings.HasPrefix(entry.Name(), "~$") {
+			continue
+		}
 
 		name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
 		snapPath := filepath.Join(snapshotsDir, name+".html")

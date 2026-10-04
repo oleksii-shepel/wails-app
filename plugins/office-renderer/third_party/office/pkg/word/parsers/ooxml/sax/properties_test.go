@@ -37,6 +37,59 @@ func TestParseParagraphPropertiesRich(t *testing.T) {
 	}
 }
 
+func TestParseParagraphPropertiesUniversalMeasures(t *testing.T) {
+	// The strict vocabulary writes measurement attributes as ST_UniversalMeasure
+	// values, so a suffixed length must resolve to twips instead of being
+	// dropped. Half-point sizes share the attribute reader and must not be
+	// rescaled as if they were twips.
+	dec, start := decodeTestElement(t, `<w:pPr xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main"><w:ind w:start="54pt" w:end="0.5in" w:firstLine="36pt"/><w:spacing w:before="10pt" w:after="30pt" w:line="18pt"/></w:pPr>`)
+	got, err := parseParagraphPropertiesRich(dec, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IndentLeft == nil || *got.IndentLeft != 1080 {
+		t.Fatalf("indent left = %v, want 1080 twips", got.IndentLeft)
+	}
+	if got.IndentRight == nil || *got.IndentRight != 720 {
+		t.Fatalf("indent right = %v, want 720 twips", got.IndentRight)
+	}
+	if got.IndentFirstLine == nil || *got.IndentFirstLine != 720 {
+		t.Fatalf("first line indent = %v, want 720 twips", got.IndentFirstLine)
+	}
+	if got.SpacingBefore == nil || *got.SpacingBefore != 200 || got.SpacingAfter == nil || *got.SpacingAfter != 600 {
+		t.Fatalf("spacing = %v/%v, want 200/600 twips", got.SpacingBefore, got.SpacingAfter)
+	}
+	if got.LineSpacing == nil || *got.LineSpacing != 360 {
+		t.Fatalf("line spacing = %v, want 360 twips", got.LineSpacing)
+	}
+
+	dec, start = decodeTestElement(t, `<w:rPr xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main"><w:sz w:val="12pt"/></w:rPr>`)
+	run, err := parseRunProperties(dec, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.FontSizeHalfPoints != nil {
+		t.Fatalf("font size = %v, half-point measures must not be rescaled as twips", *run.FontSizeHalfPoints)
+	}
+}
+
+func TestParseSectionPropertiesUniversalMeasures(t *testing.T) {
+	dec, start := decodeTestElement(t, `<w:sectPr xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main"><w:pgSz w:w="612pt" w:h="792pt"/><w:pgMar w:top="72pt" w:right="90pt" w:bottom="72pt" w:left="90pt"/><w:cols w:num="1" w:space="36pt"/></w:sectPr>`)
+	got, err := parseSectionProperties(dec, start, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PageWidth == nil || *got.PageWidth != 12240 || got.PageHeight == nil || *got.PageHeight != 15840 {
+		t.Fatalf("page size = %v x %v, want 12240 x 15840 twips", got.PageWidth, got.PageHeight)
+	}
+	if got.MarginLeft == nil || *got.MarginLeft != 1800 || got.MarginRight == nil || *got.MarginRight != 1800 {
+		t.Fatalf("page margins = %v/%v, want 1800 twips", got.MarginLeft, got.MarginRight)
+	}
+	if got.ColumnSpace == nil || *got.ColumnSpace != 720 {
+		t.Fatalf("column space = %v, want 720 twips", got.ColumnSpace)
+	}
+}
+
 func TestParseRunProperties(t *testing.T) {
 	dec, start := decodeTestElement(t, `<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:rStyle w:val="Emphasis"/><w:rFonts w:ascii="Aptos"/><w:b/><w:i w:val="0"/><w:u w:val="double"/><w:color w:val="112233"/><w:sz w:val="24"/></w:rPr>`)
 	got, err := parseRunProperties(dec, start)

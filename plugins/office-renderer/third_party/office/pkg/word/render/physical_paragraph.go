@@ -15,7 +15,7 @@ import (
 // paragraphs, explicit line breaks, fragmented paragraphs, and Square/Tight
 // wrapping. List markers remain a temporary exception until marker geometry is
 // represented by physical layout.
-func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox) {
+func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox, boxes []layout.BlockBox, index int) {
 	if box.Block == nil || box.Block.Paragraph == nil || box.Fragment == nil || len(box.Fragment.Lines) == 0 {
 		return
 	}
@@ -43,14 +43,41 @@ func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox) {
 		)
 		return
 	}
-	extraStyle := fmt.Sprintf("position:relative;height:%.2fpt;min-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0", box.Height, box.Height)
+	// Paragraph spacing follows Word's adjacency rule (the larger of the
+	// previous paragraph's space-after and this paragraph's space-before
+	// becomes the single gap). Layout already resolved that split when it
+	// measured the block; the raw style values would double the gap, so derive
+	// the paddings from the measured box geometry instead.
+	topInset := physicalFragmentTopInset(r.doc, box, boxes, index)
+	contentHeight := 0.0
+	for _, line := range box.Fragment.Lines {
+		for _, slot := range line.Slots {
+			if slot.Bottom > contentHeight {
+				contentHeight = slot.Bottom
+			}
+		}
+	}
+	bottomInset := math.Max(0, box.Height-topInset-contentHeight)
+	spacingStyle := fmt.Sprintf("padding-top:%.2fpt;padding-bottom:%.2fpt", topInset, bottomInset)
+
+	extraStyle := fmt.Sprintf("position:relative;height:%.2fpt;min-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0;%s", box.Height, box.Height, spacingStyle)
+	if p.Format.NoteSeparator {
+		// A note separator draws its rule on the paragraph's border box, so the
+		// indents that position and size the rule must survive the physical
+		// path's margin reset.
+		extraStyle += noteSeparatorIndentStyle(p.Format)
+	}
 	if p.List != nil {
 		// A list item may own a deeper list in the semantic HTML tree. Its own
 		// physical row is absolutely positioned, so a fixed CSS height would make
 		// the child list overflow the parent and overlap the next sibling. Keep the
 		// measured row as a minimum, let descendants extend the item, and expose the
 		// row height so the nested list starts below the absolute physical row.
-		extraStyle = fmt.Sprintf("position:relative;min-height:%.2fpt;--word-list-item-flow-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0", box.Height, box.Height)
+		extraStyle = fmt.Sprintf("position:relative;min-height:%.2fpt;--word-list-item-flow-height:%.2fpt;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;text-indent:0;%s", box.Height, box.Height, spacingStyle)
+	}
+	if box.Geometry.ColumnCount > 1 {
+		// Absolute line slots cannot fragment, so CSS multicol must not split the box.
+		extraStyle += ";break-inside:avoid"
 	}
 	savedInlineMarker := r.physicalInlineListMarker
 	r.physicalInlineListMarker = p.List != nil && !box.Fragment.IsContinuation
@@ -69,9 +96,37 @@ func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox) {
 			if !box.Fragment.IsContinuation {
 				r.renderPhysicalFloatingAnchors(p)
 			}
-			r.renderPhysicalParagraphSlots(box)
+			r.renderPhysicalParagraphSlots(box, topInset)
 		},
 	)
+}
+
+// physicalFragmentTopInset is the measured spacing-before of a physical
+// fragment: spacing plus top border outset plus float clearance. It normally
+// comes from the fragment's flow origin, but field blocks can carry a fragment
+// measured at a stale flow position (the field moved pages after its
+// paragraphs were pre-measured), so an implausible value falls back to the
+// adjacency-resolved spacing that the layout paginator itself uses.
+func physicalFragmentTopInset(doc *resolve.Document, box layout.BlockBox, boxes []layout.BlockBox, index int) float64 {
+	if box.Fragment == nil {
+		return 0
+	}
+	topInset := box.Fragment.OriginY - box.Y - box.Geometry.MarginTop
+	if topInset < 0 || topInset > box.Height {
+		if doc == nil || box.Block == nil || box.Block.Paragraph == nil {
+			return 0
+		}
+		// The fragment was measured at a flow position that differs from the
+		// box's final position (a block-spanning field moved to another page
+		// after its paragraphs were pre-measured). Those measurements used the
+		// paragraph's real neighbors, so re-derive the spacing without the
+		// atFlowStart suppression.
+		topInset = layout.ParagraphSpacingBefore(doc, box.Block.Paragraph, adjacentPageParagraph(boxes, index, -1), box.Geometry, false)
+		if topInset < 0 {
+			topInset = 0
+		}
+	}
+	return topInset
 }
 
 func physicalFragmentRuns(fragment *layout.ParagraphFragment) []resolve.Run {
@@ -121,23 +176,12 @@ func (r *htmlRenderer) renderPhysicalFloatingAnchors(p *resolve.Paragraph) {
 	}
 }
 
-func (r *htmlRenderer) renderPhysicalParagraphSlots(box layout.BlockBox) {
+func (r *htmlRenderer) renderPhysicalParagraphSlots(box layout.BlockBox, topInset float64) {
 	fragment := box.Fragment
 	if fragment == nil || len(fragment.Lines) == 0 {
 		return
 	}
 
-	originTop, ok := physicalFragmentTop(fragment)
-	if !ok {
-		return
-	}
-	topInset := 0.0
-	if !fragment.IsContinuation {
-		topInset = originTop - (box.Y + box.Geometry.MarginTop)
-		if topInset < 0 {
-			topInset = 0
-		}
-	}
 	columnLeft := rendererColumnLeftPt(box.Geometry, box.Column)
 
 	for lineIndex, line := range fragment.Lines {
@@ -148,7 +192,7 @@ func (r *htmlRenderer) renderPhysicalParagraphSlots(box layout.BlockBox) {
 				continue
 			}
 			left := slot.Left - columnLeft
-			top := topInset + slot.Top - originTop
+			top := topInset + slot.Top
 			fmt.Fprintf(&r.buf, `<span class="word-physical-slot" data-line="%d" data-slot="%d" style="position:absolute;left:%.2fpt;top:%.2fpt;width:%.2fpt;height:%.2fpt;line-height:%.2fpt;white-space:nowrap;overflow:visible">`, lineIndex, slotIndex, left, top, width, height, height)
 			if lineIndex == 0 && slotIndex == 0 && r.physicalInlineListMarker && !fragment.IsContinuation {
 				r.renderPhysicalInlineListMarker(box.Block.Paragraph, slot.Runs)
@@ -173,7 +217,11 @@ func (r *htmlRenderer) renderPhysicalParagraphSlots(box layout.BlockBox) {
 // x-coordinates lets browser glyph advances eat the intervening spaces.
 func (r *htmlRenderer) renderPhysicalInlineListMarker(p *resolve.Paragraph, runs []resolve.Run) {
 	marker, bullet := r.resolvedListMarker(p)
-	if marker == "" {
+	if marker == "" && (p == nil || p.List == nil || p.List.Picture == nil) {
+		return
+	}
+	if p.List != nil && p.List.Picture != nil {
+		r.renderPictureBullet(p.List.Picture, "word-list-marker word-physical-inline-list-marker word-list-bullet")
 		return
 	}
 	className := "word-list-marker word-physical-inline-list-marker"
@@ -222,6 +270,9 @@ func (r *htmlRenderer) renderPhysicalSequentialRuns(runs []layout.ParagraphRunLa
 }
 
 func (r *htmlRenderer) renderPhysicalPositionedRuns(runs []layout.ParagraphRunLayout, lineHeight float64) {
+	// inlineObjectFlowEnd tracks how far the in-flow inline objects have
+	// advanced, so the next object's margin stays relative to the flow.
+	inlineObjectFlowEnd := 0.0
 	for _, placed := range runs {
 		run := placed.Run
 		if run.FieldKind == "ADVANCE" {
@@ -241,28 +292,18 @@ func (r *htmlRenderer) renderPhysicalPositionedRuns(runs []layout.ParagraphRunLa
 		}
 		style := fmt.Sprintf("position:absolute;left:%.2fpt;top:%.2fpt;white-space:nowrap", placed.Left, placed.Top)
 		if placed.Width > 0 && placed.Height > 0 && physicalInlineObject(run) {
-			style += fmt.Sprintf(";width:%.2fpt;height:%.2fpt", placed.Width, placed.Height)
+			// An inline object is a character: Word rests its bottom edge on the
+			// text baseline, so keep it in flow and let the browser do the same
+			// instead of pinning it to the line box with an absolute top. Its
+			// exact x still comes from layout, expressed as the margin the
+			// inline flow has to advance.
+			style = fmt.Sprintf("display:inline-block;position:relative;margin-left:%.2fpt;white-space:nowrap;width:%.2fpt;height:%.2fpt", placed.Left-inlineObjectFlowEnd, placed.Width, placed.Height)
+			inlineObjectFlowEnd = placed.Left + placed.Width
 		}
 		fmt.Fprintf(&r.buf, `<span class="word-physical-run" style=%q>`, style)
 		r.renderRun(layoutOwnedVerticalRun(run, placed.Height))
 		r.buf.WriteString(`</span>`)
 	}
-}
-
-func physicalFragmentTop(fragment *layout.ParagraphFragment) (float64, bool) {
-	if fragment == nil {
-		return 0, false
-	}
-	for _, line := range fragment.Lines {
-		if len(line.Slots) > 0 {
-			top := line.Slots[0].Top
-			for _, slot := range line.Slots[1:] {
-				top = math.Min(top, slot.Top)
-			}
-			return top, true
-		}
-	}
-	return 0, false
 }
 
 func rendererColumnLeftPt(geom layout.PageGeometry, column int) float64 {
@@ -288,6 +329,19 @@ func rendererColumnLeftPt(geom layout.PageGeometry, column int) float64 {
 		return x
 	}
 	return geom.MarginLeft + float64(column)*(geom.ColumnWidthPt+geom.ColumnGapPt)
+}
+
+// noteSeparatorIndentStyle restores the indents that give a note separator's
+// rule its two-inch length and its start at the note text indent.
+func noteSeparatorIndentStyle(f resolve.ParagraphFormat) string {
+	style := ""
+	if f.IndentLeft != nil && *f.IndentLeft > 0 {
+		style += fmt.Sprintf(";margin-left:%.2fpt", twipsToPoints(*f.IndentLeft))
+	}
+	if f.IndentRight != nil && *f.IndentRight > 0 {
+		style += fmt.Sprintf(";margin-right:%.2fpt", twipsToPoints(*f.IndentRight))
+	}
+	return style
 }
 
 func physicalInlineObject(run resolve.Run) bool {

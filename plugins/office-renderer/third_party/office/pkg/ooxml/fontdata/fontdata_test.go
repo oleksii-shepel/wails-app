@@ -199,19 +199,19 @@ func TestEmbeddedSources_EOTContentType(t *testing.T) {
 
 func TestLoadEmbeddedFont_NilChecks(t *testing.T) {
 	// Ensure nil-safe behavior when nil package or nil byID map.
-	if got := LoadEmbeddedFont(nil, "", "MyFont", StyleRefs{}, nil); got != nil {
+	if got := LoadEmbeddedFont(nil, "", "MyFont", StyleRefs{}, StyleKeys{}, nil); got != nil {
 		t.Error("expected nil for nil package")
 	}
-	if got := LoadEmbeddedFont(nil, "", "", StyleRefs{}, nil); got != nil {
+	if got := LoadEmbeddedFont(nil, "", "", StyleRefs{}, StyleKeys{}, nil); got != nil {
 		t.Error("expected nil for empty family")
 	}
 }
 
 func TestEmbeddedFontData_EmptyFamily(t *testing.T) {
-	if ef := LoadEmbeddedFont(nil, "", "  ", StyleRefs{}, nil); ef != nil {
+	if ef := LoadEmbeddedFont(nil, "", "  ", StyleRefs{}, StyleKeys{}, nil); ef != nil {
 		t.Error("expected nil for whitespace-only family")
 	}
-	if ef := LoadEmbeddedFont(nil, "", "", StyleRefs{}, nil); ef != nil {
+	if ef := LoadEmbeddedFont(nil, "", "", StyleRefs{}, StyleKeys{}, nil); ef != nil {
 		t.Error("expected nil for empty family")
 	}
 }
@@ -243,5 +243,68 @@ func TestEmbeddedSources_CSSFamilyInSource(t *testing.T) {
 	}
 	if string(sources[0].Data) != string(data) {
 		t.Error("source data does not match input data")
+	}
+}
+
+func TestDeobfuscateRestoresODTTFPayload(t *testing.T) {
+	// A TrueType header obfuscated with the ECMA-376 key for the GUID below:
+	// the first 32 bytes are XORed with the key bytes in reverse order,
+	// repeated twice.
+	plain := []byte{
+		0x00, 0x01, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x80,
+		0x00, 0x03, 0x00, 0x70, 0x47, 0x44, 0x45, 0x46,
+		0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+		0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50,
+		0x51, 0x52, 0x53,
+	}
+	const fontKey = "{3EEE3167-E5B8-4798-AE48-EA6B71E31D4D}"
+	obfuscated := append([]byte(nil), plain...)
+	key := fontKeyBytes(fontKey)
+	if len(key) != 16 {
+		t.Fatalf("fontKeyBytes(%q) length = %d, want 16", fontKey, len(key))
+	}
+	for i := 0; i < 32; i++ {
+		obfuscated[i] ^= key[i%16]
+	}
+	if got := Deobfuscate(obfuscated, fontKey); string(got) != string(plain) {
+		t.Fatalf("Deobfuscate() = % x, want % x", got, plain)
+	}
+	// Bytes past the obfuscated prefix are never touched.
+	if got := Deobfuscate(obfuscated, fontKey); string(got[32:]) != string(plain[32:]) {
+		t.Fatalf("Deobfuscate() modified bytes beyond the 32-byte prefix: % x", got[32:])
+	}
+}
+
+func TestDeobfuscateWithoutKeyLeavesDataUnchanged(t *testing.T) {
+	data := []byte("not obfuscated at all")
+	for _, key := range []string{"", "not-a-guid", "{1234}"} {
+		if got := Deobfuscate(data, key); string(got) != string(data) {
+			t.Fatalf("Deobfuscate(%q) = %q, want unchanged %q", key, got, data)
+		}
+	}
+}
+
+func TestEmbeddedSourcesForKeyDecodesODTTF(t *testing.T) {
+	plain := []byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x80}
+	obfuscated := append([]byte(nil), plain...)
+	const fontKey = "{3EEE3167-E5B8-4798-AE48-EA6B71E31D4D}"
+	key := fontKeyBytes(fontKey)
+	for i := range obfuscated {
+		obfuscated[i] ^= key[i%16]
+	}
+	sources := EmbeddedSourcesForKey(obfuscated, "application/vnd.openxmlformats-officedocument.obfuscatedFont", "Ubuntu", fontKey)
+	if len(sources) == 0 {
+		t.Fatal("EmbeddedSourcesForKey returned no sources for a de-obfuscatable font")
+	}
+	if sources[0].Format != "truetype" {
+		t.Fatalf("source format = %q, want truetype", sources[0].Format)
+	}
+	if string(sources[0].Data) != string(plain) {
+		t.Fatalf("source data = % x, want % x", sources[0].Data, plain)
+	}
+	// Without the key the obfuscated bytes are not a usable sfnt, so no source
+	// should claim a format.
+	if got := EmbeddedSources(obfuscated, "", "Ubuntu"); len(got) != 0 {
+		t.Fatalf("obfuscated payload without a key produced %d sources, want 0", len(got))
 	}
 }

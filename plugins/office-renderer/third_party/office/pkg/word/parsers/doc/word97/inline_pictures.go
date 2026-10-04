@@ -51,14 +51,43 @@ func ScanInlinePictureDescriptors(data []byte) []InlinePictureDescriptor {
 				}
 			}
 		}
-		catalog := docofficeart.DecodeStreams(data[int(record.Offset):int(record.Offset)+officeartescher.HeaderSize+int(record.Header.Length)])
-		desc.Visual, _ = catalog.Find(node.ShapeID)
+		desc.Visual = pictureFrameVisual(data[int(record.Offset):int(record.Offset)+officeartescher.HeaderSize+int(record.Header.Length)])
 		out = append(out, desc)
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+// pictureFrameVisual decodes the shared OfficeArt visual of the picture-frame
+// SpContainer stored inside a Word97 picture block. A PICF carries only display
+// geometry and the media location; Word keeps picture crop and the brightness,
+// contrast, grayscale and bi-level corrections on the frame shape, so any
+// resolver that reads media straight from a PICF block must read the frame too
+// or the authored corrections are lost.
+func pictureFrameVisual(block []byte) *officeartir.Shape {
+	if len(block) < officeartescher.HeaderSize {
+		return nil
+	}
+	records := officeartescher.Scan(block, func(h officeartescher.Header) bool {
+		return h.Type == officeartescher.RecordSpContainer && h.IsContainer()
+	})
+	for _, record := range records {
+		node, err := officeartescher.ShapeNodeFromRecord(record)
+		if err != nil || node == nil || node.ShapeType != 75 {
+			continue
+		}
+		end := int(record.Offset) + officeartescher.HeaderSize + int(record.Header.Length)
+		if end > len(block) {
+			continue
+		}
+		catalog := docofficeart.DecodeStreams(block[record.Offset:end])
+		if shape, ok := catalog.Find(node.ShapeID); ok && shape != nil {
+			return shape
+		}
+	}
+	return nil
 }
 
 // ApplyInlinePictureDescriptor applies authored PICF scaling and shared

@@ -101,7 +101,8 @@ func render(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{FastPreview: true})
+		// Use the normal paginated renderer so the entire document is emitted.
+		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{})
 		return html, err
 	case "xls":
 		book, err := sheetlegacy.ParseXls(path)
@@ -129,7 +130,8 @@ func render(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{FastPreview: true})
+		// Use the normal paginated renderer so the entire document is emitted.
+		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{})
 		return html, err
 	case "xlsx":
 		pkg, err := opc.Open(path)

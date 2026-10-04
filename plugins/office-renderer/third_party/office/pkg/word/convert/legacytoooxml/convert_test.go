@@ -1,6 +1,7 @@
 package legacytoooxml
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -500,11 +501,36 @@ func TestConvertSectionHeadersAndFooters(t *testing.T) {
 	if len(pkg.Footers) != 1 {
 		t.Fatalf("expected 1 footer part, got %d", len(pkg.Footers))
 	}
-	// Verify relationship was created.
+	// Synthetic story keys (legacy DOC uses "legacy-header-s1-default", the editor
+	// uses the story type) must be written as real package part names.
+	if _, ok := pkg.Headers["word/header1.xml"]; !ok {
+		t.Fatalf("header part names = %v, want word/header1.xml", sortedKeys(pkg.Headers))
+	}
+	if _, ok := pkg.Footers["word/footer1.xml"]; !ok {
+		t.Fatalf("footer part names = %v, want word/footer1.xml", sortedKeys(pkg.Footers))
+	}
+	// Verify relationships: targets are relative to the main document part, so a
+	// reader resolving them lands on the parts written above.
 	mainRels := pkg.PartRels[pkg.MainPartName]
 	if mainRels == nil || len(mainRels.Relationships) != 2 {
 		t.Fatalf("expected 2 relationships, got %d", len(mainRels.Relationships))
 	}
+	targets := map[string]bool{}
+	for _, rel := range mainRels.Relationships {
+		targets[rel.Target] = true
+	}
+	if !targets["header1.xml"] || !targets["footer1.xml"] {
+		t.Fatalf("relationship targets = %v, want relative header1.xml/footer1.xml", targets)
+	}
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func TestConvertSectionTitlePageAndBidi(t *testing.T) {

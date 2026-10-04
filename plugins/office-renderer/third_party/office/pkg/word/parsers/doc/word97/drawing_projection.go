@@ -54,7 +54,12 @@ func ResolveDrawingProjection(word io.ReaderAt, wordSize int64, f *cfb.File, ope
 	sort.SliceStable(anchors, func(i, j int) bool { return anchors[i].CP < anchors[j].CP })
 
 	officeArtStreams := [][]byte{metadata.DggInfo, dataStream}
-	catalog := docofficeart.DecodeStreams(officeArtStreams...)
+	// An FSPA anchor's shape ID names a drawing-layer shape, and that layer is
+	// FibDggInfo. The Data stream also stores OfficeArt picture frames, but those
+	// belong to inline pictures (paired with their PICF block) and reuse the same
+	// ID space, so a Data record must never shadow the anchored shape that
+	// carries the picture's rotation and corrections.
+	catalog := docofficeart.DecodeStreams(metadata.DggInfo).MergeMissing(docofficeart.DecodeStreams(dataStream))
 	images := docofficeart.ProjectImages(officeArtStreams...)
 
 	// DggInfo/Data are authoritative. Some older producers (including historical

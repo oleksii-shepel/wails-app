@@ -33,6 +33,35 @@ func TestPrintHTMLUsesCanonicalPageSlicesAndRepeatsTitles(t *testing.T) {
 	if !strings.Contains(got, `data-sheet-page="2"`) || !strings.Contains(got, `data-physical-page="2"`) {
 		t.Fatal("second physical page metadata missing")
 	}
+	for _, want := range []string{
+		`<div class="page-num">Page 1</div>`,
+		`<div class="print-page" id="page-2"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing print page marker %q", want)
+		}
+	}
+	if strings.Contains(got, `id="sheet-1"`) {
+		t.Fatal("print page slices must not repeat the sheet id")
+	}
+}
+
+func TestHTMLMarksEverySheet(t *testing.T) {
+	wb := &resolve.Workbook{Sheets: []*resolve.Sheet{{Name: "First"}, {Name: "Q&A"}}}
+	got, err := HTML(wb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<div class="sheet-num">Sheet 1</div>`,
+		`<section class="sheet" id="sheet-1" data-sheet="1" data-sheet-name="First">`,
+		`<div class="sheet-num">Sheet 2</div>`,
+		`<section class="sheet" id="sheet-2" data-sheet="2" data-sheet-name="Q&amp;A">`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing sheet marker %q", want)
+		}
+	}
 }
 
 func TestSheetForPrintPageCollapsesColumnsOutsideHorizontalSlice(t *testing.T) {

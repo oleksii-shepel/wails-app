@@ -13,6 +13,10 @@ const (
 	EventEndParagraph EventType = "endParagraph"
 	EventStartTable EventType = "startTable"
 	EventEndTable EventType = "endTable"
+	// EventTableProperty carries raw w:tblPr / w:tblGrid / w:trPr / w:tcPr XML
+	// for the innermost open table element, so table styles can be resolved once
+	// the table closes.
+	EventTableProperty EventType = "tableProperty"
 	EventStartTableRow EventType = "startTableRow"
 	EventEndTableRow EventType = "endTableRow"
 	EventStartTableCell EventType = "startTableCell"
@@ -92,13 +96,22 @@ type Event struct {
 	NoteID string
 	CommentID string
 	ParagraphFormat *wordir.ParagraphFormat
+	ParagraphFrame  *wordir.FrameProps
 	ParagraphNumbering *wordir.NumberingReference
+	// RunFormat and RunStyleID describe the paragraph mark (w:pPr/w:rPr) on
+	// EventStartParagraph and the text run on run-level events.
 	RunFormat *wordir.RunFormat
 	Section *wordir.Section
 	Image *wordir.Image
 	Shape *wordir.Shape
 	EmbeddedRun *wordir.Run
-	Raw any
+	// TablePropertyScope is "table", "grid", "row", or "cell" on
+	// EventTableProperty, naming the element that owns RawXML.
+	TablePropertyScope string
+	// RawXML carries the OOXML payload for events whose meaning is defined by
+	// raw markup rather than by promoted fields.
+	RawXML string
+	Raw    any
 }
 
 type Handler interface { HandleEvent(Event) error }

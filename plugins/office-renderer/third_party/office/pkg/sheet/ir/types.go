@@ -605,6 +605,9 @@ type DrawingImage struct {
 	// Rotation is stored in degrees; flips operate around the picture frame.
 	RotationDeg  float64
 	FlipH, FlipV bool
+	// Effects preserves DrawingML effects from the picture's xdr:spPr, such as
+	// an outer shadow. Unlike image pixels, these are applied by the host.
+	Effects drawing.EffectList
 }
 
 // DrawingShape contains shape-specific data.
@@ -1080,6 +1083,9 @@ type DxfStyle struct {
 	FillPattern         *int // 0=no fill, 1=solid, 2=fine dots, ...
 	FillForegroundColor string
 	FillBackgroundColor string
+
+	// NumFmtCode is the differential number format applied while the rule matches.
+	NumFmtCode string
 }
 
 // HeaderFooter holds the header and footer text for a worksheet.

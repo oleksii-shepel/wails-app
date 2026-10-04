@@ -64,25 +64,46 @@ func reconcileVisibleTextInterval(runs []Run, canonical string) {
 		}
 		return
 	}
+	// An owner that authored trailing whitespace keeps it: that whitespace is
+	// real advance in Word even when an inline object follows, and moving it
+	// past the object shifts the object's own in-flow position.
+	ownerTrailingWS := make([]int, len(owners))
+	for k, idx := range owners {
+		ownerTrailingWS[k] = trailingWhitespaceLen(runs[idx].Text)
+	}
 	for i := range runs {
 		if !runHidden(runs[i]) && runOwnsVisibleText(runs[i]) {
 			runs[i].Text = ""
 		}
 	}
 	ownerPos, remaining := 0, ownerCounts[0]
+	atOwnerStart := false
 	var pending strings.Builder
 	for _, ch := range canonical {
 		if isRunWhitespace(ch) {
 			pending.WriteRune(ch)
 			continue
 		}
-		for remaining == 0 && ownerPos+1 < len(owners) {
+		if remaining == 0 && ownerPos+1 < len(owners) {
 			ownerPos++
 			remaining = ownerCounts[ownerPos]
+			atOwnerStart = true
 		}
 		idx := owners[ownerPos]
-		runs[idx].Text += pending.String()
+		ws := pending.String()
 		pending.Reset()
+		if atOwnerStart {
+			atOwnerStart = false
+			keep := ownerTrailingWS[ownerPos-1]
+			if keep > len(ws) {
+				keep = len(ws)
+			}
+			if keep > 0 {
+				runs[owners[ownerPos-1]].Text += ws[:keep]
+				ws = ws[keep:]
+			}
+		}
+		runs[idx].Text += ws
 		runs[idx].Text += string(ch)
 		remaining--
 	}
@@ -91,8 +112,28 @@ func reconcileVisibleTextInterval(runs []Run, canonical string) {
 	}
 }
 
+func trailingWhitespaceLen(s string) int {
+	n := 0
+	for i := len(s) - 1; i >= 0; i-- {
+		r := rune(s[i])
+		if !isRunWhitespace(r) {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// Hidden reports whether the run's content is not displayed. Word hides
+// w:vanish runs unless "show hidden text" is on, and hides w:specVanish runs
+// (list paragraph marks, style separators) unconditionally. Hidden content
+// takes no layout space, so both the measuring and painting paths must skip it.
+func (f RunFormat) Hidden() bool {
+	return (f.Vanish != nil && *f.Vanish) || (f.SpecVanish != nil && *f.SpecVanish)
+}
+
 func runHidden(run Run) bool {
-	return (run.Format.Vanish != nil && *run.Format.Vanish) || (run.Format.SpecVanish != nil && *run.Format.SpecVanish)
+	return run.Format.Hidden()
 }
 func runOwnsVisibleText(run Run) bool {
 	switch run.Kind {

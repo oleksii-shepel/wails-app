@@ -119,6 +119,9 @@ func resolveInlinePicture(data []byte, location int) (*wordir.Image, inlinePictu
 		GoalHeightTwips: goalHeight,
 		ScaleXPermille:  scaleX,
 		ScaleYPermille:  scaleY,
+		// Crop and picture corrections live on the picture-frame shape in the
+		// OfficeArt records after the PICF header, not in the PICF itself.
+		Visual: pictureFrameVisual(payload),
 	})
 	return image, inlinePictureRenderable
 }

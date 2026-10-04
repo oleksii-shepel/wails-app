@@ -1,9 +1,12 @@
 package legacy
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"math"
@@ -14,6 +17,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
 
@@ -104,14 +108,14 @@ const (
 	biffCRNCount        = 0x0059 // XCT record
 	biffCRN             = 0x005A // CRN record
 	biffDConName        = 0x0052 // DCONNAME — named pivot/data-consolidation source
-	biffCondFmt         = 0x01B2 // CONDFMT — start of a conditional-formatting block
+	biffCondFmt         = 0x01B0 // CONDFMT — start of a conditional-formatting block
 	biffCF              = 0x01B1 // CF — one conditional-formatting rule (follows CONDFMT)
 	biffCFHeader12      = 0x0879 // CFHEADER12 — Excel 2007+ conditional-formatting header
 	biffCFRule12        = 0x087A // CFRULE12 — Excel 2007+ conditional-formatting rule
 	biffUserSViewBegin  = 0x01AA // USERSVIEWBEGIN — start of a custom-view settings substream
 	biffUserSViewEnd    = 0x01AB // USERSVIEWEND — end of a custom-view settings substream
 	biffStyle           = 0x0293 // STYLE — maps an XF index to a built-in or user-defined style name
-	biffDval            = 0x01B7 // DVAL — data-validation block header
+	biffDval            = 0x01B2 // DVAL — data-validation block header
 	biffDV              = 0x01BE // DV — one data-validation rule
 	biffAutoFilterInfo  = 0x009D // AUTOFILTERINFO — autofilter column count
 	biffAutoFilter      = 0x009E // AUTOFILTER — per-column filter criteria (HSSF; no POI record class)
@@ -261,11 +265,16 @@ const (
 	legacyOfficeArtPropShadowOffsetX   = 0x0205
 	legacyOfficeArtPropShadowOffsetY   = 0x0206
 	legacyOfficeArtPropShadowSoftness  = 0x021C
+	legacyOfficeArtPropShadowBooleans  = 0x023F
 
 	legacyDefaultColumnPx = 64
 	legacyDefaultRowPx    = 20
-	legacyCharUnitToPx    = 7
-	legacyEMUsPerPx       = 9525
+	// Excel's column unit is the advance of "0" in the default font: Calibri 11pt
+	// advances 7.5px at 96 DPI, so a column sized for N characters displays N of
+	// them. Must stay in step with pkg/sheet/render's charUnitToPx, which sizes
+	// the same columns in the HTML grid.
+	legacyCharUnitToPx = 7.5
+	legacyEMUsPerPx    = 9525
 
 	// Pivot-table records (SX… family).
 	biffSXView     = 0x00B0 // SXVIEW — pivot table view definition
@@ -358,6 +367,9 @@ type legacyStyleCatalog struct {
 	// BIFF SST/RSTRING/TXO rich-text runs can project directly to canonical IR.
 	Fonts   []legacyFont
 	Palette [56]string
+	// Theme holds the workbook theme colours in SpreadsheetML index order; empty
+	// when the workbook carries no THEME record.
+	Theme [12]string
 }
 
 type legacySharedString struct {
@@ -436,6 +448,8 @@ type legacyFormulaDecodeContext struct {
 	workbook legacyFormulaWorkbookContext
 	row      int
 	col      int
+	// shared marks a SHRFMLA body, whose relative references are offsets from the member cell.
+	shared bool
 }
 
 type legacyFormulaExpr struct {
@@ -1278,6 +1292,8 @@ func parseWorkbookGlobalsInto(data []byte, ctx *legacyWorkbookParseContext) ([]b
 	// post-loop matches POI's lazy `_palette` lookup semantics.
 	var xfPayloads [][]byte
 	palette := defaultBIFFPalette
+	var theme [12]string
+	xfExts := map[int][]biffExtProp{}
 	var nameRecords [][]byte
 	var nameCommentRecords [][]byte
 	var supBooks []supBookRef
@@ -1294,9 +1310,17 @@ func parseWorkbookGlobalsInto(data []byte, ctx *legacyWorkbookParseContext) ([]b
 	var wbWriteResHash uint16
 	var wbWriteResUser string
 	resolveXFs := func() []legacyXF {
+		var themeRef *[12]string
+		if theme[0] != "" {
+			themeRef = &theme
+		}
 		xfs := make([]legacyXF, 0, len(xfPayloads))
-		for _, p := range xfPayloads {
-			xfs = append(xfs, parseBIFFXF(p, formatCodes, fonts, palette))
+		for i, p := range xfPayloads {
+			xf := parseBIFFXF(p, formatCodes, fonts, palette)
+			if props, ok := xfExts[i]; ok {
+				applyXFExtToStyle(&xf.Style, props, &palette, themeRef)
+			}
+			xfs = append(xfs, xf)
 		}
 		return xfs
 	}
@@ -1310,6 +1334,7 @@ func parseWorkbookGlobalsInto(data []byte, ctx *legacyWorkbookParseContext) ([]b
 		catalog := buildLegacyStyleCatalog(styleRecords)
 		catalog.Fonts = append([]legacyFont(nil), fonts...)
 		catalog.Palette = palette
+		catalog.Theme = theme
 		return catalog
 	}
 	resolveDefinedNames := func() []*sheetir.DefinedName {
@@ -1385,6 +1410,17 @@ func parseWorkbookGlobalsInto(data []byte, ctx *legacyWorkbookParseContext) ([]b
 			pos = nextPos
 		case biffPalette:
 			palette = parseBIFFPalette(payload)
+			pos = nextPos
+		case biffTheme:
+			fullPayload, fullNext := gatherThemePayload(data, pos)
+			if colors, ok := parseThemeRecord(fullPayload); ok {
+				theme = colors
+			}
+			pos = fullNext
+		case biffXFExt:
+			if ixfe, props, ok := parseXFExtRecord(payload); ok {
+				xfExts[ixfe] = props
+			}
 			pos = nextPos
 		case biffDateWindow1904:
 			date1904 = parseDateWindow1904(payload)
@@ -3278,6 +3314,9 @@ func parseLegacyWorksheetImageDrawings(payload []byte, sheet *sheetir.Sheet, row
 		copyImg.RotationDeg = shape.rotationDeg
 		copyImg.FlipH = shape.flipH
 		copyImg.FlipV = shape.flipV
+		if shape.shadow != nil {
+			copyImg.Effects.Effects = []drawing.Effect{*shape.shadow}
+		}
 		drawings = append(drawings, &sheetir.Drawing{
 			Name:     fmt.Sprintf("%s Image %d", sheet.Name, len(drawings)+1),
 			Type:     sheetir.DrawingTypeImage,
@@ -3305,6 +3344,7 @@ type legacyWorksheetShape struct {
 	flipH       bool
 	flipV       bool
 	shadow      *drawing.Shadow
+	effects     drawing.EffectList
 	drawingType sheetir.DrawingType
 }
 
@@ -3346,6 +3386,7 @@ type legacyPictureShape struct {
 	cropLeft, cropTop, cropRight, cropBottom int
 	rotationDeg                              float64
 	flipH, flipV                             bool
+	shadow                                   *drawing.Shadow
 }
 
 func parseLegacyPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row) (legacyPictureShape, bool) {
@@ -3372,7 +3413,37 @@ func parseLegacyPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows ma
 		rotationDeg: visual.RotationDeg,
 		flipH:       node.Flags&0x40 != 0,
 		flipV:       node.Flags&0x80 != 0,
+		shadow:      legacyPictureShadow(visual),
 	}, true
+}
+
+func legacyPictureShadow(visual officeartlegacy.VisualProperties) *drawing.Shadow {
+	if visual.HasShadow && !visual.ShadowEnabled {
+		return nil
+	}
+	if !visual.HasShadow && !visual.HasShadowColor && !visual.HasShadowOpacity && !visual.HasShadowOffsetX && !visual.HasShadowOffsetY && !visual.HasShadowSoftness {
+		return nil
+	}
+	color := visual.ShadowColor
+	if color == "" {
+		color = "000000"
+	}
+	alpha := visual.ShadowOpacity
+	if !visual.HasShadowOpacity {
+		alpha = 1
+	}
+	dx := drawing.EMUToPoints(visual.ShadowOffsetXEMU)
+	dy := drawing.EMUToPoints(visual.ShadowOffsetYEMU)
+	shadow := &drawing.Shadow{
+		Color:    color,
+		Alpha:    alpha,
+		Blur:     math.Abs(drawing.EMUToPoints(visual.ShadowSoftnessEMU)),
+		Distance: math.Hypot(dx, dy),
+	}
+	if shadow.Distance != 0 {
+		shadow.Angle = legacyShadowAngle(dx, dy)
+	}
+	return shadow
 }
 
 func parseLegacyNonPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows map[int]*sheetir.Row, resolveColor ...officeartlegacy.ColorResolver) (legacyWorksheetShape, bool) {
@@ -3394,6 +3465,7 @@ func parseLegacyNonPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows
 	shape.flipH = node.Flags&0x40 != 0
 	shape.flipV = node.Flags&0x80 != 0
 	parseLegacyWorksheetShapePropertiesParsed(node.Properties, &shape, resolveColor...)
+	shape.effects = legacyMetroShapeEffects(node.Properties)
 	if shape.isPicture {
 		return legacyWorksheetShape{}, false
 	}
@@ -3407,6 +3479,90 @@ func parseLegacyNonPictureShapeContainer(data []byte, sheet *sheetir.Sheet, rows
 		shape.drawingType = sheetir.DrawingTypeShape
 	}
 	return shape, true
+}
+
+// legacyMetroShapeEffects reads the DrawingML package carried by newer Excel
+// versions inside a legacy OfficeArt metroBlob. It supplements the down-level
+// FOPT properties with soft-edge and 3-D bevel effects.
+func legacyMetroShapeEffects(props []officeartescher.Property) drawing.EffectList {
+	for _, prop := range props {
+		if prop.ID != 0x03A9 || len(prop.Complex) < 4 {
+			continue
+		}
+		archive, err := zip.NewReader(bytes.NewReader(prop.Complex), int64(len(prop.Complex)))
+		if err != nil {
+			continue
+		}
+		for _, entry := range archive.File {
+			if entry.Name != "drs/shapexml.xml" {
+				continue
+			}
+			reader, err := entry.Open()
+			if err != nil {
+				continue
+			}
+			data, readErr := io.ReadAll(reader)
+			reader.Close()
+			if readErr != nil {
+				continue
+			}
+			if effects := legacyMetroEffectsFromXML(data); len(effects.Effects) > 0 {
+				return effects
+			}
+		}
+	}
+	return drawing.EffectList{}
+}
+
+func legacyMetroEffectsFromXML(data []byte) drawing.EffectList {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	var effects []drawing.Effect
+	threeD := &drawing.ThreeD{}
+	hasThreeD := false
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		attr := func(name string) string {
+			for _, a := range start.Attr {
+				if a.Name.Local == name {
+					return a.Value
+				}
+			}
+			return ""
+		}
+		switch start.Name.Local {
+		case "softEdge":
+			if rad, err := strconv.ParseInt(attr("rad"), 10, 64); err == nil && rad > 0 {
+				effects = append(effects, drawing.SoftEdge{Radius: drawing.EMUToPoints(rad)})
+			}
+		case "camera":
+			threeD.CameraPreset = attr("prst")
+			hasThreeD = true
+		case "lightRig":
+			threeD.LightRig = attr("rig")
+			threeD.LightDirection = attr("dir")
+			hasThreeD = true
+		case "bevelT":
+			if w, err := strconv.ParseInt(attr("w"), 10, 64); err == nil {
+				threeD.BevelTopWidth = drawing.EMUToPoints(w)
+			}
+			if h, err := strconv.ParseInt(attr("h"), 10, 64); err == nil {
+				threeD.BevelTopHeight = drawing.EMUToPoints(h)
+			}
+			threeD.BevelTopPreset = attr("prst")
+			hasThreeD = true
+		}
+	}
+	if hasThreeD {
+		effects = append(effects, *threeD)
+	}
+	return drawing.EffectList{Effects: effects}
 }
 
 func parseLegacyWorksheetShapeProperties(body []byte, propCount int, shape *legacyWorksheetShape) {
@@ -3470,23 +3626,35 @@ func parseLegacyWorksheetShapePropertiesParsed(props []officeartescher.Property,
 		legacyOfficeArtApplySharedArrowSizeName(legacyWorksheetEnsureLineStyle(shape).TailEnd, visual.EndArrowLength, true)
 	}
 
-	if visual.HasShadowColor {
-		legacyWorksheetEnsureShadow(shape).Color = visual.ShadowColor
+	// fShadow is the authoritative OfficeArt on/off flag.  A number of XLS
+	// drawings carry only that flag and rely on the format defaults for the
+	// remaining shadow attributes, so do not wait for a color or offset property
+	// before preserving the effect.
+	if visual.HasShadow {
+		if !visual.ShadowEnabled {
+			shape.shadow = nil
+		} else {
+			legacyWorksheetEnsureShadow(shape)
+		}
 	}
-	if visual.HasShadowOpacity {
-		legacyWorksheetEnsureShadow(shape).Alpha = visual.ShadowOpacity
-	}
-	if visual.HasShadowOffsetX {
-		sh := legacyWorksheetEnsureShadow(shape)
-		x := drawing.EMUToPoints(visual.ShadowOffsetXEMU)
-		sh.Distance = math.Hypot(x, legacyShadowYOffsetPoints(sh))
-		sh.Angle = legacyShadowAngle(x, legacyShadowYOffsetPoints(sh))
-	}
-	if visual.HasShadowOffsetY {
-		legacyWorksheetEnsureShadow(shape).SkewY = drawing.EMUToPoints(visual.ShadowOffsetYEMU)
-	}
-	if visual.HasShadowSoftness {
-		legacyWorksheetEnsureShadow(shape).Blur = drawing.EMUToPoints(visual.ShadowSoftnessEMU)
+	if shape.shadow != nil {
+		if visual.HasShadowColor {
+			shape.shadow.Color = visual.ShadowColor
+		}
+		if visual.HasShadowOpacity {
+			shape.shadow.Alpha = visual.ShadowOpacity
+		}
+		if visual.HasShadowOffsetX {
+			x := drawing.EMUToPoints(visual.ShadowOffsetXEMU)
+			shape.shadow.Distance = math.Hypot(x, legacyShadowYOffsetPoints(shape.shadow))
+			shape.shadow.Angle = legacyShadowAngle(x, legacyShadowYOffsetPoints(shape.shadow))
+		}
+		if visual.HasShadowOffsetY {
+			shape.shadow.SkewY = drawing.EMUToPoints(visual.ShadowOffsetYEMU)
+		}
+		if visual.HasShadowSoftness {
+			shape.shadow.Blur = drawing.EMUToPoints(visual.ShadowSoftnessEMU)
+		}
 	}
 
 	for _, prop := range props {
@@ -3526,7 +3694,7 @@ func parseLegacyWorksheetShapePropertiesParsed(props []officeartescher.Property,
 
 func legacyWorksheetEnsureShadow(shape *legacyWorksheetShape) *drawing.Shadow {
 	if shape.shadow == nil {
-		shape.shadow = &drawing.Shadow{Color: "808080", Alpha: 1}
+		shape.shadow = &drawing.Shadow{Color: "000000", Alpha: 1}
 	}
 	return shape.shadow
 }
@@ -3774,12 +3942,22 @@ func legacyWorksheetColumnPx(sheet *sheetir.Sheet, col int) int {
 		return legacyDefaultColumnPx
 	}
 	if width, ok := sheet.ColumnWidths[col]; ok && width > 0 {
-		return int(math.Round(width * legacyCharUnitToPx))
+		return legacyColumnCharsToPx(width)
 	}
 	if sheet.DefaultColWidthChars > 0 {
-		return int(math.Round(sheet.DefaultColWidthChars * legacyCharUnitToPx))
+		return legacyColumnCharsToPx(sheet.DefaultColWidthChars)
 	}
 	return legacyDefaultColumnPx
+}
+
+// legacyColumnCharsToPx converts Excel's character-based column width to pixels
+// with the same rounding the HTML grid uses (pkg/sheet/render.worksheetColumnWidthPx),
+// so drawing anchors and rendered columns stay in step.
+func legacyColumnCharsToPx(widthChars float64) int {
+	if widthChars <= 0 {
+		return 0
+	}
+	return int(math.Trunc(((256*widthChars + math.Trunc(128.0/legacyCharUnitToPx)) / 256.0) * legacyCharUnitToPx))
 }
 
 func legacyWorksheetRowPx(rows map[int]*sheetir.Row, row int) int {
@@ -3950,6 +4128,42 @@ func walkLegacyOfficeArtRecords(data []byte, visit func(recType uint16, inst uin
 			return nil
 		})
 	}
+}
+
+// isLegacyOfficeArtContinuation identifies OfficeArt fragments Excel stores
+// in BIFF CONTINUE records between OBJ/TXO records. In real XLS files an
+// SpContainer's declared Escher length can span the following ClientTextbox
+// fragment, so it must not require a self-contained record here.
+func isLegacyOfficeArtContinuation(data []byte) bool {
+	if len(data) < officeartescher.HeaderSize {
+		return false
+	}
+	header, err := officeartescher.ParseHeader(data)
+	if err != nil || header.Type < 0xF000 || header.Type > 0xF122 {
+		return false
+	}
+	return header.Version <= officeartescher.ContainerVersion
+}
+
+// legacyOfficeArtMissingBytes reports how many more bytes are required before the
+// last top-level OfficeArt record in data is complete, or zero when every record
+// fits. Excel caps MSODRAWING and CONTINUE payloads at 8224 bytes and resumes a
+// large container mid-record, so the declared length of the open container is the
+// only way to tell continuation fragments from TXO text.
+func legacyOfficeArtMissingBytes(data []byte) int {
+	off := 0
+	for off+officeartescher.HeaderSize <= len(data) {
+		header, err := officeartescher.ParseHeader(data[off:])
+		if err != nil {
+			return 0
+		}
+		end := uint64(off) + uint64(officeartescher.HeaderSize) + uint64(header.Length)
+		if end > uint64(len(data)) {
+			return int(end - uint64(len(data)))
+		}
+		off = int(end)
+	}
+	return 0
 }
 
 func legacyImageContentType(data []byte) string {
@@ -4633,7 +4847,12 @@ func canonicalBIFFRichTextRuns(value string, specs []legacyRichRunSpec, fonts []
 		}
 		return len(value)
 	}
-	out := make([]*sheetir.RichTextRun, 0, len(specs))
+	out := make([]*sheetir.RichTextRun, 0, len(specs)+1)
+	// Text before the first formatting run keeps the cell's own font, so the
+	// run carries no formatting of its own.
+	if first := byteAt(specs[0].CharIndex); first > 0 {
+		out = append(out, &sheetir.RichTextRun{Text: value[:first]})
+	}
 	for i, spec := range specs {
 		start := byteAt(spec.CharIndex)
 		end := len(value)
@@ -4696,6 +4915,7 @@ type legacyWorksheetParseState struct {
 	pendingDrawingCharsRemaining int
 	currentDrawingText           string
 	drawingTextByObjID           map[int]string
+	drawingRichTextByObjID       map[int][]*sheetir.RichTextRun
 	pendingCommentObjID          int
 	pendingCommentCharsRemaining int
 	pendingControlCharsRemaining int
@@ -4717,22 +4937,32 @@ type legacyWorksheetParseState struct {
 	pendingCFSqRef               string
 	pendingCFCount               int
 	pendingCFIsCF12              bool
-	autoFilterCols               int
-	sheetProtected               bool
-	sheetObjProtected            bool
-	sheetScenProtected           bool
-	sheetPasswordHash            uint16
-	arrayFormulas                []*sheetir.ArrayFormula
-	expFormulaRefs               map[string]string
-	sharedFormulas               map[string]legacySharedFormulaRecord
-	officeArtPayload             []byte
-	lastFormulaRef               string
-	lastFormulaRow               int
-	lastFormulaCol               int
-	pivotViews                   []*legacyPivotView
-	currentPivotView             *legacyPivotView
-	tableFeaturesByID            map[uint32]*legacyTableFeature
-	styleCatalog                 legacyStyleCatalog
+	pendingCFID                  int
+	// cfRulesByID lists classic CF rules by their CONDFMT nID so CFEX records can extend them.
+	cfRulesByID        map[int][]*sheetir.CFRule
+	autoFilterCols     int
+	sheetProtected     bool
+	sheetObjProtected  bool
+	sheetScenProtected bool
+	sheetPasswordHash  uint16
+	arrayFormulas      []*sheetir.ArrayFormula
+	expFormulaRefs     map[string]string
+	sharedFormulas     map[string]legacySharedFormulaRecord
+	officeArtPayload   []byte
+	// officeArtBytesNeeded counts how many more bytes the open OfficeArt record
+	// in officeArtPayload requires. Excel splits a drawing group across
+	// MSODRAWING and CONTINUE records interleaved with OBJ/TXO records, and the
+	// fragments that resume mid-record carry no OfficeArt header, so this count
+	// is the only reliable signal that such a CONTINUE payload belongs to the
+	// drawing stream.
+	officeArtBytesNeeded int
+	lastFormulaRef       string
+	lastFormulaRow       int
+	lastFormulaCol       int
+	pivotViews           []*legacyPivotView
+	currentPivotView     *legacyPivotView
+	tableFeaturesByID    map[uint32]*legacyTableFeature
+	styleCatalog         legacyStyleCatalog
 }
 
 func newLegacyWorksheetParseState() *legacyWorksheetParseState {
@@ -4741,6 +4971,7 @@ func newLegacyWorksheetParseState() *legacyWorksheetParseState {
 		pendingCommentCharsRemaining: -1,
 		pendingControlCharsRemaining: -1,
 		drawingTextByObjID:           map[int]string{},
+		drawingRichTextByObjID:       map[int][]*sheetir.RichTextRun{},
 		commentTextsByObjID:          map[int]string{},
 		commentRichTextByObjID:       map[int][]*sheetir.RichTextRun{},
 		pendingNotesByObjID:          map[int]legacyNote{},
@@ -4801,6 +5032,23 @@ func (state *legacyWorksheetParseState) flushPendingControlText() {
 	state.pendingControlCharsRemaining = -1
 }
 
+// appendOfficeArtFragment adds a worksheet drawing-stream payload and recomputes
+// how many further bytes the open OfficeArt record still needs.
+func (state *legacyWorksheetParseState) appendOfficeArtFragment(data []byte) {
+	state.officeArtPayload = append(state.officeArtPayload, data...)
+	state.officeArtBytesNeeded = legacyOfficeArtMissingBytes(state.officeArtPayload)
+}
+
+// expectsTxOContinuation reports whether a pending TXO record still owns the next
+// CONTINUE payload as its text bytes or formatting-run table. Such payloads must
+// never be folded into the drawing stream.
+func (state *legacyWorksheetParseState) expectsTxOContinuation() bool {
+	if state.pendingCommentText || state.pendingControlText != nil {
+		return true
+	}
+	return state.pendingDrawingTextObjID != 0
+}
+
 func (state *legacyWorksheetParseState) flushPendingDrawingText() {
 	if state.pendingDrawingTextObjID == 0 {
 		return
@@ -4857,7 +5105,7 @@ func classifyLegacyWorksheetRecord(id uint16) legacyWorksheetRecordFamily {
 		return legacyWorksheetRecordGeometry
 	case biffNote, biffObj, biffMsoDrawing, biffTxO, biffContinue:
 		return legacyWorksheetRecordObject
-	case biffWSBool, biffFilterMode, biffHLink, biffHLinkTooltip, biffCondFmt, biffCFHeader12, biffCF, biffCFRule12, biffDval,
+	case biffWSBool, biffFilterMode, biffHLink, biffHLinkTooltip, biffCondFmt, biffCFHeader12, biffCF, biffCFRule12, biffCFEx, biffDval,
 		biffDV, biffAutoFilterInfo, biffAutoFilter, biffProtect, biffObjProtect,
 		biffScenProtect, biffPassword, biffSetup, biffLeftMargin, biffRightMargin,
 		biffTopMargin, biffBottomMargin, biffHCenter, biffVCenter, biffPrintHeaders,
@@ -5082,7 +5330,7 @@ func (state *legacyWorksheetParseState) consumeGeometryRecord(
 	case biffSCL:
 		applySCLRecord(sheet, payload)
 	case biffRow:
-		applyRowRecord(rows, payload, xfs)
+		applyRowRecord(sheet, rows, payload, xfs)
 	case biffColInfo:
 		applyColInfo(sheet, payload)
 	case biffMergeCells:
@@ -5192,7 +5440,7 @@ func (state *legacyWorksheetParseState) consumeObjectRecord(
 	case biffMsoDrawing:
 		fullPayload, fullNext := gatherBiffPayload(data, pos)
 		if len(fullPayload) > 0 {
-			state.officeArtPayload = append(state.officeArtPayload, fullPayload...)
+			state.appendOfficeArtFragment(fullPayload)
 		}
 		return legacyWorksheetRecordHandledWithPosition, fullNext
 	case biffTxO:
@@ -5218,6 +5466,23 @@ func (state *legacyWorksheetParseState) consumeObjectRecord(
 			state.pendingDrawingCharsRemaining = parseTxOCommentCharCount(payload)
 		}
 	case biffContinue:
+		// Excel is allowed to continue an OfficeArt aggregate after the OBJ/TXO
+		// records that own the preceding shape. Those payloads are OfficeArt
+		// fragments, but their BIFF record type is CONTINUE rather than
+		// MSODRAWING. Keep them in the worksheet drawing stream before applying
+		// TXO continuation handling below.
+		if isLegacyOfficeArtContinuation(payload) {
+			state.appendOfficeArtFragment(payload)
+			return legacyWorksheetRecordHandledWithPosition, nextPos
+		}
+		// A fragment that resumes the open OfficeArt record mid-way carries no
+		// record header of its own, so fall back to the container's outstanding
+		// byte count. TXO text and formatting runs are claimed by the pending
+		// state below and must not be folded into the drawing stream.
+		if state.officeArtBytesNeeded > 0 && !state.expectsTxOContinuation() {
+			state.appendOfficeArtFragment(payload)
+			return legacyWorksheetRecordHandledWithPosition, nextPos
+		}
 		if state.pendingCommentText {
 			// A BIFF8 TXO owns two CONTINUE payloads: first text, then its
 			// formatting-run table. Never reinterpret formatting bytes as text.
@@ -5254,6 +5519,19 @@ func (state *legacyWorksheetParseState) consumeObjectRecord(
 			return legacyWorksheetRecordHandledWithPosition, nextPos
 		}
 		if state.pendingDrawingTextObjID != 0 {
+			if state.pendingDrawingCharsRemaining == 0 {
+				objID := state.pendingDrawingTextObjID
+				text := state.currentDrawingText
+				specs := parseTxOFormattingRuns(payload)
+				state.drawingRichTextByObjID[objID] = canonicalBIFFRichTextRunsPreserveSingle(text, specs, state.styleCatalog.Fonts, state.styleCatalog.Palette)
+				if text = strings.TrimSpace(text); text != "" {
+					state.drawingTextByObjID[objID] = text
+				}
+				state.pendingDrawingTextObjID = 0
+				state.pendingDrawingCharsRemaining = -1
+				state.currentDrawingText = ""
+				return legacyWorksheetRecordHandledWithPosition, nextPos
+			}
 			text, consumedChars := parseCommentTextContinueLimited(payload, state.pendingDrawingCharsRemaining)
 			if text != "" {
 				state.currentDrawingText += text
@@ -5328,6 +5606,7 @@ func (state *legacyWorksheetParseState) consumeSemanticRecord(
 	case biffCondFmt:
 		state.pendingCFSqRef, state.pendingCFCount = parseCONDFMTSqRef(payload)
 		state.pendingCFIsCF12 = false
+		state.pendingCFID = condFmtID(payload)
 	case biffCFHeader12:
 		state.pendingCFSqRef, state.pendingCFCount = parseCONDFMT12SqRef(payload)
 		state.pendingCFIsCF12 = true
@@ -5335,14 +5614,22 @@ func (state *legacyWorksheetParseState) consumeSemanticRecord(
 		if state.pendingCFCount > 0 && state.pendingCFSqRef != "" && !state.pendingCFIsCF12 {
 			if rule := parseCFRecordWithPalette(payload, legacyPaletteFromStyleCatalog(textCtx)); rule != nil {
 				rule.SqRef = state.pendingCFSqRef
+				decodeCFRuleFormulas(rule, formulaCtx)
 				sheet.CFRules = append(sheet.CFRules, rule)
+				if state.cfRulesByID == nil {
+					state.cfRulesByID = map[int][]*sheetir.CFRule{}
+				}
+				state.cfRulesByID[state.pendingCFID] = append(state.cfRulesByID[state.pendingCFID], rule)
 			}
 			state.pendingCFCount--
 		}
+	case biffCFEx:
+		applyCFExRecord(payload, state.cfRulesByID, legacyPaletteFromStyleCatalog(textCtx), legacyThemeFromStyleCatalog(textCtx))
 	case biffCFRule12:
 		if state.pendingCFCount > 0 && state.pendingCFSqRef != "" && state.pendingCFIsCF12 {
-			if rule := parseCF12Record(payload, legacyPaletteFromStyleCatalog(textCtx)); rule != nil {
+			if rule := parseCF12Record(payload, legacyPaletteFromStyleCatalog(textCtx), legacyThemeFromStyleCatalog(textCtx)); rule != nil {
 				rule.SqRef = state.pendingCFSqRef
+				decodeCFRuleFormulas(rule, formulaCtx)
 				sheet.CFRules = append(sheet.CFRules, rule)
 			}
 			state.pendingCFCount--
@@ -5496,7 +5783,7 @@ func (state *legacyWorksheetParseState) finalizeWorksheet(
 			resolvedShape := &sheetir.DrawingShape{
 				Geometry: shape.geometry, Adjustments: append([]float64(nil), shape.adjustments...),
 				FillColor: shape.fillColor, LineColor: shape.lineColor, LineWidthPt: shape.lineWidth,
-				LineStyle: shape.lineStyle, Text: state.drawingTextByObjID[objID], RotationDeg: shape.rotationDeg, FlipH: shape.flipH, FlipV: shape.flipV,
+				LineStyle: shape.lineStyle, Effects: shape.effects, Text: state.drawingTextByObjID[objID], RichTextRuns: cloneBIFFRichTextRuns(state.drawingRichTextByObjID[objID]), RotationDeg: shape.rotationDeg, FlipH: shape.flipH, FlipV: shape.flipV,
 			}
 			if shape.shadow != nil {
 				resolvedShape.Effects.Effects = append(resolvedShape.Effects.Effects, *shape.shadow)
@@ -6356,6 +6643,13 @@ func legacyPaletteFromStyleCatalog(textCtx []legacyStyleCatalog) *[56]string {
 	return &textCtx[0].Palette
 }
 
+func legacyThemeFromStyleCatalog(textCtx []legacyStyleCatalog) *[12]string {
+	if len(textCtx) == 0 || textCtx[0].Theme[0] == "" {
+		return nil
+	}
+	return &textCtx[0].Theme
+}
+
 func parseRStringCell(payload []byte, xfs []legacyXF, textCtx ...legacyStyleCatalog) *sheetir.Cell {
 	// RSTRING: row(2) col(2) xf(2) cch(2) rgch(cch) cRuns(2) runs(4*cRuns).
 	if len(payload) < 10 {
@@ -6851,6 +7145,7 @@ func canonicalLegacySharedFormulas(sharedFormulas map[string]legacySharedFormula
 				workbook: workbookCtx,
 				row:      shared.TopRow + 1,
 				col:      shared.LeftCol + 1,
+				shared:   true,
 			}); ok {
 				formula = decoded
 			}
@@ -6880,6 +7175,7 @@ func applySharedFormulaMetadata(rows map[int]*sheetir.Row, sharedFormulas map[st
 			workbook: workbookCtx,
 			row:      cell.Row,
 			col:      cell.Col,
+			shared:   true,
 		})
 		if !ok || strings.TrimSpace(formulaText) == "" {
 			continue
@@ -7369,7 +7665,8 @@ func decodeBIFFRefToken(token []byte, ctx legacyFormulaDecodeContext) (string, b
 	if len(token) < 5 {
 		return "", false
 	}
-	row, col, absRow, absCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[1:3]), binary.LittleEndian.Uint16(token[3:5]), ctx.row, ctx.col)
+	offsets := ctx.shared || biffPtgIsRelativeOffset(token[0])
+	row, col, absRow, absCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[1:3]), binary.LittleEndian.Uint16(token[3:5]), ctx.row, ctx.col, offsets)
 	return formatLegacyA1Ref(row, col, absRow, absCol), true
 }
 
@@ -7377,8 +7674,9 @@ func decodeBIFFAreaToken(token []byte, ctx legacyFormulaDecodeContext) (string, 
 	if len(token) < 9 {
 		return "", false
 	}
-	firstRow, firstCol, firstAbsRow, firstAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[1:3]), binary.LittleEndian.Uint16(token[5:7]), ctx.row, ctx.col)
-	lastRow, lastCol, lastAbsRow, lastAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[3:5]), binary.LittleEndian.Uint16(token[7:9]), ctx.row, ctx.col)
+	offsets := ctx.shared || biffPtgIsRelativeOffset(token[0])
+	firstRow, firstCol, firstAbsRow, firstAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[1:3]), binary.LittleEndian.Uint16(token[5:7]), ctx.row, ctx.col, offsets)
+	lastRow, lastCol, lastAbsRow, lastAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[3:5]), binary.LittleEndian.Uint16(token[7:9]), ctx.row, ctx.col, offsets)
 	return formatLegacyA1Ref(firstRow, firstCol, firstAbsRow, firstAbsCol) + ":" + formatLegacyA1Ref(lastRow, lastCol, lastAbsRow, lastAbsCol), true
 }
 
@@ -7390,7 +7688,7 @@ func decodeBIFFRef3DToken(token []byte, ctx legacyFormulaDecodeContext) (string,
 	if !ok || sheetIndex < 0 || sheetIndex >= len(ctx.workbook.sheets) {
 		return "", false
 	}
-	row, col, absRow, absCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[3:5]), binary.LittleEndian.Uint16(token[5:7]), ctx.row, ctx.col)
+	row, col, absRow, absCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[3:5]), binary.LittleEndian.Uint16(token[5:7]), ctx.row, ctx.col, ctx.shared)
 	ref := formatLegacyA1Ref(row, col, absRow, absCol)
 	return format3DRef(ctx.workbook.sheets[sheetIndex].name, ref), true
 }
@@ -7403,21 +7701,31 @@ func decodeBIFFArea3DToken(token []byte, ctx legacyFormulaDecodeContext) (string
 	if !ok || sheetIndex < 0 || sheetIndex >= len(ctx.workbook.sheets) {
 		return "", false
 	}
-	firstRow, firstCol, firstAbsRow, firstAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[3:5]), binary.LittleEndian.Uint16(token[7:9]), ctx.row, ctx.col)
-	lastRow, lastCol, lastAbsRow, lastAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[5:7]), binary.LittleEndian.Uint16(token[9:11]), ctx.row, ctx.col)
+	firstRow, firstCol, firstAbsRow, firstAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[3:5]), binary.LittleEndian.Uint16(token[7:9]), ctx.row, ctx.col, ctx.shared)
+	lastRow, lastCol, lastAbsRow, lastAbsCol := decodeBIFFRefParts(binary.LittleEndian.Uint16(token[5:7]), binary.LittleEndian.Uint16(token[9:11]), ctx.row, ctx.col, ctx.shared)
 	rangeRef := formatLegacyA1Ref(firstRow, firstCol, firstAbsRow, firstAbsCol) + ":" + formatLegacyA1Ref(lastRow, lastCol, lastAbsRow, lastAbsCol)
 	return format3DRef(ctx.workbook.sheets[sheetIndex].name, rangeRef), true
 }
 
-func decodeBIFFRefParts(rowBits, colBits uint16, baseRow, baseCol int) (row int, col int, absRow bool, absCol bool) {
+// biffPtgIsRelativeOffset reports whether a reference token is ptgRefN or
+// ptgAreaN, whose relative coordinates are offsets from the formula's base cell.
+func biffPtgIsRelativeOffset(ptg byte) bool {
+	base := ptg & 0x1F
+	return base == 0x0C || base == 0x0D
+}
+
+// decodeBIFFRefParts resolves a BIFF8 row/column pair. Ordinary references store
+// absolute coordinates whatever their relative flags; only offset tokens add
+// signed offsets to the base cell.
+func decodeBIFFRefParts(rowBits, colBits uint16, baseRow, baseCol int, offsets bool) (row int, col int, absRow bool, absCol bool) {
 	rowValue := int(rowBits)
 	colValue := int(colBits & 0x00FF)
 	absRow = colBits&0x8000 == 0
 	absCol = colBits&0x4000 == 0
-	if !absRow {
+	if offsets && !absRow {
 		rowValue = baseRow - 1 + int(int16(rowBits))
 	}
-	if !absCol {
+	if offsets && !absCol {
 		colValue = baseCol - 1 + int(int8(colBits&0x00FF))
 	}
 	if rowValue < 0 {
@@ -7558,7 +7866,7 @@ func ensureSheetRow(rows map[int]*sheetir.Row, index int) *sheetir.Row {
 	return row
 }
 
-func applyRowRecord(rows map[int]*sheetir.Row, payload []byte, xfs []legacyXF) {
+func applyRowRecord(sheet *sheetir.Sheet, rows map[int]*sheetir.Row, payload []byte, xfs []legacyXF) {
 	if len(payload) < 16 {
 		return
 	}
@@ -7575,10 +7883,20 @@ func applyRowRecord(rows map[int]*sheetir.Row, payload []byte, xfs []legacyXF) {
 	index := int(binary.LittleEndian.Uint16(payload[0:2])) + 1
 	row := ensureSheetRow(rows, index)
 	miyRw := binary.LittleEndian.Uint16(payload[6:8])
-	if miyRw > 0 {
-		row.HeightPt = float64(miyRw) / 20.0
-	}
 	grbit := binary.LittleEndian.Uint16(payload[12:14])
+	// BIFF ROW.miyRw is the row's cached/current height even for rows that
+	// still follow the worksheet default. fUnsynced normally marks an authored
+	// height, but some legacy writers omit that bit on tall rows. Preserve a
+	// cached height that materially differs from DEFAULTROWHEIGHT; otherwise a
+	// button anchored to that row collapses to the 15pt fallback in HTML.
+	rowHeightPt := float64(miyRw) / 20.0
+	customHeight := grbit&0x0040 != 0
+	if sheet != nil && sheet.DefaultRowHeightPt > 0 && math.Abs(rowHeightPt-sheet.DefaultRowHeightPt) > 0.01 {
+		customHeight = true
+	}
+	if customHeight && miyRw > 0 {
+		row.HeightPt = rowHeightPt
+	}
 	row.Hidden = grbit&0x0020 != 0
 	row.OutlineLevel = int(grbit & 0x0007)
 	row.Collapsed = grbit&0x0010 != 0
@@ -9159,6 +9477,37 @@ func parseCONDFMT12SqRef(payload []byte) (sqref string, cfCount int) {
 	return parseCONDFMTSqRef(payload[12:])
 }
 
+// decodeCFRuleFormulas turns raw CF formula tokens into formula text. CF
+// formulas address cells as offsets from the first cell of the rule's range,
+// so that cell is the decode base; undecodable tokens stay as raw ptg hex.
+func decodeCFRuleFormulas(rule *sheetir.CFRule, formulaCtx legacyFormulaWorkbookContext) {
+	if rule == nil || len(rule.Formula) == 0 {
+		return
+	}
+	first := strings.Fields(rule.SqRef)
+	if len(first) == 0 {
+		return
+	}
+	anchor := strings.SplitN(first[0], ":", 2)[0]
+	row, col, ok := parseA1Ref(anchor)
+	if !ok {
+		return
+	}
+	for i, f := range rule.Formula {
+		raw, isPtg := strings.CutPrefix(f, "ptg:")
+		if !isPtg {
+			continue
+		}
+		tokens, err := hex.DecodeString(raw)
+		if err != nil {
+			continue
+		}
+		if text, ok := decodeBIFFFormula(tokens, legacyFormulaDecodeContext{workbook: formulaCtx, row: row, col: col}); ok {
+			rule.Formula[i] = text
+		}
+	}
+}
+
 // biffCFOperator maps a CF op byte to the OOXML-compatible operator string.
 func biffCFOperator(op byte) string {
 	switch op {
@@ -9209,8 +9558,6 @@ func parseCFRecordWithPalette(payload []byte, palette *[56]string) *sheetir.CFRu
 	op := payload[1]
 	cbFmt1 := int(binary.LittleEndian.Uint16(payload[2:4]))
 	cbFmt2 := int(binary.LittleEndian.Uint16(payload[4:6]))
-	formattingOptions := binary.LittleEndian.Uint32(payload[6:10])
-	pos := 12 // formattingOptions (4) + formattingNotUsed (2)
 
 	rule := &sheetir.CFRule{}
 	switch ct {
@@ -9223,51 +9570,16 @@ func parseCFRecordWithPalette(payload []byte, palette *[56]string) *sheetir.CFRu
 		return nil
 	}
 
-	dxf := &sheetir.DxfStyle{}
-	hasDXF := false
-	if formattingOptions&0x04000000 != 0 { // FontFormatting, 118 bytes
-		if pos+118 > len(payload) {
-			return nil
-		}
-		applyClassicCFFontFormatting(dxf, payload[pos:pos+118], palette)
-		pos += 118
-		hasDXF = true
+	dxf, n, ok := parseDXFN(payload[6:], palette)
+	if !ok {
+		return nil
 	}
-	if formattingOptions&0x08000000 != 0 { // alignment block, 8 bytes; no canonical Dxf alignment surface yet
-		if pos+8 > len(payload) {
-			return nil
-		}
-		pos += 8
-	}
-	if formattingOptions&0x10000000 != 0 { // BorderFormatting, 8 bytes
-		if pos+8 > len(payload) {
-			return nil
-		}
-		applyClassicCFBorderFormatting(dxf, payload[pos:pos+8], palette)
-		pos += 8
-		hasDXF = true
-	}
-	if formattingOptions&0x20000000 != 0 { // PatternFormatting, 4 bytes
-		if pos+4 > len(payload) {
-			return nil
-		}
-		applyClassicCFPatternFormatting(dxf, payload[pos:pos+4], palette)
-		pos += 4
-		hasDXF = true
-	}
-	if formattingOptions&0x40000000 != 0 { // protection block, 4 bytes; no canonical Dxf protection surface yet
-		if pos+4 > len(payload) {
-			return nil
-		}
-		pos += 4
-	}
-
+	pos := 6 + n
 	if pos+cbFmt1+cbFmt2 > len(payload) {
 		return nil
 	}
-	if hasDXF {
-		rule.DxfStyle = *dxf
-	}
+	finishDXFFill(dxf)
+	rule.DxfStyle = *dxf
 	if cbFmt1 > 0 {
 		rule.Formula = append(rule.Formula, fmt.Sprintf("ptg:%x", payload[pos:pos+cbFmt1]))
 		pos += cbFmt1
@@ -9367,7 +9679,7 @@ func applyClassicCFPatternFormatting(dxf *sheetir.DxfStyle, pf []byte, palette *
 // Returns the hex ARGB string (e.g. "FF63BE7B") or "" for auto/unset.
 // When palette is non-nil, indexed colors are resolved against it.
 // Theme colors are resolved against the default BIFF theme color table.
-func parseExtendedColor(data []byte, palette *[56]string) string {
+func parseExtendedColor(data []byte, palette *[56]string, theme *[12]string) string {
 	if len(data) < 16 {
 		return ""
 	}
@@ -9403,41 +9715,10 @@ func parseExtendedColor(data []byte, palette *[56]string) string {
 		themeIdx := int(binary.LittleEndian.Uint32(data[4:8]))
 		// tint at offset 8 (float64).
 		tint := math.Float64frombits(binary.LittleEndian.Uint64(data[8:16]))
-		return resolveThemeColor(themeIdx, tint)
+		return resolveThemeColor(themeIdx, tint, theme)
 	default:
 		return ""
 	}
-}
-
-// defaultThemeColors maps BIFF theme color indices to their default RGB hex values.
-// These are the standard Office 2007+ theme colors used when no custom theme is present.
-// Source: ECMA-376 Part 1 §20.1.6.2 clrScheme (default "Office" theme).
-var defaultThemeColors = map[int]string{
-	0:  "000000", // THEME_DARK_1 — dark1 (black)
-	1:  "FFFFFF", // THEME_LIGHT_1 — light1 (white)
-	2:  "44546A", // THEME_DARK_2 — dark2
-	3:  "E7E6E6", // THEME_LIGHT_2 — light2
-	4:  "4472C4", // THEME_ACCENT_1 — accent1 (blue)
-	5:  "ED7D31", // THEME_ACCENT_2 — accent2 (orange)
-	6:  "A5A5A5", // THEME_ACCENT_3 — accent3 (grey)
-	7:  "FFC000", // THEME_ACCENT_4 — accent4 (gold)
-	8:  "5B9BD5", // THEME_ACCENT_5 — accent5 (light blue)
-	9:  "70AD47", // THEME_ACCENT_6 — accent6 (green)
-	10: "0563C1", // THEME_HYPERLINK — hyperlink (blue)
-	11: "954F72", // THEME_FOLLOWED_HYPERLINK — followed hyperlink (purple)
-}
-
-// resolveThemeColor resolves a BIFF theme color index to an RGB hex string,
-// applying the tint value. Returns "" for unknown theme indices.
-func resolveThemeColor(themeIdx int, tint float64) string {
-	rgb, ok := defaultThemeColors[themeIdx]
-	if !ok {
-		return ""
-	}
-	if tint == 0 {
-		return rgb
-	}
-	return applyTintToHex(rgb, tint)
 }
 
 // applyTintToHex applies a tint value (-1.0 to 1.0) to an RGB hex string
@@ -9480,7 +9761,7 @@ func applyTint(lum int64, tint float64) int64 {
 // the CFRULE12 record body for type="dataBar" rules.
 // Layout: 2 bytes ignored, 1 reserved, 1 options, 1 percentMin, 1 percentMax,
 // then ExtendedColor, DataBarThreshold(min), DataBarThreshold(max).
-func parseDataBarFormatting(data []byte, palette *[56]string) *sheetir.CFDataBar {
+func parseDataBarFormatting(data []byte, palette *[56]string, theme *[12]string) *sheetir.CFDataBar {
 	if len(data) < 6 {
 		return nil
 	}
@@ -9502,7 +9783,7 @@ func parseDataBarFormatting(data []byte, palette *[56]string) *sheetir.CFDataBar
 	}
 	// ExtendedColor at offset 6 (16 bytes)
 	if len(data) >= 22 {
-		if c := parseExtendedColor(data[6:22], palette); c != "" {
+		if c := parseExtendedColor(data[6:22], palette, theme); c != "" {
 			db.Color = c
 		}
 	}
@@ -9540,7 +9821,7 @@ func parseDataBarFormatting(data []byte, palette *[56]string) *sheetir.CFDataBar
 // follows the CFRULE12 record body for type="colorScale" rules.
 // Layout: 2 bytes ignored, 1 reserved, 1 numThresholds, 1 numColors, 1 options,
 // then thresholds[], then (double position + ExtendedColor)[].
-func parseColorGradientFormatting(data []byte, palette *[56]string) *sheetir.CFColorScale {
+func parseColorGradientFormatting(data []byte, palette *[56]string, theme *[12]string) *sheetir.CFColorScale {
 	if len(data) < 6 {
 		return nil
 	}
@@ -9586,7 +9867,7 @@ func parseColorGradientFormatting(data []byte, palette *[56]string) *sheetir.CFC
 	// Parse colors: each has 8-byte double position + 16-byte ExtendedColor
 	for i := 0; i < numG && pos+24 <= len(data); i++ {
 		pos += 8 // skip position double
-		if c := parseExtendedColor(data[pos:pos+16], palette); c != "" {
+		if c := parseExtendedColor(data[pos:pos+16], palette, theme); c != "" {
 			cg.Colors = append(cg.Colors, c)
 		}
 		pos += 16
@@ -9614,188 +9895,13 @@ func biffCFThresholdType(t byte) string {
 	}
 }
 
-// parseExtFmtBlock decodes the extFmtLen block from a CFRULE12 record.
-// The block layout mirrors POI CFRuleBase.readFormatOptions:
-//
-//	offset 0:  formatting_options (INT32) — bitfield indicating which blocks follow:
-//	  bit 26 (0x04000000): font block present
-//	  bit 27 (0x08000000): alignment block present (not decoded)
-//	  bit 28 (0x10000000): border block present
-//	  bit 29 (0x20000000): pattern block present
-//	  bit 30 (0x40000000): protection block present (not decoded)
-//	offset 4:  formatting_not_used (INT16) — reserved
-//	then, conditionally:
-//	  FontFormatting (118 bytes) — when font bit is set
-//	  BorderFormatting (8 bytes) — when border bit is set
-//	  PatternFormatting (4 bytes) — when pattern bit is set
-//
-// FontFormatting layout (HSSF FontFormatting, 118 bytes):
-//
-//	offset 0: 2 bytes reserved
-//	offset 2: 2 bytes font height (1/20 pt)
-//	offset 4: 2 bytes font weight (400=normal, 700=bold)
-//	offset 6: 1 byte escapement type (0=none, 1=super, 2=sub)
-//	offset 7: 1 byte underline type (0=none, 1=single, 2=double, 33=single-accounting, 34=double-accounting)
-//	offset 8: 1 byte font family (ignored)
-//	offset 9: 1 byte character set (ignored)
-//	offset 10: 1 byte reserved
-//	offset 11: 1 byte reserved
-//	offset 12: 4 bytes font color RGB (palette index in low byte)
-//	offset 16: 1 byte options — bit 0=bold, bit 1=italic, bit 2=underline, bit 3=strikeout,
-//	            bit 4=outline, bit 5=shadow, bit 6=condense, bit 7=extend
-//	offset 17: 2 bytes escapement type again (ignored)
-//	offset 19: 2 bytes underline type again (ignored)
-//	offset 21: 2 bytes font name length (ignored)
-//	offset 23: 95 bytes font name (ignored)
-//
-// BorderFormatting layout (HSSF BorderFormatting, 8 bytes):
-//
-//	offset 0: 4 bytes — lower 4 bits each: left, right, top, bottom border style
-//	            bits 16-22: left color, bits 23-29: right color
-//	offset 4: 4 bytes — bits 0-6: top color, bits 7-13: bottom color
-//	            bits 14-20: diagonal color, bits 21-22: diagonal style
-//	            bit 23: forward diagonal on, bit 24: backward diagonal on
-//
-// PatternFormatting layout (HSSF PatternFormatting, 4 bytes):
-//
-//	offset 0: 2 bytes fill pattern
-//	offset 2: 2 bytes foreground/background color index (low byte=fore, high byte=back)
+// parseExtFmtBlock decodes a DXFN differential format block.
 func parseExtFmtBlock(data []byte, palette *[56]string) *sheetir.DxfStyle {
-	if len(data) < 6 {
+	dxf, _, ok := parseDXFN(data, palette)
+	if !ok {
 		return nil
 	}
-	dxf := &sheetir.DxfStyle{}
-	opts := binary.LittleEndian.Uint32(data[0:4])
-	pos := 6
-
-	// FontFormatting block (118 bytes).
-	if opts&0x04000000 != 0 && pos+118 <= len(data) {
-		ff := data[pos : pos+118]
-		height := int(binary.LittleEndian.Uint16(ff[2:4]))
-		if height > 0 {
-			dxf.FontHeight = &height
-		}
-		weight := int(binary.LittleEndian.Uint16(ff[4:6]))
-		if weight > 0 {
-			dxf.FontWeight = &weight
-		}
-		esc := int(ff[6])
-		if esc > 0 {
-			dxf.EscapementType = &esc
-		}
-		ul := int(ff[7])
-		if ul > 0 {
-			dxf.UnderlineType = &ul
-		}
-		// Font color at offset 12 (4 bytes, palette index in low byte).
-		colorIdx := int(binary.LittleEndian.Uint32(ff[12:16]) & 0x7F)
-		if colorIdx > 0 {
-			dxf.FontColorIndex = &colorIdx
-		}
-		// Options byte at offset 16.
-		opt := ff[16]
-		bold := opt&0x01 != 0
-		italic := opt&0x02 != 0
-		underline := opt&0x04 != 0
-		strike := opt&0x08 != 0
-		outline := opt&0x10 != 0
-		shadow := opt&0x20 != 0
-		if bold {
-			dxf.Bold = &bold
-		}
-		if italic {
-			dxf.Italic = &italic
-		}
-		if underline {
-			dxf.Underline = &underline
-		}
-		if strike {
-			dxf.Strike = &strike
-		}
-		if outline {
-			dxf.Outline = &outline
-		}
-		if shadow {
-			dxf.Shadow = &shadow
-		}
-		pos += 118
-	}
-
-	// BorderFormatting block (8 bytes).
-	if opts&0x10000000 != 0 && pos+8 <= len(data) {
-		bf := data[pos : pos+8]
-		b1 := binary.LittleEndian.Uint32(bf[0:4])
-		b2 := binary.LittleEndian.Uint32(bf[4:8])
-		left := int(b1 & 0x0F)
-		right := int((b1 >> 4) & 0x0F)
-		top := int((b1 >> 8) & 0x0F)
-		bottom := int((b1 >> 12) & 0x0F)
-		diag := int((b2 >> 21) & 0x0F)
-		if left > 0 {
-			dxf.BorderLeft = &left
-		}
-		if right > 0 {
-			dxf.BorderRight = &right
-		}
-		if top > 0 {
-			dxf.BorderTop = &top
-		}
-		if bottom > 0 {
-			dxf.BorderBottom = &bottom
-		}
-		if diag > 0 {
-			dxf.BorderDiagonal = &diag
-		}
-		// Border colors (palette indices, 7-bit each).
-		leftColor := int((b1 >> 16) & 0x7F)
-		rightColor := int((b1 >> 23) & 0x7F)
-		topColor := int(b2 & 0x7F)
-		bottomColor := int((b2 >> 7) & 0x7F)
-		diagColor := int((b2 >> 14) & 0x7F)
-		if leftColor > 0 {
-			dxf.LeftBorderColor = resolveICV(leftColor, palette)
-		}
-		if rightColor > 0 {
-			dxf.RightBorderColor = resolveICV(rightColor, palette)
-		}
-		if topColor > 0 {
-			dxf.TopBorderColor = resolveICV(topColor, palette)
-		}
-		if bottomColor > 0 {
-			dxf.BottomBorderColor = resolveICV(bottomColor, palette)
-		}
-		if diagColor > 0 {
-			dxf.DiagonalBorderColor = resolveICV(diagColor, palette)
-		}
-		fwd := b1&(1<<31) != 0
-		bwd := b1&(1<<30) != 0
-		if fwd {
-			dxf.ForwardDiagonalOn = &fwd
-		}
-		if bwd {
-			dxf.BackwardDiagonalOn = &bwd
-		}
-		pos += 8
-	}
-
-	// PatternFormatting block (4 bytes).
-	if opts&0x20000000 != 0 && pos+4 <= len(data) {
-		pf := data[pos : pos+4]
-		pattern := int(binary.LittleEndian.Uint16(pf[0:2]))
-		if pattern > 0 {
-			dxf.FillPattern = &pattern
-		}
-		foreIdx := int(pf[2] & 0x7F)
-		backIdx := int(pf[3] & 0x7F)
-		if foreIdx > 0 {
-			dxf.FillForegroundColor = resolveICV(foreIdx, palette)
-		}
-		if backIdx > 0 {
-			dxf.FillBackgroundColor = resolveICV(backIdx, palette)
-		}
-		pos += 4
-	}
-
+	finishDXFFill(dxf)
 	return dxf
 }
 
@@ -9805,7 +9911,7 @@ func parseExtFmtBlock(data []byte, palette *[56]string) *sheetir.DxfStyle {
 // captures formula1/formula2 PTG blobs as hex for compatibility with CF.
 // For colorScale and dataBar rules, it also parses the ext formatting block
 // and trailing DataBarFormatting / ColorGradientFormatting structures.
-func parseCF12Record(payload []byte, palette *[56]string) *sheetir.CFRule {
+func parseCF12Record(payload []byte, palette *[56]string, theme *[12]string) *sheetir.CFRule {
 	if len(payload) < 22 {
 		return nil
 	}
@@ -9834,10 +9940,19 @@ func parseCF12Record(payload []byte, palette *[56]string) *sheetir.CFRule {
 		return nil
 	}
 
-	// Parse ext formatting block (formatting_options + FontFormatting/BorderFormatting/PatternFormatting).
+	// DXFN12: a DXFN followed by an optional XFExtNoFXT with full colours.
 	pos := 22
 	if extFmtLen > 0 {
-		if dxf := parseExtFmtBlock(payload[pos:pos+extFmtLen], palette); dxf != nil {
+		if pos+extFmtLen > len(payload) {
+			return rule
+		}
+		block := payload[pos : pos+extFmtLen]
+		if dxf, n, ok := parseDXFN(block, palette); ok {
+			// XFExtNoFXT: reserved1 (2) + reserved2 (2) + reserved3 (2) + cexts...
+			if n+8 <= len(block) {
+				applyDXFExtProps(dxf, parseExtProps(block[n+6:]), palette, theme)
+			}
+			finishDXFFill(dxf)
 			rule.DxfStyle = *dxf
 		}
 		pos += extFmtLen
@@ -9867,8 +9982,9 @@ func parseCF12Record(payload []byte, palette *[56]string) *sheetir.CFRule {
 		pos += 2 + scaleLen
 	}
 
-	// Skip ext_opts (1), priority (2), template_type (2), template_param_length (1), template_params.
+	// ext_opts (1), priority (2), template_type (2), template_param_length (1), template_params.
 	if pos+6 <= len(payload) {
+		rule.Priority = int(binary.LittleEndian.Uint16(payload[pos+1 : pos+3]))
 		tplLen := int(payload[pos+5])
 		pos += 6 + tplLen
 	}
@@ -9876,12 +9992,12 @@ func parseCF12Record(payload []byte, palette *[56]string) *sheetir.CFRule {
 	// Parse trailing formatting blocks based on rule type.
 	if ct == 4 && pos < len(payload) {
 		// dataBar: DataBarFormatting block follows.
-		if db := parseDataBarFormatting(payload[pos:], palette); db != nil {
+		if db := parseDataBarFormatting(payload[pos:], palette, theme); db != nil {
 			rule.DataBar = db
 		}
 	} else if ct == 3 && pos < len(payload) {
 		// colorScale: ColorGradientFormatting block follows.
-		if cg := parseColorGradientFormatting(payload[pos:], palette); cg != nil {
+		if cg := parseColorGradientFormatting(payload[pos:], palette, theme); cg != nil {
 			rule.ColorScale = cg
 		}
 	} else if ct == 6 && pos < len(payload) {
@@ -10755,14 +10871,18 @@ func decodeBiffBytesRaw(data []byte) string {
 	if activeBiffCodepage != 0 {
 		return decodeBiffBytesWithCodepage(data, activeBiffCodepage)
 	}
-	var b strings.Builder
+	// Without a CODEPAGE record, single-byte BIFF text is a BIFF8 compressed
+	// string: one Unicode code point per byte, i.e. ISO-8859-1. Copying the
+	// bytes verbatim would emit invalid UTF-8 for anything above ASCII.
+	b := make([]byte, 0, len(data))
 	for _, ch := range data {
 		if ch == 0 {
 			continue
 		}
-		b.WriteByte(ch)
+		b = append(b, ch)
 	}
-	return b.String()
+	decoded, _ := charmap.ISO8859_1.NewDecoder().String(string(b))
+	return decoded
 }
 
 // decodeBiffBytesWithCodepage decodes single-byte BIFF text using the workbook
@@ -10828,11 +10948,18 @@ func decodeBiffBytesWithCodepage(data []byte, codepage int) string {
 	case 10079:
 		decoded, _ = charmap.ISO8859_1.NewDecoder().String(string(data))
 	case 1200, 1201:
-		// UTF-16LE / UTF-16BE — should never reach the single-byte path.
-		decoded = string(data)
+		// UTF-16LE / UTF-16BE. A single-byte payload cannot be UTF-16: BIFF8
+		// stores compressed strings as one Unicode code point per byte, so decode
+		// them as ISO-8859-1 instead of leaking the raw bytes into UTF-8 output.
+		decoded, _ = charmap.ISO8859_1.NewDecoder().String(string(data))
 	case 65001:
-		// UTF-8 — should never reach the single-byte path.
-		decoded = string(data)
+		// UTF-8 bytes pass through unchanged, but a compressed BIFF8 string is
+		// Latin-1; only decode valid UTF-8 as UTF-8.
+		if utf8.Valid(data) {
+			decoded = string(data)
+		} else {
+			decoded, _ = charmap.ISO8859_1.NewDecoder().String(string(data))
+		}
 	default:
 		// Unknown codepage: treat bytes as Windows-1252 (Excel default).
 		decoded, _ = charmap.Windows1252.NewDecoder().String(string(data))

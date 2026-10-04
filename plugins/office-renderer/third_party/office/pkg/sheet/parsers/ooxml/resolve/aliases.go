@@ -99,4 +99,5 @@ const (
 	CellBool    = ir.CellBool
 	CellError   = ir.CellError
 	CellFormula = ir.CellFormula
+	CellDate    = ir.CellDate
 )

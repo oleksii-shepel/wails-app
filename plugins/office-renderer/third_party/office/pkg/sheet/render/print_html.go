@@ -32,7 +32,7 @@ func PrintHTMLWithOptions(wb *resolve.Workbook, opts HTMLOptions) (string, []HTM
 			return "", nil, err
 		}
 	}
-	r := &htmlRenderer{wb: wb, options: opts.normalized(), embeddedFamilies: buildEmbeddedFamilyIndex(wb)}
+	r := &htmlRenderer{wb: wb, options: opts.normalized(), embeddedFamilies: buildEmbeddedFamilyIndex(wb), printPages: true}
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<style>\n")
 	r.writeEmbeddedFontCSS(&b)
@@ -57,8 +57,9 @@ func PrintHTMLWithOptions(wb *resolve.Workbook, opts HTMLOptions) (string, []HTM
 			if sheet.PageSetup != nil && sheet.PageSetup.UseFirstPageNumber && sheet.PageSetup.FirstPageNumber > 0 {
 				logicalPage = sheet.PageSetup.FirstPageNumber + pageIndex
 			}
-			fmt.Fprintf(&b, "<div class=\"print-page\" data-sheet=%q data-sheet-page=%q data-physical-page=%q data-print-scale=%q style=\"width:%spt;height:%spt;padding:%spt %spt %spt %spt;--hf-header:%spt;--hf-footer:%spt;--page-left:%spt;--page-right:%spt\">\n",
-				sheet.Name, strconv.Itoa(logicalPage), strconv.Itoa(physical), strconv.FormatFloat(page.Scale, 'f', -1, 64),
+			fmt.Fprintf(&b, "<div class=\"page-num\">Page %d</div>\n", physical)
+			fmt.Fprintf(&b, "<div class=\"print-page\" id=\"page-%d\" data-sheet=%q data-sheet-page=%q data-physical-page=%q data-print-scale=%q style=\"width:%spt;height:%spt;padding:%spt %spt %spt %spt;--hf-header:%spt;--hf-footer:%spt;--page-left:%spt;--page-right:%spt\">\n",
+				physical, sheet.Name, strconv.Itoa(logicalPage), strconv.Itoa(physical), strconv.FormatFloat(page.Scale, 'f', -1, 64),
 				pt(page.PageWidthPt), pt(page.PageHeightPt), pt(page.MarginTopPt), pt(page.MarginRightPt), pt(page.MarginBottomPt), pt(page.MarginLeftPt),
 				pt(page.HeaderMarginPt), pt(page.FooterMarginPt), pt(page.MarginLeftPt), pt(page.MarginRightPt))
 			header, footer := printHeaderFooterForPage(sheet, pageIndex, logicalPage, len(pages))
@@ -247,6 +248,7 @@ const printPageCSS = `
 .print-document { margin: 0; background: white; }
 .print-page { break-after: page; page-break-after: always; overflow: hidden; box-sizing: border-box; position: relative; }
 .print-page:last-child { break-after: auto; page-break-after: auto; }
+.page-num { font: 11px sans-serif; color: #888; margin: 12pt 0 4pt; user-select: none; }
 .print-page > .sheet { margin: 0; }
 .print-header, .print-footer { display: grid; grid-template-columns: 1fr 1fr 1fr; box-sizing: border-box; font-size: 10pt; line-height: 1.2; position: absolute; left: var(--page-left); right: var(--page-right); }
 .print-header { top: var(--hf-header); }
@@ -256,6 +258,7 @@ const printPageCSS = `
 .print-header .hf-right, .print-footer .hf-right { text-align: right; }
 .print-page .sheet-name, .print-page .outline-controls, .print-page .pane-meta { display: none !important; }
 @media print {
+  .page-num { display: none !important; }
   .print-page { box-shadow: none !important; }
   .grid-wrap { overflow: visible !important; }
 }

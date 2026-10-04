@@ -8,8 +8,59 @@ type Face struct {
 	RuneToGlyph map[rune]uint16
 	GlyphToRune map[uint16]rune
 	Advances    []uint16
-	kern        map[uint32]int16
-	gpos        map[uint32]int16
+	// Ascent, Descent and LineGap are the face's vertical metrics in font
+	// units, taken from hhea. They define the single-spacing line advance Word
+	// uses, which differs per family (Calibri is taller than Times New Roman at
+	// the same point size). Descent is reported as a positive distance below
+	// the baseline.
+	Ascent  int16
+	Descent int16
+	LineGap int16
+	kern    map[uint32]int16
+	gpos    map[uint32]int16
+}
+
+// LineHeightRatio is the face's single-spacing line advance as a multiple of
+// the point size. It is 0 when the face carries no vertical metrics.
+func (f *Face) LineHeightRatio() float64 {
+	if f == nil || f.UnitsPerEm == 0 {
+		return 0
+	}
+	total := int32(f.Ascent) + int32(f.Descent) + int32(f.LineGap)
+	if total <= 0 {
+		return 0
+	}
+	return float64(total) / float64(f.UnitsPerEm)
+}
+
+// NewMetricsFace builds a metrics-only face from per-rune advances in font
+// units. Bundled metric tables for common Word fonts use it so documents that
+// do not embed their fonts still measure with the authoring family's real
+// advance widths and line height.
+func NewMetricsFace(unitsPerEm int32, ascent, descent, lineGap int16, runes []rune, advances []uint16) *Face {
+	if unitsPerEm <= 0 || len(runes) == 0 {
+		return nil
+	}
+	face := &Face{
+		UnitsPerEm:  uint16(unitsPerEm),
+		Ascent:      ascent,
+		Descent:     descent,
+		LineGap:     lineGap,
+		RuneToGlyph: make(map[rune]uint16, len(runes)),
+		GlyphToRune: make(map[uint16]rune, len(runes)),
+		Advances:    make([]uint16, 0, len(runes)+1),
+	}
+	face.Advances = append(face.Advances, 0) // glyph 0 is .notdef
+	for i, r := range runes {
+		if i >= len(advances) {
+			break
+		}
+		face.Advances = append(face.Advances, advances[i])
+		gid := uint16(len(face.Advances) - 1)
+		face.RuneToGlyph[r] = gid
+		face.GlyphToRune[gid] = r
+	}
+	return face
 }
 
 func ParseSFNT(data []byte) (*Face, bool) {
@@ -62,6 +113,9 @@ func ParseSFNT(data []byte) (*Face, bool) {
 		RuneToGlyph: r2g,
 		GlyphToRune: g2r,
 		Advances:    advances,
+		Ascent:      int16(binary.BigEndian.Uint16(hhea[4:6])),
+		Descent:     absInt16(int16(binary.BigEndian.Uint16(hhea[6:8]))),
+		LineGap:     int16(binary.BigEndian.Uint16(hhea[8:10])),
 		kern:        parseKern(table("kern")),
 		gpos:        parseGPOSKern(table("GPOS")),
 	}, true
@@ -511,4 +565,11 @@ func parseClassDef(g []byte, off int) map[uint16]uint16 {
 		}
 	}
 	return out
+}
+
+func absInt16(v int16) int16 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

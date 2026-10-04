@@ -25,6 +25,40 @@ func TestTwipAndEMUConversions(t *testing.T) {
 	}
 }
 
+func TestParseMeasureTwips(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  string
+		want   int64
+		wantOK bool
+	}{
+		{name: "bare twips", value: "12240", want: 12240, wantOK: true},
+		{name: "negative twips", value: "-240", want: -240, wantOK: true},
+		{name: "points", value: "612pt", want: 12240, wantOK: true},
+		{name: "fractional points", value: "7.5pt", want: 150, wantOK: true},
+		{name: "inches", value: "1in", want: 1440, wantOK: true},
+		{name: "centimeters", value: "2.54cm", want: 1440, wantOK: true},
+		{name: "millimeters", value: "10mm", want: 567, wantOK: true},
+		{name: "picas", value: "1pc", want: 240, wantOK: true},
+		{name: "emu", value: "914400emu", want: 1440, wantOK: true},
+		{name: "percentage is not a length", value: "50%", wantOK: false},
+		{name: "garbage", value: "wide", wantOK: false},
+		{name: "empty", value: "", wantOK: false},
+		{name: "non finite", value: "NaNpt", wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := units.ParseMeasureTwips(tt.value)
+			if ok != tt.wantOK {
+				t.Fatalf("ParseMeasureTwips(%q) ok = %v, want %v", tt.value, ok, tt.wantOK)
+			}
+			if ok && got != tt.want {
+				t.Fatalf("ParseMeasureTwips(%q) = %d, want %d", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFloatingPointRoundTrips(t *testing.T) {
 	if diff := math.Abs(units.TwipsToInches(720) - 0.5); diff > 1e-9 {
 		t.Fatalf("TwipsToInches(720) diff = %f", diff)

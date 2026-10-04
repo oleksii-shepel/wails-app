@@ -40,7 +40,7 @@ func (f *pageFootnoteFinalizer) Finalize(doc *resolve.Document, page *Page, foot
 		return
 	}
 
-	blocks, nextNumber := materializeFootnoteBlocks(doc, footnoteIDs, f.number, format, &f.nextSyntheticIndex)
+	blocks, nextNumber := materializeFootnoteBlocks(doc, footnoteIDs, f.number, format, footnoteLayoutGeometry(page.Geometry).ColumnWidthPt, &f.nextSyntheticIndex)
 	if len(blocks) == 0 {
 		return
 	}

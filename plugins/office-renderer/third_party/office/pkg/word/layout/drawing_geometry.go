@@ -216,6 +216,72 @@ func drawingExclusionForFloat(fl FloatBox) (lineExclusion, bool) {
 	return drawingLineExclusion(fl, wrapType, placement.WrapSide, placement.WrapPolygon, placement.RotationDeg, emuToPoints(placement.Width), emuToPoints(placement.Height), placement.DistTop, placement.DistRight, placement.DistBottom, placement.DistLeft, emuToPoints(placement.EffectExtentT), emuToPoints(placement.EffectExtentR), emuToPoints(placement.EffectExtentB), emuToPoints(placement.EffectExtentL)), true
 }
 
+// pendingIndependentFloat is a floating drawing whose resolved page position
+// does not depend on its anchor paragraph's flow position. Word lays floats out
+// bottom-up: an arrow anchored in a later paragraph still indents the text of
+// an earlier paragraph when their vertical bands overlap. Carrying such floats
+// forward into wrap exclusion sets reproduces that behavior in the single-pass
+// paginator.
+type pendingIndependentFloat struct {
+	fl    FloatBox
+	order int // top-level block ordinal of the anchor paragraph
+}
+
+// drawingWrapPositionIsIndependent reports whether both the horizontal and the
+// vertical anchor of a floating drawing resolve from page geometry alone, with
+// no anchor-paragraph flow position required.
+func drawingWrapPositionIsIndependent(placement wordir.DrawingPlacement) bool {
+	switch strings.ToLower(strings.TrimSpace(placement.YRelative)) {
+	case "paragraph", "line":
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(placement.XRelative)) {
+	case "paragraph", "character", "column":
+		return false
+	}
+	return true
+}
+
+// pendingIndependentFloats collects position-independent floating drawings from
+// top-level paragraph blocks in block order. Non-wrapping, behind-text and
+// flow-dependent drawings are excluded; they keep the existing anchor-local
+// behavior.
+func pendingIndependentFloats(blockList []wordir.Block, geom PageGeometry) []pendingIndependentFloat {
+	var out []pendingIndependentFloat
+	for order := range blockList {
+		block := &blockList[order]
+		if block.Paragraph == nil {
+			continue
+		}
+		for i := range block.Paragraph.Runs {
+			run := &block.Paragraph.Runs[i]
+			drawing := drawingFromRun(run)
+			if drawing == nil {
+				continue
+			}
+			placement := drawing.DrawingPlacement()
+			if !placement.Floating || placement.BehindDoc {
+				continue
+			}
+			if strings.EqualFold(placement.WrapType, "topAndBottom") {
+				continue
+			}
+			if !drawingWrapPositionIsIndependent(placement) {
+				continue
+			}
+			fl, ok := resolveDrawingFloat(drawing, geom, 0, 0, 0)
+			if !ok {
+				continue
+			}
+			// The payload drives both the wrap exclusion geometry and the
+			// render-time position; a payload-less box would be ignored.
+			fl = attachDrawingPayload(fl, drawing)
+			out = append(out, pendingIndependentFloat{fl: fl, order: order})
+		}
+	}
+	return out
+}
+
 func drawingIsTopAndBottom(fl FloatBox) bool {
 	placement, ok := fl.DrawingPlacement()
 	return ok && placement.Floating && strings.EqualFold(placement.WrapType, "topAndBottom")
@@ -229,8 +295,6 @@ func drawingOuterHeightPt(fl FloatBox) float64 {
 	_, top, _, bottom := transformedDrawingBounds(fl, placement.RotationDeg)
 	return (bottom - top) + placement.DistTop + placement.DistBottom + emuToPoints(placement.EffectExtentT) + emuToPoints(placement.EffectExtentB)
 }
-
-
 
 // paragraphDrawingRequiresNextPage preflights paragraph-relative anchors before
 // the paragraph is committed. This deliberately reads the canonical drawing

@@ -253,7 +253,7 @@ func parseDOCXHeaderFooterStory(r io.Reader) (wordir.Story, error) {
 		}
 		switch start.Name.Local {
 		case "p":
-			p, err := parseDOCXNoteParagraph(dec, start)
+			p, err := parseDOCXNoteParagraph(dec, start, 0)
 			if err != nil {
 				return story, err
 			}
@@ -262,7 +262,7 @@ func parseDOCXHeaderFooterStory(r io.Reader) (wordir.Story, error) {
 			story.Blocks = append(story.Blocks, wordir.Block{Kind: "paragraph", Paragraph: &copyP})
 			story.Text += p.Text
 		case "tbl":
-			table, err := parseDOCXNoteTable(dec, start)
+			table, err := parseDOCXNoteTable(dec, start, 0)
 			if err != nil {
 				return story, err
 			}

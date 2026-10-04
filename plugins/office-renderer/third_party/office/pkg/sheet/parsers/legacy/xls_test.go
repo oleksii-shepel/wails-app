@@ -356,7 +356,18 @@ func TestLegacyWorksheetColumnPxUsesDefaultColWidthFallback(t *testing.T) {
 		DefaultColWidthChars: 10,
 	}
 	got := legacyWorksheetColumnPx(sheet, 4)
-	want := 70 // 10 * legacyCharUnitToPx
+	want := 75 // 10 * legacyCharUnitToPx (7.5px per default-font "0" advance)
+	if got != want {
+		t.Fatalf("legacyWorksheetColumnPx() = %d, want %d", got, want)
+	}
+}
+
+func TestLegacyWorksheetColumnPxUsesExcelCharacterWidthConversion(t *testing.T) {
+	sheet := &sheetir.Sheet{
+		ColumnWidths: map[int]float64{4: 8},
+	}
+	got := legacyWorksheetColumnPx(sheet, 4)
+	const want = 60 // 8 * 7.5px, with Excel's character-width rounding.
 	if got != want {
 		t.Fatalf("legacyWorksheetColumnPx() = %d, want %d", got, want)
 	}
@@ -885,8 +896,8 @@ func TestParseWorksheetAssemblesFormulaCellStringAcrossContinueRecords(t *testin
 func TestParseWorksheetDecompilesBIFFFormulaCell(t *testing.T) {
 	formulaBytes := []byte{
 		0x24,
-		0xFF, 0xFF,
-		0xFF, 0xC0,
+		0x00, 0x00,
+		0x00, 0xC0,
 		0x1E, 0x01, 0x00,
 		0x03,
 	}
@@ -947,8 +958,8 @@ func TestParseWorksheetRequiresImmediateStringRecordForFormulaStringResults(t *t
 func TestParseWorksheetDecompilesOldBIFF3FormulaCell(t *testing.T) {
 	formulaBytes := []byte{
 		0x24,
-		0xFF, 0xFF,
-		0xFF, 0xC0,
+		0x00, 0x00,
+		0x00, 0xC0,
 		0x1E, 0x01, 0x00,
 		0x03,
 	}
@@ -2159,6 +2170,36 @@ func TestParseXlsExtractsWorksheetImagesFromOfficeArt(t *testing.T) {
 	}
 }
 
+func TestParseXlsRecoversOfficeArtShapesFromContinueRecords(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "testdata", "xls", "apache-ConditionalFormattingSamples.xls")
+	workbook, err := ParseXls(path)
+	if err != nil {
+		t.Fatalf("ParseXls: %v", err)
+	}
+	if len(workbook.Sheets) == 0 {
+		t.Fatal("workbook has no sheets")
+	}
+	home := workbook.Sheets[0]
+	if home.Name != "Home" {
+		t.Fatalf("first sheet = %q, want Home", home.Name)
+	}
+	if len(home.Drawings) != 17 {
+		t.Fatalf("len(Home.Drawings) = %d, want 17", len(home.Drawings))
+	}
+	for i := 0; i < 15; i++ {
+		drawing := home.Drawings[i+1]
+		if drawing.Name != fmt.Sprintf("Home Object %d", i+2) {
+			t.Fatalf("Home.Drawings[%d].Name = %q, want Home Object %d", i+1, drawing.Name, i+2)
+		}
+		if drawing.Shape == nil || drawing.Shape.Text == "" {
+			t.Fatalf("Home.Drawings[%d] is missing button text: %#v", i+1, drawing)
+		}
+		if got := drawing.Position.FromCell; got.Row != i+9 || got.Col != 2 {
+			t.Fatalf("Home.Drawings[%d] anchor = row %d col %d, want row %d col 2", i+1, got.Row, got.Col, i+9)
+		}
+	}
+}
+
 func TestParseWorksheetExtractsLegacyOfficeArtShapes(t *testing.T) {
 	data := appendBiffRecord(nil, biffBOF, []byte{0x10, 0x00, 0x06, 0x00})
 	data = appendBiffRecord(data, biffObj, objPayload(legacyObjTypeButton, 1))
@@ -2613,8 +2654,8 @@ func TestParseXlsDecodesOffsetBuiltinsFromApacheFormulaCorpus(t *testing.T) {
 	if target == nil {
 		t.Fatal("expected to find EverythingTests!H1044")
 	}
-	if got := target.Formula; got != "SUM(OFFSET(R1050:S1051,0,0,1,1))" {
-		t.Fatalf("EverythingTests!H1044 formula = %q, want SUM(OFFSET(R1050:S1051,0,0,1,1))", got)
+	if got := target.Formula; got != "SUM(OFFSET(K7:L8,0,0,1,1))" {
+		t.Fatalf("EverythingTests!H1044 formula = %q, want SUM(OFFSET(K7:L8,0,0,1,1))", got)
 	}
 }
 
@@ -2655,8 +2696,8 @@ func TestParseXlsDecodesMatrixArrayFormulaFixture(t *testing.T) {
 func TestParseXlsRendersScalarFormulaThroughSharedEngine(t *testing.T) {
 	formulaBytes := []byte{
 		0x24,
-		0xFF, 0xFF,
-		0xFF, 0xC0,
+		0x00, 0x00,
+		0x00, 0xC0,
 		0x1E, 0x01, 0x00,
 		0x03,
 	}
@@ -3519,7 +3560,7 @@ func TestParseCF12RecordTypeMappings(t *testing.T) {
 		{6, "iconSet"},
 	}
 	for _, c := range cases {
-		rule := parseCF12Record(mk(c.ct), nil)
+		rule := parseCF12Record(mk(c.ct), nil, nil)
 		if rule == nil {
 			t.Fatalf("ct=%d: parseCF12Record returned nil", c.ct)
 		}
@@ -3788,7 +3829,7 @@ func TestParseCFRecordExpression(t *testing.T) {
 func TestParseCF12RecordColorScale(t *testing.T) {
 	p := make([]byte, 24)
 	p[12] = 3 // ct=colorScale after 12-byte future header
-	rule := parseCF12Record(p, nil)
+	rule := parseCF12Record(p, nil, nil)
 	if rule == nil {
 		t.Fatal("parseCF12Record returned nil")
 	}
@@ -3802,7 +3843,7 @@ func TestParseCF12RecordColorScale(t *testing.T) {
 func TestParseCF12RecordDataBar(t *testing.T) {
 	p := make([]byte, 24)
 	p[12] = 4 // ct=dataBar after 12-byte future header
-	rule := parseCF12Record(p, nil)
+	rule := parseCF12Record(p, nil, nil)
 	if rule == nil {
 		t.Fatal("parseCF12Record returned nil")
 	}
@@ -3816,7 +3857,7 @@ func TestParseCF12RecordDataBar(t *testing.T) {
 func TestParseCF12RecordIconSet(t *testing.T) {
 	p := make([]byte, 24)
 	p[12] = 6 // ct=iconSet after 12-byte future header
-	rule := parseCF12Record(p, nil)
+	rule := parseCF12Record(p, nil, nil)
 	if rule == nil {
 		t.Fatal("parseCF12Record returned nil")
 	}
@@ -3830,7 +3871,7 @@ func TestParseCF12RecordIconSet(t *testing.T) {
 func TestParseCF12RecordFilter(t *testing.T) {
 	p := make([]byte, 24)
 	p[12] = 5 // ct=filter after 12-byte future header
-	rule := parseCF12Record(p, nil)
+	rule := parseCF12Record(p, nil, nil)
 	if rule == nil {
 		t.Fatal("parseCF12Record returned nil")
 	}
@@ -3853,7 +3894,7 @@ func TestParseCFRecordShortPayload(t *testing.T) {
 // shorter than 22 bytes returns nil.
 func TestParseCF12RecordShortPayload(t *testing.T) {
 	p := make([]byte, 21)
-	rule := parseCF12Record(p, nil)
+	rule := parseCF12Record(p, nil, nil)
 	if rule != nil {
 		t.Fatal("parseCF12Record should return nil for short payload")
 	}
@@ -3864,7 +3905,7 @@ func TestParseCF12RecordShortPayload(t *testing.T) {
 func TestParseCF12RecordUnknownType(t *testing.T) {
 	p := make([]byte, 24)
 	p[12] = 99 // unknown condition type
-	rule := parseCF12Record(p, nil)
+	rule := parseCF12Record(p, nil, nil)
 	if rule != nil {
 		t.Fatal("parseCF12Record should return nil for unknown condition type")
 	}
@@ -4796,6 +4837,43 @@ func makeRowPayloadWithXF(row int, xfIdx uint16) []byte {
 	return payload
 }
 
+func TestApplyRowRecordUsesDefaultHeightWhenRowIsSynchronized(t *testing.T) {
+	payload := rowPayload(0, 0)
+	binary.LittleEndian.PutUint16(payload[6:8], 285) // cached 14.25pt
+
+	rows := make(map[int]*sheetir.Row)
+	applyRowRecord(nil, rows, payload, nil)
+
+	if got := rows[1].HeightPt; got != 0 {
+		t.Fatalf("synchronized row height = %.2fpt, want unset so DEFAULTROWHEIGHT is used", got)
+	}
+}
+
+func TestApplyRowRecordKeepsExplicitUnsyncedHeight(t *testing.T) {
+	payload := rowPayload(0, 0x0040)                 // fUnsynced
+	binary.LittleEndian.PutUint16(payload[6:8], 345) // 17.25pt
+
+	rows := make(map[int]*sheetir.Row)
+	applyRowRecord(nil, rows, payload, nil)
+
+	if got := rows[1].HeightPt; got != 17.25 {
+		t.Fatalf("explicit row height = %.2fpt, want 17.25pt", got)
+	}
+}
+
+func TestApplyRowRecordKeepsTallSynchronizedHeight(t *testing.T) {
+	payload := rowPayload(10, 0)
+	binary.LittleEndian.PutUint16(payload[6:8], 570) // 28.5pt
+
+	sheet := &sheetir.Sheet{DefaultRowHeightPt: 15}
+	rows := make(map[int]*sheetir.Row)
+	applyRowRecord(sheet, rows, payload, nil)
+
+	if got := rows[11].HeightPt; got != 28.5 {
+		t.Fatalf("tall synchronized row height = %.2fpt, want 28.50pt", got)
+	}
+}
+
 func TestApplyRowRecordCapturesRowXFStyle(t *testing.T) {
 	// Build a minimal XF list: index 0 = default, index 1 = blue background
 	fmts := defaultBIFFFormatCodes()
@@ -4804,7 +4882,7 @@ func TestApplyRowRecordCapturesRowXFStyle(t *testing.T) {
 	xfs := []legacyXF{xfDefault, xfBlue}
 
 	rows := make(map[int]*sheetir.Row)
-	applyRowRecord(rows, makeRowPayloadWithXF(0, 1), xfs)
+	applyRowRecord(nil, rows, makeRowPayloadWithXF(0, 1), xfs)
 	row := rows[1]
 	if row == nil {
 		t.Fatal("row 1 not created")
@@ -4824,7 +4902,7 @@ func TestApplyRowRecordNoStyleWhenFGhostDirtyNotSet(t *testing.T) {
 
 	rows := make(map[int]*sheetir.Row)
 	// fGhostDirty NOT set (grbit = 0)
-	applyRowRecord(rows, rowPayload(0, 0x0000), xfs)
+	applyRowRecord(nil, rows, rowPayload(0, 0x0000), xfs)
 	row := rows[1]
 	if row != nil && row.Style != nil {
 		t.Errorf("row.Style = %+v, want nil when fGhostDirty is not set", row.Style)
@@ -4837,7 +4915,7 @@ func TestApplyRowRecordNoStyleWhenXFIndexIsZero(t *testing.T) {
 
 	rows := make(map[int]*sheetir.Row)
 	// fGhostDirty set but XF index = 0 (default → no style applied)
-	applyRowRecord(rows, makeRowPayloadWithXF(0, 0), xfs)
+	applyRowRecord(nil, rows, makeRowPayloadWithXF(0, 0), xfs)
 	row := rows[1]
 	if row != nil && row.Style != nil {
 		t.Errorf("row.Style = %+v, want nil when XF index is 0", row.Style)
@@ -6675,7 +6753,7 @@ func TestParseEmbeddedChartsReadsLegendAxisAndTitleRecords(t *testing.T) {
 func TestParseExtendedColorAutoReturnsEmpty(t *testing.T) {
 	data := make([]byte, 16)
 	binary.LittleEndian.PutUint32(data[0:4], 0) // TYPE_AUTO
-	if got := parseExtendedColor(data, nil); got != "" {
+	if got := parseExtendedColor(data, nil, nil); got != "" {
 		t.Errorf("parseExtendedColor(TYPE_AUTO) = %q, want empty", got)
 	}
 }
@@ -6687,7 +6765,7 @@ func TestParseExtendedColorIndexedResolvesPalette(t *testing.T) {
 	data := make([]byte, 16)
 	binary.LittleEndian.PutUint32(data[0:4], 1) // TYPE_INDEXED
 	binary.LittleEndian.PutUint32(data[4:8], 9) // index 9
-	if got := parseExtendedColor(data, palette); got != "00FF00" {
+	if got := parseExtendedColor(data, palette, nil); got != "00FF00" {
 		t.Errorf("parseExtendedColor(INDEXED 9) = %q, want 00FF00", got)
 	}
 }
@@ -6697,7 +6775,7 @@ func TestParseExtendedColorIndexedFallsBackToDefaultPalette(t *testing.T) {
 	binary.LittleEndian.PutUint32(data[0:4], 1) // TYPE_INDEXED
 	binary.LittleEndian.PutUint32(data[4:8], 8) // index 8
 	want := defaultBIFFPalette[0]
-	if got := parseExtendedColor(data, nil); got != want {
+	if got := parseExtendedColor(data, nil, nil); got != want {
 		t.Errorf("parseExtendedColor(INDEXED 8) = %q, want %q", got, want)
 	}
 }
@@ -6706,7 +6784,7 @@ func TestParseExtendedColorIndexedAutomaticReturnsEmpty(t *testing.T) {
 	data := make([]byte, 16)
 	binary.LittleEndian.PutUint32(data[0:4], 1)  // TYPE_INDEXED
 	binary.LittleEndian.PutUint32(data[4:8], 64) // automatic
-	if got := parseExtendedColor(data, nil); got != "" {
+	if got := parseExtendedColor(data, nil, nil); got != "" {
 		t.Errorf("parseExtendedColor(INDEXED 64) = %q, want empty", got)
 	}
 }
@@ -6718,7 +6796,7 @@ func TestParseExtendedColorRGBReturnsARGB(t *testing.T) {
 	data[5] = 0x22                              // G
 	data[6] = 0x33                              // B
 	data[7] = 0xFF                              // A
-	if got := parseExtendedColor(data, nil); got != "FF112233" {
+	if got := parseExtendedColor(data, nil, nil); got != "FF112233" {
 		t.Errorf("parseExtendedColor(RGB) = %q, want FF112233", got)
 	}
 }
@@ -6726,11 +6804,11 @@ func TestParseExtendedColorRGBReturnsARGB(t *testing.T) {
 func TestParseExtendedColorThemedResolvesWithTint(t *testing.T) {
 	data := make([]byte, 16)
 	binary.LittleEndian.PutUint32(data[0:4], 3) // TYPE_THEMED
-	binary.LittleEndian.PutUint32(data[4:8], 4) // theme index 4 (accent1 = 4472C4)
+	binary.LittleEndian.PutUint32(data[4:8], 4) // theme index 4 (accent1 = 4F81BD)
 	// tint = 0.5 (lighten)
 	binary.LittleEndian.PutUint64(data[8:16], math.Float64bits(0.5))
-	got := parseExtendedColor(data, nil)
-	if got == "" || got == "4472C4" {
+	got := parseExtendedColor(data, nil, nil)
+	if got == "" || got == "4F81BD" {
 		t.Errorf("parseExtendedColor(THEMED 4 tint=0.5) = %q, want tinted value", got)
 	}
 }
@@ -6738,15 +6816,19 @@ func TestParseExtendedColorThemedResolvesWithTint(t *testing.T) {
 func TestParseExtendedColorThemedNoTint(t *testing.T) {
 	data := make([]byte, 16)
 	binary.LittleEndian.PutUint32(data[0:4], 3) // TYPE_THEMED
-	binary.LittleEndian.PutUint32(data[4:8], 1) // theme index 1 (white)
+	binary.LittleEndian.PutUint32(data[4:8], 0) // theme index 0 (lt1, white)
 	binary.LittleEndian.PutUint64(data[8:16], math.Float64bits(0.0))
-	if got := parseExtendedColor(data, nil); got != "FFFFFF" {
-		t.Errorf("parseExtendedColor(THEMED 1 tint=0) = %q, want FFFFFF", got)
+	if got := parseExtendedColor(data, nil, nil); got != "FFFFFF" {
+		t.Errorf("parseExtendedColor(THEMED 0 tint=0) = %q, want FFFFFF", got)
+	}
+	binary.LittleEndian.PutUint32(data[4:8], 1) // theme index 1 (dk1, the default text colour)
+	if got := parseExtendedColor(data, nil, nil); got != "000000" {
+		t.Errorf("parseExtendedColor(THEMED 1 tint=0) = %q, want 000000", got)
 	}
 }
 
 func TestParseExtendedColorShortPayload(t *testing.T) {
-	if got := parseExtendedColor([]byte{1, 2, 3}, nil); got != "" {
+	if got := parseExtendedColor([]byte{1, 2, 3}, nil, nil); got != "" {
 		t.Errorf("parseExtendedColor(short) = %q, want empty", got)
 	}
 }
@@ -7769,7 +7851,7 @@ func TestLegacyChartLineWeightEMU(t *testing.T) {
 
 func TestLegacyOfficeArtShapeRotationFlipAndShadow(t *testing.T) {
 	shape := legacyWorksheetShape{}
-	props := make([]byte, 6*6)
+	props := make([]byte, 7*6)
 	putProp := func(i int, id uint16, value uint32) {
 		binary.LittleEndian.PutUint16(props[i*6:i*6+2], id)
 		binary.LittleEndian.PutUint32(props[i*6+2:i*6+6], value)
@@ -7780,7 +7862,8 @@ func TestLegacyOfficeArtShapeRotationFlipAndShadow(t *testing.T) {
 	putProp(3, legacyOfficeArtPropShadowOffsetX, uint32(int32(25400)))
 	putProp(4, legacyOfficeArtPropShadowOffsetY, uint32(int32(12700)))
 	putProp(5, legacyOfficeArtPropShadowSoftness, uint32(int32(38100)))
-	parseLegacyWorksheetShapeProperties(props, 6, &shape)
+	putProp(6, legacyOfficeArtPropShadowBooleans, (1<<30)|(1<<14))
+	parseLegacyWorksheetShapeProperties(props, 7, &shape)
 	if shape.rotationDeg != 45 {
 		t.Fatalf("rotation = %v, want 45", shape.rotationDeg)
 	}
@@ -7792,6 +7875,18 @@ func TestLegacyOfficeArtShapeRotationFlipAndShadow(t *testing.T) {
 	}
 	if math.Abs(shape.shadow.Blur-3) > 0.01 {
 		t.Fatalf("blur = %v, want 3pt", shape.shadow.Blur)
+	}
+
+	defaultShadow := legacyWorksheetShape{}
+	props = make([]byte, 6)
+	putProp = func(i int, id uint16, value uint32) {
+		binary.LittleEndian.PutUint16(props[i*6:i*6+2], id)
+		binary.LittleEndian.PutUint32(props[i*6+2:i*6+6], value)
+	}
+	putProp(0, legacyOfficeArtPropShadowBooleans, (1<<30)|(1<<14))
+	parseLegacyWorksheetShapeProperties(props, 1, &defaultShadow)
+	if defaultShadow.shadow == nil || defaultShadow.shadow.Color != "000000" || defaultShadow.shadow.Alpha != 1 {
+		t.Fatalf("default shadow = %#v", defaultShadow.shadow)
 	}
 
 	spBody := make([]byte, 8)
@@ -8111,9 +8206,9 @@ func TestPhase5BIFFExtFmtPreservesBorderAndPatternDetails(t *testing.T) {
 	binary.LittleEndian.PutUint32(data[6:10], b1)
 	b2 := uint32(0x0A) | uint32(0x0B)<<7 | uint32(0x0C)<<14 | uint32(6)<<21
 	binary.LittleEndian.PutUint32(data[10:14], b2)
-	// Pattern block: pattern 9 (darkGrid), foreground/background palette entries.
-	binary.LittleEndian.PutUint16(data[14:16], 9)
-	data[16], data[17] = 0x08, 0x09
+	// DXFPat: fls (bits 10-15) = 9 (darkGrid); icvForeground/icvBackground are 7-bit fields.
+	binary.LittleEndian.PutUint16(data[14:16], 9<<10)
+	binary.LittleEndian.PutUint16(data[16:18], 0x08|0x09<<7)
 
 	dxf := parseExtFmtBlock(data, &defaultBIFFPalette)
 	if dxf == nil || dxf.BorderLeft == nil || *dxf.BorderLeft != 2 ||
@@ -8824,5 +8919,30 @@ func TestPhase5PivotViewDropsLegacyNULName(t *testing.T) {
 	}
 	if view.Name != "" {
 		t.Fatalf("pivot name = %q, want empty canonical name", view.Name)
+	}
+}
+
+func TestLegacyMetroEffectsFromXMLPreservesSoftEdgeAndBevel(t *testing.T) {
+	effects := legacyMetroEffectsFromXML([]byte(`<?xml version="1.0"?>
+		<xdr:sp xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+		  <xdr:spPr>
+		    <a:effectLst><a:softEdge rad="63500"/></a:effectLst>
+		    <a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="threePt" dir="t"/></a:scene3d>
+		    <a:sp3d><a:bevelT w="165100" h="38100" prst="coolSlant"/></a:sp3d>
+		  </xdr:spPr>
+		</xdr:sp>`))
+	if len(effects.Effects) != 2 {
+		t.Fatalf("effect count = %d, want 2", len(effects.Effects))
+	}
+	softEdge, ok := effects.Effects[0].(drawing.SoftEdge)
+	if !ok || softEdge.Radius != 5 {
+		t.Fatalf("soft edge = %#v, want 5pt", effects.Effects[0])
+	}
+	threeD, ok := effects.Effects[1].(drawing.ThreeD)
+	if !ok {
+		t.Fatalf("3-D effect = %T, want drawing.ThreeD", effects.Effects[1])
+	}
+	if threeD.CameraPreset != "orthographicFront" || threeD.LightRig != "threePt" || threeD.LightDirection != "t" || threeD.BevelTopWidth != 13 || threeD.BevelTopHeight != 3 || threeD.BevelTopPreset != "coolSlant" {
+		t.Fatalf("3-D effect = %#v, want Home button bevel metadata", threeD)
 	}
 }

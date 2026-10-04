@@ -805,8 +805,10 @@ func TestResolveDrawingMLPictureAdjustments(t *testing.T) {
 	if math.Abs(img.Brightness-2.5) > 1e-9 {
 		t.Fatalf("brightness = %.2f, want 2.5", img.Brightness)
 	}
-	if math.Abs(img.Contrast-1.8) > 1e-9 {
-		t.Fatalf("contrast = %.2f, want 1.8", img.Contrast)
+	if math.Abs(img.Contrast-5.0) > 1e-9 {
+		// Office renders +80% contrast as a 5x scale (1/(1-0.8)); the authored
+		// percentage is asymptotic, not a linear offset.
+		t.Fatalf("contrast = %.2f, want 5.0", img.Contrast)
 	}
 	if math.Abs(img.Alpha-0.5) > 1e-9 {
 		t.Fatalf("alpha = %.2f, want 0.5", img.Alpha)

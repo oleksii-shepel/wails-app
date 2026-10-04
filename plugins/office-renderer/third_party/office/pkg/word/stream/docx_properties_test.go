@@ -38,6 +38,23 @@ func TestRunFormatFromSAX(t *testing.T) {
 	}
 }
 
+func TestRunFormatFromSAXCarriesHiddenTextFlags(t *testing.T) {
+	got := runFormatFromSAX(wordsax.RunProperties{
+		Vanish: boolp(true), SpecVanish: boolp(true),
+	})
+	if !got.Hidden() {
+		t.Fatalf("hidden = false for vanish/specVanish, got %#v", got)
+	}
+	if got.Vanish == nil || !*got.Vanish || got.SpecVanish == nil || !*got.SpecVanish {
+		t.Fatalf("hidden flags = %#v", got)
+	}
+	// An explicit off toggle must not hide the run.
+	visible := runFormatFromSAX(wordsax.RunProperties{Vanish: boolp(false), SpecVanish: boolp(false)})
+	if visible.Hidden() {
+		t.Fatalf("explicitly visible run reported as hidden: %#v", visible)
+	}
+}
+
 func TestSectionFromSAX(t *testing.T) {
 	got := sectionFromSAX(wordsax.SectionProperties{
 		Type: "nextPage", PageWidth: intp(12240), PageHeight: intp(15840),

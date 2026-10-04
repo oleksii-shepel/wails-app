@@ -104,19 +104,19 @@ func TestResolveShapeTextRunUsesWorkbookThemeAndIndexedColors(t *testing.T) {
 	themeIdx := 4
 	run := parts.XDRTxRun{
 		T: "Theme text",
-		Properties: &parts.RTProps{
+		Properties: &parts.XDRRunProperties{RTProps: parts.RTProps{
 			Color: &parts.ColorVal{Theme: &themeIdx},
-		},
+		}},
 	}
 
-	resolved := resolveShapeTextRun(run, map[int]string{4: "4472C4"}, nil)
+	resolved := resolveShapeTextRun(run, nil, map[int]string{4: "4472C4"}, nil)
 	if resolved.FontColor != "4472C4" {
 		t.Fatalf("resolveShapeTextRun(theme) = %q, want %q", resolved.FontColor, "4472C4")
 	}
 
 	indexedIdx := 9
 	run.Properties.Color = &parts.ColorVal{Indexed: &indexedIdx}
-	resolved = resolveShapeTextRun(run, nil, map[int]string{9: "ABCDEF"})
+	resolved = resolveShapeTextRun(run, nil, nil, map[int]string{9: "ABCDEF"})
 	if resolved.FontColor != "ABCDEF" {
 		t.Fatalf("resolveShapeTextRun(indexed) = %q, want %q", resolved.FontColor, "ABCDEF")
 	}

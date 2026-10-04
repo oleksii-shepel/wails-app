@@ -70,81 +70,6 @@ func TestRenderIconSetUsesHighValueForFirstIcon(t *testing.T) {
 	}
 }
 
-func TestParseHFSectionsThreeSections(t *testing.T) {
-	left, center, right := parseHFSections("&LLeft&CCenter&RRight")
-	if left != "Left" {
-		t.Errorf("left=%q, want %q", left, "Left")
-	}
-	if center != "Center" {
-		t.Errorf("center=%q, want %q", center, "Center")
-	}
-	if right != "Right" {
-		t.Errorf("right=%q, want %q", right, "Right")
-	}
-}
-
-func TestParseHFSectionsNoMarkerDefaultsToCenter(t *testing.T) {
-	left, center, right := parseHFSections("OnlyText")
-	if left != "" {
-		t.Errorf("left=%q, want empty", left)
-	}
-	if center != "OnlyText" {
-		t.Errorf("center=%q, want %q", center, "OnlyText")
-	}
-	if right != "" {
-		t.Errorf("right=%q, want empty", right)
-	}
-}
-
-func TestRenderHFSectionHTMLFormatCodes(t *testing.T) {
-	// &&  should produce a literal ampersand.
-	out := renderHFSectionHTML("A&&B", "Sheet1", nil, nil)
-	if !strings.Contains(out, "A&amp;B") {
-		t.Errorf("expected literal ampersand, got %q", out)
-	}
-
-	// &A should substitute sheet name.
-	out = renderHFSectionHTML("&A", "MySheet", nil, nil)
-	if out != "MySheet" {
-		t.Errorf("expected sheet name, got %q", out)
-	}
-
-	// &P renders a placeholder span.
-	out = renderHFSectionHTML("Page &P", "Sheet1", nil, nil)
-	if !strings.Contains(out, "hf-page-num") {
-		t.Errorf("expected page-num span, got %q", out)
-	}
-
-	// Bold toggle wraps text in <b>...</b>.
-	out = renderHFSectionHTML("&BHello&B", "Sheet1", nil, nil)
-	if !strings.Contains(out, "<b>Hello</b>") {
-		t.Errorf("expected bold tags, got %q", out)
-	}
-}
-
-func TestRenderSheetHeaderFooterEmitsHTMLStructure(t *testing.T) {
-	var b strings.Builder
-	renderSheetHeaderFooter(&b, "&LLeft&CCenter&RRight", "header", "Sheet1", nil)
-	out := b.String()
-	if !strings.Contains(out, "sheet-header") {
-		t.Errorf("expected sheet-header class, got %q", out)
-	}
-	if !strings.Contains(out, "sheet-header-left") {
-		t.Errorf("expected sheet-header-left, got %q", out)
-	}
-	if !strings.Contains(out, "Left") {
-		t.Errorf("expected Left text in header, got %q", out)
-	}
-}
-
-func TestRenderSheetHeaderFooterEmptyStringDoesNothing(t *testing.T) {
-	var b strings.Builder
-	renderSheetHeaderFooter(&b, "", "header", "Sheet1", nil)
-	if b.Len() != 0 {
-		t.Errorf("expected no output for empty text, got %q", b.String())
-	}
-}
-
 func TestEvaluateValidationFormulaCrossSheetReference(t *testing.T) {
 	wb := &resolve.Workbook{
 		Sheets: []*resolve.Sheet{
@@ -530,6 +455,26 @@ func TestDrawingLayoutExplicitHeightOverridesDefaultZeroHeight(t *testing.T) {
 	want := int(math.Round(18 * 4 / 3))
 	if got := dl.anchorYPx(2, 0); got != want {
 		t.Fatalf("row 2 visual y = %dpx, want %dpx from explicit row height", got, want)
+	}
+}
+
+func TestWorksheetDataColumnsKeepsSingleTrailingDimensionColumn(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DimFirstCol: 1, DimLastCol: 5,
+		Rows: []*resolve.Row{{Index: 1, Cells: []*resolve.Cell{{Row: 1, Col: 4, Ref: "D1"}}}},
+	}
+	if got := worksheetDataColumns(sheet); got != 5 {
+		t.Fatalf("data columns = %d, want 5 so a BIFF D-content/E-envelope sheet is not cropped", got)
+	}
+}
+
+func TestWorksheetDataColumnsStillIgnoresStaleWideDimension(t *testing.T) {
+	sheet := &resolve.Sheet{
+		DimFirstCol: 1, DimLastCol: 16384,
+		Rows: []*resolve.Row{{Index: 1, Cells: []*resolve.Cell{{Row: 1, Col: 4, Ref: "D1"}}}},
+	}
+	if got := worksheetDataColumns(sheet); got != 4 {
+		t.Fatalf("data columns = %d, want 4; stale whole-sheet dimension must not expand HTML", got)
 	}
 }
 

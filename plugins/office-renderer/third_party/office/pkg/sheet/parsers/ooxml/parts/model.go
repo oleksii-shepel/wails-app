@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"strings"
 
 	"office/pkg/diag"
 	"office/pkg/ooxml/drawing"
@@ -656,7 +657,9 @@ type DataBar struct {
 // IconSet represents an icon set conditional format.
 // ECMA-376 Part 1 §18.3.1.12.
 type IconSet struct {
-	Set       string `xml:"set,attr,omitempty"`
+	// ECMA-376 Part 1 §18.3.1.11: the attribute is named like its element,
+	// <iconSet iconSet="3Arrows">; reading "set" left every rule on the default.
+	Set       string `xml:"iconSet,attr,omitempty"`
 	ShowValue bool   `xml:"showValue,attr,omitempty"`
 	Reverse   bool   `xml:"reverse,attr,omitempty"`
 	Cfvo      []Cfvo `xml:"cfvo"`
@@ -1055,6 +1058,7 @@ type IndexedRGBColor struct {
 // ECMA-376 Part 1 §18.8.14.
 type Dxf struct {
 	Font   *DxfFont   `xml:"font"`
+	NumFmt *NumFmt    `xml:"numFmt"`
 	Fill   *DxfFill   `xml:"fill"`
 	Border *DxfBorder `xml:"border"`
 }
@@ -1100,6 +1104,8 @@ type FontDecl struct {
 // FontEmbedRef points to an embedded font part via a relationship ID.
 type FontEmbedRef struct {
 	RelID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	// FontKey is the OOXML fontKey GUID needed to undo ODTTF obfuscation.
+	FontKey string `xml:"fontKey,attr,omitempty"`
 }
 
 type EmbeddedFontData = fontdata.EmbeddedFontData
@@ -1788,6 +1794,7 @@ type XDROuterShadowEffect struct {
 	Dir       int                   `xml:"dir,attr,omitempty"`
 	SrgbClr   *XDREffectColorRef    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr"`
 	SchemeClr *XDREffectSchemeColor `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr"`
+	PrstClr   *XDREffectColorRef    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr"`
 }
 
 // XDRGlowEffect stores DrawingML glow attributes.
@@ -1824,6 +1831,9 @@ func (sp *XDRSpPr) DrawingEffectList(themeColors map[string]string) drawing.Effe
 	}
 	if sp.EffectLst.OuterShadow != nil {
 		color, alpha := resolveXDREffectColor(sp.EffectLst.OuterShadow.SrgbClr, sp.EffectLst.OuterShadow.SchemeClr, themeColors)
+		if preset := sp.EffectLst.OuterShadow.PrstClr; preset != nil {
+			color, alpha = resolveXDRPresetEffectColor(preset)
+		}
 		effects = append(effects, drawing.Shadow{
 			Color:    color,
 			Alpha:    alpha,
@@ -1877,6 +1887,20 @@ func (sp *XDRSpPr) DrawingEffectList(themeColors map[string]string) drawing.Effe
 	return drawing.EffectList{Effects: effects}
 }
 
+func resolveXDRPresetEffectColor(color *XDREffectColorRef) (string, float64) {
+	if color == nil {
+		return "000000", 1.0
+	}
+	switch strings.ToLower(strings.TrimSpace(color.Val)) {
+	case "black":
+		return "000000", xdrEffectAlphaValue(color.Alpha)
+	case "white":
+		return "FFFFFF", xdrEffectAlphaValue(color.Alpha)
+	default:
+		return "000000", xdrEffectAlphaValue(color.Alpha)
+	}
+}
+
 // DrawingThreeDEffect converts scene3d/sp3d metadata into a shared 3D approximation.
 func (sp *XDRSpPr) DrawingThreeDEffect(themeColors map[string]string) *drawing.ThreeD {
 	if sp == nil || (sp.Scene3D == nil && sp.Shape3D == nil) {
@@ -1904,10 +1928,12 @@ func (sp *XDRSpPr) DrawingThreeDEffect(themeColors map[string]string) *drawing.T
 		if sp.Shape3D.BevelT != nil {
 			effect.BevelTopWidth = drawing.EMUToPoints(sp.Shape3D.BevelT.W)
 			effect.BevelTopHeight = drawing.EMUToPoints(sp.Shape3D.BevelT.H)
+			effect.BevelTopPreset = sp.Shape3D.BevelT.Prst
 		}
 		if sp.Shape3D.BevelB != nil {
 			effect.BevelBottomWidth = drawing.EMUToPoints(sp.Shape3D.BevelB.W)
 			effect.BevelBottomHeight = drawing.EMUToPoints(sp.Shape3D.BevelB.H)
+			effect.BevelBottomPreset = sp.Shape3D.BevelB.Prst
 		}
 		effect.ContourColor = resolveXDR3DColor(sp.Shape3D.ContourClr, sp.Shape3D.ContourScheme, themeColors)
 		effect.ExtrusionColor = resolveXDR3DColor(sp.Shape3D.ExtrusionClr, sp.Shape3D.ExtrudeScheme, themeColors)
@@ -1982,8 +2008,27 @@ type XDRTxParagraph struct {
 
 // XDRTxRun is a:r — a text run.
 type XDRTxRun struct {
-	Properties *RTProps `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rPr"`
-	T          string   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main t"`
+	Properties *XDRRunProperties `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rPr"`
+	T          string            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main t"`
+}
+
+// XDRRunProperties is a:rPr. DrawingML stores size and emphasis as attributes;
+// the embedded RTProps keeps the SpreadsheetML-style children older writers emitted.
+type XDRRunProperties struct {
+	RTProps
+	SizeHundredths int                   `xml:"sz,attr,omitempty"`
+	B              string                `xml:"b,attr,omitempty"`
+	I              string                `xml:"i,attr,omitempty"`
+	U              string                `xml:"u,attr,omitempty"`
+	StrikeType     string                `xml:"strike,attr,omitempty"`
+	Baseline       int                   `xml:"baseline,attr,omitempty"`
+	SolidFill      *drawingxml.SolidFill `xml:"solidFill"`
+	Latin          *XDRTextFont          `xml:"latin"`
+}
+
+// XDRTextFont is a:latin and its siblings.
+type XDRTextFont struct {
+	Typeface string `xml:"typeface,attr"`
 }
 
 // Table represents a table definition (xl/tables/tableN.xml).

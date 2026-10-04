@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"office/pkg/ooxml/units"
 	wordsax "office/pkg/word/parsers/ooxml/sax"
 )
 
@@ -213,14 +214,14 @@ func scanDOCXParagraphProperties(dec *xml.Decoder, end xml.StartElement) (wordsa
 			case "jc":
 				out.Alignment = docxAttr(t, "val")
 			case "ind":
-				out.IndentLeft = docxIntAttrAny(t, "left", "start")
-				out.IndentRight = docxIntAttrAny(t, "right", "end")
-				out.IndentFirstLine = docxIntAttr(t, "firstLine")
-				out.IndentHanging = docxIntAttr(t, "hanging")
+				out.IndentLeft = docxTwipsAttrAny(t, "left", "start")
+				out.IndentRight = docxTwipsAttrAny(t, "right", "end")
+				out.IndentFirstLine = docxTwipsAttr(t, "firstLine")
+				out.IndentHanging = docxTwipsAttr(t, "hanging")
 			case "spacing":
-				out.SpacingBefore = docxIntAttr(t, "before")
-				out.SpacingAfter = docxIntAttr(t, "after")
-				out.LineSpacing = docxIntAttr(t, "line")
+				out.SpacingBefore = docxTwipsAttr(t, "before")
+				out.SpacingAfter = docxTwipsAttr(t, "after")
+				out.LineSpacing = docxTwipsAttr(t, "line")
 				out.LineRule = docxAttr(t, "lineRule")
 			case "keepNext":
 				out.KeepNext = docxOnOff(t, true)
@@ -238,6 +239,48 @@ func scanDOCXParagraphProperties(dec *xml.Decoder, end xml.StartElement) (wordsa
 				}
 				out.NumberingID, out.NumberingLevel = id, level
 				continue
+			case "tabs":
+				tabs, err := scanDOCXParagraphTabs(dec, t)
+				if err != nil {
+					return out, section, err
+				}
+				out.Tabs = tabs
+				continue
+			case "shd":
+				if fill := docxShadingFill(t); fill != "" {
+					out.Shading = fill
+				}
+			case "pBdr":
+				borders, err := scanDOCXParagraphBorders(dec, t)
+				if err != nil {
+					return out, section, err
+				}
+				out.Borders = borders
+				continue
+			case "framePr":
+				frame := wordsax.FrameProperties{
+					W:       docxIntValueOf(docxAttr(t, "w")),
+					H:       docxIntValueOf(docxAttr(t, "h")),
+					X:       docxIntValueOf(docxAttr(t, "x")),
+					Y:       docxIntValueOf(docxAttr(t, "y")),
+					XAlign:  docxAttr(t, "xAlign"),
+					YAlign:  docxAttr(t, "yAlign"),
+					HAnchor: docxAttr(t, "hAnchor"),
+					VAnchor: docxAttr(t, "vAnchor"),
+					Wrap:    docxAttr(t, "wrap"),
+					HSpace:  docxIntValueOf(docxAttr(t, "hSpace")),
+					VSpace:  docxIntValueOf(docxAttr(t, "vSpace")),
+					DropCap: docxAttr(t, "dropCap"),
+					Lines:   docxIntValueOf(docxAttr(t, "lines")),
+				}
+				out.Frame = &frame
+			case "rPr":
+				mark, err := scanDOCXRunProperties(dec, t)
+				if err != nil {
+					return out, section, err
+				}
+				out.MarkRun = &mark
+				continue
 			case "sectPr":
 				s, err := scanDOCXSection(dec, t)
 				if err != nil {
@@ -252,6 +295,33 @@ func scanDOCXParagraphProperties(dec *xml.Decoder, end xml.StartElement) (wordsa
 		case xml.EndElement:
 			if t.Name == end.Name {
 				return out, section, nil
+			}
+		}
+	}
+}
+
+func scanDOCXParagraphTabs(dec *xml.Decoder, end xml.StartElement) ([]wordsax.TabStop, error) {
+	var tabs []wordsax.TabStop
+	for {
+		token, err := dec.Token()
+		if err != nil {
+			return tabs, err
+		}
+		switch t := token.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "tab" {
+				stop := wordsax.TabStop{Algn: docxAttr(t, "val"), Leader: docxAttr(t, "leader")}
+				if pos := docxTwipsAttr(t, "pos"); pos != nil {
+					stop.Pos = *pos
+				}
+				tabs = append(tabs, stop)
+			}
+			if err := dec.Skip(); err != nil {
+				return tabs, err
+			}
+		case xml.EndElement:
+			if t.Name == end.Name {
+				return tabs, nil
 			}
 		}
 	}
@@ -327,6 +397,49 @@ func scanDOCXRunProperties(dec *xml.Decoder, end xml.StartElement) (wordsax.RunP
 				out.CharacterSpacing = docxIntAttr(t, "val")
 			case "kern":
 				out.KerningHalfPoints = docxIntAttr(t, "val")
+			case "highlight":
+				out.Highlight = docxAttr(t, "val")
+			case "shd":
+				out.ShadingFill = docxShadingFill(t)
+			case "vertAlign":
+				out.VertAlign = docxAttr(t, "val")
+			case "position":
+				out.Position = docxIntAttr(t, "val")
+			case "caps":
+				v := docxOnOff(t, true)
+				out.Caps = &v
+			case "smallCaps":
+				v := docxOnOff(t, true)
+				out.SmallCaps = &v
+			case "dstrike":
+				v := docxOnOff(t, true)
+				out.DoubleStrike = &v
+			case "vanish":
+				v := docxOnOff(t, true)
+				out.Vanish = &v
+			case "specVanish":
+				v := docxOnOff(t, true)
+				out.SpecVanish = &v
+			case "rtl":
+				v := docxOnOff(t, true)
+				out.RTL = &v
+			case "em":
+				out.EmphasisMark = docxAttr(t, "val")
+			case "bdr":
+				border := &wordsax.RunBorder{
+					Val:   docxAttr(t, "val"),
+					Color: docxAttr(t, "color"),
+				}
+				if border.Val == "" {
+					border.Val = "single"
+				}
+				if size := docxIntAttr(t, "sz"); size != nil {
+					border.Size = *size
+				}
+				if space := docxIntAttr(t, "space"); space != nil {
+					border.Space = *space
+				}
+				out.Border = border
 			}
 			if err := dec.Skip(); err != nil {
 				return out, err
@@ -337,6 +450,80 @@ func scanDOCXRunProperties(dec *xml.Decoder, end xml.StartElement) (wordsax.RunP
 			}
 		}
 	}
+}
+
+// docxShadingFill resolves a w:shd background fill. w:fill carries the color;
+// Word also accepts w:color when the pattern is a solid fill, so fall back to
+// it. "auto" means "no shading" and must stay distinguishable from unset.
+func docxShadingFill(start xml.StartElement) string {
+	fill := docxAttr(start, "fill")
+	if fill == "" || fill == "auto" {
+		fill = docxAttr(start, "color")
+	}
+	if fill == "auto" {
+		return ""
+	}
+	return fill
+}
+
+// scanDOCXParagraphBorders reads w:pBdr sides. Each side is a self-closing
+// element, so the decoder is drained until pBdr closes.
+func scanDOCXParagraphBorders(dec *xml.Decoder, end xml.StartElement) (*wordsax.ParagraphBorders, error) {
+	borders := &wordsax.ParagraphBorders{}
+	assign := func(name string, side *wordsax.ParagraphBorderSide) {
+		switch name {
+		case "top":
+			borders.Top = side
+		case "left", "start":
+			if borders.Left == nil {
+				borders.Left = side
+			}
+		case "bottom":
+			borders.Bottom = side
+		case "right", "end":
+			if borders.Right == nil {
+				borders.Right = side
+			}
+		case "between":
+			borders.Between = side
+		case "bar":
+			borders.Bar = side
+		}
+	}
+	for {
+		token, err := dec.Token()
+		if err != nil {
+			return borders, err
+		}
+		switch t := token.(type) {
+		case xml.StartElement:
+			assign(t.Name.Local, docxBorderSide(t))
+			if err := dec.Skip(); err != nil {
+				return borders, err
+			}
+		case xml.EndElement:
+			if t.Name == end.Name {
+				return borders, nil
+			}
+		}
+	}
+}
+
+func docxBorderSide(start xml.StartElement) *wordsax.ParagraphBorderSide {
+	side := &wordsax.ParagraphBorderSide{
+		Val:   docxAttr(start, "val"),
+		Color: docxAttr(start, "color"),
+	}
+	if side.Val == "" {
+		side.Val = "single"
+	}
+	if size := docxIntAttr(start, "sz"); size != nil {
+		side.Size = *size
+	}
+	if space := docxIntAttr(start, "space"); space != nil {
+		side.Space = *space
+	}
+	return side
 }
 
 func scanDOCXSection(dec *xml.Decoder, end xml.StartElement) (wordsax.SectionProperties, error) {
@@ -352,18 +539,25 @@ func scanDOCXSection(dec *xml.Decoder, end xml.StartElement) (wordsax.SectionPro
 			case "type":
 				out.Type = docxAttr(t, "val")
 			case "pgSz":
-				out.PageWidth = docxIntAttr(t, "w")
-				out.PageHeight = docxIntAttr(t, "h")
+				out.PageWidth = docxTwipsAttr(t, "w")
+				out.PageHeight = docxTwipsAttr(t, "h")
 			case "pgMar":
-				out.MarginTop = docxIntAttr(t, "top")
-				out.MarginRight = docxIntAttr(t, "right")
-				out.MarginBottom = docxIntAttr(t, "bottom")
-				out.MarginLeft = docxIntAttr(t, "left")
-				out.MarginHeader = docxIntAttr(t, "header")
-				out.MarginFooter = docxIntAttr(t, "footer")
+				out.MarginTop = docxTwipsAttr(t, "top")
+				out.MarginRight = docxTwipsAttr(t, "right")
+				out.MarginBottom = docxTwipsAttr(t, "bottom")
+				out.MarginLeft = docxTwipsAttr(t, "left")
+				out.MarginHeader = docxTwipsAttr(t, "header")
+				out.MarginFooter = docxTwipsAttr(t, "footer")
 			case "cols":
 				out.Columns = docxIntAttr(t, "num")
-				out.ColumnSpace = docxIntAttr(t, "space")
+				out.ColumnSpace = docxTwipsAttr(t, "space")
+			case "docGrid":
+				// Word snaps every line to the document grid by default, so the
+				// pitch decides how many lines a page holds. Dropping it makes
+				// the streamed document page denser than the source.
+				out.DocGridType = docxAttr(t, "type")
+				out.DocGridLinePitch = docxTwipsAttr(t, "linePitch")
+				out.DocGridCharSpace = docxIntAttr(t, "charSpace")
 			case "titlePg":
 				out.TitlePage = docxOnOff(t, true)
 			}
@@ -436,6 +630,8 @@ func docxAttr(start xml.StartElement, local string) string {
 	return ""
 }
 
+// docxIntAttr reads an integer property. Values that are not plain integers are
+// left unset; attributes that hold a length should use docxTwipsAttr instead.
 func docxIntAttr(start xml.StartElement, local string) *int {
 	value := docxAttr(start, local)
 	if value == "" {
@@ -446,6 +642,34 @@ func docxIntAttr(start xml.StartElement, local string) *int {
 		return nil
 	}
 	return &n
+}
+
+// docxTwipsAttr reads a measurement attribute. Transitional documents store a
+// bare count of twentieths of a point, while the strict vocabulary writes an
+// ST_UniversalMeasure ("612pt", "1in"), so the unit is resolved here instead of
+// dropping an authored page size, indent or spacing. Attributes measured in
+// other units (half-point font sizes, eighth-point border widths) must keep
+// using docxIntAttr so their values are not rescaled.
+func docxTwipsAttr(start xml.StartElement, local string) *int {
+	value := docxAttr(start, local)
+	if value == "" {
+		return nil
+	}
+	twips, ok := units.ParseMeasureTwips(value)
+	if !ok {
+		return nil
+	}
+	n := int(twips)
+	return &n
+}
+
+func docxTwipsAttrAny(start xml.StartElement, names ...string) *int {
+	for _, name := range names {
+		if v := docxTwipsAttr(start, name); v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 func docxIntAttrAny(start xml.StartElement, names ...string) *int {
@@ -468,4 +692,15 @@ func docxOnOff(start xml.StartElement, defaultValue bool) bool {
 	default:
 		return true
 	}
+}
+
+func docxIntValueOf(value string) int {
+	if value == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0
+	}
+	return n
 }

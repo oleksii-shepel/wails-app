@@ -54,3 +54,54 @@ func TestLegacyShapeTransformAndShadowSurviveXLSXConversion(t *testing.T) {
 		t.Fatalf("shadow = %#v", shadow)
 	}
 }
+
+func TestLegacySoftEdgeAndBevelSurviveXLSXConversion(t *testing.T) {
+	wb := &sheetir.Workbook{Sheets: []*sheetir.Sheet{{Name: "Sheet1", Drawings: []*sheetir.Drawing{{
+		Name: "Legacy Home button", Type: sheetir.DrawingTypeShape,
+		Position: sheetir.DrawingPosition{Anchor: sheetir.AnchorAbsolute, X: 10, Y: 20, Width: 1000000, Height: 500000},
+		Shape: &sheetir.DrawingShape{Geometry: "rect", FillColor: "C6D9F1", Effects: drawing.EffectList{Effects: []drawing.Effect{
+			drawing.SoftEdge{Radius: 5},
+			drawing.ThreeD{CameraPreset: "orthographicFront", LightRig: "threePt", LightDirection: "t", BevelTopWidth: 13, BevelTopHeight: 3, BevelTopPreset: "coolSlant"},
+		}}},
+	}}}}}
+	pkg, err := Convert(wb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := sheetparts.WritePackage(pkg, &buf); err != nil {
+		t.Fatal(err)
+	}
+	op, err := opc.OpenReaderAt(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := sheetparts.LoadPackage(op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := sheetresolve.ResolvePackage(parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects := got.Sheets[0].Drawings[0].Shape.Effects.Effects
+	if len(effects) != 2 {
+		t.Fatalf("effects = %#v, want soft edge and 3-D", effects)
+	}
+	var softEdge drawing.SoftEdge
+	var threeD drawing.ThreeD
+	for _, effect := range effects {
+		switch effect := effect.(type) {
+		case drawing.SoftEdge:
+			softEdge = effect
+		case drawing.ThreeD:
+			threeD = effect
+		}
+	}
+	if softEdge.Radius != 5 {
+		t.Fatalf("soft edge = %#v, want 5pt", softEdge)
+	}
+	if threeD.BevelTopWidth != 13 || threeD.BevelTopHeight != 3 || threeD.BevelTopPreset != "coolSlant" {
+		t.Fatalf("3-D = %#v, want coolSlant 13pt by 3pt bevel", threeD)
+	}
+}

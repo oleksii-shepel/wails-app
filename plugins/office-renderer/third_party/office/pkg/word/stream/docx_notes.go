@@ -139,7 +139,7 @@ func parseDOCXNoteStories(r io.Reader, kind string) (map[int]wordir.Story, error
 			}
 			continue
 		}
-		story, err := parseDOCXNoteStory(dec, start)
+		story, err := parseDOCXNoteStory(dec, start, id)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +147,7 @@ func parseDOCXNoteStories(r io.Reader, kind string) (map[int]wordir.Story, error
 	}
 }
 
-func parseDOCXNoteStory(dec *xml.Decoder, end xml.StartElement) (wordir.Story, error) {
+func parseDOCXNoteStory(dec *xml.Decoder, end xml.StartElement, noteID int) (wordir.Story, error) {
 	var story wordir.Story
 	for {
 		token, err := dec.Token()
@@ -158,7 +158,7 @@ func parseDOCXNoteStory(dec *xml.Decoder, end xml.StartElement) (wordir.Story, e
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "p":
-				p, err := parseDOCXNoteParagraph(dec, t)
+				p, err := parseDOCXNoteParagraph(dec, t, noteID)
 				if err != nil {
 					return story, err
 				}
@@ -167,7 +167,7 @@ func parseDOCXNoteStory(dec *xml.Decoder, end xml.StartElement) (wordir.Story, e
 				story.Blocks = append(story.Blocks, wordir.Block{Kind: "paragraph", Paragraph: &copyP})
 				story.Text += p.Text
 			case "tbl":
-				table, err := parseDOCXNoteTable(dec, t)
+				table, err := parseDOCXNoteTable(dec, t, noteID)
 				if err != nil {
 					return story, err
 				}
@@ -188,7 +188,7 @@ func parseDOCXNoteStory(dec *xml.Decoder, end xml.StartElement) (wordir.Story, e
 	}
 }
 
-func parseDOCXNoteParagraph(dec *xml.Decoder, end xml.StartElement) (wordir.Paragraph, error) {
+func parseDOCXNoteParagraph(dec *xml.Decoder, end xml.StartElement, noteID int) (wordir.Paragraph, error) {
 	var p wordir.Paragraph
 	for {
 		token, err := dec.Token()
@@ -206,7 +206,7 @@ func parseDOCXNoteParagraph(dec *xml.Decoder, end xml.StartElement) (wordir.Para
 				p.StyleID = props.StyleID
 				p.Format = paragraphFormatFromSAX(props)
 			case "r":
-				runs, text, err := parseDOCXNoteRun(dec, t)
+				runs, text, err := parseDOCXNoteRun(dec, t, noteID)
 				if err != nil {
 					return p, err
 				}
@@ -225,7 +225,7 @@ func parseDOCXNoteParagraph(dec *xml.Decoder, end xml.StartElement) (wordir.Para
 	}
 }
 
-func parseDOCXNoteRun(dec *xml.Decoder, end xml.StartElement) ([]wordir.Run, string, error) {
+func parseDOCXNoteRun(dec *xml.Decoder, end xml.StartElement, noteID int) ([]wordir.Run, string, error) {
 	var propsFormat wordir.RunFormat
 	var styleID string
 	var runs []wordir.Run
@@ -245,6 +245,18 @@ func parseDOCXNoteRun(dec *xml.Decoder, end xml.StartElement) ([]wordir.Run, str
 				}
 				styleID = props.StyleID
 				propsFormat = runFormatFromSAX(props)
+			case "footnoteRef", "endnoteRef":
+				// The note mark that Word prints before the note text. The
+				// renderer resolves its display number from the document's note
+				// numbering state, so the run only needs the kind and the id.
+				kind := "footnoteRef"
+				if t.Name.Local == "endnoteRef" {
+					kind = "endnoteRef"
+				}
+				runs = append(runs, wordir.Run{Kind: kind, NoteID: noteID, StyleID: styleID, Format: propsFormat})
+				if err := dec.Skip(); err != nil {
+					return nil, "", err
+				}
 			case "t", "delText":
 				var value string
 				if err := dec.DecodeElement(&value, &t); err != nil {
@@ -282,7 +294,7 @@ func parseDOCXNoteRun(dec *xml.Decoder, end xml.StartElement) ([]wordir.Run, str
 	}
 }
 
-func parseDOCXNoteTable(dec *xml.Decoder, end xml.StartElement) (wordir.Table, error) {
+func parseDOCXNoteTable(dec *xml.Decoder, end xml.StartElement, noteID int) (wordir.Table, error) {
 	var table wordir.Table
 	for {
 		token, err := dec.Token()
@@ -297,7 +309,7 @@ func parseDOCXNoteTable(dec *xml.Decoder, end xml.StartElement) (wordir.Table, e
 				}
 				continue
 			}
-			row, err := parseDOCXNoteRow(dec, t)
+			row, err := parseDOCXNoteRow(dec, t, noteID)
 			if err != nil {
 				return table, err
 			}
@@ -313,7 +325,7 @@ func parseDOCXNoteTable(dec *xml.Decoder, end xml.StartElement) (wordir.Table, e
 	}
 }
 
-func parseDOCXNoteRow(dec *xml.Decoder, end xml.StartElement) (wordir.TableRow, error) {
+func parseDOCXNoteRow(dec *xml.Decoder, end xml.StartElement, noteID int) (wordir.TableRow, error) {
 	var row wordir.TableRow
 	for {
 		token, err := dec.Token()
@@ -328,7 +340,7 @@ func parseDOCXNoteRow(dec *xml.Decoder, end xml.StartElement) (wordir.TableRow, 
 				}
 				continue
 			}
-			cell, err := parseDOCXNoteCell(dec, t)
+			cell, err := parseDOCXNoteCell(dec, t, noteID)
 			if err != nil {
 				return row, err
 			}
@@ -341,7 +353,7 @@ func parseDOCXNoteRow(dec *xml.Decoder, end xml.StartElement) (wordir.TableRow, 
 	}
 }
 
-func parseDOCXNoteCell(dec *xml.Decoder, end xml.StartElement) (wordir.TableCell, error) {
+func parseDOCXNoteCell(dec *xml.Decoder, end xml.StartElement, noteID int) (wordir.TableCell, error) {
 	var cell wordir.TableCell
 	for {
 		token, err := dec.Token()
@@ -352,7 +364,7 @@ func parseDOCXNoteCell(dec *xml.Decoder, end xml.StartElement) (wordir.TableCell
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "p":
-				p, err := parseDOCXNoteParagraph(dec, t)
+				p, err := parseDOCXNoteParagraph(dec, t, noteID)
 				if err != nil {
 					return cell, err
 				}
@@ -361,7 +373,7 @@ func parseDOCXNoteCell(dec *xml.Decoder, end xml.StartElement) (wordir.TableCell
 				cell.Blocks = append(cell.Blocks, wordir.Block{Kind: "paragraph", Paragraph: &copyP})
 				cell.Text += p.Text
 			case "tbl":
-				table, err := parseDOCXNoteTable(dec, t)
+				table, err := parseDOCXNoteTable(dec, t, noteID)
 				if err != nil {
 					return cell, err
 				}

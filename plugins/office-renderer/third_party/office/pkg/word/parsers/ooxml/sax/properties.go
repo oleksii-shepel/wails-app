@@ -3,6 +3,8 @@ package sax
 import (
 	"encoding/xml"
 	"strconv"
+
+	"office/pkg/ooxml/units"
 )
 
 // ParagraphProperties is the layout-critical subset of w:pPr promoted by the
@@ -28,6 +30,64 @@ type ParagraphProperties struct {
 	ContextualSpacing bool
 	NumberingID       *int
 	NumberingLevel    *int
+	// Tabs holds custom tab stops from w:tabs > w:tab (position in twips,
+	// alignment, leader). TOC styles rely on these for right-aligned page
+	// numbers with dot leaders.
+	Tabs []TabStop
+	// Frame holds w:framePr when present. A framed paragraph is out-of-flow;
+	// drop caps in particular must wrap the following text around them.
+	Frame *FrameProperties
+	// Shading is the resolved w:shd background fill; "auto" is normalized away
+	// because it means "no fill" rather than a color.
+	Shading string
+	// Borders holds w:pBdr sides when the paragraph draws a border.
+	Borders *ParagraphBorders
+	// MarkRun holds w:pPr/w:rPr, the paragraph mark's direct run properties.
+	MarkRun *RunProperties
+}
+
+// ParagraphBorderSide is one side of w:pBdr. Size stays in eighths of a point
+// so the caller owns the unit conversion.
+type ParagraphBorderSide struct {
+	Val   string
+	Size  int
+	Space int
+	Color string
+}
+
+// ParagraphBorders is the w:pBdr subset promoted by the streaming parser.
+type ParagraphBorders struct {
+	Top     *ParagraphBorderSide
+	Left    *ParagraphBorderSide
+	Bottom  *ParagraphBorderSide
+	Right   *ParagraphBorderSide
+	Between *ParagraphBorderSide
+	Bar     *ParagraphBorderSide
+}
+
+// TabStop is one w:tab inside w:tabs.
+type TabStop struct {
+	Pos    int    // twips
+	Algn   string // left, center, right, decimal, bar, clear
+	Leader string // none, dot, hyphen, underscore, middleDot
+}
+
+// FrameProperties is the w:framePr subset promoted by the streaming parser.
+// Dimensions and offsets stay in twips.
+type FrameProperties struct {
+	W       int    // width in twips (0 = auto)
+	H       int    // height in twips (0 = auto)
+	X       int    // horizontal offset in twips
+	Y       int    // vertical offset in twips
+	XAlign  string // left, right, center, inside, outside
+	YAlign  string // top, bottom, center, inline
+	HAnchor string // text, margin, page
+	VAnchor string // text, margin, page
+	Wrap    string // none, around, notBeside
+	HSpace  int    // horizontal space in twips
+	VSpace  int    // vertical space in twips
+	DropCap string // drop, margin, none
+	Lines   int    // body lines spanned by the drop cap (w:lines)
 }
 
 // RunProperties is the layout-critical subset of w:rPr promoted by the SAX
@@ -45,6 +105,36 @@ type RunProperties struct {
 	BoldCS               *bool
 	CharacterSpacing     *int
 	KerningHalfPoints    *int
+	// Highlight is the w:highlight/@w:val color name ("yellow", "none", …).
+	Highlight string
+	// ShadingFill is the resolved w:shd background fill; "auto" is normalized
+	// away because it means "no fill" rather than a color.
+	ShadingFill string
+	// VertAlign is w:vertAlign/@w:val: "superscript" | "subscript" | "baseline".
+	VertAlign string
+	// Position is w:position in half-points; positive raises, negative lowers.
+	Position     *int
+	Caps         *bool
+	SmallCaps    *bool
+	DoubleStrike *bool
+	Vanish       *bool
+	// SpecVanish is w:specVanish: the content is never displayed, even when
+	// formatting marks are shown (list paragraph marks use it).
+	SpecVanish *bool
+	RTL        *bool
+	// EmphasisMark is w:em/@w:val: "none" | "dot" | "comma" | "circle" | "underDot".
+	EmphasisMark string
+	// Border is w:bdr, the character border applied to every side of the run.
+	Border *RunBorder
+}
+
+// RunBorder is the w:bdr subset promoted by the SAX run-property scanner. Size
+// stays in eighths of a point so the caller owns the unit conversion.
+type RunBorder struct {
+	Val   string
+	Size  int
+	Space int
+	Color string
 }
 
 // HeaderFooterReference is a format-neutral section story reference. ID is the
@@ -92,20 +182,20 @@ func parseParagraphPropertiesRich(dec *xml.Decoder, start xml.StartElement) (Par
 			case "jc":
 				out.Alignment = attrValue(t, "val")
 			case "ind":
-				out.IndentLeft = intAttr(t, "left")
+				out.IndentLeft = twipsAttr(t, "left")
 				if out.IndentLeft == nil {
-					out.IndentLeft = intAttr(t, "start")
+					out.IndentLeft = twipsAttr(t, "start")
 				}
-				out.IndentRight = intAttr(t, "right")
+				out.IndentRight = twipsAttr(t, "right")
 				if out.IndentRight == nil {
-					out.IndentRight = intAttr(t, "end")
+					out.IndentRight = twipsAttr(t, "end")
 				}
-				out.IndentFirstLine = intAttr(t, "firstLine")
-				out.IndentHanging = intAttr(t, "hanging")
+				out.IndentFirstLine = twipsAttr(t, "firstLine")
+				out.IndentHanging = twipsAttr(t, "hanging")
 			case "spacing":
-				out.SpacingBefore = intAttr(t, "before")
-				out.SpacingAfter = intAttr(t, "after")
-				out.LineSpacing = intAttr(t, "line")
+				out.SpacingBefore = twipsAttr(t, "before")
+				out.SpacingAfter = twipsAttr(t, "after")
+				out.LineSpacing = twipsAttr(t, "line")
 				out.LineRule = attrValue(t, "lineRule")
 			case "keepNext":
 				out.KeepNext = onOffElement(t, true)
@@ -247,21 +337,21 @@ func parseSectionProperties(dec *xml.Decoder, start xml.StartElement, onHeader f
 			case "type":
 				out.Type = attrValue(t, "val")
 			case "pgSz":
-				out.PageWidth = intAttr(t, "w")
-				out.PageHeight = intAttr(t, "h")
+				out.PageWidth = twipsAttr(t, "w")
+				out.PageHeight = twipsAttr(t, "h")
 			case "pgMar":
-				out.MarginTop = intAttr(t, "top")
-				out.MarginRight = intAttr(t, "right")
-				out.MarginBottom = intAttr(t, "bottom")
-				out.MarginLeft = intAttr(t, "left")
-				out.MarginHeader = intAttr(t, "header")
-				out.MarginFooter = intAttr(t, "footer")
+				out.MarginTop = twipsAttr(t, "top")
+				out.MarginRight = twipsAttr(t, "right")
+				out.MarginBottom = twipsAttr(t, "bottom")
+				out.MarginLeft = twipsAttr(t, "left")
+				out.MarginHeader = twipsAttr(t, "header")
+				out.MarginFooter = twipsAttr(t, "footer")
 			case "cols":
 				out.Columns = intAttr(t, "num")
-				out.ColumnSpace = intAttr(t, "space")
+				out.ColumnSpace = twipsAttr(t, "space")
 			case "docGrid":
 				out.DocGridType = attrValue(t, "type")
-				out.DocGridLinePitch = intAttr(t, "linePitch")
+				out.DocGridLinePitch = twipsAttr(t, "linePitch")
 				out.DocGridCharSpace = intAttr(t, "charSpace")
 			case "titlePg":
 				out.TitlePage = onOffElement(t, true)
@@ -277,6 +367,8 @@ func parseSectionProperties(dec *xml.Decoder, start xml.StartElement, onHeader f
 	}
 }
 
+// intAttr reads an integer property. Values that are not plain integers are
+// left unset; attributes that hold a length should use twipsAttr instead.
 func intAttr(start xml.StartElement, local string) *int {
 	value := attrValue(start, local)
 	if value == "" {
@@ -286,6 +378,25 @@ func intAttr(start xml.StartElement, local string) *int {
 	if err != nil {
 		return nil
 	}
+	return &n
+}
+
+// twipsAttr reads a measurement attribute. Transitional documents store a bare
+// count of twentieths of a point, while the strict vocabulary writes an
+// ST_UniversalMeasure ("612pt", "1in"), so the unit is resolved here instead of
+// dropping an authored page size, indent or spacing. Attributes measured in
+// other units (half-point font sizes, eighth-point border widths) must keep
+// using intAttr so their values are not rescaled.
+func twipsAttr(start xml.StartElement, local string) *int {
+	value := attrValue(start, local)
+	if value == "" {
+		return nil
+	}
+	twips, ok := units.ParseMeasureTwips(value)
+	if !ok {
+		return nil
+	}
+	n := int(twips)
 	return &n
 }
 

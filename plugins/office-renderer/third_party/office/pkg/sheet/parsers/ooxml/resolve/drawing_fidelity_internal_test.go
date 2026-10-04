@@ -3,6 +3,7 @@ package resolve
 import (
 	"testing"
 
+	"office/pkg/ooxml/drawing"
 	"office/pkg/sheet/parsers/ooxml/parts"
 )
 
@@ -14,7 +15,7 @@ func TestResolvePictureDrawingPreservesSourceCropAndAltText(t *testing.T) {
 			SrcRect: &parts.XDRSrcRect{Left: 10000, Top: 20000, Right: 30000, Bottom: 40000},
 		},
 	}
-	d := resolvePictureDrawing(pic, nil)
+	d := resolvePictureDrawing(pic, nil, nil)
 	if d == nil || d.Image == nil {
 		t.Fatal("resolved picture/image = nil")
 	}
@@ -28,7 +29,7 @@ func TestResolvePictureDrawingPreservesSourceCropAndAltText(t *testing.T) {
 
 func TestResolvePictureDrawingClampsInvalidSourceCrop(t *testing.T) {
 	pic := &parts.XDRPic{BlipFill: parts.XDRBlipFill{SrcRect: &parts.XDRSrcRect{Left: -1, Right: 120000}}}
-	d := resolvePictureDrawing(pic, nil)
+	d := resolvePictureDrawing(pic, nil, nil)
 	if d.Image.CropLeft != 0 || d.Image.CropRight != 100000 {
 		t.Fatalf("clamped crop = left %d right %d", d.Image.CropLeft, d.Image.CropRight)
 	}
@@ -54,8 +55,8 @@ func TestResolveDrawingAnchorBehaviorPreservesEditAs(t *testing.T) {
 
 func TestResolveShapeTextPreservesParagraphsAndRunSemantics(t *testing.T) {
 	sp := &parts.XDRShape{TxBody: &parts.XDRTxBody{Paragraphs: []parts.XDRTxParagraph{
-		{Runs: []parts.XDRTxRun{{T: "First", Properties: &parts.RTProps{Underline: &parts.StringVal{Val: "double"}, VertAlign: &parts.StringVal{Val: "superscript"}}}}},
-		{Runs: []parts.XDRTxRun{{T: "Second", Properties: &parts.RTProps{Strike: &struct{}{}}}}},
+		{Runs: []parts.XDRTxRun{{T: "First", Properties: &parts.XDRRunProperties{RTProps: parts.RTProps{Underline: &parts.StringVal{Val: "double"}, VertAlign: &parts.StringVal{Val: "superscript"}}}}}},
+		{Runs: []parts.XDRTxRun{{T: "Second", Properties: &parts.XDRRunProperties{RTProps: parts.RTProps{Strike: &struct{}{}}}}}},
 	}}}
 	shape := resolveShapeWithColorMaps(sp, nil, nil, nil, nil)
 	if shape.Text != "First\nSecond" {
@@ -102,12 +103,27 @@ func TestResolveChartDrawingPreservesRawPartAndAltTextWhenParserCannotModelChart
 
 func TestResolvePictureDrawingPreservesTransform(t *testing.T) {
 	pic := &parts.XDRPic{SpPr: parts.XDRSpPr{Xfrm: &parts.XDRTransform2D{Rot: 90 * 60000, FlipH: true, FlipV: true}}}
-	d := resolvePictureDrawing(pic, nil)
+	d := resolvePictureDrawing(pic, nil, nil)
 	if d == nil || d.Image == nil {
 		t.Fatal("resolved picture/image = nil")
 	}
 	if d.Image.RotationDeg != 90 || !d.Image.FlipH || !d.Image.FlipV {
 		t.Fatalf("picture transform = rotation %.2f flipH=%v flipV=%v", d.Image.RotationDeg, d.Image.FlipH, d.Image.FlipV)
+	}
+}
+
+func TestResolvePictureDrawingPreservesCenteredOuterShadow(t *testing.T) {
+	pic := &parts.XDRPic{SpPr: parts.XDRSpPr{EffectLst: &parts.XDREffectList{OuterShadow: &parts.XDROuterShadowEffect{
+		BlurRad: 63500,
+		PrstClr: &parts.XDREffectColorRef{Val: "black", Alpha: &parts.XDREffectAlpha{Val: 40000}},
+	}}}}
+	d := resolvePictureDrawing(pic, nil, nil)
+	if d == nil || d.Image == nil || len(d.Image.Effects.Effects) != 1 {
+		t.Fatalf("picture effects = %#v", d)
+	}
+	shadow, ok := d.Image.Effects.Effects[0].(drawing.Shadow)
+	if !ok || shadow.Color != "000000" || shadow.Alpha != 0.4 || shadow.Blur != 5 || shadow.Distance != 0 {
+		t.Fatalf("picture shadow = %#v", d.Image.Effects.Effects[0])
 	}
 }
 

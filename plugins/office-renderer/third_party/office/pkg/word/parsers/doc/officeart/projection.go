@@ -316,14 +316,15 @@ func projectGeometryText(text *officeartir.GeometryText) *wordir.TextPath {
 	return &wordir.TextPath{On: "t", String: text.Text, Font: text.FontFamily, SizePt: text.FontSizePt, Spacing: text.Spacing, Align: text.Align, Warp: text.Warp, ReverseRows: text.ReverseRows, Vertical: text.Vertical, Kerning: text.Kerning, Tight: text.Tight, Stretch: text.Stretch, ShrinkFit: text.ShrinkFit, BestFit: text.BestFit, Normalize: text.Normalize, DxMeasure: text.DxMeasure, Bold: text.Bold, Italic: text.Italic, Underline: text.Underline, Shadow: text.Shadow, SmallCaps: text.SmallCaps, Strikethrough: text.Strikethrough}
 }
 
-// wordLegacyRotationDeg converts OfficeArt's legacy Word shape rotation to the
-// screen/CSS convention used by the canonical Word renderer.  Word's binary
-// SHAPE geometry uses the opposite angular direction from CSS transforms.
+// wordLegacyRotationDeg normalizes a shape rotation into the [-180,180] range
+// the canonical Word renderer emits as a CSS transform. The OfficeArt IR
+// already carries the screen/CSS angle: the Word 2021 PDF of
+// legacy-officeart-rotation.doc draws a shape whose IR rotation is 333deg with
+// its width axis at -27deg, so the value must not be negated on the way out.
 func wordLegacyRotationDeg(deg float64) float64 {
 	if deg == 0 {
 		return 0
 	}
-	deg = -deg
 	for deg <= -180 {
 		deg += 360
 	}

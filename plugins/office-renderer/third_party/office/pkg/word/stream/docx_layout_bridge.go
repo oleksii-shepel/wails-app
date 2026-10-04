@@ -2,17 +2,30 @@ package stream
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
+	dml "office/pkg/ooxml/drawing"
+	"office/pkg/ooxml/drawingxml"
 	"office/pkg/ooxml/mathml"
 	wordir "office/pkg/word/ir"
+	wordparts "office/pkg/word/parsers/ooxml/parts"
 	wordsax "office/pkg/word/parsers/ooxml/sax"
 )
 
 type docxFieldFrame struct {
-	instruction strings.Builder
-	result      bool
+	instruction                   string
+	result                        bool
+	storyStartBlock               int
+	storyEndBlock                 int
+	storyResultInCurrentParagraph bool
+}
+
+type docxStoryFieldResult struct {
+	instruction string
+	startBlock  int
+	endBlock    int
 }
 
 type docxHyperlinkFrame struct {
@@ -29,17 +42,18 @@ type docxRevisionFrame struct {
 }
 
 type docxLayoutHandler struct {
-	session       *LayoutSession
-	fields        []docxFieldFrame
-	hyperlinks    []docxHyperlinkFrame
-	revisions     []docxRevisionFrame
-	pendingSimple string
-	notes         *docxNoteLoader
-	comments      *docxCommentLoader
-	media         *docxMediaLoader
-	headers       *docxHeaderFooterLoader
-	lastHeaders   []wordir.Reference
-	lastFooters   []wordir.Reference
+	session            *LayoutSession
+	fields             []docxFieldFrame
+	hyperlinks         []docxHyperlinkFrame
+	revisions          []docxRevisionFrame
+	pendingSimple      string
+	pendingStoryFields []docxStoryFieldResult
+	notes              *docxNoteLoader
+	comments           *docxCommentLoader
+	media              *docxMediaLoader
+	headers            *docxHeaderFooterLoader
+	lastHeaders        []wordir.Reference
+	lastFooters        []wordir.Reference
 }
 
 func docxHandlerForLayout(handler Handler) Handler {
@@ -84,7 +98,7 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 		return nil
 	case EventFieldInstruction:
 		if len(h.fields) > 0 {
-			h.fields[len(h.fields)-1].instruction.WriteString(event.FieldInstr)
+			h.fields[len(h.fields)-1].instruction += event.FieldInstr
 		} else {
 			h.pendingSimple += event.FieldInstr
 		}
@@ -92,14 +106,25 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 	case EventFieldChar:
 		switch strings.ToLower(strings.TrimSpace(event.FieldCharType)) {
 		case "begin":
-			h.fields = append(h.fields, docxFieldFrame{})
+			h.fields = append(h.fields, docxFieldFrame{storyStartBlock: -1, storyEndBlock: -1})
 		case "separate":
 			if len(h.fields) > 0 {
 				h.fields[len(h.fields)-1].result = true
 			}
 		case "end":
 			if len(h.fields) > 0 {
+				frame := &h.fields[len(h.fields)-1]
+				instr := strings.TrimSpace(frame.instruction)
+				story := docxStoryFieldResult{instruction: instr, startBlock: frame.storyStartBlock, endBlock: frame.storyEndBlock}
+				pendingCurrentParagraph := frame.storyResultInCurrentParagraph
 				h.fields = h.fields[:len(h.fields)-1]
+				if isBlockCachedFieldInstruction(instr) && story.startBlock >= 0 {
+					if pendingCurrentParagraph {
+						h.pendingStoryFields = append(h.pendingStoryFields, story)
+					} else {
+						h.finalizeStoryField(story)
+					}
+				}
 			}
 		}
 		return nil
@@ -137,23 +162,100 @@ func (h *docxLayoutHandler) HandleEvent(event Event) error {
 	if err := h.session.HandleEvent(event); err != nil {
 		return err
 	}
+	if event.Type == EventEndParagraph {
+		h.finishStoryFieldParagraph()
+	}
 	if event.Type == EventText || event.Type == EventTab || event.Type == EventBreak {
+		h.markStoryFieldResultVisible()
 		h.annotateLastRunContext()
 		instr := ""
 		if len(h.fields) > 0 {
 			frame := &h.fields[len(h.fields)-1]
 			if frame.result {
-				instr = strings.TrimSpace(frame.instruction.String())
+				instr = strings.TrimSpace(frame.instruction)
 			}
 		} else if h.pendingSimple != "" {
 			instr = strings.TrimSpace(h.pendingSimple)
 			h.pendingSimple = ""
 		}
-		if instr != "" {
+		if instr != "" && !isBlockCachedFieldInstruction(instr) {
 			h.annotateLastRun(instr)
 		}
 	}
 	return nil
+}
+
+func (h *docxLayoutHandler) markStoryFieldResultVisible() {
+	if h == nil || h.session == nil || len(h.session.tables) > 0 {
+		return
+	}
+	for i := range h.fields {
+		frame := &h.fields[i]
+		if !frame.result || !isBlockCachedFieldInstruction(frame.instruction) {
+			continue
+		}
+		if frame.storyStartBlock < 0 {
+			// The current paragraph has not been appended to doc.Blocks yet. Its
+			// body block will therefore occupy the current length.
+			frame.storyStartBlock = len(h.session.doc.Blocks)
+		}
+		frame.storyResultInCurrentParagraph = true
+	}
+}
+
+func (h *docxLayoutHandler) finishStoryFieldParagraph() {
+	if h == nil || h.session == nil || len(h.session.tables) > 0 {
+		return
+	}
+	endBlock := len(h.session.doc.Blocks) - 1
+	if endBlock < 0 {
+		return
+	}
+	for i := range h.fields {
+		frame := &h.fields[i]
+		if frame.storyResultInCurrentParagraph {
+			frame.storyEndBlock = endBlock
+			frame.storyResultInCurrentParagraph = false
+		}
+	}
+	if len(h.pendingStoryFields) == 0 {
+		return
+	}
+	pending := h.pendingStoryFields
+	h.pendingStoryFields = nil
+	for _, story := range pending {
+		story.endBlock = endBlock
+		h.finalizeStoryField(story)
+	}
+}
+
+func (h *docxLayoutHandler) finalizeStoryField(story docxStoryFieldResult) {
+	if h == nil || h.session == nil || story.startBlock < 0 || story.endBlock < story.startBlock {
+		return
+	}
+	instr := strings.TrimSpace(story.instruction)
+	kind := fieldKindFromInstruction(instr)
+	if !isBlockCachedFieldInstruction(instr) || kind == "" {
+		return
+	}
+	if story.endBlock >= len(h.session.doc.Blocks) {
+		story.endBlock = len(h.session.doc.Blocks) - 1
+	}
+	if story.endBlock < story.startBlock {
+		return
+	}
+	fieldIndex := len(h.session.doc.Fields)
+	for i := story.startBlock; i <= story.endBlock; i++ {
+		h.session.doc.Blocks[i].FieldKind = kind
+		h.session.doc.Blocks[i].FieldIndex = fieldIndex
+	}
+	blocks := append([]wordir.Block(nil), h.session.doc.Blocks[story.startBlock:story.endBlock+1]...)
+	h.session.doc.Fields = append(h.session.doc.Fields, wordir.StoryField{
+		Kind:   kind,
+		Instr:  instr,
+		Arg:    instr,
+		Blocks: blocks,
+	})
 }
 
 func (h *docxLayoutHandler) prepareSection(event *Event) error {
@@ -182,7 +284,7 @@ func (h *docxLayoutHandler) prepareSection(event *Event) error {
 		if err != nil {
 			return err
 		}
-		doc.Headers[ref.PartName] = story
+		doc.Headers[ref.PartName] = h.session.resolveStoryFormatting(story)
 	}
 	for _, ref := range explicitFooters {
 		if ref.PartName == "" {
@@ -192,7 +294,7 @@ func (h *docxLayoutHandler) prepareSection(event *Event) error {
 		if err != nil {
 			return err
 		}
-		doc.Footers[ref.PartName] = story
+		doc.Footers[ref.PartName] = h.session.resolveStoryFormatting(story)
 	}
 	event.Section.Headers = append([]wordir.Reference(nil), mergedHeaders...)
 	event.Section.Footers = append([]wordir.Reference(nil), mergedFooters...)
@@ -299,7 +401,14 @@ func (h *docxLayoutHandler) appendPicture(event Event) error {
 	img := &wordir.Image{MIMEType: mimeType, Data: data, Width: raw.WidthEMU, Height: raw.HeightEMU, Alt: firstNonEmptyString(raw.DrawingDescription, raw.DrawingName), Title: raw.DrawingTitle, Hidden: raw.DrawingHidden}
 	if raw.DrawingKind == "anchor" {
 		populateAnchoredImage(img, raw)
+	} else {
+		// An inline drawing's effect extent is part of its in-flow box: Word
+		// insets the painted picture by the left/top values and advances the pen
+		// by the full l+extent+r span.
+		img.EffectExtentL, img.EffectExtentT = raw.EffectExtentL, raw.EffectExtentT
+		img.EffectExtentR, img.EffectExtentB = raw.EffectExtentR, raw.EffectExtentB
 	}
+	populateDOCXPictureProperties(img, raw.DrawingModel, h.themeColors())
 	h.session.ensureParagraph()
 	run := wordir.Run{Kind: "image", Image: img, StyleID: event.RunStyleID}
 	if event.RunFormat != nil {
@@ -308,6 +417,126 @@ func (h *docxLayoutHandler) appendPicture(event Event) error {
 	h.session.paragraph.Runs = append(h.session.paragraph.Runs, run)
 	h.annotateLastRunContext()
 	return nil
+}
+
+// populateDOCXPictureProperties projects paint properties from the SAX drawing
+// model into the shared IR. The HTML renderer owns their CSS realization.
+func populateDOCXPictureProperties(img *wordir.Image, drawing *wordparts.Drawing, themeColors map[string]string) {
+	if img == nil || drawing == nil {
+		return
+	}
+	graphicData := drawingGraphicData(drawing)
+	if graphicData == nil || graphicData.Picture == nil {
+		return
+	}
+	picture := graphicData.Picture
+	if picture.BlipFill != nil {
+		if crop := picture.BlipFill.SrcRect; crop != nil {
+			img.CropLeft = clampDOCXCropPct(crop.L)
+			img.CropTop = clampDOCXCropPct(crop.T)
+			img.CropRight = clampDOCXCropPct(crop.R)
+			img.CropBottom = clampDOCXCropPct(crop.B)
+		}
+		img.Tile = picture.BlipFill.Tile != nil
+		img.Stretch = picture.BlipFill.Stretch != nil || (!img.Tile && picture.BlipFill.Stretch == nil)
+		if tile := picture.BlipFill.Tile; tile != nil {
+			img.TileOffsetX = int64(tile.Tx)
+			img.TileOffsetY = int64(tile.Ty)
+			img.TileScaleX = tile.Sx
+			img.TileScaleY = tile.Sy
+			img.TileFlip = tile.Flip
+			img.TileAlign = tile.Algn
+		}
+		if blip := picture.BlipFill.Blip; blip != nil {
+			if blip.Lum != nil {
+				// DrawingML a:lum stores signed percentage adjustments where 0 is
+				// unchanged. Map them onto the picture corrections Word paints.
+				img.Brightness, img.Contrast = wordir.PictureLumCorrection(blip.Lum.Bright, blip.Lum.Contrast)
+			}
+			if blip.AlphaMod != nil {
+				img.HasAlpha = true
+				img.Alpha = float64(blip.AlphaMod.Val) / 100000.0
+			}
+			img.Grayscale = blip.Grayscale != nil
+			if blip.BiLevel != nil {
+				img.BiLevel = true
+				img.BiLevelThreshold = blip.BiLevel.Thresh
+			}
+		}
+	}
+	props := picture.ShapeProps
+	if props == nil {
+		return
+	}
+	if props.Xfrm != nil {
+		img.RotationDeg = float64(props.Xfrm.Rot) / 60000.0
+		img.FlipH = props.Xfrm.FlipH
+		img.FlipV = props.Xfrm.FlipV
+	}
+	if props.PrstGeom != nil {
+		img.FrameGeometry = props.PrstGeom.Prst
+	}
+	if line := drawingxml.ResolveLineStyle(props.Ln, themeColors); line != nil && line.Color != "" {
+		img.BorderColor = line.Color
+		img.BorderWidth = line.Width
+	}
+	if fill := resolveDOCXPictureFill(props, themeColors); fill != "" {
+		img.FillColor = fill
+	}
+	img.Effects = props.DrawingEffectList(themeColors)
+}
+
+func drawingGraphicData(drawing *wordparts.Drawing) *wordparts.GraphicData {
+	if drawing.Inline != nil && drawing.Inline.Graphic != nil {
+		return drawing.Inline.Graphic.GraphicData
+	}
+	if drawing.Anchor != nil && drawing.Anchor.Graphic != nil {
+		return drawing.Anchor.Graphic.GraphicData
+	}
+	return nil
+}
+
+func clampDOCXCropPct(value int) float64 {
+	return math.Min(1, math.Max(0, float64(value)/100000.0))
+}
+
+func resolveDOCXPictureFill(props *wordparts.PictureShapeProps, themeColors map[string]string) string {
+	if props == nil {
+		return ""
+	}
+	var fill dml.Fill
+	switch {
+	case props.SolidFill != nil:
+		fill = drawingxml.ResolveSolidFill(props.SolidFill, themeColors)
+	case props.GradFill != nil:
+		fill = drawingxml.ResolveGradientFill(props.GradFill, themeColors)
+	case props.PattFill != nil:
+		fill = drawingxml.ResolvePatternFill(props.PattFill, themeColors)
+	case props.NoFill != nil:
+		return ""
+	}
+	switch value := fill.(type) {
+	case dml.SolidFill:
+		return value.ApplyColorTransforms(value.Color)
+	case *dml.SolidFill:
+		return value.ApplyColorTransforms(value.Color)
+	case dml.GradientFill:
+		if len(value.Stops) > 0 {
+			return value.Stops[0].Color
+		}
+	case *dml.GradientFill:
+		if len(value.Stops) > 0 {
+			return value.Stops[0].Color
+		}
+	}
+	return ""
+}
+
+func (h *docxLayoutHandler) themeColors() map[string]string {
+	if h == nil || h.session == nil || h.session.doc.Theme == nil {
+		return nil
+	}
+	return h.session.doc.Theme.ColorScheme
 }
 
 func populateAnchoredImage(img *wordir.Image, raw wordsax.Event) {
@@ -360,6 +589,7 @@ func (h *docxLayoutHandler) appendNoteReference(kind string, event Event) error 
 	if !ok {
 		return fmt.Errorf("word stream: %s story %d not found", kind, id)
 	}
+	story = h.session.resolveStoryFormatting(story)
 	doc := &h.session.doc
 	if kind == "footnote" {
 		if doc.Footnotes == nil {
@@ -455,6 +685,24 @@ func (h *docxLayoutHandler) annotateLastRun(instr string) {
 	run.FieldInstr = instr
 	run.FieldKind = fieldKindFromInstruction(instr)
 }
+
+// isBlockCachedFieldInstruction identifies fields whose authored result is a
+// block sequence rather than one inline value. A DOCX TOC/INDEX outer field can
+// remain open across many result paragraphs, while nested PAGEREF/REF fields
+// inside those paragraphs are ordinary inline fields. Stamping the outer field
+// onto every visible result run causes the renderer to recalculate the whole
+// TOC/INDEX once per cached entry. Keep those cached runs as ordinary content;
+// nested inline fields still receive their own field semantics because they are
+// the top frame while their result is emitted.
+func isBlockCachedFieldInstruction(instr string) bool {
+	switch fieldKindFromInstruction(instr) {
+	case "TOC", "INDEX":
+		return true
+	default:
+		return false
+	}
+}
+
 func fieldKindFromInstruction(instr string) string {
 	instr = strings.TrimSpace(instr)
 	if instr == "" {

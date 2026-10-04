@@ -11,11 +11,23 @@ import (
 // BuildCatalog lifts usable embedded Word font faces into the shared Office
 // metrics catalog. EOT/embedded-source normalization stays owned by fontdata;
 // callers receive only parsed SFNT faces suitable for layout measurement.
+//
+// The bundled metric tables for the common Word families come first, so a face
+// the document itself embeds always wins the family/style match while documents
+// that do not embed their fonts still measure with the authoring family's real
+// advance widths.
 func BuildCatalog(doc *wordir.Document) *shared.Catalog {
-	if doc == nil {
-		return nil
+	cat := shared.BundledCatalog()
+	if cat == nil {
+		cat = &shared.Catalog{}
 	}
-	cat := &shared.Catalog{}
+	if doc == nil {
+		if cat.Empty() {
+			return nil
+		}
+		return cat
+	}
+	embedded := &shared.Catalog{}
 	for _, font := range doc.EmbeddedFonts {
 		if font == nil {
 			continue
@@ -32,7 +44,7 @@ func BuildCatalog(doc *wordir.Document) *shared.Catalog {
 				if !ok {
 					continue
 				}
-				cat.Faces = append(cat.Faces, shared.NamedFace{
+				embedded.Faces = append(embedded.Faces, shared.NamedFace{
 					Family: face.Family,
 					Weight: face.Weight,
 					Italic: strings.EqualFold(strings.TrimSpace(face.Style), "italic"),
@@ -42,6 +54,9 @@ func BuildCatalog(doc *wordir.Document) *shared.Catalog {
 			}
 		}
 	}
+	// The match prefers the first face with the best score, so embedded faces
+	// must precede the bundled ones.
+	cat.Faces = append(embedded.Faces, cat.Faces...)
 	if cat.Empty() {
 		return nil
 	}

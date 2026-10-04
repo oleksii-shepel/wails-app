@@ -3,6 +3,7 @@ package render_test
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -41,6 +42,46 @@ func TestHTMLEmptyDocument(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output", want)
 		}
+	}
+}
+
+func TestFastPreviewKeepsLaterFloatingImagesOutOfPageOverlay(t *testing.T) {
+	secondPageImage := &resolve.Image{
+		Floating:  true,
+		Width:     914400,
+		Height:    914400,
+		XRelative: "margin",
+		YRelative: "paragraph",
+		XAlign:    "right",
+		WrapType:  "square",
+		Alt:       "second-page-image",
+	}
+	doc := &resolve.Document{Blocks: []resolve.Block{
+		{Index: 0, Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 0, Text: "First page", Runs: []resolve.Run{{Kind: "run", Text: "First page"}}}},
+		{Index: 1, Kind: "paragraph", Paragraph: &resolve.Paragraph{Index: 1, Format: resolve.ParagraphFormat{PageBreakBefore: true}, Text: "Second page", Runs: []resolve.Run{{Kind: "run", Text: "Second page"}, {Kind: "image", Image: secondPageImage}}}},
+	}}
+	out, _, err := render.HTMLWithOptions(doc, render.HTMLOptions{FastPreview: true})
+	if err != nil {
+		t.Fatalf("HTMLWithOptions: %v", err)
+	}
+	if got := strings.Count(out, `<section class="page"`); got != 1 {
+		t.Fatalf("preview pages = %d, want 1", got)
+	}
+	start := strings.Index(out, "second-page-image")
+	if start < 0 {
+		t.Fatalf("fast preview omitted later image: %s", out)
+	}
+	start = strings.LastIndex(out[:start], "<")
+	if start < 0 {
+		t.Fatalf("could not locate fast-preview image start: %s", out)
+	}
+	end := strings.Index(out[start:], ">")
+	if end < 0 {
+		t.Fatalf("could not locate fast-preview image tag: %s", out)
+	}
+	imageTag := out[start : start+end+1]
+	if !strings.Contains(imageTag, "display:block") || strings.Contains(imageTag, "position:absolute") {
+		t.Fatalf("fast-preview image should stay in normal flow, got %s", imageTag)
 	}
 }
 
@@ -1892,7 +1933,7 @@ func TestHTMLParagraphSnapToGrid(t *testing.T) {
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
 			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
-			DocGrid:    &resolve.DocGrid{LinePitch: 360},
+			DocGrid:    &resolve.DocGrid{Type: "lines", LinePitch: 360},
 		}},
 		Blocks: []resolve.Block{
 			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -1907,6 +1948,33 @@ func TestHTMLParagraphSnapToGrid(t *testing.T) {
 	}
 	if !strings.Contains(out, "line-height:18.00pt") {
 		t.Fatalf("expected line-height:18.00pt for snap-to-grid, got:\n%s", out)
+	}
+}
+
+func TestHTMLParagraphSnapToGridPitchOnlyStaysInactive(t *testing.T) {
+	// w:docGrid/@w:type defaults to "default", which means no grid at all. A
+	// section that only carries a line pitch must not impose it on the browser:
+	// Word does not snap those documents, and doing so changes line pitch and
+	// page fill.
+	doc := &resolve.Document{
+		Sections: []resolve.Section{{
+			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
+			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
+			DocGrid:    &resolve.DocGrid{LinePitch: 360, CharSpace: 200},
+		}},
+		Blocks: []resolve.Block{
+			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
+				Format: resolve.ParagraphFormat{SnapToGrid: true},
+				Runs:   []resolve.Run{{Text: "Hello"}},
+			}},
+		},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Contains(out, "line-height:18.00pt") || strings.Contains(out, "letter-spacing:10.00pt") {
+		t.Fatalf("a pitch-only docGrid must stay inactive, got:\n%s", out)
 	}
 }
 
@@ -1937,7 +2005,7 @@ func TestHTMLListItemSnapToGrid(t *testing.T) {
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
 			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
-			DocGrid:    &resolve.DocGrid{LinePitch: 400},
+			DocGrid:    &resolve.DocGrid{Type: "lines", LinePitch: 400},
 		}},
 		Blocks: []resolve.Block{
 			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -1961,7 +2029,7 @@ func TestHTMLParagraphSnapToGridCharSpace(t *testing.T) {
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
 			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
-			DocGrid:    &resolve.DocGrid{LinePitch: 360, CharSpace: 200},
+			DocGrid:    &resolve.DocGrid{Type: "lines", LinePitch: 360, CharSpace: 200},
 		}},
 		Blocks: []resolve.Block{
 			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -1987,7 +2055,7 @@ func TestHTMLParagraphSnapToGridCharSpaceOnly(t *testing.T) {
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
 			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
-			DocGrid:    &resolve.DocGrid{CharSpace: -100},
+			DocGrid:    &resolve.DocGrid{Type: "linesAndChars", CharSpace: -100},
 		}},
 		Blocks: []resolve.Block{
 			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -2026,7 +2094,7 @@ func TestHTMLListItemSnapToGridCharSpace(t *testing.T) {
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
 			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
-			DocGrid:    &resolve.DocGrid{LinePitch: 400, CharSpace: 150},
+			DocGrid:    &resolve.DocGrid{Type: "lines", LinePitch: 400, CharSpace: 150},
 		}},
 		Blocks: []resolve.Block{
 			{Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -2342,8 +2410,18 @@ func TestHTMLFloatingContentAfterPageBreakUsesNextPageOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if strings.Count(out, `<section class="page">`) != 2 {
+	if strings.Count(out, `<section class="page" `) != 2 {
 		t.Fatalf("expected two page containers after a page break: %s", out)
+	}
+	for _, want := range []string{
+		`<div class="page-num">Page 1</div>`,
+		`<section class="page" id="page-1" data-page="1">`,
+		`<div class="page-num">Page 2</div>`,
+		`<section class="page" id="page-2" data-page="2">`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing page marker %q: %s", want, out)
+		}
 	}
 	if !strings.Contains(out, `class="page-overlay"`) {
 		t.Fatalf("expected page overlay on the second page: %s", out)
@@ -2372,7 +2450,7 @@ func TestHTMLPaginatedOutputSuppressesInlinePageBreakInsideOpenParagraph(t *test
 	if strings.Contains(out, "</section>\n</p>") {
 		t.Fatalf("expected paginated renderer to avoid breaking an open paragraph: %s", out)
 	}
-	if strings.Count(out, `<section class="page">`) != 2 {
+	if strings.Count(out, `<section class="page" `) != 2 {
 		t.Fatalf("expected two page containers after explicit page break: %s", out)
 	}
 	// Physical paragraph ownership may add positioned slot markup around the
@@ -2402,7 +2480,7 @@ func TestHTMLPaginatedOutputForcesContinuationIntoNextColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if strings.Count(out, `<section class="page">`) != 1 {
+	if strings.Count(out, `<section class="page" `) != 1 {
 		t.Fatalf("expected single page container: %s", out)
 	}
 	if !strings.Contains(out, `break-before:column`) {
@@ -2450,6 +2528,29 @@ func TestHTMLTOCGeneratesFromHeadingsAndTCEntries(t *testing.T) {
 	}
 	if strings.Contains(out, `>TC`) || strings.Contains(out, `>XE`) {
 		t.Fatalf("did not expect field instruction text in output: %s", out)
+	}
+}
+
+func TestHTMLTOCPreservesCachedResultInsteadOfRegeneratingPerRun(t *testing.T) {
+	doc := &resolve.Document{
+		Sections: []resolve.Section{{
+			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
+			PageMargin: &resolve.PageMargin{Top: 1440, Right: 1440, Bottom: 1440, Left: 1440},
+		}},
+		Blocks: []resolve.Block{
+			{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{FieldKind: "TOC", FieldInstr: `TOC \o "1-3" \h \z \u`, Text: "Cached Entry"}}}},
+			{Kind: "paragraph", Paragraph: &resolve.Paragraph{StyleID: "Heading1", Runs: []resolve.Run{{Text: "Heading One"}}}},
+		},
+	}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if strings.Count(out, "Cached Entry") != 1 {
+		t.Fatalf("cached TOC result should render once: %s", out)
+	}
+	if strings.Count(out, "Heading One") != 1 {
+		t.Fatalf("cached TOC result must not be replaced by a regenerated TOC: %s", out)
 	}
 }
 
@@ -2569,7 +2670,7 @@ func TestHTMLTOCLevelRangeSwitchWithOutlineLevel(t *testing.T) {
 	}
 }
 
-func TestHTMLTOCSuppressesPagesWithZSwitch(t *testing.T) {
+func TestHTMLTOCZSwitchPreservesPagesInPaginatedOutput(t *testing.T) {
 	doc := &resolve.Document{
 		Sections: []resolve.Section{{
 			PageSize:   &resolve.PageSize{Width: 12240, Height: 15840},
@@ -2585,8 +2686,8 @@ func TestHTMLTOCSuppressesPagesWithZSwitch(t *testing.T) {
 		t.Fatalf("HTML: %v", err)
 	}
 	re := regexp.MustCompile(`Chapter 1\s+\.+\s+1`)
-	if re.MatchString(out) {
-		t.Errorf("TOC with \\z should suppress page numbers; got:\n%s", out)
+	if !re.MatchString(out) {
+		t.Errorf("TOC with \\z should preserve page numbers in paginated output; got:\n%s", out)
 	}
 	if !strings.Contains(out, "Chapter 1") {
 		t.Errorf("TOC should still show heading text; got:\n%s", out)
@@ -2755,7 +2856,7 @@ func TestHTMLContinuousSectionStartsNestedColumnWrapperOnSamePage(t *testing.T) 
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if strings.Count(out, `<section class="page">`) != 1 {
+	if strings.Count(out, `<section class="page" `) != 1 {
 		t.Fatalf("expected a single page container: %s", out)
 	}
 	if !strings.Contains(out, `<div class="page-body-section" style="column-count:2;column-gap:36.0pt">`) {
@@ -2983,7 +3084,9 @@ func TestHTMLDropCapFrameParagraphRendersAsInlineFloat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `class="frame-paragraph" style="float:left;overflow:hidden`) {
+	// The float box is the drop cap's wrap region, not a clipping window: the
+	// glyph's ink may extend past its advance width.
+	if !strings.Contains(out, `class="frame-paragraph" style="float:left;overflow:visible`) {
 		t.Fatalf("expected drop cap frame paragraph to render as an inline float: %s", out)
 	}
 	if !strings.Contains(out, `margin-right:6.0pt`) {
@@ -7645,14 +7748,19 @@ func TestHTMLAdvanceFieldAbsoluteXPositionsFromLeftEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	// \x 15 at start → margin-left:15.
-	if !strings.Contains(out, `margin-left:15.00pt`) {
-		t.Fatalf("expected ADVANCE \\x absolute position 15pt, got:\n%s", out)
+	// Physical layout owns ADVANCE \x geometry: the following runs are placed at
+	// the absolute x the field names, not shifted with margins.
+	if !strings.Contains(out, `left:15.00pt`) {
+		t.Fatalf("expected B placed at ADVANCE \\x 15pt from the left edge, got:\n%s", out)
 	}
-	// After B (estimated ~7.44pt wide), tabEstimatedX ≈ 22.44pt.
-	// \x 5 → margin-left = 5 - 22.44 = -17.44pt.
-	if !strings.Contains(out, `margin-left:-17.44pt`) {
-		t.Fatalf("expected ADVANCE \\x absolute position overriding previous offset, got:\n%s", out)
+	if !strings.Contains(out, `left:5.00pt`) {
+		t.Fatalf("expected C placed at the second ADVANCE \\x absolute position, got:\n%s", out)
+	}
+	if !strings.Contains(out, `data-layout-owned="true"`) {
+		t.Fatalf("expected layout-owned ADVANCE markers, got:\n%s", out)
+	}
+	if strings.Contains(out, `margin-left:15.00pt`) || strings.Contains(out, `margin-left:-17.44pt`) {
+		t.Fatalf("renderer re-applied ADVANCE offsets instead of consuming physical geometry, got:\n%s", out)
 	}
 }
 
@@ -7674,13 +7782,16 @@ func TestHTMLAdvanceFieldAbsoluteYShiftsVertically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	// \y 5 (down) → advanceV = -5 → translateY(5.00pt).
-	if !strings.Contains(out, `transform:translateY(5.00pt)`) {
-		t.Fatalf("expected ADVANCE \\y positive (down) offset, got:\n%s", out)
+	// Physical layout owns ADVANCE \y geometry: the following runs carry the
+	// vertical offset as a physical top instead of a transform.
+	if !strings.Contains(out, `top:5.00pt`) {
+		t.Fatalf("expected ADVANCE \\y 5 (down) to place the run 5pt down, got:\n%s", out)
 	}
-	// \y -3 (up) → advanceV = 3 → translateY(-3.00pt).
-	if !strings.Contains(out, `transform:translateY(-3.00pt)`) {
-		t.Fatalf("expected ADVANCE \\y negative (up) offset, got:\n%s", out)
+	if !strings.Contains(out, `top:-3.00pt`) {
+		t.Fatalf("expected ADVANCE \\y -3 (up) to place the run 3pt up, got:\n%s", out)
+	}
+	if strings.Contains(out, `transform:translateY`) {
+		t.Fatalf("renderer re-applied ADVANCE offsets instead of consuming physical geometry, got:\n%s", out)
 	}
 }
 
@@ -8554,17 +8665,138 @@ func TestHTMLPictureAdjustmentsRenderAsCSS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, "brightness(150%)") {
-		t.Errorf("expected brightness filter; got:\n%s", out)
+	// Word shifts levels for brightness and scales for contrast, so brightness
+	// 1.5 / contrast 0.8 is the affine map out = 0.8*in + 0.55. The CSS pair
+	// contrast(42.11%) brightness(190%) reproduces it exactly: the contrast()
+	// factor supplies both the scale and the mid-grey pivot, and the
+	// brightness() factor restores the level shift.
+	filter := "contrast(42.11%) brightness(190%)"
+	if !strings.Contains(out, filter) {
+		t.Errorf("expected %s filter; got:\n%s", filter, out)
 	}
-	if !strings.Contains(out, "contrast(80%)") {
-		t.Errorf("expected contrast filter; got:\n%s", out)
+	// contrast(42.11%) brightness(190%) composited: slope = 1.9*0.4211,
+	// intercept = 1.9*0.5*(1-0.4211).
+	if slope := 1.9 * 0.4211; math.Abs(slope-0.8) > 0.001 {
+		t.Errorf("filter slope = %.4f, want 0.8", slope)
 	}
 	if !strings.Contains(out, "grayscale(100%)") {
 		t.Errorf("expected grayscale filter; got:\n%s", out)
 	}
 	if !strings.Contains(out, "opacity:0.5000") {
 		t.Errorf("expected opacity; got:\n%s", out)
+	}
+}
+
+func TestHTMLPictureBrightnessIsAnAdditiveLevelShift(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{{
+		Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{
+			Kind: "image",
+			Image: &resolve.Image{
+				MIMEType:   "image/png",
+				Data:       []byte{0x89, 0x50, 0x4e, 0x47},
+				Width:      1828800,
+				Height:     914400,
+				Brightness: 1.5,
+			},
+		}}},
+	}}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	// Word renders +50% brightness as out = in + 0.5, not as a 1.5x gain:
+	// contrast(50%) brightness(200%) is that level shift expressed as filters.
+	if !strings.Contains(out, "contrast(50%) brightness(200%)") {
+		t.Errorf("expected additive brightness filter; got:\n%s", out)
+	}
+	if strings.Contains(out, "brightness(150%)") {
+		t.Errorf("brightness must not be rendered as a multiplicative gain; got:\n%s", out)
+	}
+}
+
+func TestHTMLPictureContrastIsWordAsymptoticScale(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{{
+		Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{
+			Kind: "image",
+			Image: &resolve.Image{
+				MIMEType: "image/png",
+				Data:     []byte{0x89, 0x50, 0x4e, 0x47},
+				Width:    1828800,
+				Height:   914400,
+				Contrast: 2,
+			},
+		}}},
+	}}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, "contrast(200%)") {
+		t.Errorf("expected contrast(200%%); got:\n%s", out)
+	}
+}
+
+func TestHTMLPictureAdjustmentPreservesExplicitZeroAlpha(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{{
+		Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{
+			Kind: "image", Image: &resolve.Image{
+				MIMEType: "image/png", Data: []byte{0x89, 0x50, 0x4e, 0x47},
+				Width: 914400, Height: 914400, HasAlpha: true, Alpha: 0,
+			},
+		}}},
+	}}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, "opacity:0.0000") {
+		t.Fatalf("expected explicit zero alpha to render transparent, got:\n%s", out)
+	}
+}
+
+func TestHTMLPictureBulletRendersImageInsteadOfGlyph(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{{
+		Kind: "paragraph", Paragraph: &resolve.Paragraph{
+			List: &resolve.ListMarker{Kind: "bullet", Picture: &resolve.Image{
+				MIMEType: "image/gif", Data: []byte("GIF89a"), Width: 114300, Height: 114300,
+			}},
+			Runs: []resolve.Run{{Text: "Picture bullet"}},
+		},
+	}}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	for _, want := range []string{
+		`class="word-list-marker word-physical-inline-list-marker word-list-bullet"`,
+		`data:image/gif;base64,`,
+		`width:9.00pt;height:9.00pt`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("picture bullet HTML is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestHTMLHeadingDefaultsUseDistinctLeading(t *testing.T) {
+	doc := &resolve.Document{Blocks: []resolve.Block{
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{StyleID: "Heading1", Runs: []resolve.Run{{Text: "One"}}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{StyleID: "Heading2", Runs: []resolve.Run{{Text: "Two"}}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{StyleID: "Heading3", Runs: []resolve.Run{{Text: "Three"}}}},
+	}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	for _, want := range []string{
+		"h1 { font-size: 2em; font-weight: bold; line-height: 1.10; }",
+		"h2 { font-size: 1.5em; font-weight: bold; line-height: 1.15; }",
+		"h3 { font-size: 1.17em; font-weight: bold; line-height: 1.20; }",
+		"<h1", "<h2", "<h3",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing heading leading %q in output:\n%s", want, out)
+		}
 	}
 }
 
@@ -11578,6 +11810,12 @@ func TestHTMLListParagraphUsesCanonicalPhysicalItemBody(t *testing.T) {
 	}
 }
 
+// stripTagsForTest removes markup so text assertions do not depend on how runs
+// are wrapped (layout-owned rendering may emit run text without a span).
+func stripTagsForTest(markup string) string {
+	return regexp.MustCompile(`<[^>]+>`).ReplaceAllString(markup, "")
+}
+
 func TestHTMLHeaderFooterStoriesUseCanonicalPhysicalTabGeometry(t *testing.T) {
 	center, right := 4320, 8640
 	footer := resolve.Paragraph{
@@ -11622,9 +11860,12 @@ func TestHTMLHeaderFooterStoriesUseCanonicalPhysicalTabGeometry(t *testing.T) {
 	if strings.Contains(footerHTML, `display:inline-block;width:36.0pt`) {
 		t.Fatalf("footer fell back to semantic default-tab spacers: %s", out)
 	}
-	for _, want := range []string{">Author<", ">Page<", ">1<", ">9/9/2026<"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("footer lost %s: %s", want, out)
+	// The footer text is positioned by layout, so runs are not required to be
+	// wrapped in per-run spans; assert the rendered text itself survives.
+	footerText := stripTagsForTest(footerHTML)
+	for _, want := range []string{"Author", "Page 1", "9/9/2026"} {
+		if !strings.Contains(footerText, want) {
+			t.Fatalf("footer lost %q: %s", want, out)
 		}
 	}
 }

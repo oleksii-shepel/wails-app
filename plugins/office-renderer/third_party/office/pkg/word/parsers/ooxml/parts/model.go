@@ -9251,6 +9251,12 @@ func (n *Numbering) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error
 				}
 				n.Nums = append(n.Nums, &num)
 			case "numPicBullet":
+				var pictureBullet NumPicBullet
+				if err := dec.DecodeElement(&pictureBullet, &current); err != nil {
+					return err
+				}
+				n.NumPicBullets = append(n.NumPicBullets, &pictureBullet)
+				continue
 				// picture bullet definition — not needed for rendering
 				var discard struct{}
 				if err := dec.DecodeElement(&discard, &current); err != nil {
@@ -9361,6 +9367,14 @@ func (l *Lvl) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error {
 				}
 				l.RunProps = &props
 			case "lvlPicBulletId", "isLgl", "suff":
+				if current.Name.Local == "lvlPicBulletId" {
+					var value IntVal
+					if err := dec.DecodeElement(&value, &current); err != nil {
+						return err
+					}
+					l.PictureBulletID = &value
+					continue
+				}
 				// picture bullet ref, legal numbering, suffix — not needed for rendering
 				var discard struct{}
 				if err := dec.DecodeElement(&discard, &current); err != nil {

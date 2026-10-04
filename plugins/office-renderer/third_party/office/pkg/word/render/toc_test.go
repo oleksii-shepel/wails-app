@@ -25,6 +25,20 @@ func TestParseTOCOptionsCustomStyles(t *testing.T) {
 	}
 }
 
+func TestParseTOCOptionsHyperlinkAndWebViewSwitchesKeepPaginatedPageNumbers(t *testing.T) {
+	options := parseTOCOptions(`TOC \o "1-3" \h \z \u`)
+
+	if options.SuppressPageNumbers {
+		t.Fatal(`did not expect \h or \z to suppress page numbers in paginated HTML`)
+	}
+	if options.HeadingsOnly {
+		t.Fatal(`did not expect \h to change TOC entry selection`)
+	}
+	if !options.UseOutlineLevel {
+		t.Fatal(`expected \u to enable outline-level TOC entries`)
+	}
+}
+
 func TestParseTOCOptionsCaptionAndSequenceSwitches(t *testing.T) {
 	options := parseTOCOptions(`TOC \\a figures \\s chapter \\d ":"`)
 
@@ -61,7 +75,7 @@ func TestGenerateTOCUsesCustomStylesWithoutPageNumbers(t *testing.T) {
 	}
 }
 
-func TestGenerateTOCHeadingsOnlySkipsTCEntries(t *testing.T) {
+func TestGenerateTOCHyperlinkSwitchDoesNotSuppressPageNumbers(t *testing.T) {
 	r := &htmlRenderer{
 		pages: []layout.Page{{
 			Number: 2,
@@ -70,16 +84,13 @@ func TestGenerateTOCHeadingsOnlySkipsTCEntries(t *testing.T) {
 					StyleID: "Heading1",
 					Runs:    []resolve.Run{{Text: "Heading One"}},
 				}}},
-				{Block: &resolve.Block{Kind: "paragraph", Paragraph: &resolve.Paragraph{
-					Runs: []resolve.Run{{FieldKind: "TC", FieldArg: `TC "Manual Entry" \\l 1`}},
-				}}},
 			},
 		}},
 	}
 
-	got := r.generateTOC(`TOC \\o "1-1" \\h`)
-	if got != "Heading One" {
-		t.Fatalf("generateTOC with \\h = %q, want %q", got, "Heading One")
+	got := r.generateTOC(`TOC \o "1-1" \h`)
+	if !strings.Contains(got, "Heading One") || !strings.Contains(got, "2") {
+		t.Fatalf("generateTOC with \\h should keep the heading and page number: %q", got)
 	}
 }
 

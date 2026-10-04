@@ -633,11 +633,23 @@ func loadEmbeddedFonts(pkg *opc.Package, mainPartName string, decls []EmbeddedFo
 			Bold:       refID(decl.Bold),
 			Italic:     refID(decl.Italic),
 			BoldItalic: refID(decl.BoldItalic),
+		}, fontdata.StyleKeys{
+			Regular:    keyID(decl.Regular),
+			Bold:       keyID(decl.Bold),
+			Italic:     keyID(decl.Italic),
+			BoldItalic: keyID(decl.BoldItalic),
 		}, byID)
 		if embedded != nil {
 			out.EmbeddedFonts = append(out.EmbeddedFonts, embedded)
 		}
 	}
+}
+
+func keyID(ref *EmbeddedFontStyleRef) string {
+	if ref == nil {
+		return ""
+	}
+	return ref.FontKey
 }
 
 func refID(ref *EmbeddedFontStyleRef) string {

@@ -17,6 +17,15 @@ type StyleRefs struct {
 	BoldItalic string
 }
 
+// StyleKeys identifies the w:fontKey obfuscation GUIDs matching StyleRefs.
+// The key is required to turn a stored ODTTF part back into a usable font.
+type StyleKeys struct {
+	Regular    string
+	Bold       string
+	Italic     string
+	BoldItalic string
+}
+
 // EmbeddedFontData stores the concrete font parts loaded for a declared font family.
 type EmbeddedFontData struct {
 	Typeface   string
@@ -26,32 +35,35 @@ type EmbeddedFontData struct {
 	BoldItalic *FontPart
 }
 
-// FontPart is a raw embedded font file loaded from the OPC package.
+// FontPart is a raw embedded font file loaded from the OPC package. Data stays
+// exactly as stored (ODTTF parts remain obfuscated); FontKey carries the
+// w:fontKey needed to decode it.
 type FontPart struct {
 	Name        string
 	ContentType string
 	Data        []byte
+	FontKey     string
 }
 
 // LoadEmbeddedFont resolves the embedded font parts for a single font family.
-func LoadEmbeddedFont(pkg *opc.Package, ownerPartName, family string, refs StyleRefs, byID map[string]rels.Relationship) *EmbeddedFontData {
+func LoadEmbeddedFont(pkg *opc.Package, ownerPartName, family string, refs StyleRefs, keys StyleKeys, byID map[string]rels.Relationship) *EmbeddedFontData {
 	family = strings.TrimSpace(family)
 	if family == "" {
 		return nil
 	}
 
 	embedded := &EmbeddedFontData{Typeface: family}
-	embedded.Regular = loadFontPart(pkg, ownerPartName, refs.Regular, byID)
-	embedded.Bold = loadFontPart(pkg, ownerPartName, refs.Bold, byID)
-	embedded.Italic = loadFontPart(pkg, ownerPartName, refs.Italic, byID)
-	embedded.BoldItalic = loadFontPart(pkg, ownerPartName, refs.BoldItalic, byID)
+	embedded.Regular = loadFontPart(pkg, ownerPartName, refs.Regular, keys.Regular, byID)
+	embedded.Bold = loadFontPart(pkg, ownerPartName, refs.Bold, keys.Bold, byID)
+	embedded.Italic = loadFontPart(pkg, ownerPartName, refs.Italic, keys.Italic, byID)
+	embedded.BoldItalic = loadFontPart(pkg, ownerPartName, refs.BoldItalic, keys.BoldItalic, byID)
 	if embedded.Regular == nil && embedded.Bold == nil && embedded.Italic == nil && embedded.BoldItalic == nil {
 		return nil
 	}
 	return embedded
 }
 
-func loadFontPart(pkg *opc.Package, ownerPartName, relID string, byID map[string]rels.Relationship) *FontPart {
+func loadFontPart(pkg *opc.Package, ownerPartName, relID, fontKey string, byID map[string]rels.Relationship) *FontPart {
 	if pkg == nil {
 		return nil
 	}
@@ -72,5 +84,6 @@ func loadFontPart(pkg *opc.Package, ownerPartName, relID string, byID map[string
 		Name:        partName,
 		ContentType: part.ContentType,
 		Data:        append([]byte(nil), part.Data...),
+		FontKey:     strings.TrimSpace(fontKey),
 	}
 }

@@ -88,6 +88,14 @@ func (s *DOCXSource) Walk(handler Handler) error {
 					}
 					format := paragraphFormatFromSAX(props)
 					converted.ParagraphFormat = &format
+					if props.Frame != nil {
+						converted.ParagraphFrame = framePropsFromSAX(*props.Frame)
+					}
+					if props.MarkRun != nil {
+						converted.RunStyleID = props.MarkRun.StyleID
+						mark := runFormatFromSAX(*props.MarkRun)
+						converted.RunFormat = &mark
+					}
 				}
 				if numberingCursor != nil {
 					ref, err := numberingCursor.NextParagraph()
@@ -178,6 +186,8 @@ func fromSAXEvent(event wordsax.Event) Event {
 		BookmarkName:       event.BookmarkName,
 		NoteID:             event.NoteID,
 		CommentID:          event.CommentID,
+		TablePropertyScope: event.TablePropertyScope,
+		RawXML:             event.RawXML,
 		Raw:                event,
 	}
 }

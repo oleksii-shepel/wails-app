@@ -30,22 +30,23 @@ type ParagraphSlotLayout struct {
 	PositionedRuns []ParagraphRunLayout
 }
 
-func paragraphLineLayouts(lines []paragraphPhysicalLine) []ParagraphLineLayout {
+func paragraphLineLayouts(lines []paragraphPhysicalLine, originY float64) []ParagraphLineLayout {
 	if len(lines) == 0 {
 		return nil
 	}
 	// Physical line planning uses page/column Y coordinates because float
 	// exclusions live in that coordinate space. ParagraphFragment geometry is
 	// renderer-facing, however, so its vertical coordinates must be local to
-	// the fragment. Rebase every fragment to its first physical line while
-	// preserving the measured distances between lines and slots.
-	originY := 0.0
-	haveOrigin := false
-	for _, line := range lines {
-		for _, slot := range line.Slots {
-			if !haveOrigin || slot.Slot.Top < originY {
-				originY = slot.Slot.Top
-				haveOrigin = true
+	// the fragment. Rebase every fragment to the origin its caller renders
+	// from, preserving the measured distances between lines and slots.
+	if originY == 0 {
+		haveOrigin := false
+		for _, line := range lines {
+			for _, slot := range line.Slots {
+				if !haveOrigin || slot.Slot.Top < originY {
+					originY = slot.Slot.Top
+					haveOrigin = true
+				}
 			}
 		}
 	}

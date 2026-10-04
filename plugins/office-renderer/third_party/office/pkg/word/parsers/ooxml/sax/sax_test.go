@@ -84,6 +84,54 @@ func TestWalkBytesEmitsDocumentEvents(t *testing.T) {
 	}
 }
 
+func TestWalkBytesAcceptsStrictOfficeDocumentRelationship(t *testing.T) {
+	data := buildPackage(t, map[string]string{
+		"_rels/.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`,
+		"word/document.xml": `<w:document xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main"><w:body><w:p><w:r><w:t>Strict text</w:t></w:r></w:p></w:body></w:document>`,
+	})
+
+	var texts []string
+	err := sax.WalkBytes(data, sax.HandlerFunc(func(event sax.Event) error {
+		if event.Type == sax.EventText {
+			texts = append(texts, event.Text)
+		}
+		return nil
+	}), sax.Options{})
+	if err != nil {
+		t.Fatalf("WalkBytes: %v", err)
+	}
+	if len(texts) != 1 || texts[0] != "Strict text" {
+		t.Fatalf("texts = %#v, want [Strict text]", texts)
+	}
+}
+
+func TestWalkBytesResolvesStrictInlinePicture(t *testing.T) {
+	data := buildPackage(t, map[string]string{
+		"_rels/.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+		"word/_rels/document.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdImage" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/image" Target="media/image1.png"/></Relationships>`,
+		"word/document.xml": `<w:document xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main" xmlns:r="http://purl.oclc.org/ooxml/officeDocument/relationships" xmlns:wp="http://purl.oclc.org/ooxml/drawingml/wordprocessingDrawing" xmlns:a="http://purl.oclc.org/ooxml/drawingml/main" xmlns:pic="http://purl.oclc.org/ooxml/drawingml/picture"><w:body><w:p><w:r><w:drawing><wp:inline><wp:extent cx="12700" cy="25400"/><a:graphic><a:graphicData uri="http://purl.oclc.org/ooxml/drawingml/picture"><pic:pic><pic:blipFill><a:blip r:embed="rIdImage"/><a:srcRect l="4.799%" t="8.961%"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:body></w:document>`,
+	})
+
+	var drawing sax.Event
+	err := sax.WalkBytes(data, sax.HandlerFunc(func(event sax.Event) error {
+		if event.Type == sax.EventDrawing {
+			drawing = event
+		}
+		return nil
+	}), sax.Options{})
+	if err != nil {
+		t.Fatalf("WalkBytes: %v", err)
+	}
+	if drawing.DrawingKind != "inline" || drawing.DrawingGraphicKind != "picture" {
+		t.Fatalf("drawing kind = %q/%q, want inline/picture", drawing.DrawingKind, drawing.DrawingGraphicKind)
+	}
+	if drawing.RelationshipTarget != "word/media/image1.png" {
+		t.Fatalf("picture target = %q, want word/media/image1.png", drawing.RelationshipTarget)
+	}
+}
+
 func TestWalkBytesCanOmitFieldInstructions(t *testing.T) {
 	data := buildPackage(t, map[string]string{
 		"_rels/.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">

@@ -267,6 +267,8 @@ type EmbeddedFontDecl struct {
 // EmbeddedFontStyleRef points to an embedded font part via a relationship ID.
 type EmbeddedFontStyleRef struct {
 	RelID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	// FontKey is the OOXML fontKey GUID needed to undo ODTTF obfuscation.
+	FontKey string `xml:"fontKey,attr,omitempty"`
 }
 
 type EmbeddedFontData = fontdata.EmbeddedFontData

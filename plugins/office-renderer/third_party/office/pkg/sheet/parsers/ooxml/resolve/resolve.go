@@ -15,6 +15,7 @@ import (
 	officeartdml "office/pkg/officeart/ooxml/drawingml"
 	"office/pkg/ooxml/chart"
 	"office/pkg/ooxml/drawing"
+	"office/pkg/ooxml/drawingxml"
 	"office/pkg/ooxml/media"
 	"office/pkg/ooxml/smartart"
 	"office/pkg/sheet/parsers/ooxml/formula"
@@ -1124,10 +1125,27 @@ func buildDxfTable(ss *parts.StyleSheet, themeColors, indexedColors map[int]stri
 				ds.FontColor = resolveColorVal(dxf.Font.Color, themeColors, indexedColors)
 			}
 		}
+		if dxf.NumFmt != nil {
+			ds.NumFmtCode = dxf.NumFmt.FormatCode
+			if ds.NumFmtCode == "" {
+				ds.NumFmtCode = builtinNumFmts()[dxf.NumFmt.ID]
+			}
+		}
 		if dxf.Fill != nil && dxf.Fill.PatternFill != nil {
 			pf := dxf.Fill.PatternFill
-			if pf.FgColor != nil {
-				ds.BgColor = resolveColorVal(pf.FgColor, themeColors, indexedColors)
+			fg := resolveColorVal(pf.FgColor, themeColors, indexedColors)
+			bg := resolveColorVal(pf.BgColor, themeColors, indexedColors)
+			// A differential solid fill paints its bgColor (fgColor only as a
+			// fallback); patterned fills keep fgColor as the pattern colour.
+			if pf.PatternType == "" || pf.PatternType == "solid" {
+				ds.BgColor = bg
+				if ds.BgColor == "" {
+					ds.BgColor = fg
+				}
+			} else {
+				ds.BgColor = fg
+				ds.FillForegroundColor = fg
+				ds.FillBackgroundColor = bg
 			}
 		}
 		if dxf.Border != nil {
@@ -1325,6 +1343,12 @@ func buildDrawingThemeColorIndex(theme *parts.Theme) map[string]string {
 	add("accent6", scheme.Accent6)
 	add("hlink", scheme.HLink)
 	add("folHlink", scheme.FolHLink)
+	// SpreadsheetML has no per-sheet clrMap, so shapes use the default mapping.
+	for alias, name := range map[string]string{"tx1": "dk1", "bg1": "lt1", "tx2": "dk2", "bg2": "lt2"} {
+		if hex, ok := colors[name]; ok {
+			colors[alias] = hex
+		}
+	}
 	return colors
 }
 
@@ -2446,7 +2470,7 @@ func sheetOfficeArtKind(kind DrawingType) officeartir.ShapeKind {
 
 func resolveAnchorContent(pic *parts.XDRPic, gf *parts.XDRGraphicFrame, sp *parts.XDRShape, grp *parts.XDRGroupShape, mediaMap map[string]media.Part, chartParts map[string][]byte, diagramParts map[string]parts.PreservedPart, drawingThemeColors map[string]string, themeColors, indexedColors map[int]string) *Drawing {
 	if pic != nil {
-		return resolvePictureDrawing(pic, mediaMap)
+		return resolvePictureDrawing(pic, mediaMap, drawingThemeColors)
 	}
 	if gf != nil {
 		return resolveGraphicFrameDrawing(gf, chartParts, diagramParts, drawingThemeColors)
@@ -2460,7 +2484,7 @@ func resolveAnchorContent(pic *parts.XDRPic, gf *parts.XDRGraphicFrame, sp *part
 	return nil
 }
 
-func resolvePictureDrawing(pic *parts.XDRPic, mediaMap map[string]media.Part) *Drawing {
+func resolvePictureDrawing(pic *parts.XDRPic, mediaMap map[string]media.Part, themeColors map[string]string) *Drawing {
 	if pic == nil {
 		return nil
 	}
@@ -2473,6 +2497,7 @@ func resolvePictureDrawing(pic *parts.XDRPic, mediaMap map[string]media.Part) *D
 	}
 	relID := normalizeRelID(pic.BlipFill.Blip.Embed)
 	img := &DrawingImage{RelID: relID, AltText: pic.NvPicPr.CNvPr.Descr}
+	img.Effects = pic.SpPr.DrawingEffectList(themeColors)
 	if pic.SpPr.Xfrm != nil {
 		img.RotationDeg = float64(pic.SpPr.Xfrm.Rot) / 60000.0
 		img.FlipH = pic.SpPr.Xfrm.FlipH
@@ -2687,7 +2712,7 @@ func resolveGroupDrawing(grp *parts.XDRGroupShape, mediaMap map[string]media.Par
 			}
 		case groupItemPicture:
 			if item.Index >= 0 && item.Index < len(grp.Pictures) {
-				child = resolvePictureDrawing(&grp.Pictures[item.Index], mediaMap)
+				child = resolvePictureDrawing(&grp.Pictures[item.Index], mediaMap, drawingThemeColors)
 				if child != nil {
 					child.Position = resolveGroupedChildPosition(grp.Pictures[item.Index].SpPr.Xfrm, groupXfrm)
 				}
@@ -2838,8 +2863,8 @@ func resolveShapeWithColorMaps(sp *parts.XDRShape, mediaMap map[string]media.Par
 	}
 	shape.Effects = sp.SpPr.DrawingEffectList(drawingThemeColors)
 	if sf := sp.SpPr.SolidFill; sf != nil {
-		if sf.SRGBClr != nil {
-			shape.FillColor = sf.SRGBClr.Val
+		if fill := drawingxml.ResolveSolidFill(sf, drawingThemeColors); fill != nil && fill.Color != "" {
+			shape.FillColor = fill.Color
 		}
 	}
 	if bf := sp.SpPr.BlipFill; bf != nil && bf.Blip != nil && bf.Blip.Embed != "" {
@@ -2876,8 +2901,8 @@ func resolveShapeWithColorMaps(sp *parts.XDRShape, mediaMap map[string]media.Par
 	}
 	if ln := sp.SpPr.Ln; ln != nil {
 		shape.LineStyle = ln.ToDrawingLineStyle()
-		if ln.SolidFill != nil && ln.SolidFill.SRGBClr != nil {
-			shape.LineColor = ln.SolidFill.SRGBClr.Val
+		if fill := drawingxml.ResolveSolidFill(ln.SolidFill, drawingThemeColors); fill != nil && fill.Color != "" {
+			shape.LineColor = fill.Color
 		}
 		if ln.W > 0 {
 			shape.LineWidthPt = drawing.EMUToPoints(ln.W)
@@ -2900,7 +2925,7 @@ func resolveShapeWithColorMaps(sp *parts.XDRShape, mediaMap map[string]media.Par
 			}
 			for _, r := range p.Runs {
 				paragraph.WriteString(r.T)
-				shape.RichTextRuns = append(shape.RichTextRuns, resolveShapeTextRun(r, themeColors, indexedColors))
+				shape.RichTextRuns = append(shape.RichTextRuns, resolveShapeTextRun(r, drawingThemeColors, themeColors, indexedColors))
 			}
 			paragraphs = append(paragraphs, paragraph.String())
 		}
@@ -2909,29 +2934,49 @@ func resolveShapeWithColorMaps(sp *parts.XDRShape, mediaMap map[string]media.Par
 	return shape
 }
 
-func resolveShapeTextRun(run parts.XDRTxRun, themeColors, indexedColors map[int]string) *RichTextRun {
+func resolveShapeTextRun(run parts.XDRTxRun, drawingThemeColors map[string]string, themeColors, indexedColors map[int]string) *RichTextRun {
 	out := &RichTextRun{Text: run.T}
 	if run.Properties == nil {
 		return out
 	}
-	out.Bold = run.Properties.Bold != nil
-	out.Italic = run.Properties.Italic != nil
-	out.Underline = run.Properties.Underline != nil
-	if run.Properties.Underline != nil {
-		out.UnderlineType = run.Properties.Underline.Val
+	props := run.Properties
+	out.Bold = props.Bold != nil || drawingOnOff(props.B)
+	out.Italic = props.Italic != nil || drawingOnOff(props.I)
+	out.Underline = props.Underline != nil || (props.U != "" && props.U != "none")
+	if props.Underline != nil {
+		out.UnderlineType = props.Underline.Val
+	} else if out.Underline {
+		out.UnderlineType = props.U
 	}
-	out.Strike = run.Properties.Strike != nil
-	if run.Properties.VertAlign != nil {
-		out.VertAlign = run.Properties.VertAlign.Val
+	out.Strike = props.Strike != nil || (props.StrikeType != "" && props.StrikeType != "noStrike")
+	if props.VertAlign != nil {
+		out.VertAlign = props.VertAlign.Val
+	} else if props.Baseline > 0 {
+		out.VertAlign = "superscript"
+	} else if props.Baseline < 0 {
+		out.VertAlign = "subscript"
 	}
-	if run.Properties.FontSize != nil {
-		out.FontSizePt = run.Properties.FontSize.Val
+	if props.FontSize != nil {
+		out.FontSizePt = props.FontSize.Val
+	} else if props.SizeHundredths > 0 {
+		out.FontSizePt = float64(props.SizeHundredths) / 100
 	}
-	out.FontColor = resolveColorVal(run.Properties.Color, themeColors, indexedColors)
-	if run.Properties.FontName != nil {
-		out.FontFamily = run.Properties.FontName.Val
+	out.FontColor = resolveColorVal(props.Color, themeColors, indexedColors)
+	if out.FontColor == "" {
+		if fill := drawingxml.ResolveSolidFill(props.SolidFill, drawingThemeColors); fill != nil {
+			out.FontColor = fill.Color
+		}
+	}
+	if props.FontName != nil {
+		out.FontFamily = props.FontName.Val
+	} else if props.Latin != nil && !strings.HasPrefix(props.Latin.Typeface, "+") {
+		out.FontFamily = props.Latin.Typeface
 	}
 	return out
+}
+
+func drawingOnOff(v string) bool {
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 func normalizeRelID(id string) string {

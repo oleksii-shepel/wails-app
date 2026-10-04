@@ -30,6 +30,12 @@ func TestXlsxCorpusRender(t *testing.T) {
 		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".xlsx") {
 			continue
 		}
+		// Excel drops an owner lock file next to an open workbook. It is not a
+		// ZIP package (and may be locked by the running Office process), so a
+		// fixture left open must not fail the corpus run.
+		if strings.HasPrefix(entry.Name(), "~$") {
+			continue
+		}
 		count++
 		path := filepath.Join(fixturesDir, entry.Name())
 		t.Run(entry.Name(), func(t *testing.T) {
@@ -1125,13 +1131,13 @@ func TestHTMLPreservesStyledEmptyCellsAndThemeColors(t *testing.T) {
 
 func TestHTMLUsesWorkbookColumnLayoutForRotatedSampleCells(t *testing.T) {
 	html := renderXlsxHTML(t, "sample-5.xlsx")
-	if !strings.Contains(html, `<table class="grid grid--fixed">`) {
-		t.Fatalf("expected fixed-layout grid for workbook-sized columns")
+	if !strings.Contains(html, `<table class="grid grid--fixed" style="width:`) {
+		t.Fatalf("expected fixed-layout grid pinned to the modelled column widths")
 	}
 	if strings.Contains(html, "width:37.63ch") {
 		t.Fatalf("expected workbook column widths to be emitted in pixels, not CSS ch units")
 	}
-	if !strings.Contains(html, `width:263px`) {
+	if !strings.Contains(html, `width:282px`) {
 		t.Fatalf("expected converted workbook width for the rotated year column: %s", html)
 	}
 	if !strings.Contains(html, `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-90deg)`) {
@@ -1377,6 +1383,136 @@ func TestHTMLRendersGroupedDrawings(t *testing.T) {
 	}
 	if !strings.Contains(out, "Inner") {
 		t.Fatalf("expected grouped shape text in output:\n%s", out)
+	}
+}
+
+func TestHTMLGridWrapSizesToDrawingsBelowGrid(t *testing.T) {
+	tests := []struct {
+		name  string
+		sheet *resolve.Sheet
+		want  string
+	}{
+		{
+			// Panel bottom 600px: 600 + 2 border + 18 scrollbar slack.
+			name: "drawing below populated rows",
+			sheet: &resolve.Sheet{
+				Name: "Sheet1",
+				Rows: []*resolve.Row{{
+					Index: 1,
+					Cells: []*resolve.Cell{{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellString, StrValue: "Top"}},
+				}},
+				Drawings: []*resolve.Drawing{{
+					Name: "Panel",
+					Type: resolve.DrawingTypeShape,
+					Position: resolve.DrawingPosition{
+						Anchor: resolve.AnchorAbsolute,
+						Y:      5 * 9525,
+						Width:  200 * 9525,
+						Height: 595 * 9525,
+					},
+					Shape: &resolve.DrawingShape{Geometry: "rect", Text: "Panel", FillColor: "FFFF00"},
+				}},
+			},
+			want: `class="grid-wrap" style="min-height:620px"`,
+		},
+		{
+			// Panel bottom 58px: 58 + 2 border + 18 scrollbar slack.
+			name: "drawing on empty sheet",
+			sheet: &resolve.Sheet{
+				Name: "Sheet1",
+				Drawings: []*resolve.Drawing{{
+					Name: "Panel",
+					Type: resolve.DrawingTypeShape,
+					Position: resolve.DrawingPosition{
+						Anchor: resolve.AnchorAbsolute,
+						Y:      8 * 9525,
+						Width:  200 * 9525,
+						Height: 50 * 9525,
+					},
+					Shape: &resolve.DrawingShape{Geometry: "rect", Text: "Panel", FillColor: "FFFF00"},
+				}},
+			},
+			want: `class="grid-wrap" style="min-height:78px"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := render.HTML(&resolve.Workbook{Sheets: []*resolve.Sheet{tt.sheet}})
+			if err != nil {
+				t.Fatalf("HTML: %v", err)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("expected %q so the anchored panel stays visible without scrolling:\n%s", tt.want, out)
+			}
+			if strings.Contains(out, "max-height: 80vh") {
+				t.Fatalf("grid wrapper must not clamp the sheet height:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestHTMLGridExtendsToCoverAnchoredObjects(t *testing.T) {
+	wb := &resolve.Workbook{
+		Sheets: []*resolve.Sheet{{
+			Name: "Sheet1",
+			Rows: []*resolve.Row{{
+				Index: 1,
+				Cells: []*resolve.Cell{{Row: 1, Col: 1, Ref: "A1", Kind: resolve.CellString, StrValue: "Top"}},
+			}},
+			Drawings: []*resolve.Drawing{{
+				Name: "Panel",
+				Type: resolve.DrawingTypeShape,
+				Position: resolve.DrawingPosition{
+					Anchor: resolve.AnchorAbsolute,
+					X:      0,
+					Y:      5 * 9525,
+					Width:  200 * 9525,
+					Height: 200 * 9525,
+				},
+				Shape: &resolve.DrawingShape{Geometry: "rect", Text: "Panel", FillColor: "FFFF00"},
+			}},
+		}},
+	}
+
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	// 200px of panel needs 12 default 18px rows and 4 default 64px columns.
+	if got := strings.Count(out, "<tr"); got < 12 {
+		t.Fatalf("grid rows = %d, want >= 12 so cells cover the anchored panel:\n%s", got, out)
+	}
+	if !strings.Contains(out, `data-col-index="4"`) {
+		t.Fatalf("grid columns do not reach the anchored panel:\n%s", out)
+	}
+}
+
+func TestHTMLAuthoredBorderWinsOverNeighbourDefaultGrid(t *testing.T) {
+	// The empty first column carries the default grid; under border-collapse it
+	// would beat the authored black left border of the second column.
+	wb := &resolve.Workbook{
+		Sheets: []*resolve.Sheet{{
+			Name: "Sheet1",
+			Rows: []*resolve.Row{{
+				Index: 1,
+				Cells: []*resolve.Cell{{
+					Row: 1, Col: 2, Ref: "B1", Kind: resolve.CellString, StrValue: "Button",
+					Style: resolve.CellStyle{BorderLeft: resolve.BorderStyle{Style: "thin", Color: "000000"}},
+				}},
+			}},
+		}},
+	}
+
+	out, err := render.HTML(wb)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	if !strings.Contains(out, "border-right:none") {
+		t.Fatalf("neighbouring default grid border must yield to the authored left border:\n%s", out)
+	}
+	if !strings.Contains(out, "border-left:1px solid #000000") {
+		t.Fatalf("authored left border missing from output:\n%s", out)
 	}
 }
 
@@ -4132,7 +4268,7 @@ func TestHTMLCellErrorValue(t *testing.T) {
 		t.Fatalf("expected #REF! error in output:\n%s", out)
 	}
 }
-func TestHTMLHeaderFooterRendered(t *testing.T) {
+func TestHTMLOmitsSheetHeaderFooterBars(t *testing.T) {
 	wb := &resolve.Workbook{
 		Sheets: []*resolve.Sheet{{
 			Name: "Summary",
@@ -4150,29 +4286,13 @@ func TestHTMLHeaderFooterRendered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	// Header bar must be present.
-	if !strings.Contains(out, "sheet-header") {
-		t.Fatalf("expected sheet-header div in output:\n%s", out)
+	// Header/footer bars belong to the print renderer; the sheet body must not
+	// draw them.
+	if strings.Contains(out, "sheet-header") || strings.Contains(out, "sheet-footer") {
+		t.Fatalf("sheet header/footer bars must not be rendered: %s", out)
 	}
-	// Left section text.
-	if !strings.Contains(out, "Left Head") {
-		t.Fatalf("expected 'Left Head' in header:\n%s", out)
-	}
-	// Page number placeholder span.
-	if !strings.Contains(out, "hf-page-num") {
-		t.Fatalf("expected hf-page-num span in header:\n%s", out)
-	}
-	// Footer bar must be present.
-	if !strings.Contains(out, "sheet-footer") {
-		t.Fatalf("expected sheet-footer div in output:\n%s", out)
-	}
-	// &A in footer should resolve to sheet name.
-	if !strings.Contains(out, "Summary") {
-		t.Fatalf("expected sheet name 'Summary' in footer:\n%s", out)
-	}
-	// "Confidential" in footer left section.
-	if !strings.Contains(out, "Confidential") {
-		t.Fatalf("expected 'Confidential' in footer:\n%s", out)
+	if strings.Contains(out, "Left Head") || strings.Contains(out, "Confidential") {
+		t.Fatalf("header/footer text must not be rendered: %s", out)
 	}
 }
 

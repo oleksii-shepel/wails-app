@@ -1968,6 +1968,19 @@ func (c *converter) buildShapeElement(dr *sheetir.Drawing) *sheetparts.XDRShape 
 	if effects := worksheetEffectsFromShape(shape); effects != nil {
 		spPr.EffectLst = effects
 	}
+	if threeD := worksheetThreeDFromShape(shape); threeD != nil {
+		spPr.Scene3D = &sheetparts.XDRScene3D{
+			Camera:   &sheetparts.XDRSceneCamera{Prst: threeD.CameraPreset},
+			LightRig: &sheetparts.XDRSceneLightRig{Rig: threeD.LightRig, Dir: threeD.LightDirection},
+		}
+		spPr.Shape3D = &sheetparts.XDRShape3D{
+			BevelT: &sheetparts.XDRShape3DBevel{
+				W:    drawing.PointsToEMU(threeD.BevelTopWidth),
+				H:    drawing.PointsToEMU(threeD.BevelTopHeight),
+				Prst: threeD.BevelTopPreset,
+			},
+		}
+	}
 
 	xdrShape := &sheetparts.XDRShape{
 		NvSpPr: sheetparts.XDRNvSpPr{
@@ -2130,7 +2143,7 @@ func (c *converter) buildImageElement(drawingMedia map[string]media.Part, dr *sh
 			ContentType: contentType,
 		}
 	}
-	return &sheetparts.XDRPic{
+	pic := &sheetparts.XDRPic{
 		NvPicPr: sheetparts.XDRNvPicPr{
 			CNvPr: sheetparts.XDRCNvPr{
 				ID:    1,
@@ -2142,14 +2155,25 @@ func (c *converter) buildImageElement(drawingMedia map[string]media.Part, dr *sh
 			Blip: sheetparts.XDRBlip{Embed: relID},
 		},
 	}
+	if effects := worksheetEffectsFromEffectList(dr.Image.Effects); effects != nil {
+		pic.SpPr.EffectLst = effects
+	}
+	return pic
 }
 
 func worksheetEffectsFromShape(shape *sheetir.DrawingShape) *sheetparts.XDREffectList {
 	if shape == nil || len(shape.Effects.Effects) == 0 {
 		return nil
 	}
+	return worksheetEffectsFromEffectList(shape.Effects)
+}
+
+func worksheetEffectsFromEffectList(effectList drawing.EffectList) *sheetparts.XDREffectList {
+	if len(effectList.Effects) == 0 {
+		return nil
+	}
 	out := &sheetparts.XDREffectList{}
-	for _, effect := range shape.Effects.Effects {
+	for _, effect := range effectList.Effects {
 		switch e := effect.(type) {
 		case drawing.Shadow:
 			out.OuterShadow = worksheetOuterShadow(e)
@@ -2157,12 +2181,33 @@ func worksheetEffectsFromShape(shape *sheetir.DrawingShape) *sheetparts.XDREffec
 			if e != nil {
 				out.OuterShadow = worksheetOuterShadow(*e)
 			}
+		case drawing.SoftEdge:
+			out.SoftEdge = &sheetparts.XDRSoftEdgeEffect{Rad: drawing.PointsToEMU(e.Radius)}
+		case *drawing.SoftEdge:
+			if e != nil {
+				out.SoftEdge = &sheetparts.XDRSoftEdgeEffect{Rad: drawing.PointsToEMU(e.Radius)}
+			}
 		}
 	}
 	if out.OuterShadow == nil && out.InnerShadow == nil && out.Glow == nil && out.SoftEdge == nil && out.Reflection == nil && out.Blur == nil {
 		return nil
 	}
 	return out
+}
+
+func worksheetThreeDFromShape(shape *sheetir.DrawingShape) *drawing.ThreeD {
+	if shape == nil {
+		return nil
+	}
+	for _, effect := range shape.Effects.Effects {
+		switch threeD := effect.(type) {
+		case drawing.ThreeD:
+			return &threeD
+		case *drawing.ThreeD:
+			return threeD
+		}
+	}
+	return nil
 }
 
 func worksheetOuterShadow(sh drawing.Shadow) *sheetparts.XDROuterShadowEffect {
@@ -2264,31 +2309,35 @@ func (c *converter) convertShapeTextRuns(shape *sheetir.DrawingShape) []sheetpar
 		xdrRun := sheetparts.XDRTxRun{T: run.Text}
 		if run.Bold || run.Italic || run.Underline || run.Strike || run.VertAlign != "" ||
 			run.FontSizePt > 0 || run.FontColor != "" || run.FontFamily != "" {
-			xdrRun.Properties = &sheetparts.RTProps{}
+			props := &sheetparts.XDRRunProperties{}
 			if run.Bold {
-				xdrRun.Properties.Bold = &struct{}{}
+				props.B = "1"
 			}
 			if run.Italic {
-				xdrRun.Properties.Italic = &struct{}{}
+				props.I = "1"
 			}
 			if run.Underline {
-				xdrRun.Properties.Underline = &sheetparts.StringVal{Val: run.UnderlineType}
+				props.U = drawingUnderlineType(run.UnderlineType)
 			}
-			if run.VertAlign != "" {
-				xdrRun.Properties.VertAlign = &sheetparts.StringVal{Val: run.VertAlign}
+			switch run.VertAlign {
+			case "superscript":
+				props.Baseline = 30000
+			case "subscript":
+				props.Baseline = -25000
 			}
 			if run.Strike {
-				xdrRun.Properties.Strike = &struct{}{}
+				props.StrikeType = "sngStrike"
 			}
 			if run.FontSizePt > 0 {
-				xdrRun.Properties.FontSize = &sheetparts.FloatVal{Val: run.FontSizePt}
+				props.SizeHundredths = int(math.Round(run.FontSizePt * 100))
 			}
 			if run.FontColor != "" {
-				xdrRun.Properties.Color = &sheetparts.ColorVal{RGB: run.FontColor}
+				props.SolidFill = &drawingxml.SolidFill{SRGBClr: &drawingxml.SRGBClr{Val: run.FontColor}}
 			}
 			if run.FontFamily != "" {
-				xdrRun.Properties.FontName = &sheetparts.StringVal{Val: run.FontFamily}
+				props.Latin = &sheetparts.XDRTextFont{Typeface: run.FontFamily}
 			}
+			xdrRun.Properties = props
 		}
 		runs = append(runs, xdrRun)
 	}
@@ -2296,6 +2345,16 @@ func (c *converter) convertShapeTextRuns(shape *sheetir.DrawingShape) []sheetpar
 		return []sheetparts.XDRTxRun{{T: shape.Text}}
 	}
 	return runs
+}
+
+// drawingUnderlineType maps a SpreadsheetML underline variant onto ST_TextUnderlineType.
+func drawingUnderlineType(underline string) string {
+	switch underline {
+	case "double", "doubleAccounting":
+		return "dbl"
+	default:
+		return "sng"
+	}
 }
 
 func (c *converter) addChartDrawing(sd *sheetparts.SpreadsheetDrawing, drawingCharts map[string][]byte, dr *sheetir.Drawing) error {

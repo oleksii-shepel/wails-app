@@ -9,9 +9,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
+	"office/pkg/fontmetrics"
 	"office/pkg/ooxml/chart"
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/fontdata"
@@ -34,8 +36,13 @@ const (
 	HTMLFontModeInline   HTMLFontMode = "inline"
 	HTMLFontModeExternal HTMLFontMode = "external"
 
-	// Character-unit to pixel conversion used for worksheet layout.
-	charUnitToPx = 7
+	// Character-unit to pixel conversion used for worksheet layout. Excel's
+	// column unit is the advance of "0" in the default font, so a column sized
+	// for N characters must be able to display N of them: the Calibri 11pt zero
+	// advances 7.5px at 96 DPI, not the 7px integer an "MDW=7" reading suggests.
+	// Using 7 made every column ~7% narrower than Excel renders it, so cell
+	// content overflowed columns that Excel displays in full.
+	charUnitToPx = 7.5
 	// Default worksheet column width in pixels when not specified.
 	defaultColPx = 64
 	// Default worksheet row height in pixels.
@@ -59,6 +66,8 @@ type htmlRenderer struct {
 	assets           []HTMLAsset
 	nextImageIndex   int
 	nextFontIndex    int
+	// printPages is set when sheets are rendered as slices of physical print pages.
+	printPages bool
 }
 
 type dataValidationState struct {
@@ -67,7 +76,9 @@ type dataValidationState struct {
 }
 
 // HTML renders a resolved Workbook as an HTML document.
-// Each sheet becomes a section with a heading and a scrollable grid table.
+// Each sheet becomes a section with a heading and a grid table that grows to
+// the worksheet's full height, sized to cover anchored drawings and panels, so
+// the page scrolls rather than the sheet box.
 func HTML(wb *resolve.Workbook) (string, error) {
 	html, _, err := HTMLWithOptions(wb, HTMLOptions{})
 	return html, err
@@ -240,7 +251,12 @@ func workbookConnectionOptions(conn *resolve.WorkbookConnection) string {
 }
 
 func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, sheetIndex int) {
-	b.WriteString("<section class=\"sheet\">\n")
+	if r.printPages {
+		b.WriteString("<section class=\"sheet\">\n")
+	} else {
+		fmt.Fprintf(b, "<div class=\"sheet-num\">Sheet %d</div>\n", sheetIndex+1)
+		fmt.Fprintf(b, "<section class=\"sheet\" id=\"sheet-%d\" data-sheet=\"%d\" data-sheet-name=\"%s\">\n", sheetIndex+1, sheetIndex+1, escapeHTML(sheet.Name))
+	}
 	fmt.Fprintf(b, "<h2 class=\"sheet-name\">%s</h2>\n", escapeHTML(sheet.Name))
 	rowOutlineMax := maxOutlineLevel(sheet.OutlineRows)
 	colOutlineMax := maxOutlineLevel(sheet.OutlineCols)
@@ -254,10 +270,6 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 		renderPaneMetadata(b, sheet)
 	}
 
-	// Render worksheet header (e.g. "&LLeft&CCenter&RRight").
-	if sheet.HeaderFooter != nil && sheet.HeaderFooter.OddHeader != "" {
-		renderSheetHeaderFooter(b, sheet.HeaderFooter.OddHeader, "header", sheet.Name, sheet.HeaderFooter.Images)
-	}
 	var metaAttrs []string
 	metaAttrs = append(metaAttrs, "class=\"sheet-meta\"", "hidden")
 	if sheet.PageSetup != nil {
@@ -345,44 +357,31 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 	}
 	renderProtectionNotice(b, r.wb.Protection, sheet.Protection)
 
-	b.WriteString("<div class=\"grid-wrap\">\n")
-	gridClasses := []string{"grid"}
-	if hasGridColumnLayout(sheet) {
-		gridClasses = append(gridClasses, "grid--fixed")
+	// Anchored drawings and form controls are absolutely positioned and add no
+	// height to grid-wrap on their own, so the wrapper is sized to the lowest
+	// overlay edge; shapes and instruction panels that reach below the authored
+	// rows stay visible without scrolling inside the box. The reserved space is
+	// the wrapper border — border-box sizing counts it inside min-height while
+	// overlays are positioned from the padding box — plus the horizontal
+	// scrollbar a wide sheet needs, which would otherwise eat into the panel's
+	// last pixels. The sheet script then pads the grid with cells to fill
+	// whatever box the viewer shows, so no space is reserved beyond this.
+	hasOverlay := len(sheet.Drawings) > 0 || len(sheet.FormControls) > 0
+	var overlay drawingOverlay
+	if hasOverlay {
+		overlay = r.buildDrawingOverlay(sheet, sheetIndex)
 	}
-	fmt.Fprintf(b, "<table class=%q>\n", strings.Join(gridClasses, " "))
-
-	if !worksheetHasGridContent(sheet) {
-		b.WriteString("</table>\n")
-		if len(sheet.Drawings) > 0 || len(sheet.FormControls) > 0 {
-			dl := buildDrawingLayout(sheet)
-			b.WriteString("<div class=\"drawings-layer\">\n")
-			maxBottom := 0
-			for _, d := range sheet.Drawings {
-				r.renderDrawing(b, d, dl)
-				if bottom := drawingBottomPx(d, dl); bottom > maxBottom {
-					maxBottom = bottom
-				}
-			}
-			for _, rendered := range buildRenderedFormControls(r.wb, sheet, sheetIndex, dl) {
-				renderFormControl(b, rendered, dl)
-				_, y, _, h := vmlAnchorToPixels(rendered.control.Anchor, dl)
-				if bottom := y + h; bottom > maxBottom {
-					maxBottom = bottom
-				}
-			}
-			b.WriteString("</div>\n")
-			if maxBottom > 0 {
-				fmt.Fprintf(b, "<div style=\"height:%dpx\"></div>\n", maxBottom)
-			}
-		}
-		b.WriteString("</div>\n")
-		if sheet.HeaderFooter != nil && sheet.HeaderFooter.OddFooter != "" {
-			renderSheetHeaderFooter(b, sheet.HeaderFooter.OddFooter, "footer", sheet.Name, sheet.HeaderFooter.Images)
-		}
-		b.WriteString("</section>\n")
-		return
+	if overlay.bottomPx > 0 {
+		minHeight := overlay.bottomPx + 2*gridWrapBorderPx + gridWrapScrollbarPx
+		fmt.Fprintf(b, "<div class=\"grid-wrap\" style=\"min-height:%dpx\">\n", minHeight)
+	} else {
+		b.WriteString("<div class=\"grid-wrap\">\n")
 	}
+	// The column model drives the table for every sheet: cells are sized from
+	// the same widths the drawing layer is positioned with, so anchored objects
+	// land on top of cells rather than beside them.
+	gridClasses := []string{"grid", "grid--fixed"}
+	gridClassAttr := strings.Join(gridClasses, " ")
 
 	// Seed a workbook-aware formula engine for formula display and validation evaluation.
 	workbookCtx := buildWorkbookFormulaContext(r.wb)
@@ -396,16 +395,22 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 	// Determine the physical column envelope once from every worksheet feature
 	// that occupies grid coordinates. Sparse drawings and controls are part of
 	// the worksheet geometry even when there are no populated cells beneath them.
-	_, _, _, maxCol := worksheetGeometryBounds(sheet)
+	maxCol := worksheetDataColumns(sheet)
 	for _, group := range formulaEngine.ArrayFormulaGroups() {
 		if group.RightCol > maxCol {
 			maxCol = group.RightCol
 		}
 	}
+	// Cells cover the whole sheet envelope, so panels sit on the grid instead
+	// of beside it and the sheet is not cropped to its populated range.
+	maxCol = extendColumnsToOverlay(sheet, maxCol, overlay)
 
 	// Emit <colgroup> for explicit/default column widths, hidden columns, and outline levels.
-	if hasGridColumnLayout(sheet) {
-		b.WriteString("<colgroup>\n")
+	var colgroup strings.Builder
+	gridWidthPx := 0
+	{
+		defaultColPxV := worksheetDefaultColumnPx(sheet)
+		colgroup.WriteString("<colgroup>\n")
 		for c := 1; c <= maxCol; c++ {
 			var colAttrs []string
 			if level := sheet.OutlineCols[c]; level > 0 {
@@ -418,19 +423,33 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 			if sheet.HiddenCols[c] {
 				colAttrs = append(colAttrs, "data-base-hidden=\"true\"")
 				colAttrs = append(colAttrs, "style=\"visibility:collapse\"")
-			} else if w, ok := sheet.ColumnWidths[c]; ok {
-				colAttrs = append(colAttrs, fmt.Sprintf("style=\"width:%dpx\"", worksheetColumnWidthPx(w)))
-			} else if sheet.DefaultColWidthChars > 0 {
-				colAttrs = append(colAttrs, fmt.Sprintf("style=\"width:%dpx\"", worksheetColumnWidthPx(sheet.DefaultColWidthChars)))
+			} else {
+				width := worksheetColumnVisualWidthPx(sheet, c, defaultColPxV)
+				colAttrs = append(colAttrs, fmt.Sprintf("style=\"width:%dpx\"", width))
+				gridWidthPx += width
 			}
 			if len(colAttrs) == 0 {
-				b.WriteString("<col>\n")
+				colgroup.WriteString("<col>\n")
 			} else {
-				fmt.Fprintf(b, "<col %s>\n", strings.Join(colAttrs, " "))
+				fmt.Fprintf(&colgroup, "<col %s>\n", strings.Join(colAttrs, " "))
 			}
 		}
-		b.WriteString("</colgroup>\n")
+		colgroup.WriteString("</colgroup>\n")
 	}
+	// Pin the table to the modelled column widths. With table-layout:fixed and an
+	// auto table width, browsers size columns from cell content, which stretches
+	// the grid past the column model the drawing layer is positioned with, so
+	// anchored panels and pictures land on top of the cells.
+	// data-col-px / data-row-px carry the modelled default cell size so the
+	// sheet script can pad the grid with cells of the right size.
+	cellSizeAttrs := fmt.Sprintf("data-col-px=%q data-row-px=%q",
+		strconv.Itoa(worksheetDefaultColumnPx(sheet)), strconv.Itoa(worksheetDefaultRowPx(sheet)))
+	if gridWidthPx > 0 {
+		fmt.Fprintf(b, "<table class=%q style=%q %s>\n", gridClassAttr, fmt.Sprintf("width:%dpx", gridWidthPx), cellSizeAttrs)
+	} else {
+		fmt.Fprintf(b, "<table class=%q %s>\n", gridClassAttr, cellSizeAttrs)
+	}
+	b.WriteString(colgroup.String())
 
 	arrayFormulaCells, arrayFormulaRows := buildArrayFormulaRenderMap(sheet, formulaEngine)
 	// Build CF style map: cell ref → winning DxfStyle (lowest priority wins, evaluated per cell).
@@ -479,13 +498,18 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 			maxRow = row
 		}
 	}
+	// Rows fill the sheet envelope the same way columns do, so panels sit on
+	// the grid rather than past its last row.
+	maxRow = extendRowsToOverlay(sheet, rowMap, maxRow, overlay)
+	// Empty rows still occupy grid height; drawings and comments are anchored
+	// to a grid that starts at row 1.
+	if maxRow > 0 {
+		minRow = 1
+	}
 
 	for ri := minRow; ri <= maxRow; ri++ {
 		row, ok := rowMap[ri]
 		if !ok {
-			if !mergeLayout.hasContentAtRow(ri) && !arrayFormulaRows[ri] {
-				continue
-			}
 			row = &resolve.Row{Index: ri}
 		}
 
@@ -523,11 +547,13 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 		}
 		fmt.Fprintf(b, "<tr %s>\n", strings.Join(rowAttrs, " "))
 
-		// Build a cell map for this row.
-		cellMap := make(map[int]*resolve.Cell, len(row.Cells))
-		for _, cell := range row.Cells {
-			cellMap[cell.Col] = cell
-		}
+		// Cell maps for this row and the row below. The lower row lets an
+		// authored border win the collapse conflict against the default grid
+		// drawn by an unstyled cell above it.
+		cellMap := cellsByColumn(rowMap[ri])
+		belowRow := rowMap[ri+1]
+		belowCells := cellsByColumn(belowRow)
+		belowRowPainted := belowRow == nil || !belowRow.Hidden
 
 		for ci := 1; ci <= maxCol; ci++ {
 			if mergeLayout.isCovered(ri, ci) {
@@ -561,34 +587,31 @@ func (r *htmlRenderer) renderSheet(b *strings.Builder, sheet *resolve.Sheet, she
 			tf := tableFlags[ref]
 			merged := mergeLayout.anchorAt(ri, ci)
 			display := buildCellDisplayGeometry(sheet, cellMap, ci, merged)
+			// Border-collapse resolves a shared edge in favour of the cell
+			// further left (and further up), so an unstyled cell would hide the
+			// authored border of the cell to its right or below. Drop the
+			// default grid edge there so the authored border shows.
+			edges := gridBorderEdges{
+				suppressRight: !sheet.HiddenCols[ci+1] && !mergeLayout.isCovered(ri, ci+1) &&
+					authorsBorder(cellMap[ci+1], borderSideLeft),
+				suppressBottom: belowRowPainted && !mergeLayout.isCovered(ri+1, ci) &&
+					authorsBorder(belowCells[ci], borderSideTop),
+			}
 			computedValue, hasComputedValue := computedValues[ref]
-			renderCell(b, cell, ci, sheet.OutlineCols[ci], isFrozenCol, merged, r.embeddedFamilies, sheet.HiddenCols[ci], hasCF, cf, cfVisualMap[ref], dv, dvStateMap[ref], comment, isAFHeader, isAFActive, computedValue, hasComputedValue, computedHyperlinks[ref], formulaSparklines[ref], tf, display)
+			renderCell(b, cell, ci, sheet.OutlineCols[ci], isFrozenCol, merged, r.embeddedFamilies, sheet.HiddenCols[ci], hasCF, cf, cfVisualMap[ref], dv, dvStateMap[ref], comment, isAFHeader, isAFActive, computedValue, hasComputedValue, computedHyperlinks[ref], formulaSparklines[ref], tf, display, edges)
 		}
 		b.WriteString("</tr>\n")
 	}
 
 	b.WriteString("</table>\n")
 
-	// Render drawings overlay inside the scrollable grid-wrap so drawings
-	// scroll with the sheet content and are positioned relative to the grid.
-	if len(sheet.Drawings) > 0 || len(sheet.FormControls) > 0 {
-		dl := buildDrawingLayout(sheet)
-		b.WriteString("<div class=\"drawings-layer\">\n")
-		for _, d := range sheet.Drawings {
-			r.renderDrawing(b, d, dl)
-		}
-		for _, rendered := range buildRenderedFormControls(r.wb, sheet, sheetIndex, dl) {
-			renderFormControl(b, rendered, dl)
-		}
-		b.WriteString("</div>\n")
+	// Render the drawings overlay inside the grid wrapper so drawings scroll
+	// horizontally with wide sheets and stay positioned relative to the grid.
+	if hasOverlay {
+		r.renderDrawingsLayer(b, overlay)
 	}
 
 	b.WriteString("</div>\n")
-
-	// Render worksheet footer.
-	if sheet.HeaderFooter != nil && sheet.HeaderFooter.OddFooter != "" {
-		renderSheetHeaderFooter(b, sheet.HeaderFooter.OddFooter, "footer", sheet.Name, sheet.HeaderFooter.Images)
-	}
 
 	b.WriteString("</section>\n")
 }
@@ -629,22 +652,46 @@ func buildCellDisplayGeometry(sheet *resolve.Sheet, rowCells map[int]*resolve.Ce
 }
 
 func shouldRenderNumericOverflowHashes(cell *resolve.Cell, text string, display cellDisplayGeometry) bool {
-	if cell == nil || cell.Kind != resolve.CellNumber || text == "" || !display.hasExplicitGeometry || display.widthPx <= 0 {
+	if cell == nil || (cell.Kind != resolve.CellNumber && cell.Kind != resolve.CellDate) || text == "" || !display.hasExplicitGeometry || display.widthPx <= 0 {
 		return false
 	}
 	if cell.Style.WrapText || cell.Style.ShrinkToFit {
 		return false
 	}
-	// Approximate Excel's glyph measurement from the resolved font size. The
-	// threshold is deliberately conservative: hashes are emitted only when the
-	// formatted value clearly cannot fit the authored visual box.
 	fontPt := cell.Style.FontSizePt
 	if fontPt <= 0 {
 		fontPt = 11
 	}
-	avgGlyphPx := fontPt * 4.0 / 3.0 * 0.52
 	contentPx := float64(display.widthPx - 8) // renderer cell horizontal padding
-	return contentPx > 0 && float64(len([]rune(text)))*avgGlyphPx > contentPx+avgGlyphPx
+	if contentPx <= 0 {
+		return false
+	}
+	if textPx, ok := excelTextWidthPx(text, cell.Style.FontFamily, cell.Style.Bold, cell.Style.Italic, fontPt); ok {
+		// Excel keeps a value while it fits the column less its ~3px cell margins.
+		return textPx > float64(display.widthPx-3)
+	}
+	// Without metrics for the family, approximate the glyph advance and only
+	// emit hashes when the value clearly cannot fit the authored box.
+	avgGlyphPx := fontPt * 4.0 / 3.0 * 0.52
+	return float64(len([]rune(text)))*avgGlyphPx > contentPx+avgGlyphPx
+}
+
+var bundledFontCatalog = sync.OnceValue(fontmetrics.BundledCatalog)
+
+// excelTextWidthPx measures text the way Excel's GDI layout does at 96 DPI:
+// each glyph advance is hinted to whole pixels.
+func excelTextWidthPx(text, family string, bold, italic bool, fontPt float64) (float64, bool) {
+	catalog := bundledFontCatalog()
+	sizePx := fontPt * 4 / 3
+	total := 0.0
+	for _, r := range text {
+		advance, ok := catalog.MeasureText(string(r), family, bold, italic, sizePx)
+		if !ok {
+			return 0, false
+		}
+		total += math.Round(advance)
+	}
+	return total, true
 }
 
 func numericOverflowHashes(widthPx int) string {
@@ -666,7 +713,50 @@ func shouldAllowTextOverflow(cell *resolve.Cell, text string, display cellDispla
 	return align == "" || align == "general" || align == "left"
 }
 
-func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineColLevel int, frozen bool, merged *resolve.MergedCell, embeddedFamilies map[string]struct{}, hiddenCol bool, hasCF bool, cfStyle resolve.DxfStyle, cfVisual cfVisualData, dv *resolve.DataValidation, dvState dataValidationState, commentText string, isAFHeader bool, isAFActive bool, computedValue string, hasComputedValue bool, computedHyperlink string, formulaSparkline string, tf tableCellFlags, display cellDisplayGeometry) {
+// gridBorderEdges marks the default grid edges a cell must not draw because the
+// neighbouring cell authors its own border on the shared edge.
+type gridBorderEdges struct {
+	suppressRight  bool
+	suppressBottom bool
+}
+
+// borderSide selects one edge of a cell style for authorsBorder.
+type borderSide int
+
+const (
+	borderSideLeft borderSide = iota
+	borderSideTop
+)
+
+// authorsBorder reports whether a cell carries an authored border on the given
+// edge, which has to survive the border-collapse conflict with a neighbour's
+// default grid line.
+func authorsBorder(cell *resolve.Cell, side borderSide) bool {
+	if cell == nil {
+		return false
+	}
+	switch side {
+	case borderSideLeft:
+		return cell.Style.BorderLeft.Style != ""
+	default:
+		return cell.Style.BorderTop.Style != ""
+	}
+}
+
+// cellsByColumn indexes a row's cells for O(1) neighbour lookups. Missing rows
+// yield a nil map so absent neighbours read as unstyled.
+func cellsByColumn(row *resolve.Row) map[int]*resolve.Cell {
+	if row == nil || len(row.Cells) == 0 {
+		return nil
+	}
+	cells := make(map[int]*resolve.Cell, len(row.Cells))
+	for _, cell := range row.Cells {
+		cells[cell.Col] = cell
+	}
+	return cells
+}
+
+func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineColLevel int, frozen bool, merged *resolve.MergedCell, embeddedFamilies map[string]struct{}, hiddenCol bool, hasCF bool, cfStyle resolve.DxfStyle, cfVisual cfVisualData, dv *resolve.DataValidation, dvState dataValidationState, commentText string, isAFHeader bool, isAFActive bool, computedValue string, hasComputedValue bool, computedHyperlink string, formulaSparkline string, tf tableCellFlags, display cellDisplayGeometry, edges gridBorderEdges) {
 	if hiddenCol {
 		var attrs []string
 		attrs = append(attrs, "style=\"visibility:collapse\"", "data-base-hidden=\"true\"")
@@ -732,6 +822,16 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 	var text string
 	var align string
 
+	// Default grid edges the neighbouring cell overrides with an authored
+	// border. Authored and conditional-format borders appended below win over
+	// these, so the suppression only removes the fallback grid line.
+	if edges.suppressRight {
+		styles = append(styles, "border-right:none")
+	}
+	if edges.suppressBottom {
+		styles = append(styles, "border-bottom:none")
+	}
+
 	if cell != nil {
 		s := cell.Style
 		if shouldOverrideDefaultGridBorder(s) {
@@ -781,7 +881,7 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 			styles = append(styles, "vertical-align:"+s.VAlign)
 		}
 		align = s.HAlign
-		if align == "" {
+		if align == "" || align == "general" {
 			align = defaultAlign(cell.Kind)
 		}
 
@@ -789,6 +889,9 @@ func renderCell(b *strings.Builder, cell *resolve.Cell, colIndex int, outlineCol
 		// Prefer formula-engine output when it differs from a stale cached display.
 		if hasComputedValue {
 			text = computedValue
+		}
+		if hasCF && cfStyle.NumFmtCode != "" && (cell.Kind == resolve.CellNumber || cell.Kind == resolve.CellDate) {
+			text = FormatValue(cell.NumValue, cfStyle.NumFmtCode)
 		}
 		if shouldRenderNumericOverflowHashes(cell, text, display) {
 			text = numericOverflowHashes(display.widthPx)
@@ -1119,18 +1222,53 @@ func dataValidationTooltip(dv *resolve.DataValidation, state dataValidationState
 	return strings.Join(parts, " | ")
 }
 
-func worksheetHasGridContent(sheet *resolve.Sheet) bool {
-	if sheet == nil {
-		return false
-	}
-	return len(sheet.Rows) > 0 || len(sheet.MergedCells) > 0 || len(sheet.ArrayFormulas) > 0
-}
-
 // worksheetGeometryBounds returns the worksheet coordinate envelope owned by
 // semantic grid content and anchored objects. Source <dimension> metadata is
 // intentionally not used here: Excel files commonly retain stale dimensions,
 // including whole-sheet ranges, which must not materialize millions of empty
 // HTML cells.
+// worksheetDataColumns returns the right-most column owned by cell content,
+// merged ranges or array formulas. Anchored objects are deliberately excluded:
+// the rendered overlay decides how far the grid reaches for them, so a banner
+// trimmed back to the table does not leave a stray empty column behind.
+func worksheetDataColumns(sheet *resolve.Sheet) int {
+	if sheet == nil {
+		return 0
+	}
+	maxCol := 0
+	for _, row := range sheet.Rows {
+		if row == nil {
+			continue
+		}
+		for _, cell := range row.Cells {
+			if cell != nil && cell.Col > maxCol {
+				maxCol = cell.Col
+			}
+		}
+	}
+	for _, merged := range sheet.MergedCells {
+		if merged != nil && merged.RightCol > maxCol {
+			maxCol = merged.RightCol
+		}
+	}
+	for _, af := range sheet.ArrayFormulas {
+		if af != nil && af.RightCol > maxCol {
+			maxCol = af.RightCol
+		}
+	}
+	// Keep a single trailing column recorded by the source worksheet dimension.
+	// Legacy BIFF commonly represents the authored Home-sheet envelope this way
+	// even when that final column has no cell record of its own. OOXML tends to
+	// materialize the corresponding blank cell, so ignoring DIMENSIONS here made
+	// XLS stop at D while the equivalent XLSX correctly reached E.  Only accept
+	// the immediately adjacent column: larger/stale dimensions (including the
+	// notorious whole-sheet ranges) remain intentionally ignored.
+	if maxCol > 0 && sheet.DimLastCol == maxCol+1 {
+		maxCol = sheet.DimLastCol
+	}
+	return maxCol
+}
+
 func worksheetGeometryBounds(sheet *resolve.Sheet) (minRow, maxRow, minCol, maxCol int) {
 	if sheet == nil {
 		return 0, 0, 0, 0
@@ -2169,19 +2307,33 @@ func (ml mergeLayout) isCovered(row, col int) bool {
 	return ok
 }
 
-func (ml mergeLayout) hasContentAtRow(row int) bool {
-	_, ok := ml.rows[row]
-	return ok
-}
-
+// shouldOverrideDefaultGridBorder reports whether the cell draws decoration of
+// its own, in which case the fallback grid line is dropped. It has to stay in
+// step with appendFillStyles and appendBorderStyles: a style that emits nothing
+// (for example Excel's "none" fill pattern, which legacy XLS styles commonly
+// carry) must keep the grid, or the cell renders with no borders at all.
 func shouldOverrideDefaultGridBorder(style resolve.CellStyle) bool {
-	return style.BgColor != "" || style.FillPattern != "" || style.FillPatternBgColor != "" ||
+	return fillDrawsBackground(style) ||
 		style.BorderTop.Style != "" ||
 		style.BorderRight.Style != "" ||
 		style.BorderBottom.Style != "" ||
 		style.BorderLeft.Style != "" ||
 		style.BorderDiagonal.Style != "" ||
 		style.TextRotation != 0
+}
+
+// fillDrawsBackground mirrors appendFillStyles' decision to emit a background.
+func fillDrawsBackground(style resolve.CellStyle) bool {
+	switch strings.TrimSpace(style.FillPattern) {
+	case "":
+		return style.BgColor != ""
+	case "none":
+		return false
+	case "solid":
+		return style.BgColor != ""
+	default:
+		return style.BgColor != "" || style.FillPatternBgColor != ""
+	}
 }
 
 func applyCFBorderOverride(styles *[]string, side string, code *int, color string) {
@@ -2701,7 +2853,7 @@ func buildFormulaEngine(sheet *resolve.Sheet, wb *resolve.Workbook, sheetIndex i
 			}
 			ref := strings.ToUpper(cell.Ref)
 			switch cell.Kind {
-			case resolve.CellNumber:
+			case resolve.CellNumber, resolve.CellDate:
 				eng.SetCell(ref, formula.Number(cell.NumValue))
 			case resolve.CellBool:
 				eng.SetCell(ref, formula.Bool(cell.NumValue != 0))
@@ -4302,7 +4454,7 @@ func formatCellValue(cell *resolve.Cell) string {
 			return "TRUE"
 		}
 		return "FALSE"
-	case resolve.CellNumber:
+	case resolve.CellNumber, resolve.CellDate:
 		return FormatValue(cell.NumValue, cell.Style.NumFmtCode)
 	}
 	return ""
@@ -4310,7 +4462,7 @@ func formatCellValue(cell *resolve.Cell) string {
 
 func defaultAlign(kind resolve.CellKind) string {
 	switch kind {
-	case resolve.CellNumber, resolve.CellBool:
+	case resolve.CellNumber, resolve.CellBool, resolve.CellDate:
 		return "right"
 	}
 	return "left"
@@ -4318,12 +4470,18 @@ func defaultAlign(kind resolve.CellKind) string {
 
 // drawingLayout holds precomputed cumulative pixel positions for columns and rows.
 // colX[c] is the pixel X of the left edge of column c (1-based).
-// rowY[r] is the pixel Y of the top edge of row r (1-based).
+// colW[c] is the visual width of column c; rowY[r] is the pixel Y of the top
+// edge of row r and rowH[r] its visual height.
 type drawingLayout struct {
 	colX          map[int]int
+	colW          map[int]int
 	rowY          map[int]int
+	rowH          map[int]int
 	defaultColPxV int
 	defaultRowPxV int
+	// dataRightPx is the right edge of the sheet's populated columns, used to
+	// keep a title banner from spilling past the table it heads.
+	dataRightPx int
 }
 
 type renderedFormControl struct {
@@ -4345,16 +4503,14 @@ type radioGroupBox struct {
 // buildDrawingLayout computes per-column and per-row cumulative pixel offsets.
 func buildDrawingLayout(sheet *resolve.Sheet) drawingLayout {
 	defaultColPxV := defaultColPx
-	defaultRowPxV := defaultRowPx
+	defaultRowPxV := worksheetDefaultRowPx(sheet)
 	if sheet.DefaultColWidthChars > 0 {
 		defaultColPxV = worksheetColumnWidthPx(sheet.DefaultColWidthChars)
-	}
-	if sheet.DefaultRowHeightPt > 0 {
-		defaultRowPxV = int(math.Round(sheet.DefaultRowHeightPt * 4 / 3))
 	}
 
 	// Determine max col/row needed (from drawings and data rows).
 	maxCol, maxRow := 0, 0
+	dataMaxCol := 0
 	for _, row := range sheet.Rows {
 		if row.Index > maxRow {
 			maxRow = row.Index
@@ -4362,6 +4518,9 @@ func buildDrawingLayout(sheet *resolve.Sheet) drawingLayout {
 		for _, cell := range row.Cells {
 			if cell.Col > maxCol {
 				maxCol = cell.Col
+			}
+			if cell.Col > dataMaxCol {
+				dataMaxCol = cell.Col
 			}
 		}
 	}
@@ -4409,21 +4568,35 @@ func buildDrawingLayout(sheet *resolve.Sheet) drawingLayout {
 
 	// Compute cumulative column X positions.
 	colX := make(map[int]int, maxCol)
+	colW := make(map[int]int, maxCol)
 	x := 0
 	for c := 1; c <= maxCol; c++ {
+		width := worksheetColumnVisualWidthPx(sheet, c, defaultColPxV)
 		colX[c] = x
-		x += worksheetColumnVisualWidthPx(sheet, c, defaultColPxV)
+		colW[c] = width
+		x += width
 	}
 
 	// Compute cumulative row Y positions.
 	rowY := make(map[int]int, maxRow)
+	rowH := make(map[int]int, maxRow)
 	y := 0
 	for rowIndex := 1; rowIndex <= maxRow; rowIndex++ {
+		height := worksheetRowVisualHeightPx(sheet, rowByIndex[rowIndex], defaultRowPxV)
 		rowY[rowIndex] = y
-		y += worksheetRowVisualHeightPx(sheet, rowByIndex[rowIndex], defaultRowPxV)
+		rowH[rowIndex] = height
+		y += height
 	}
 
-	return drawingLayout{colX: colX, rowY: rowY, defaultColPxV: defaultColPxV, defaultRowPxV: defaultRowPxV}
+	dataRightPx := 0
+	if dataMaxCol > 0 {
+		dataRightPx = colX[dataMaxCol] + colW[dataMaxCol]
+	}
+	return drawingLayout{
+		colX: colX, colW: colW, rowY: rowY, rowH: rowH,
+		defaultColPxV: defaultColPxV, defaultRowPxV: defaultRowPxV,
+		dataRightPx: dataRightPx,
+	}
 }
 
 func worksheetColumnVisualWidthPx(sheet *resolve.Sheet, col int, defaultWidthPx int) int {
@@ -4437,6 +4610,72 @@ func worksheetColumnVisualWidthPx(sheet *resolve.Sheet, col int, defaultWidthPx 
 		return worksheetColumnWidthPx(width)
 	}
 	return defaultWidthPx
+}
+
+// worksheetDefaultRowPx returns the pixel height shared by rows that carry no
+// explicit height of their own.
+func worksheetDefaultRowPx(sheet *resolve.Sheet) int {
+	if sheet != nil && sheet.DefaultRowHeightPt > 0 {
+		return int(math.Round(sheet.DefaultRowHeightPt * 4 / 3))
+	}
+	return defaultRowPx
+}
+
+// worksheetDefaultColumnPx returns the pixel width shared by columns that carry
+// no explicit width of their own.
+func worksheetDefaultColumnPx(sheet *resolve.Sheet) int {
+	if sheet != nil && sheet.DefaultColWidthChars > 0 {
+		return worksheetColumnWidthPx(sheet.DefaultColWidthChars)
+	}
+	return defaultColPx
+}
+
+// extendRowsToOverlay grows the rendered row envelope until the grid covers the
+// lowest anchored object, so the panel area keeps its cells, row heights and
+// borders instead of falling outside the table. The sheet JS pads the grid
+// further to fill whatever box the viewer actually shows.
+func extendRowsToOverlay(sheet *resolve.Sheet, rowByIndex map[int]*resolve.Row, maxRow int, overlay drawingOverlay) int {
+	if overlay.bottomPx <= 0 {
+		return maxRow
+	}
+	defaultPx := worksheetDefaultRowPx(sheet)
+	if defaultPx <= 0 {
+		return maxRow
+	}
+	bottom := 0
+	for row := 1; row <= maxRow; row++ {
+		bottom += worksheetRowVisualHeightPx(sheet, rowByIndex[row], defaultPx)
+	}
+	for bottom < overlay.bottomPx {
+		bottom += defaultPx
+		maxRow++
+	}
+	return maxRow
+}
+
+// extendColumnsToOverlay grows the rendered column envelope until the grid
+// covers the right-most anchored object.
+func extendColumnsToOverlay(sheet *resolve.Sheet, maxCol int, overlay drawingOverlay) int {
+	if overlay.rightPx <= 0 {
+		return maxCol
+	}
+	defaultPx := worksheetDefaultColumnPx(sheet)
+	if defaultPx <= 0 {
+		return maxCol
+	}
+	right := 0
+	for col := 1; col <= maxCol; col++ {
+		right += worksheetColumnVisualWidthPx(sheet, col, defaultPx)
+	}
+	for right < overlay.rightPx {
+		width := worksheetColumnVisualWidthPx(sheet, maxCol+1, defaultPx)
+		if width <= 0 {
+			break
+		}
+		right += width
+		maxCol++
+	}
+	return maxCol
 }
 
 func worksheetRowVisualHeightPx(sheet *resolve.Sheet, row *resolve.Row, defaultHeightPx int) int {
@@ -4481,6 +4720,26 @@ func worksheetColumnWidthPx(widthChars float64) int {
 
 const emusPerPx = 9525 // 914400 EMU/inch ÷ 96 px/inch
 
+// colRightPx returns the pixel X of the right edge of column col (1-based).
+// It reports 0 when the layout has no entry for that column.
+func (dl drawingLayout) colRightPx(col int) int {
+	left, ok := dl.colX[col]
+	if !ok {
+		return 0
+	}
+	return left + dl.colW[col]
+}
+
+// rowBottomPx returns the pixel Y of the bottom edge of row row (1-based).
+// It reports 0 when the layout has no entry for that row.
+func (dl drawingLayout) rowBottomPx(row int) int {
+	top, ok := dl.rowY[row]
+	if !ok {
+		return 0
+	}
+	return top + dl.rowH[row]
+}
+
 func (dl drawingLayout) anchorXPx(col int, colOffEMU int64) int {
 	x := 0
 	if v, ok := dl.colX[col]; ok {
@@ -4499,20 +4758,75 @@ func (dl drawingLayout) anchorYPx(row int, rowOffEMU int64) int {
 
 // drawingBottomPx returns the bottom Y extent (top + height) of a drawing in pixels.
 func drawingBottomPx(d *resolve.Drawing, dl drawingLayout) int {
-	p := d.Position
-	switch p.Anchor {
-	case resolve.AnchorAbsolute:
-		return int(p.Y/emusPerPx) + int(p.Height/emusPerPx)
-	case resolve.AnchorOneCell:
-		return dl.anchorYPx(p.FromCell.Row, p.FromCell.RowOffset) + int(p.Height/emusPerPx)
-	default: // AnchorTwoCell
-		return dl.anchorYPx(p.ToCell.Row, p.ToCell.RowOffset)
+	_, y, _, h := drawingBoxPx(d, dl)
+	return y + h
+}
+
+// drawingRightPx returns the right X extent of a drawing in pixels, using the
+// same anchor resolution as renderDrawing.
+func drawingRightPx(d *resolve.Drawing, dl drawingLayout) int {
+	x, _, w, _ := drawingBoxPx(d, dl)
+	return x + w
+}
+
+// drawingOverlay is a sheet's prepared anchored-object layer: the shared pixel
+// layout, the rendered form controls, and the extent of the area the anchored
+// objects occupy.
+type drawingOverlay struct {
+	drawings []*resolve.Drawing
+	layout   drawingLayout
+	controls []renderedFormControl
+	bottomPx int
+	rightPx  int
+}
+
+// buildDrawingOverlay resolves the anchored drawings and form controls once so
+// the grid wrapper can be sized before the layer markup is written.
+func (r *htmlRenderer) buildDrawingOverlay(sheet *resolve.Sheet, sheetIndex int) drawingOverlay {
+	dl := buildDrawingLayout(sheet)
+	controls := buildRenderedFormControls(r.wb, sheet, sheetIndex, dl)
+	bottom, right := 0, 0
+	for _, d := range sheet.Drawings {
+		if b := drawingBottomPx(d, dl); b > bottom {
+			bottom = b
+		}
+		if r := drawingRightPx(d, dl); r > right {
+			right = r
+		}
 	}
+	for _, rendered := range controls {
+		x, y, w, h := vmlAnchorToPixels(rendered.control.Anchor, dl)
+		if y+h > bottom {
+			bottom = y + h
+		}
+		if x+w > right {
+			right = x + w
+		}
+	}
+	return drawingOverlay{drawings: sheet.Drawings, layout: dl, controls: controls, bottomPx: bottom, rightPx: right}
+}
+
+// renderDrawingsLayer writes the anchored drawings and form controls overlay.
+func (r *htmlRenderer) renderDrawingsLayer(b *strings.Builder, overlay drawingOverlay) {
+	b.WriteString("<div class=\"drawings-layer\">\n")
+	for _, d := range overlay.drawings {
+		r.renderDrawing(b, d, overlay.layout)
+	}
+	for _, rendered := range overlay.controls {
+		renderFormControl(b, rendered, overlay.layout)
+	}
+	b.WriteString("</div>\n")
 }
 
 func (r *htmlRenderer) renderDrawing(b *strings.Builder, d *resolve.Drawing, dl drawingLayout) {
-	var x, y, w, h int
+	x, y, w, h := drawingBoxPx(d, dl)
+	posStyle := fmt.Sprintf("left:%dpx;top:%dpx;width:%dpx;height:%dpx;z-index:%d", x, y, w, h, d.ZOrder+1)
+	r.renderDrawingAt(b, d, posStyle, w, h)
+}
 
+// drawingBoxPx resolves a drawing's pixel box, using the same anchor math for
+// the renderer and the overlay extents.
+func drawingBoxPx(d *resolve.Drawing, dl drawingLayout) (x, y, w, h int) {
 	p := d.Position
 	switch p.Anchor {
 	case resolve.AnchorAbsolute:
@@ -4530,18 +4844,50 @@ func (r *htmlRenderer) renderDrawing(b *strings.Builder, d *resolve.Drawing, dl 
 		y = dl.anchorYPx(p.FromCell.Row, p.FromCell.RowOffset)
 		x2 := dl.anchorXPx(p.ToCell.Col, p.ToCell.ColOffset)
 		y2 := dl.anchorYPx(p.ToCell.Row, p.ToCell.RowOffset)
+		// Both corners carry their own sub-cell inset; Excel keeps them literally
+		// (the "Book tour" control on the Home sheet measures one row band tall
+		// with the authored 3px shift), so the button caption centers in its own
+		// box instead of drifting into the row below.
 		w = x2 - x
 		h = y2 - y
 	}
+	w = clampBannerWidthPx(d, x, w, dl)
 	if w < 1 {
 		w = 1
 	}
 	if h < 1 {
 		h = 1
 	}
+	return x, y, w, h
+}
 
-	posStyle := fmt.Sprintf("left:%dpx;top:%dpx;width:%dpx;height:%dpx;z-index:%d", x, y, w, h, d.ZOrder+1)
-	r.renderDrawingAt(b, d, posStyle, w, h)
+// clampBannerWidthPx trims a title banner that starts inside the sheet's
+// populated columns and overruns them by less than one default column — an
+// anchor that landed a column past the data rather than an intentional
+// overhang — so the banner spans the table it heads. Charts, pictures and wider
+// shapes keep their authored size.
+func clampBannerWidthPx(d *resolve.Drawing, x, w int, dl drawingLayout) int {
+	if dl.dataRightPx <= 0 || dl.defaultColPxV <= 0 {
+		return w
+	}
+	if d == nil || d.Type != resolve.DrawingTypeShape || d.Shape == nil || d.Shape.Text == "" {
+		return w
+	}
+	if x >= dl.dataRightPx || x+w <= dl.dataRightPx {
+		return w
+	}
+	if over := x + w - dl.dataRightPx; over > dl.defaultColPxV {
+		return w
+	}
+	// Keep the title inside the sheet's right-side inset. Legacy BIFF client
+	// anchors commonly land in the first unused column; clamping to the exact
+	// grid edge makes a heading wider than its OOXML counterpart. A quarter of
+	// a default column is the grid's existing inner gutter at this boundary.
+	innerGutter := (dl.defaultColPxV - 1) / 4
+	if width := dl.dataRightPx - x - innerGutter; width > 0 {
+		return width
+	}
+	return dl.dataRightPx - x
 }
 
 func (r *htmlRenderer) renderDrawingAt(b *strings.Builder, d *resolve.Drawing, posStyle string, widthPx, heightPx int) {
@@ -4848,6 +5194,12 @@ func (r *htmlRenderer) renderDrawingImage(b *strings.Builder, d *resolve.Drawing
 	if d.Image != nil {
 		posStyle += drawingImageTransformStyle(d.Image)
 	}
+	if d.Image != nil {
+		if effects := drawingcss.EffectList(d.Image.Effects); len(effects) > 0 {
+			styles := append([]string{posStyle, "overflow:visible"}, appendSortedSheetStyleProps(nil, effects)...)
+			posStyle = strings.Join(styles, ";")
+		}
+	}
 	if d.Image == nil || len(d.Image.Data) == 0 {
 		fmt.Fprintf(b, "<div class=\"drawing drawing--image\" style=%q title=%q></div>\n",
 			posStyle, escapeHTML(d.Name))
@@ -4953,12 +5305,17 @@ func renderDrawingShape(b *strings.Builder, d *resolve.Drawing, posStyle string,
 			if transform := sheetShapeTransformStyle(sp); transform != "" {
 				wrapperStyles = append(wrapperStyles, transform)
 			}
+			svgStyles := []string(nil)
 			if len(effectProps) > 0 {
 				wrapperStyles = append(wrapperStyles, "overflow:visible")
-				wrapperStyles = appendSortedSheetStyleProps(wrapperStyles, effectProps)
+				svgStyles = appendSortedSheetStyleProps(nil, effectProps)
 			}
 			fmt.Fprintf(b, "<div class=\"drawing drawing--shape drawing--shape-vector\" style=%q title=%q>", strings.Join(wrapperStyles, ";"), escapeHTML(d.Name))
-			fmt.Fprintf(b, "<svg class=\"drawing__shape-vector\" viewBox=\"0 0 %.4f %.4f\" preserveAspectRatio=\"none\" aria-hidden=\"true\">", width, height)
+			if len(svgStyles) > 0 {
+				fmt.Fprintf(b, "<svg class=\"drawing__shape-vector\" viewBox=\"0 0 %.4f %.4f\" preserveAspectRatio=\"none\" aria-hidden=\"true\" style=%q>", width, height, strings.Join(svgStyles, ";"))
+			} else {
+				fmt.Fprintf(b, "<svg class=\"drawing__shape-vector\" viewBox=\"0 0 %.4f %.4f\" preserveAspectRatio=\"none\" aria-hidden=\"true\">", width, height)
+			}
 			if fillDef != "" || len(overlayRenders) > 0 {
 				b.WriteString("<defs>")
 				if fillDef != "" {
@@ -5014,15 +5371,16 @@ func renderDrawingShape(b *strings.Builder, d *resolve.Drawing, posStyle string,
 	if transform := sheetShapeTransformStyle(sp); transform != "" {
 		fullStyles = append(fullStyles, transform)
 	}
-	if len(bgStyles) > 0 {
-		fullStyles = append(fullStyles, bgStyles...)
-	}
 	if len(effectProps) > 0 {
 		fullStyles = append(fullStyles, "overflow:visible")
-		fullStyles = appendSortedSheetStyleProps(fullStyles, effectProps)
+		bgStyles = appendSortedSheetStyleProps(bgStyles, effectProps)
 	}
 
 	fmt.Fprintf(b, "<div class=\"drawing drawing--shape\" style=%q title=%q>", strings.Join(fullStyles, ";"), escapeHTML(d.Name))
+	if len(bgStyles) > 0 {
+		// Effects such as soft edges blur the shape body, never its text.
+		fmt.Fprintf(b, "<span class=\"drawing__shape-bg\" style=%q></span>", strings.Join(bgStyles, ";"))
+	}
 	renderDrawingShapeText(b, sp)
 	b.WriteString("</div>\n")
 }
@@ -5031,6 +5389,11 @@ func renderDrawingShapeText(b *strings.Builder, shape *resolve.DrawingShape) {
 	if b == nil || shape == nil {
 		return
 	}
+	if shape.Text == "" && len(shape.RichTextRuns) == 0 {
+		return
+	}
+	b.WriteString("<span class=\"drawing__text\">")
+	defer b.WriteString("</span>")
 	if len(shape.RichTextRuns) == 0 {
 		b.WriteString(escapeHTML(shape.Text))
 		return
@@ -5834,7 +6197,7 @@ func buildCFNumericValueMap(sheet *resolve.Sheet, arrayFormulaCells map[string]*
 			}
 			ref := strings.ToUpper(cell.Ref)
 			switch cell.Kind {
-			case resolve.CellNumber:
+			case resolve.CellNumber, resolve.CellDate:
 				values[ref] = cell.NumValue
 			case resolve.CellBool:
 				if cell.NumValue != 0 {
@@ -5906,7 +6269,7 @@ func cfCellValueData(cell *resolve.Cell, ref string, eng *formula.Engine) cellVa
 		return cellValueData{}
 	}
 	switch cell.Kind {
-	case resolve.CellNumber:
+	case resolve.CellNumber, resolve.CellDate:
 		return cellValueData{kind: resolve.CellNumber, numValue: cell.NumValue}
 	case resolve.CellBool:
 		return cellValueData{kind: resolve.CellBool, numValue: cell.NumValue}
@@ -6104,6 +6467,12 @@ func getIconSetIcons(setName string) []string {
 		return []string{"\u21E7", "\u2197", "\u21E8", "\u2198", "\u21E9"} // ↑↗→↘↓
 	case "5Rating":
 		return []string{"\u2605\u2605\u2605\u2605\u2605", "\u2605\u2605\u2605\u2605", "\u2605\u2605\u2605", "\u2605\u2605", "\u2605"} // Stars
+	case "5Quarters":
+		return []string{"\u25cf", "\u25d5", "\u25d1", "\u25d4", "\u25cb"} // \u25cf\u25d5\u25d1\u25d4\u25cb
+	case "4TrafficLights":
+		return []string{"\U0001F7E2", "\U0001F7E1", "\U0001F7E0", "\U0001F534"} // \ud83d\udfe2\ud83d\udfe1\ud83d\udfe0\ud83d\udd34
+	case "4RedToBlack":
+		return []string{"\U0001F534", "\U0001F7E5", "\u26ab", "\u2b1b"} // \ud83d\udd34\ud83d\udfe5\u26ab\u2b1b
 	default:
 		// Default to traffic lights
 		return []string{"\U0001F7E2", "\U0001F7E1", "\U0001F534"}
@@ -6469,208 +6838,19 @@ func parseA1RangeForTable(ref string) (minRow, maxRow, minCol, maxCol int, ok bo
 	return sr, er, sc, ec, true
 }
 
-// parseHFSections splits an OOXML header/footer format string into left, center, and right
-// sections as delimited by &L, &C, and &R codes.
-// ECMA-376 Part 1 §18.8.32: if no section codes are present, the whole string is center.
-func parseHFSections(s string) (left, center, right string) {
-	type dest int
-	const (
-		destCenter dest = iota
-		destLeft
-		destRight
-	)
-	sections := [3]*strings.Builder{new(strings.Builder), new(strings.Builder), new(strings.Builder)}
-	cur := destCenter
-	i := 0
-	for i < len(s) {
-		if s[i] == '&' && i+1 < len(s) {
-			switch s[i+1] {
-			case 'L', 'l':
-				cur = destLeft
-				i += 2
-				continue
-			case 'C', 'c':
-				cur = destCenter
-				i += 2
-				continue
-			case 'R', 'r':
-				cur = destRight
-				i += 2
-				continue
-			}
-		}
-		_, size := utf8.DecodeRuneInString(s[i:])
-		sections[cur].WriteString(s[i : i+size])
-		i += size
-	}
-	return sections[destLeft].String(), sections[destCenter].String(), sections[destRight].String()
-}
+// gridWrapBorderPx is the .grid-wrap border width in sheetCSS. Grid-wrap uses
+// border-box sizing, so the border is part of min-height, while the anchored
+// overlay is positioned from the padding box; wrapper sizing has to add the
+// border back to keep the overlay from overflowing the scroll box.
+const gridWrapBorderPx = 1
 
-// renderHFSectionHTML converts the format codes within a single header/footer section
-// into safe HTML. Sheet name substitution is applied for &A codes. images and imgIdx
-// carry the VML header/footer picture data for &G placeholder rendering; imgIdx is
-// advanced as each &G is consumed so that multiple sections share a single counter.
-func renderHFSectionHTML(s, sheetName string, images []resolve.HFImage, imgIdx *int) string {
-	if s == "" {
-		return ""
-	}
-	var b strings.Builder
-	boldOpen, italicOpen, underlineOpen, strikeOpen := false, false, false, false
-	i := 0
-	for i < len(s) {
-		if s[i] == '&' && i+1 < len(s) {
-			switch s[i+1] {
-			case '&':
-				b.WriteString("&amp;")
-				i += 2
-			case 'P', 'p':
-				b.WriteString(`<span class="hf-page-num">[Page]</span>`)
-				i += 2
-			case 'N', 'n':
-				b.WriteString(`<span class="hf-page-count">[Pages]</span>`)
-				i += 2
-			case 'D', 'd':
-				b.WriteString(`<span class="hf-date">[Date]</span>`)
-				i += 2
-			case 'T', 't':
-				b.WriteString(`<span class="hf-time">[Time]</span>`)
-				i += 2
-			case 'F', 'f':
-				b.WriteString(`<span class="hf-filename">[File]</span>`)
-				i += 2
-			case 'Z', 'z':
-				b.WriteString(`<span class="hf-filepath">[Path]</span>`)
-				i += 2
-			case 'A', 'a':
-				b.WriteString(escapeHTML(sheetName))
-				i += 2
-			case 'B', 'b':
-				if boldOpen {
-					b.WriteString("</b>")
-					boldOpen = false
-				} else {
-					b.WriteString("<b>")
-					boldOpen = true
-				}
-				i += 2
-			case 'I', 'i':
-				if italicOpen {
-					b.WriteString("</i>")
-					italicOpen = false
-				} else {
-					b.WriteString("<i>")
-					italicOpen = true
-				}
-				i += 2
-			case 'U', 'u':
-				if underlineOpen {
-					b.WriteString("</u>")
-					underlineOpen = false
-				} else {
-					b.WriteString("<u>")
-					underlineOpen = true
-				}
-				i += 2
-			case 'E', 'e':
-				// Double-underline: approximate as underline in HTML.
-				if underlineOpen {
-					b.WriteString("</u>")
-					underlineOpen = false
-				} else {
-					b.WriteString("<u>")
-					underlineOpen = true
-				}
-				i += 2
-			case 'S', 's':
-				if strikeOpen {
-					b.WriteString("</s>")
-					strikeOpen = false
-				} else {
-					b.WriteString("<s>")
-					strikeOpen = true
-				}
-				i += 2
-			case 'X', 'x', 'Y', 'y':
-				// Superscript/subscript toggles — skip.
-				i += 2
-			case 'G', 'g':
-				// Embedded image placeholder — render from VML header/footer picture data.
-				if imgIdx != nil && *imgIdx < len(images) {
-					img := images[*imgIdx]
-					*imgIdx++
-					ct := img.ContentType
-					if ct == "" {
-						ct = "image/png"
-					}
-					b64 := base64.StdEncoding.EncodeToString(img.Data)
-					fmt.Fprintf(&b, `<img src="data:%s;base64,%s" class="hf-image" alt="">`, ct, b64)
-				}
-				i += 2
-			case 'K', 'k':
-				// Color code: &KRRGGBB or &KnnnTT — always 8 chars total.
-				if i+8 <= len(s) {
-					i += 8
-				} else {
-					i += 2
-				}
-			case '"':
-				// Font name: &"fontname" or &"fontname,fontstyle" — skip to closing quote.
-				end := strings.IndexByte(s[i+2:], '"')
-				if end < 0 {
-					i += 2
-				} else {
-					i += end + 3
-				}
-			default:
-				// Possibly a two-digit font size (&nn) or unknown — skip two chars.
-				if i+3 <= len(s) && s[i+1] >= '0' && s[i+1] <= '9' &&
-					s[i+2] >= '0' && s[i+2] <= '9' {
-					i += 3
-				} else {
-					b.WriteString("&amp;")
-					i++
-				}
-			}
-		} else {
-			_, size := utf8.DecodeRuneInString(s[i:])
-			b.WriteString(escapeHTML(s[i : i+size]))
-			i += size
-		}
-	}
-	// Close any dangling inline tags in correct reverse order.
-	if strikeOpen {
-		b.WriteString("</s>")
-	}
-	if underlineOpen {
-		b.WriteString("</u>")
-	}
-	if italicOpen {
-		b.WriteString("</i>")
-	}
-	if boldOpen {
-		b.WriteString("</b>")
-	}
-	return b.String()
-}
-
-// renderSheetHeaderFooter emits a header or footer bar for a worksheet.
-// which is "header" or "footer". images carries VML picture data for &G placeholders;
-// a single counter is shared across left→center→right so pictures are consumed in order.
-func renderSheetHeaderFooter(b *strings.Builder, text, which, sheetName string, images []resolve.HFImage) {
-	left, center, right := parseHFSections(text)
-	var imgIdx int
-	leftHTML := renderHFSectionHTML(left, sheetName, images, &imgIdx)
-	centerHTML := renderHFSectionHTML(center, sheetName, images, &imgIdx)
-	rightHTML := renderHFSectionHTML(right, sheetName, images, &imgIdx)
-	if leftHTML == "" && centerHTML == "" && rightHTML == "" {
-		return
-	}
-	fmt.Fprintf(b, "<div class=\"sheet-%s\">\n", which)
-	fmt.Fprintf(b, "<div class=\"sheet-%s-left\">%s</div>\n", which, leftHTML)
-	fmt.Fprintf(b, "<div class=\"sheet-%s-center\">%s</div>\n", which, centerHTML)
-	fmt.Fprintf(b, "<div class=\"sheet-%s-right\">%s</div>\n", which, rightHTML)
-	b.WriteString("</div>\n")
-}
+// gridWrapScrollbarPx is the height a classic horizontal scrollbar takes out of
+// grid-wrap when a sheet is wider than the viewer. Reserving it keeps an
+// anchored panel clear of the bottom edge — otherwise the panel fits the box
+// yet still forces a vertical scrollbar. The value covers the 15px Chrome/Edge
+// and 17px Firefox scrollbars; overlay-scrollbar platforms just get a little
+// more breathing room below the panel.
+const gridWrapScrollbarPx = 18
 
 const sheetCSS = `
 html { box-sizing: border-box; }
@@ -6678,23 +6858,27 @@ html { box-sizing: border-box; }
 body { font-family: sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; }
 .sheet { margin-bottom: 2rem; position: relative; }
 .sheet-name { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; }
+.sheet-num { font-size: 11px; color: #888; margin-bottom: 4px; user-select: none; }
+@media print { .sheet-num { display: none !important; } }
 .outline-controls { display: flex; gap: .75rem; flex-wrap: wrap; margin: 0 0 .5rem; }
 .outline-group { display: inline-flex; align-items: center; gap: .25rem; padding: .25rem .4rem; background: #fff; border: 1px solid #ddd; border-radius: 999px; }
 .outline-label { font-size: 11px; font-weight: 600; color: #666; margin-right: .15rem; }
 .outline-btn { border: 0; background: #f0f0f0; color: #333; border-radius: 999px; padding: .15rem .45rem; font-size: 11px; cursor: pointer; }
 .outline-btn[aria-pressed="true"] { background: #1f6feb; color: #fff; }
-.grid-wrap { overflow: auto; max-height: 80vh; border: 1px solid #ddd; background: #fff; position: relative; }
+.grid-wrap { overflow: auto; border: 1px solid #ddd; background: #fff; position: relative; }
 .drawings-layer { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 10; }
 .drawing { position: absolute; box-sizing: border-box; font-size: 11px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .drawing--image { object-fit: fill; }
 .drawing--image-placeholder { background: rgba(245, 239, 222, 0.92); border: 1px solid #9a8855; color: #6b5c34; font-size: 10px; padding: 2px 4px; text-align: center; }
 .drawing--shape { color: #333; }
+.drawing__shape-vector, .drawing__shape-bg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; box-sizing: border-box; }
+.drawing__text { position: relative; z-index: 1; text-align: center; }
 .drawing--chart { background: transparent; border: 0; color: inherit; font-size: 10px; }
 .drawing--chart > svg { display: block; width: 100%; height: 100%; }
 .grid { border-collapse: collapse; font-size: 12px; }
 .grid--fixed { table-layout: fixed; }
 .cell { border: 1px solid #e0e0e0; padding: 2px 4px; white-space: nowrap; min-width: 40px; }
-.grid--fixed .cell { min-width: 0; overflow: hidden; }
+.grid--fixed .cell { min-width: 0; overflow: hidden; padding-top: 0; padding-bottom: 0; line-height: 1.2; }
 .grid--fixed .cell--text-overflow { overflow: visible; position: relative; z-index: 2; }
 .row--frozen .cell { background: #fafafa; }
 .cell--frozen-col { position: sticky; left: 0; background: #fafafa; z-index: 1; }
@@ -6736,12 +6920,6 @@ body { font-family: sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; }
 .cell--table-last-col { font-weight: 600; }
 tr[data-outline-hidden="true"] { display: none; }
 col[data-outline-hidden="true"], td[data-outline-hidden="true"] { visibility: collapse; }
-.sheet-header, .sheet-footer { display: flex; justify-content: space-between; align-items: baseline; padding: .25rem .5rem; font-size: 11px; color: #555; border: 1px solid #ddd; background: #fafafa; margin-bottom: .25rem; }
-.sheet-footer { margin-bottom: 0; margin-top: .25rem; }
-.sheet-header-left, .sheet-footer-left { flex: 1; text-align: left; }
-.sheet-header-center, .sheet-footer-center { flex: 1; text-align: center; }
-.sheet-header-right, .sheet-footer-right { flex: 1; text-align: right; }
-.hf-image { max-height: 2em; vertical-align: middle; }
 .pivot-table { margin: 1rem 0; border: 1px solid #c8d4e0; border-radius: 4px; padding: .75rem 1rem; background: #f5f8fb; }
 .pivot-table-name { margin: 0 0 .5rem; font-size: 13px; color: #1a3a5c; }
 .pivot-source { margin: 0 0 .5rem; font-size: 11px; color: #555; }
@@ -6797,5 +6975,127 @@ function sheetSetOutline(button) {
 			}
 		});
 	}
+}
+
+// sheetGridFit pads each sheet's grid with empty cells until it covers the box
+// the viewer actually shows, so a sheet reads as a full spreadsheet surface
+// without the rendered document carrying cells no one sees. It only ever adds
+// rows and columns that still fit, so no scrollbar appears for the padding.
+function sheetGridFit() {
+	document.querySelectorAll('.grid-wrap').forEach(function (wrap) {
+		var table = wrap.querySelector('table.grid');
+		if (!table) return;
+		sheetGridFitReset(table);
+		var boxWidth = wrap.clientWidth;
+		var boxHeight = wrap.clientHeight;
+		if (boxWidth <= 0 || boxHeight <= 0) return;
+		var tableWidth = table.getBoundingClientRect().width;
+		var tableHeight = table.getBoundingClientRect().height;
+		var colgroup = table.querySelector('colgroup');
+		var rows = Array.prototype.slice.call(table.rows);
+		if (!rows.length) return;
+
+		var colCount = sheetGridColumnCount(table, colgroup, rows);
+		var unitWidth = parseFloat(table.getAttribute('data-col-px')) || 64;
+		while (unitWidth > 0 && tableWidth + unitWidth <= boxWidth) {
+			sheetGridAppendColumn(table, colgroup, rows, colCount, unitWidth);
+			tableWidth += unitWidth;
+			colCount++;
+		}
+
+		var unitHeight = parseFloat(table.getAttribute('data-row-px')) || 18;
+		var rowParent = table.tBodies.length ? table.tBodies[0] : table;
+		while (unitHeight > 0 && tableHeight + unitHeight <= boxHeight) {
+			rowParent.appendChild(sheetGridBuildRow(colCount));
+			tableHeight += unitHeight;
+		}
+	});
+}
+
+function sheetGridFitReset(table) {
+	table.querySelectorAll('tr[data-grid-fit]').forEach(function (row) {
+		row.remove();
+	});
+	table.querySelectorAll('col[data-grid-fit], td[data-grid-fit]').forEach(function (node) {
+		node.remove();
+	});
+}
+
+function sheetGridColumnCount(table, colgroup, rows) {
+	if (colgroup) {
+		var cols = colgroup.querySelectorAll('col');
+		if (cols.length) return cols.length;
+	}
+	for (var i = rows.length - 1; i >= 0; i--) {
+		if (rows[i].children.length) return rows[i].children.length;
+	}
+	return 0;
+}
+
+function sheetGridCellWidth(rows) {
+	for (var i = rows.length - 1; i >= 0; i--) {
+		var cells = rows[i].children;
+		if (cells.length) return cells[cells.length - 1].getBoundingClientRect().width;
+	}
+	return 0;
+}
+
+function sheetGridRowHeight(rows) {
+	for (var i = rows.length - 1; i >= 0; i--) {
+		var height = rows[i].getBoundingClientRect().height;
+		if (height > 0) return height;
+	}
+	return 0;
+}
+
+function sheetGridAppendColumn(table, colgroup, rows, colCount, unitWidth) {
+	if (colgroup) {
+		var col = document.createElement('col');
+		col.setAttribute('data-grid-fit', 'true');
+		col.style.width = unitWidth + 'px';
+		colgroup.appendChild(col);
+	}
+	rows.forEach(function (row) {
+		var cells = row.children;
+		if (!cells.length) return;
+		var cell = document.createElement('td');
+		cell.className = 'cell';
+		cell.setAttribute('data-grid-fit', 'true');
+		cell.setAttribute('data-col-index', String(colCount + 1));
+		row.appendChild(cell);
+	});
+}
+
+function sheetGridBuildRow(colCount) {
+	var row = document.createElement('tr');
+	row.className = 'row';
+	row.setAttribute('data-grid-fit', 'true');
+	for (var i = 1; i <= colCount; i++) {
+		var cell = document.createElement('td');
+		cell.className = 'cell';
+		cell.setAttribute('data-grid-fit', 'true');
+		cell.setAttribute('data-col-index', String(i));
+		row.appendChild(cell);
+	}
+	return row;
+}
+
+function sheetGridFitOnLoad() {
+	sheetGridFit();
+	var pending = false;
+	window.addEventListener('resize', function () {
+		if (pending) return;
+		pending = true;
+		window.requestAnimationFrame(function () {
+			pending = false;
+			sheetGridFit();
+		});
+	});
+}
+
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', sheetGridFitOnLoad);
+} else {
+	sheetGridFitOnLoad();
 }
 `

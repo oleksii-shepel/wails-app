@@ -101,3 +101,47 @@ func absInt(v int) int {
 	}
 	return v
 }
+
+// BundledCatalog returns a catalog built from the metric tables compiled into
+// the binary for the fonts Word documents use most often. Callers layer their
+// own (for example, document-embedded) faces on top; the bundled entries stay
+// as the fallback for documents that do not ship their fonts.
+func BundledCatalog() *Catalog {
+	if faces := bundledNamedFaces(); len(faces) > 0 {
+		return &Catalog{Faces: faces}
+	}
+	return nil
+}
+
+// LineHeightRatioFor returns the single-spacing line advance of a bundled font
+// family, as a multiple of the point size. It reports 0 when the family is not
+// bundled, so callers keep their own fallback.
+func LineHeightRatioFor(family string) float64 {
+	family = normalizeFamily(family)
+	if family == "" {
+		return 0
+	}
+	if ratio, ok := bundledLineHeightRatios[family]; ok {
+		return ratio
+	}
+	return 0
+}
+
+var bundledLineHeightRatios = func() map[string]float64 {
+	ratios := make(map[string]float64)
+	for _, face := range bundledFaces {
+		key := normalizeFamily(face.family)
+		if key == "" || face.weight != 400 || face.italic {
+			continue
+		}
+		if face.units <= 0 {
+			continue
+		}
+		total := float64(face.ascent) + float64(face.descent) + float64(face.lineGap)
+		if total <= 0 {
+			continue
+		}
+		ratios[key] = total / float64(face.units)
+	}
+	return ratios
+}()

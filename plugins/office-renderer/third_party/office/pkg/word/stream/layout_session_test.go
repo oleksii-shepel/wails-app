@@ -164,6 +164,29 @@ func TestLayoutSessionPromotesFormattingAndSection(t *testing.T) {
 	}
 }
 
+func TestLayoutSessionKeepsParagraphMarkRunFormat(t *testing.T) {
+	size := 28
+	mark := wordir.RunFormat{FontSize: &size, FontASCII: "Cambria"}
+	s := NewLayoutSession(1, 0)
+	events := []Event{
+		{Type: EventStartParagraph, Story: StoryDocument, RunFormat: &mark},
+		{Type: EventEndParagraph, Story: StoryDocument},
+		{Type: EventEndDocument, Story: StoryDocument},
+	}
+	for _, event := range events {
+		if err := s.HandleEvent(event); err != nil {
+			t.Fatalf("HandleEvent(%s): %v", event.Type, err)
+		}
+	}
+	p := s.Document().Blocks[0].Paragraph
+	if p == nil || p.DefaultRunFormat == nil {
+		t.Fatalf("paragraph = %#v, want paragraph mark run format", p)
+	}
+	if p.DefaultRunFormat.FontSize == nil || *p.DefaultRunFormat.FontSize != 28 || p.DefaultRunFormat.FontASCII != "Cambria" {
+		t.Fatalf("mark format = %#v, want 14pt Cambria", p.DefaultRunFormat)
+	}
+}
+
 func TestPaginateStopsSourceWhenWindowCompletes(t *testing.T) {
 	events := []Event{{Type: EventStartDocument, Story: StoryDocument}}
 	for i := 0; i < 5; i++ {

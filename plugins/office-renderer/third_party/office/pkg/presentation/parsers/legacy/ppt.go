@@ -1331,6 +1331,61 @@ func parseLegacyPptOleEmbedContainerFromEvents(payload []byte, resources map[int
 	return out, true
 }
 
+// maxLegacyPptDecompressedBytes bounds the payload an OLE storage record may
+// inflate to. A malformed or hostile container can declare a tiny compressed
+// payload that expands without limit; the parser must stop rather than grow the
+// buffer until the process stalls.
+const maxLegacyPptDecompressedBytes = 256 << 20
+
+// inflateLegacyPptPayload decompresses an OLE storage payload.
+func inflateLegacyPptPayload(compressed []byte) []byte {
+	return inflateLegacyPptPayloadLimit(compressed, maxLegacyPptDecompressedBytes)
+}
+
+// inflateLegacyPptPayloadLimit decompresses an OLE storage payload, stopping
+// when the stream ends, when the output reaches limit bytes, or when the reader
+// stops making progress. A truncated or hostile container therefore cannot spin
+// the parser forever or grow the buffer without bound.
+func inflateLegacyPptPayloadLimit(compressed []byte, limit int) []byte {
+	if len(compressed) == 0 {
+		return nil
+	}
+	r, err := zlib.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil
+	}
+	defer r.Close()
+	var out bytes.Buffer
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			if remaining := limit - out.Len(); n > remaining {
+				if remaining > 0 {
+					out.Write(buf[:remaining])
+				}
+				break
+			}
+			out.Write(buf[:n])
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			if out.Len() > 0 {
+				break
+			}
+			return nil
+		}
+		if n == 0 {
+			// No progress: a decompressor that returns (0, nil) forever would
+			// otherwise keep this loop running indefinitely.
+			break
+		}
+	}
+	return out.Bytes()
+}
+
 func parseLegacyPptOleStorageFromEvents(resources map[int]PersistEvent, persistID int) []byte {
 	e, ok := resources[persistID]
 	if !ok || e.Record.Type != pptRTExOleObjStg {
@@ -1341,29 +1396,7 @@ func parseLegacyPptOleStorageFromEvents(resources map[int]PersistEvent, persistI
 		if len(payload) <= 4 {
 			return nil
 		}
-		r, err := zlib.NewReader(bytes.NewReader(payload[4:]))
-		if err != nil {
-			return nil
-		}
-		defer r.Close()
-		var out bytes.Buffer
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := r.Read(buf)
-			if n > 0 {
-				out.Write(buf[:n])
-			}
-			if readErr == io.EOF {
-				break
-			}
-			if readErr != nil {
-				if out.Len() > 0 {
-					break
-				}
-				return nil
-			}
-		}
-		return out.Bytes()
+		return inflateLegacyPptPayload(payload[4:])
 	}
 	return append([]byte(nil), payload...)
 }
@@ -1580,29 +1613,7 @@ func parseLegacyPptOleStorage(stream []byte, persistDirectory map[int]int, persi
 		if len(payload) <= 4 {
 			return nil
 		}
-		r, err := zlib.NewReader(bytes.NewReader(payload[4:]))
-		if err != nil {
-			return nil
-		}
-		defer r.Close()
-		var out bytes.Buffer
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := r.Read(buf)
-			if n > 0 {
-				out.Write(buf[:n])
-			}
-			if readErr == io.EOF {
-				break
-			}
-			if readErr != nil {
-				if out.Len() > 0 {
-					break
-				}
-				return nil
-			}
-		}
-		return out.Bytes()
+		return inflateLegacyPptPayload(payload[4:])
 	}
 	return append([]byte(nil), payload...)
 }

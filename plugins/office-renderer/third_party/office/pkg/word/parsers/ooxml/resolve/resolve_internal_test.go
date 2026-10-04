@@ -2460,7 +2460,7 @@ func TestNormalizeTableRowCantSplit(t *testing.T) {
 		Properties: &parts.TableRowProperties{
 			CantSplit: &parts.OnOff{Val: boolValPtr(true)},
 		},
-	}, 0, 1, 0, nil, nil)
+	}, 0, 1, 0, RunFormat{}, ParagraphFormat{}, nil, nil)
 	if !row.Format.CantSplit {
 		t.Errorf("expected CantSplit=true, got %v", row.Format.CantSplit)
 	}
@@ -2469,7 +2469,7 @@ func TestNormalizeTableRowCantSplit(t *testing.T) {
 		Properties: &parts.TableRowProperties{
 			CantSplit: &parts.OnOff{Val: boolValPtr(false)},
 		},
-	}, 0, 1, 0, nil, nil)
+	}, 0, 1, 0, RunFormat{}, ParagraphFormat{}, nil, nil)
 	if row.Format.CantSplit {
 		t.Errorf("expected CantSplit=false, got %v", row.Format.CantSplit)
 	}
@@ -2481,7 +2481,7 @@ func TestNormalizeTableRowCellSpacing(t *testing.T) {
 		Properties: &parts.TableRowProperties{
 			CellSpacing: &parts.TableMeasure{Type: "dxa", Width: 200},
 		},
-	}, 0, 1, 1, nil, nil)
+	}, 0, 1, 1, RunFormat{}, ParagraphFormat{}, nil, nil)
 	if row.Format.CellSpacing != 200 {
 		t.Errorf("expected CellSpacing=200, got %d", row.Format.CellSpacing)
 	}
@@ -2508,7 +2508,7 @@ func TestNormalizeTableRowTblPrEx(t *testing.T) {
 			},
 			BidiVisual: &parts.OnOff{Val: boolValPtr(true)},
 		},
-	}, 0, 1, 1, nil, nil)
+	}, 0, 1, 1, RunFormat{}, ParagraphFormat{}, nil, nil)
 	if row.Override == nil {
 		t.Fatalf("expected Override to be set")
 	}
@@ -2558,7 +2558,7 @@ func TestNormalizeTableCellTrackedChanges(t *testing.T) {
 			CellDel:   &parts.TrackedCellChange{Author: "Bob", Date: "2024-02-01", ID: 2},
 			CellMerge: &parts.TrackedCellChange{Author: "Carol", Date: "2024-03-01", ID: 3},
 		},
-	}, 0, 1, 0, 1, nil, nil)
+	}, 0, 1, 0, 1, RunFormat{}, ParagraphFormat{}, nil, nil)
 	if cell.CellIns == nil || cell.CellIns.Author != "Alice" || cell.CellIns.ID != 1 {
 		t.Errorf("CellIns = %+v", cell.CellIns)
 	}
@@ -2570,7 +2570,7 @@ func TestNormalizeTableCellTrackedChanges(t *testing.T) {
 	}
 
 	// nil properties → no panics, nil marks
-	cell = normalizeTableCell(ctx, &parts.TableCell{}, 0, 1, 0, 1, nil, nil)
+	cell = normalizeTableCell(ctx, &parts.TableCell{}, 0, 1, 0, 1, RunFormat{}, ParagraphFormat{}, nil, nil)
 	if cell.CellIns != nil || cell.CellDel != nil || cell.CellMerge != nil {
 		t.Errorf("expected nil tracked changes for empty cell, got ins=%v del=%v merge=%v", cell.CellIns, cell.CellDel, cell.CellMerge)
 	}
@@ -3535,5 +3535,48 @@ func TestNestedInlineSdtKeepsInnermostControlIdentity(t *testing.T) {
 	runs := normalizeSdtInlineRuns(ctx, []parts.ParagraphInline{outer}, RunFormat{})
 	if len(runs) != 1 || runs[0].ContentControl == nil || runs[0].ContentControl.Tag != "inner" {
 		t.Fatalf("nested SDT identity = %+v", runs)
+	}
+}
+
+func TestResolveConditionalTableStylesNormalizesWordprocessingMLBandNames(t *testing.T) {
+	resolved := resolveConditionalTableStyles([]*parts.TableStyleProps{
+		{Type: "band1Horz"}, {Type: "band2Horz"}, {Type: "band1Vert"}, {Type: "band2Vert"},
+	}, nil)
+	got := []string{resolved[0].Type, resolved[1].Type, resolved[2].Type, resolved[3].Type}
+	want := []string{"band1H", "band2H", "band1V", "band2V"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("conditional type %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestNormalizeTableAppliesBaseTableStyleParagraphAndRunFormatting(t *testing.T) {
+	bold := true
+	fontSize := 20
+	ctx := &resolveCtx{styles: map[string]Style{
+		"StyledTable": {
+			TableFormat: &TableFormat{},
+			Format:      ParagraphFormat{Alignment: "center"},
+			RunFormat:   RunFormat{Bold: &bold, FontSize: &fontSize},
+		},
+	}}
+	table := &parts.Table{
+		Properties: &parts.TableProperties{Style: &parts.StringVal{Val: "StyledTable"}},
+		Rows:       []*parts.TableRow{{Cells: []*parts.TableCell{{Paragraphs: []*parts.Paragraph{{Runs: []*parts.Run{{Text: []*parts.Text{{Value: "cell"}}}}}}}}}},
+	}
+	got := normalizeTable(ctx, table)
+	if len(got.Rows) != 1 || len(got.Rows[0].Cells) != 1 || len(got.Rows[0].Cells[0].Paragraphs) != 1 {
+		t.Fatalf("unexpected normalized table shape: %+v", got)
+	}
+	p := got.Rows[0].Cells[0].Paragraphs[0]
+	if p.Format.Alignment != "center" {
+		t.Fatalf("table-style paragraph alignment = %q, want center", p.Format.Alignment)
+	}
+	if len(p.Runs) == 0 || p.Runs[0].Format.Bold == nil || !*p.Runs[0].Format.Bold {
+		t.Fatalf("table-style bold run formatting was not inherited: %+v", p.Runs)
+	}
+	if p.Runs[0].Format.FontSize == nil || *p.Runs[0].Format.FontSize != fontSize {
+		t.Fatalf("table-style font size = %+v, want %d", p.Runs[0].Format.FontSize, fontSize)
 	}
 }

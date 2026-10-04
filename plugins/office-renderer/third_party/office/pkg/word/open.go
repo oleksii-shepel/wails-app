@@ -9,13 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"office/pkg/ooxml/opc"
 	"office/pkg/word/edit"
 	"office/pkg/word/ir"
 	docparser "office/pkg/word/parsers/doc"
 	legacyparser "office/pkg/word/parsers/legacy"
-	"office/pkg/word/parsers/ooxml/parts"
-	"office/pkg/word/parsers/ooxml/resolve"
 	"office/pkg/word/render"
 	wordstream "office/pkg/word/stream"
 )
@@ -194,20 +191,15 @@ func OpenBytesWithOptions(name string, data []byte, options OpenOptions) (*Docum
 }
 
 // ConvertToDOCX opens a Word document from path and writes a DOCX package to w.
-// Conversion is an explicit preservation boundary: binary DOC uses the DOC
-// parser's lossless path so provenance needed by conversion remains available.
+// The sequential readers own source ingestion for both container families:
+// legacy DOC uses the lossless path so provenance needed by conversion remains
+// available, and OOXML uses the SAX stream, which also carries Strict packages.
 func ConvertToDOCX(path string, w io.Writer) error {
 	var doc *Document
 	var err error
 	switch DetectFormat(path, nil) {
 	case FormatDOC:
 		doc, err = docparser.ParseLossless(path)
-	case FormatDOCX:
-		pkg, openErr := opc.Open(path)
-		if openErr != nil {
-			return fmt.Errorf("word: open OOXML %q: %w", path, openErr)
-		}
-		doc, err = resolveOPCPackage(pkg, path)
 	default:
 		doc, err = Open(path)
 	}
@@ -221,8 +213,8 @@ func ConvertToDOCX(path string, w io.Writer) error {
 }
 
 // ConvertBytesToDOCX converts an in-memory Word document to DOCX. Conversion
-// keeps the explicit lossless/materialized path so it can preserve source data
-// that is intentionally omitted by the streaming read API.
+// shares the sequential readers with OpenBytes so a document that can be read
+// can also be converted.
 func ConvertBytesToDOCX(name string, data []byte, w io.Writer) error {
 	var doc *Document
 	var err error
@@ -230,11 +222,7 @@ func ConvertBytesToDOCX(name string, data []byte, w io.Writer) error {
 	case FormatDOC:
 		doc, err = docparser.ParseBytesLossless(data, name)
 	case FormatDOCX:
-		pkg, openErr := opc.OpenBytes(data)
-		if openErr != nil {
-			return fmt.Errorf("word: open OOXML %q: %w", displayName(name), openErr)
-		}
-		doc, err = resolveOPCPackage(pkg, "")
+		doc, err = OpenBytesWithOptions(name, data, OpenOptions{})
 	default:
 		return fmt.Errorf("%w: %q", ErrUnsupportedFormat, displayName(name))
 	}
@@ -265,19 +253,6 @@ func HTMLWithOptions(doc *Document, opts HTMLOptions) (string, []HTMLAsset, erro
 // MathML extracts and renders MathML content from the document and its stories.
 func MathML(doc *Document, opts MathMLOptions) (string, error) {
 	return render.MathML(doc, opts)
-}
-
-func resolveOPCPackage(pkg *opc.Package, sourcePath string) (*Document, error) {
-	typed, err := parts.LoadPackage(pkg)
-	if err != nil {
-		return nil, fmt.Errorf("word: load WordprocessingML parts: %w", err)
-	}
-	typed.SourcePath = sourcePath
-	doc, err := resolve.ResolvePackage(typed)
-	if err != nil {
-		return nil, fmt.Errorf("word: resolve WordprocessingML: %w", err)
-	}
-	return doc, nil
 }
 
 func looksLikeZIP(data []byte) bool {

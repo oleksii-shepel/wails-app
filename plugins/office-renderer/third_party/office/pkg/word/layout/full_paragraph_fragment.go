@@ -22,13 +22,43 @@ func fullParagraphPhysicalFragment(doc *resolve.Document, p *resolve.Paragraph, 
 	if len(physicalLines) == 0 {
 		return nil
 	}
+	originY := fragmentFlowOriginY(0, metrics, physicalLines)
 	return &ParagraphFragment{
 		StartLine:        0,
 		EndLine:          len(physicalLines),
-		Lines:            paragraphLineLayouts(physicalLines),
+		Lines:            paragraphLineLayouts(physicalLines, originY),
 		SpatialRendering: paragraphPhysicalLinesNeedSpatialRendering(p, geom, column, physicalLines),
 		IsLast:           true,
+		OriginY:          originY,
 	}
+}
+
+// fragmentFlowOriginY is the flow Y a fragment's renderer-facing coordinates
+// start from. On a first fragment that is the paragraph's own content top, so
+// a leading block drawing keeps the strip the layout reserved above the first
+// text line; a continuation fragment has no such strip and anchors to its own
+// first line.
+func fragmentFlowOriginY(startLine int, metrics paragraphFlowMetrics, lines []paragraphPhysicalLine) float64 {
+	if startLine == 0 && metrics.leadingBlockFloatHeight > 0 && metrics.flowOriginY > 0 {
+		return metrics.flowOriginY
+	}
+	return physicalLinesOriginY(lines)
+}
+
+// physicalLinesOriginY is the flow Y of the first physical line, in the
+// page-absolute coordinate space shared with BlockBox.Y + Geometry.MarginTop.
+func physicalLinesOriginY(lines []paragraphPhysicalLine) float64 {
+	origin := 0.0
+	have := false
+	for _, line := range lines {
+		for _, slot := range line.Slots {
+			if !have || slot.Slot.Top < origin {
+				origin = slot.Slot.Top
+				have = true
+			}
+		}
+	}
+	return origin
 }
 
 // paragraphPhysicalLinesNeedSpatialRendering reports whether float geometry

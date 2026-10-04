@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	sharedfontmetrics "office/pkg/fontmetrics"
+	wordfontmetrics "office/pkg/word/fontmetrics"
 	"office/pkg/word/inlineposition"
 	resolve "office/pkg/word/ir"
 	wordtextmetrics "office/pkg/word/textmetrics"
@@ -76,6 +77,11 @@ type ParagraphFragment struct {
 	IsContinuation  bool
 	IsLast          bool
 	StartsNewColumn bool
+	// OriginY is the flow Y of the fragment's first physical line in the same
+	// page-absolute coordinate space used by BlockBox.Y + Geometry.MarginTop.
+	// Line slots are rebased to their first line, so this is the only place
+	// that preserves the measured spacing-before for renderers.
+	OriginY float64
 }
 
 // TableFragment describes a row-range fragment of a table that was split at
@@ -257,10 +263,15 @@ func Paginate(doc *resolve.Document) []Page {
 					continue
 				}
 				seenFootnotes[run.NoteID] = true
+				if len(pageFootnoteIDs[currentPage]) == 0 {
+					// Word prints the footnote separator above the first note on
+					// the page. It is material the body must stay clear of, so
+					// reserve it together with the note story that follows.
+					pageFootnoteH[currentPage] += noteSeparatorHeightPt(doc, geom)
+				}
 				pageFootnoteIDs[currentPage] = append(pageFootnoteIDs[currentPage], run.NoteID)
 				if story, ok := doc.Footnotes[run.NoteID]; ok {
-					h := estimateStoryHeightPt(doc, story, footnoteW)
-					pageFootnoteH[currentPage] += h
+					pageFootnoteH[currentPage] += estimateStoryHeightPt(doc, story, footnoteW)
 				}
 			}
 		}
@@ -307,7 +318,7 @@ func Paginate(doc *resolve.Document) []Page {
 			}
 			prevPara := adjacentBlock(blockList, index, -1)
 			nextPara := adjacentBlock(blockList, index, +1)
-			textMetrics := resolveParagraphSpacingMetrics(doc, p, prevPara, nextPara, geom, y == 0)
+			textMetrics := resolveParagraphSpacingMetrics(doc, p, prevPara, nextPara, geom, flowStartSuppressesSpacing(blockList, index, y))
 			metrics, ok := paragraphFlowMetricsForPagination(doc, p, geom, column, y+geom.MarginTop, textMetrics, activeFloats)
 			if !ok || len(metrics.lineHeights) == 0 || y+metrics.totalHeight() <= availH {
 				return false
@@ -335,6 +346,14 @@ func Paginate(doc *resolve.Document) []Page {
 				}
 				remainingHeight := effectiveContentHeight(currentGeom) - currentY
 				linesToTake, fragmentHeight := metrics.fragmentFit(startLine, remainingHeight, p.Format.WidowControl)
+				if linesToTake == 0 && !columnHasContent {
+					// An empty region cannot honour widow control or hold an oversized
+					// line any better than the next one, so Word breaks here anyway.
+					linesToTake, fragmentHeight = metrics.fragmentFit(startLine, remainingHeight, false)
+					if linesToTake == 0 {
+						linesToTake, fragmentHeight = 1, metrics.singleLineFragmentHeight(startLine)
+					}
+				}
 				if linesToTake == 0 {
 					if !columnHasContent {
 						return false
@@ -351,13 +370,15 @@ func Paginate(doc *resolve.Document) []Page {
 				endLine := startLine + linesToTake
 				physicalLines := metrics.fragmentPhysicalLines(startLine, endLine)
 				fragmentRuns := paragraphPhysicalLinesRuns(physicalLines)
+				fragmentOriginY := fragmentFlowOriginY(startLine, metrics, physicalLines)
 				fragment := &ParagraphFragment{
 					StartLine:        startLine,
 					EndLine:          endLine,
-					Lines:            paragraphLineLayouts(physicalLines),
+					Lines:            paragraphLineLayouts(physicalLines, fragmentOriginY),
 					SpatialRendering: paragraphPhysicalLinesNeedSpatialRendering(p, currentGeom, currentColumn, physicalLines),
 					IsContinuation:   startLine > 0,
 					IsLast:           endLine == len(metrics.lineHeights),
+					OriginY:          fragmentOriginY,
 				}
 				addFootnotesForRuns(fragmentRuns, currentGeom)
 				// A floating anchor belongs to the first physical fragment only. Keep
@@ -399,7 +420,7 @@ func Paginate(doc *resolve.Document) []Page {
 
 			prevPara := adjacentBlock(blockList, index, -1)
 			nextPara := adjacentBlock(blockList, index, +1)
-			baseSpacingBefore := ParagraphSpacingBefore(doc, p, prevPara, currentGeom, currentY == 0)
+			baseSpacingBefore := ParagraphSpacingBefore(doc, p, prevPara, currentGeom, flowStartSuppressesSpacing(blockList, index, currentY))
 			baseSpacingAfter := ParagraphSpacingAfter(doc, p, nextPara, currentGeom)
 
 			for segIndex, segRuns := range segments {
@@ -656,11 +677,28 @@ func Paginate(doc *resolve.Document) []Page {
 		var legacyFlowSequence *legacyShapeFlowState
 		legacyFlowPage := -1
 		legacyFlowColumn := -1
+		// Position-independent floats anchored in later blocks still wrap the
+		// text that precedes their anchor, matching Word's bottom-up float
+		// placement. pendingIndependents is block-ordered; pendingCursor skips
+		// anchors that have already been emitted.
+		pendingIndependents := pendingIndependentFloats(blockList, currentGeom)
+		pendingCursor := 0
 		for i := range blockList {
 			block := &blockList[i]
 			if pendingPrelude {
 				emitPrelude()
 				pendingPrelude = false
+			}
+			// Floats committed to this page plus position-independent floats
+			// anchored in blocks that have not been emitted yet. The pending
+			// floats are filtered again inside paragraphWrapExclusions by their
+			// vertical overlap with the paragraph being measured.
+			for pendingCursor < len(pendingIndependents) && pendingIndependents[pendingCursor].order <= i {
+				pendingCursor++
+			}
+			blockActiveFloats := wrapFloatsForFlowRegion(pages[currentPage])
+			if pendingCursor < len(pendingIndependents) {
+				blockActiveFloats = appendPendingIndependentFloats(blockActiveFloats, pendingIndependents[pendingCursor:], blockList, i)
 			}
 			geom := currentGeom
 			if blockForcesPageBreakBefore(block) && pageHasContent(pages[currentPage]) {
@@ -672,7 +710,6 @@ func Paginate(doc *resolve.Document) []Page {
 				pendingPrelude = pagePrelude != nil
 				geom = currentGeom
 			}
-
 			clusterEnd := keepNextClusterEnd(blockList, i)
 			hasMoreBlocks := i < len(blockList)-1
 			epilogueReserveHeight := 0.0
@@ -681,7 +718,7 @@ func Paginate(doc *resolve.Document) []Page {
 			}
 			reservedAvailH := reservedBodyHeightFromContent(effectiveContentHeight(geom), epilogueReserveHeight)
 			if clusterEnd > i {
-				clusterHeight := measureBlockClusterHeightAt(doc, blockList, i, clusterEnd, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				clusterHeight := measureBlockClusterHeightAt(doc, blockList, i, clusterEnd, geom, currentColumn, currentY, blockActiveFloats)
 				availH := effectiveContentHeight(geom)
 				if clusterEnd < len(blockList)-1 && pageEpilogue != nil {
 					availH = reservedAvailH
@@ -693,7 +730,7 @@ func Paginate(doc *resolve.Document) []Page {
 				}
 			}
 
-			height, blockFloats := measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+			height, blockFloats := measureBlock(doc, blockList, i, geom, currentColumn, currentY, blockActiveFloats)
 			availH := effectiveContentHeight(geom)
 
 			// Drawing-only OOXML paragraphs still own physical pagination. Preflight
@@ -709,7 +746,7 @@ func Paginate(doc *resolve.Document) []Page {
 					emitPrelude()
 				}
 				geom = currentGeom
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, blockActiveFloats)
 				availH = effectiveContentHeight(geom)
 			}
 			if hasMoreBlocks && pageEpilogue != nil && columnHasContent && currentY+height > reservedAvailH {
@@ -726,7 +763,7 @@ func Paginate(doc *resolve.Document) []Page {
 					epilogueReserveHeight = estimateExtraBlocksHeight(pageEpilogue(), geom)
 				}
 				reservedAvailH = reservedBodyHeightFromContent(effectiveContentHeight(geom), epilogueReserveHeight)
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, blockActiveFloats)
 				availH = effectiveContentHeight(geom)
 			}
 			// A paragraph-relative floating drawing is anchored to this physical
@@ -745,7 +782,7 @@ func Paginate(doc *resolve.Document) []Page {
 					emitPrelude()
 				}
 				geom = currentGeom
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, blockActiveFloats)
 				availH = effectiveContentHeight(geom)
 			}
 			if trySplitParagraphOnColumnBreak(i, block) {
@@ -754,7 +791,7 @@ func Paginate(doc *resolve.Document) []Page {
 				}
 				continue
 			}
-			if trySplitParagraphAcrossFlow(i, block, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]), availH) {
+			if trySplitParagraphAcrossFlow(i, block, geom, currentColumn, currentY, blockActiveFloats, availH) {
 				if endnoteCollector != nil {
 					endnoteCollector(block)
 				}
@@ -777,7 +814,7 @@ func Paginate(doc *resolve.Document) []Page {
 					emitPrelude()
 				}
 				geom = currentGeom
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, blockActiveFloats)
 				availH = effectiveContentHeight(geom)
 			}
 			if columnHasContent && currentY+height > availH {
@@ -788,7 +825,7 @@ func Paginate(doc *resolve.Document) []Page {
 					emitPrelude()
 				}
 				geom = currentGeom
-				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, wrapFloatsForFlowRegion(pages[currentPage]))
+				height, blockFloats = measureBlock(doc, blockList, i, geom, currentColumn, currentY, blockActiveFloats)
 			}
 
 			if block != nil && block.Paragraph != nil {
@@ -828,7 +865,7 @@ func Paginate(doc *resolve.Document) []Page {
 			if block != nil && block.Paragraph != nil && block.Paragraph.Frame == nil {
 				prevPara := adjacentBlock(blockList, i, -1)
 				nextPara := adjacentBlock(blockList, i, +1)
-				spacingBefore := ParagraphSpacingBefore(doc, block.Paragraph, prevPara, geom, currentY == 0)
+				spacingBefore := ParagraphSpacingBefore(doc, block.Paragraph, prevPara, geom, flowStartSuppressesSpacing(blockList, i, currentY))
 				spacingAfter := ParagraphSpacingAfter(doc, block.Paragraph, nextPara, geom)
 
 				// The physical fragment is the canonical paragraph topology produced by
@@ -839,7 +876,7 @@ func Paginate(doc *resolve.Document) []Page {
 				// boundary.
 				paragraphFragment = fullParagraphPhysicalFragment(
 					doc, block.Paragraph, geom, currentColumn, currentY,
-					spacingBefore, spacingAfter, wrapFloatsForFlowRegion(pages[currentPage]),
+					spacingBefore, spacingAfter, blockActiveFloats,
 				)
 			}
 			emitBlockBox(block, geom, height, blockFloats, paragraphFragment)
@@ -886,7 +923,7 @@ func Paginate(doc *resolve.Document) []Page {
 			collectEndnotesForBlock(block, seenDocEndnotes, &docEndnoteIDs)
 		}, nil, nil)
 		if endnotePosition == "sectEnd" {
-			flowBlocks(span.Section, materializeEndnoteBlocks(doc, spanEndnoteIDs, &nextSyntheticIndex), nil,
+			flowBlocks(span.Section, materializeEndnoteBlocks(doc, spanEndnoteIDs, flowContentWidthPt(currentGeom), &nextSyntheticIndex), nil,
 				func() []resolve.Block { return continuationSeparatorBlocks(doc, &nextSyntheticIndex) },
 				func() []resolve.Block { return continuationNoticeBlocks(doc, &nextSyntheticIndex) },
 			)
@@ -909,7 +946,7 @@ func Paginate(doc *resolve.Document) []Page {
 			finalSection = doc.Sections[len(doc.Sections)-1]
 			currentSectionIndex = len(doc.Sections) - 1
 		}
-		flowBlocks(finalSection, materializeEndnoteBlocks(doc, docEndnoteIDs, &nextSyntheticIndex), nil,
+		flowBlocks(finalSection, materializeEndnoteBlocks(doc, docEndnoteIDs, flowContentWidthPt(currentGeom), &nextSyntheticIndex), nil,
 			func() []resolve.Block { return continuationSeparatorBlocks(doc, &nextSyntheticIndex) },
 			func() []resolve.Block { return continuationNoticeBlocks(doc, &nextSyntheticIndex) },
 		)
@@ -958,13 +995,13 @@ func materializePageFootnotes(doc *resolve.Document, pages []Page, footnoteIDs [
 			number = footnoteStartNumberForSection(doc, page.Section)
 		}
 		previousSectionIndex = page.SectionIndex
-		blocks, nextNumber := materializeFootnoteBlocks(doc, footnoteIDs[pageIndex], number, format, nextSyntheticIndex)
+		geom := page.Geometry
+		footnoteGeom := footnoteLayoutGeometry(geom)
+		blocks, nextNumber := materializeFootnoteBlocks(doc, footnoteIDs[pageIndex], number, format, footnoteGeom.ColumnWidthPt, nextSyntheticIndex)
 		if len(blocks) == 0 {
 			continue
 		}
 		number = nextNumber
-		geom := page.Geometry
-		footnoteGeom := footnoteLayoutGeometry(geom)
 		heights := make([]float64, len(blocks))
 		totalHeight := 0.0
 		for i := range blocks {
@@ -1017,12 +1054,12 @@ func footnoteStartNumberForSection(doc *resolve.Document, section resolve.Sectio
 	return footnoteStartNumber(doc)
 }
 
-func materializeFootnoteBlocks(doc *resolve.Document, noteIDs []int, startNumber int, noteFormat string, nextSyntheticIndex *int) ([]resolve.Block, int) {
+func materializeFootnoteBlocks(doc *resolve.Document, noteIDs []int, startNumber int, noteFormat string, widthPt float64, nextSyntheticIndex *int) ([]resolve.Block, int) {
 	if doc == nil || len(noteIDs) == 0 {
 		return nil, startNumber
 	}
 	blocks := make([]resolve.Block, 0, len(noteIDs)+1)
-	blocks = append(blocks, footnoteSeparatorBlocks(doc, nextSyntheticIndex)...)
+	blocks = append(blocks, footnoteSeparatorBlocks(doc, widthPt, nextSyntheticIndex)...)
 	number := startNumber
 	for _, id := range noteIDs {
 		story, ok := doc.Footnotes[id]
@@ -1035,12 +1072,12 @@ func materializeFootnoteBlocks(doc *resolve.Document, noteIDs []int, startNumber
 	return blocks, number
 }
 
-func materializeEndnoteBlocks(doc *resolve.Document, noteIDs []int, nextSyntheticIndex *int) []resolve.Block {
+func materializeEndnoteBlocks(doc *resolve.Document, noteIDs []int, widthPt float64, nextSyntheticIndex *int) []resolve.Block {
 	if doc == nil || len(noteIDs) == 0 {
 		return nil
 	}
 	blocks := make([]resolve.Block, 0, len(noteIDs)+1)
-	blocks = append(blocks, startSeparatorBlocks(doc, nextSyntheticIndex)...)
+	blocks = append(blocks, startSeparatorBlocks(doc, widthPt, nextSyntheticIndex)...)
 	number := 1
 	if doc.EndnoteNumberStart > 0 {
 		number = doc.EndnoteNumberStart
@@ -1060,18 +1097,37 @@ func materializeEndnoteBlocks(doc *resolve.Document, noteIDs []int, nextSyntheti
 	return blocks
 }
 
-func startSeparatorBlocks(doc *resolve.Document, nextSyntheticIndex *int) []resolve.Block {
+func startSeparatorBlocks(doc *resolve.Document, widthPt float64, nextSyntheticIndex *int) []resolve.Block {
 	if doc != nil && storyHasContent(doc.EndnoteSeparator) {
 		return clonePlainStoryBlocksForLayout(doc.EndnoteSeparator, nextSyntheticIndex)
 	}
-	return []resolve.Block{makeNoteSeparatorBlock(nextSyntheticIndex)}
+	return []resolve.Block{makeNoteSeparatorBlock(doc, widthPt, nextSyntheticIndex)}
 }
 
-func footnoteSeparatorBlocks(doc *resolve.Document, nextSyntheticIndex *int) []resolve.Block {
+// noteSeparatorHeightPt measures the separator material Word prints above the
+// first footnote on a page. materializePageFootnotes lays the same blocks out
+// at the bottom of the page, so the two measurements must stay in step: the
+// body region shrinks by exactly what the separator occupies.
+func noteSeparatorHeightPt(doc *resolve.Document, geom PageGeometry) float64 {
+	var scratch int
+	blocks := footnoteSeparatorBlocks(doc, footnoteLayoutGeometry(geom).ColumnWidthPt, &scratch)
+	if len(blocks) == 0 {
+		return 0
+	}
+	footnoteGeom := footnoteLayoutGeometry(geom)
+	total := 0.0
+	for i := range blocks {
+		height, _ := measureBlock(doc, blocks, i, footnoteGeom, 0, total, nil)
+		total += height
+	}
+	return total
+}
+
+func footnoteSeparatorBlocks(doc *resolve.Document, widthPt float64, nextSyntheticIndex *int) []resolve.Block {
 	if doc != nil && storyHasContent(doc.FootnoteSeparator) {
 		return clonePlainStoryBlocksForLayout(doc.FootnoteSeparator, nextSyntheticIndex)
 	}
-	return []resolve.Block{makeNoteSeparatorBlock(nextSyntheticIndex)}
+	return []resolve.Block{makeNoteSeparatorBlock(doc, widthPt, nextSyntheticIndex)}
 }
 
 func continuationSeparatorBlocks(doc *resolve.Document, nextSyntheticIndex *int) []resolve.Block {
@@ -1088,16 +1144,55 @@ func continuationNoticeBlocks(doc *resolve.Document, nextSyntheticIndex *int) []
 	return clonePlainStoryBlocksForLayout(doc.EndnoteContinuationNotice, nextSyntheticIndex)
 }
 
-func makeNoteSeparatorBlock(nextSyntheticIndex *int) resolve.Block {
-	separator := resolve.Paragraph{
-		Index: nextLayoutSyntheticIndex(nextSyntheticIndex),
-		Format: resolve.ParagraphFormat{
-			SpacingAfter: layoutIntPtr(120),
-			KeepNext:     true,
-			Borders: &resolve.ParagraphBorders{
-				Top: &resolve.BorderSide{Val: "single", SizePt: 0.75, Color: "444444"},
-			},
+// noteSeparatorBandTwips sizes the strip between the separator rule and the
+// first note. Word draws the rule on the separator line's baseline, so only
+// that line's descender band sits under it; reserving the whole line box
+// instead would lift the rule half a line away from the notes and let the body
+// stop short of the page's real text boundary. The rule is part of the
+// paragraph's border box, so the exact line height carries the band less the
+// 0.75pt the border itself occupies.
+const noteSeparatorBandTwips = 87 // 4.37pt + 0.75pt rule = a 5.12pt band
+
+// noteSeparatorRuleTwips is the length Word gives the footnote and endnote
+// separator rule: two inches, measured from the notes' text indent.
+const noteSeparatorRuleTwips = 2880
+
+// makeNoteSeparatorBlock synthesizes the separator Word prints before the
+// first note of a page or section. Word gives it the default paragraph's
+// first-line indent (the separator style inherits Normal) and draws a two-inch
+// rule there, so the rule starts where the note text does and stops well short
+// of the column edge.
+func makeNoteSeparatorBlock(doc *resolve.Document, widthPt float64, nextSyntheticIndex *int) resolve.Block {
+	format := resolve.ParagraphFormat{
+		KeepNext: true,
+		// The rule is the paragraph's top border; the paragraph itself only
+		// occupies the band below it.
+		LineRule:      "exact",
+		LineSpacing:   layoutIntPtr(noteSeparatorBandTwips),
+		NoteSeparator: true,
+		Borders: &resolve.ParagraphBorders{
+			Top: &resolve.BorderSide{Val: "single", SizePt: 0.75, Color: "444444"},
 		},
+	}
+	// The separator paragraph carries no style of its own, so it inherits the
+	// document's default paragraph style: that is where Word's rule indent comes
+	// from.
+	indentLeft := 0
+	if doc != nil {
+		if style, ok := doc.Styles[doc.DefaultParagraphStyleID]; ok && style.Format.IndentFirstLine != nil {
+			indentLeft = *style.Format.IndentFirstLine
+		} else if doc.DefaultParagraphFormat.IndentFirstLine != nil {
+			indentLeft = *doc.DefaultParagraphFormat.IndentFirstLine
+		}
+	}
+	format.IndentLeft = layoutIntPtr(indentLeft)
+	contentTwips := int(math.Round(widthPt * twipsPerPoint))
+	if right := contentTwips - indentLeft - noteSeparatorRuleTwips; right > 0 {
+		format.IndentRight = layoutIntPtr(right)
+	}
+	separator := resolve.Paragraph{
+		Index:  nextLayoutSyntheticIndex(nextSyntheticIndex),
+		Format: format,
 	}
 	return resolve.Block{
 		Index:     nextLayoutSyntheticIndex(nextSyntheticIndex),
@@ -1528,7 +1623,7 @@ func LayoutBlocksForRender(doc *resolve.Document, blockList []resolve.Block, geo
 			prevPara = adjacentBlock(blockList, blockIndex, -1)
 			nextPara = adjacentBlock(blockList, blockIndex, +1)
 		}
-		spacingBefore := ParagraphSpacingBefore(doc, p, prevPara, geom, box.Y == 0)
+		spacingBefore := ParagraphSpacingBefore(doc, p, prevPara, geom, flowStartSuppressesSpacing(blockList, blockIndex, box.Y))
 		spacingAfter := ParagraphSpacingAfter(doc, p, nextPara, geom)
 		box.Fragment = fullParagraphPhysicalFragment(
 			doc, p, geom, box.Column, box.Y,
@@ -1644,7 +1739,7 @@ func measureBlock(doc *resolve.Document, blocks []resolve.Block, index int, geom
 		}
 		prevPara := adjacentBlock(blocks, index, -1)
 		nextPara := adjacentBlock(blocks, index, +1)
-		metrics := resolveParagraphSpacingMetrics(doc, p, prevPara, nextPara, geom, y == 0)
+		metrics := resolveParagraphSpacingMetrics(doc, p, prevPara, nextPara, geom, flowStartSuppressesSpacing(blocks, index, y))
 		height = paragraphHeightInFlow(doc, p, geom, column, y+geom.MarginTop, activeFloats)
 		height += metrics.SpacingBefore + metrics.SpacingAfter
 		floats = appendParagraphFloats(nil, p.Runs, geom, column, y+geom.MarginTop, height)
@@ -1672,9 +1767,22 @@ func frameParaFloat(doc *resolve.Document, p *resolve.Paragraph, geom PageGeomet
 	}
 	heightPt := float64(fp.H) / twipsPerPoint
 	if heightPt <= 0 {
-		// For drop caps, height is lines × document line height — not the drop cap font size.
+		// For drop caps, height is lines × the body text line height — not
+		// the drop cap font size. Drop-cap anchors usually carry an oversized
+		// "exact" line spacing to fit the cap glyph; the frame spans the
+		// body-text lines that flow beside it instead.
 		if fp.DropCap != "" && fp.DropCap != "none" && fp.Lines > 0 {
-			lineH := defaultFontSizePt(doc) * wordSingleLineRatio
+			lineH := paragraphLineHeightPt(p, geom, paragraphFontSizePt(doc, p))
+			bodyLineH := defaultFontSizePt(doc) * wordSingleLineRatio
+			if doc != nil && doc.DefaultParagraphFormat.LineSpacing != nil {
+				dummy := resolve.Paragraph{Format: doc.DefaultParagraphFormat}
+				if body := autoParagraphLineHeightPt(&dummy, defaultFontSizePt(doc)); body > 0 {
+					bodyLineH = body
+				}
+			}
+			if lineH > bodyLineH*1.5 {
+				lineH = bodyLineH
+			}
 			heightPt = float64(fp.Lines) * snapLineHeightToDocGrid(p, geom, lineH)
 		} else {
 			heightPt = paragraphHeightInWidth(doc, p, geom, widthPt)
@@ -1688,6 +1796,11 @@ func frameParaFloat(doc *resolve.Document, p *resolve.Paragraph, geom PageGeomet
 		offsetPt := float64(fp.X) / twipsPerPoint
 		if fp.HAnchor == "page" {
 			x = offsetPt
+		} else if fp.DropCap != "" && fp.DropCap != "none" {
+			// Word places a drop cap at the anchor paragraph's first-line
+			// indent rather than the bare margin: a Normal-styled anchor with
+			// a 21.6pt first-line indent drops the cap at margin+21.6pt.
+			x = paragraphFirstLineLeftPt(p, paragraphContentLeftPt(p, columnLeftPt(geom, column)))
 		} else {
 			x = geom.MarginLeft + offsetPt
 		}
@@ -1728,12 +1841,9 @@ func autoFrameParagraphWidthPt(doc *resolve.Document, p *resolve.Paragraph, geom
 	widthPt := dropCapContentWidthPt(doc, p)
 	leftBorderOutset, rightBorderOutset := paragraphHorizontalBorderOutsetPt(p)
 	widthPt += leftBorderOutset + rightBorderOutset
-	if p.Format.IndentLeft != nil && *p.Format.IndentLeft > 0 {
-		widthPt += twipsToPoints(*p.Format.IndentLeft)
-	}
-	if p.Format.IndentFirstLine != nil && *p.Format.IndentFirstLine > 0 {
-		widthPt += twipsToPoints(*p.Format.IndentFirstLine)
-	}
+	// The frame X already carries the anchor paragraph's first-line indent, so
+	// the width must be the cap content alone or the wrap region would double
+	// the indent.
 
 	if widthPt <= 0 {
 		widthPt = defaultFontSizePt(doc)
@@ -1746,17 +1856,27 @@ func autoFrameParagraphWidthPt(doc *resolve.Document, p *resolve.Paragraph, geom
 
 func dropCapContentWidthPt(doc *resolve.Document, p *resolve.Paragraph) float64 {
 	defaultSizePt := defaultFontSizePt(doc)
-	tokens := paragraphRenderTokens(p, defaultSizePt)
-	if len(tokens) == 0 {
-		return 0
-	}
+	catalog := wordfontmetrics.BuildCatalog(doc)
 	spaceWidthPt := defaultSizePt * 0.28
 	widthPt := 0.0
-	for i, token := range tokens {
-		if i > 0 {
+	emitted := 0
+	for _, run := range resolve.CanonicalVisibleRuns(p) {
+		if run.Text == "" || run.Format.Hidden() {
+			continue
+		}
+		// The frame has to hold the cap's own advance. A generic per-character
+		// estimate is narrower than most letters at display sizes, which clips
+		// the glyph, so measure against the family's real metrics when the
+		// document provides them.
+		width, _ := runWordWidthPtWithCatalog(catalog, run.Format, run.Text, defaultSizePt)
+		if width <= 0 {
+			width, _ = runWordWidthPt(run.Format, run.Text, defaultSizePt)
+		}
+		if emitted > 0 {
 			widthPt += spaceWidthPt
 		}
-		widthPt += token.widthPt
+		widthPt += width
+		emitted++
 	}
 	return widthPt
 }
@@ -2070,7 +2190,7 @@ func paragraphHeightInFlow(doc *resolve.Document, p *resolve.Paragraph, geom Pag
 				activeFloats,
 			)
 		},
-		paragraphFlowContextForDocument(doc),
+		paragraphFlowContextForDocument(doc, columnLeftPt(geom, column)),
 	)
 
 	return spacingBefore + topBorderOutset + leadingBlockFloatHeight +
@@ -2086,6 +2206,17 @@ type paragraphFlowMetrics struct {
 	topBorderOutset    float64
 	bottomBorderOutset float64
 	topClearance       float64
+	// flowOriginY is the page-absolute Y where the paragraph's own content
+	// starts (after spacing and border, before any clearance) and
+	// leadingBlockFloatHeight is the strip a leading top-and-bottom drawing
+	// claims above the first text line. Renderers lay out that drawing as
+	// in-flow block content, so such a fragment anchors to flowOriginY instead
+	// of to the first text line, which would sit on top of the drawing.
+	flowOriginY             float64
+	leadingBlockFloatHeight float64
+	// trailingLeading is the auto line-spacing extra Word places below each
+	// line's text; the last line in a region may hang it past the bottom.
+	trailingLeading float64
 }
 
 func (m paragraphFlowMetrics) totalHeight() float64 {
@@ -2106,10 +2237,14 @@ func (m paragraphFlowMetrics) fragmentFit(startLine int, availableHeight float64
 	for endLine := startLine + 1; endLine <= len(m.lineHeights); endLine++ {
 		contentHeight += m.lineHeights[endLine-1]
 		candidateHeight := prefix + contentHeight
+		textBottom := candidateHeight - math.Min(m.trailingLeading, m.lineHeights[endLine-1])
 		if endLine == len(m.lineHeights) {
+			// Word lets the final line's space-after run past the region bottom.
+			if textBottom+m.bottomBorderOutset > availableHeight {
+				break
+			}
 			candidateHeight += m.bottomBorderOutset + m.spacingAfter
-		}
-		if candidateHeight > availableHeight {
+		} else if textBottom > availableHeight {
 			break
 		}
 		bestLines = endLine - startLine
@@ -2143,6 +2278,19 @@ func (m paragraphFlowMetrics) fragmentFit(startLine int, availableHeight float64
 	return bestLines, bestHeight
 }
 
+// singleLineFragmentHeight measures a fragment holding only line startLine,
+// used when even that line exceeds an empty region.
+func (m paragraphFlowMetrics) singleLineFragmentHeight(startLine int) float64 {
+	height := m.lineHeights[startLine]
+	if startLine == 0 {
+		height += m.spacingBefore + m.topBorderOutset + m.topClearance
+	}
+	if startLine+1 == len(m.lineHeights) {
+		height += m.bottomBorderOutset + m.spacingAfter
+	}
+	return height
+}
+
 func (m paragraphFlowMetrics) fragmentPhysicalLines(startLine, endLine int) []paragraphPhysicalLine {
 	if startLine < 0 {
 		startLine = 0
@@ -2170,9 +2318,16 @@ func paragraphFlowMetricsForPagination(doc *resolve.Document, p *resolve.Paragra
 
 	contentLeftPt := paragraphContentLeftPt(p, columnLeftPt(geom, column))
 	firstLeftPt := paragraphFirstLineLeftPt(p, contentLeftPt)
-	lineStartY := paraPageY + textMetrics.SpacingBefore + topBorderOutset
-	topClearance := paragraphTopAndBottomClearancePt(lineStartY, lineHeight, activeFloats)
-	textStartY := lineStartY + topClearance
+	// A top-and-bottom drawing that leads the paragraph is block material: its
+	// height sits above the first line, exactly as paragraphHeightInFlow
+	// reserves it. Without it here the fragment's lines would be planned over
+	// the drawing while the block box still measured room for it.
+	flowOriginY := paraPageY + textMetrics.SpacingBefore + topBorderOutset
+	leadingBlockFloatHeight := paragraphLeadingBlockDrawingHeightPt(p, geom, column, paraPageY, lineHeight)
+	lineStartY := flowOriginY + leadingBlockFloatHeight
+	activeFloatClearance := paragraphTopAndBottomClearancePt(lineStartY, lineHeight, activeFloats)
+	topClearance := leadingBlockFloatHeight + activeFloatClearance
+	textStartY := lineStartY + activeFloatClearance
 
 	initialMetrics := estimateParagraphLineMetricsWithWidths(p, firstWidthPt, continuationWidthPt, defaultSizePt, nil)
 	initialHeights := paragraphLineHeightsPt(p, geom, initialMetrics, defaultSizePt)
@@ -2190,7 +2345,7 @@ func paragraphFlowMetricsForPagination(doc *resolve.Document, p *resolve.Paragra
 				activeFloats,
 			)
 		},
-		paragraphFlowContextForDocument(doc),
+		paragraphFlowContextForDocument(doc, columnLeftPt(geom, column)),
 	)
 
 	if len(flow.PhysicalLines) != len(lineHeights) {
@@ -2204,7 +2359,10 @@ func paragraphFlowMetricsForPagination(doc *resolve.Document, p *resolve.Paragra
 		spacingAfter:       textMetrics.SpacingAfter,
 		topBorderOutset:    topBorderOutset,
 		bottomBorderOutset: bottomBorderOutset,
-		topClearance:       topClearance,
+		topClearance:            topClearance,
+		flowOriginY:             flowOriginY,
+		leadingBlockFloatHeight: leadingBlockFloatHeight,
+		trailingLeading:         autoParagraphTrailingLeadingPt(p, geom, fontSizePt),
 	}, true
 }
 
@@ -2245,6 +2403,22 @@ func resolvedParagraphSpacingAfterPt(doc *resolve.Document, p *resolve.Paragraph
 // not add adjacent paragraph spacing values: the effective inter-paragraph gap is
 // the larger of previous space-after and current space-before. Because the previous
 // block already owns its space-after, this block contributes only the remainder.
+// flowStartSuppressesSpacing reports whether a block measured at flow position
+// y sits at the start of a flow region, where Word discards space-before.
+// The space survives only for a paragraph that carries w:pageBreakBefore
+// itself; a page that starts because the previous paragraph ended with a
+// page-break run begins flush with the top margin, exactly like a page that
+// starts because the previous content ran out.
+func flowStartSuppressesSpacing(blocks []resolve.Block, index int, y float64) bool {
+	if y != 0 {
+		return false
+	}
+	if index < 0 || index >= len(blocks) {
+		return true
+	}
+	return !blockForcesPageBreakBefore(&blocks[index])
+}
+
 func ParagraphSpacingBefore(doc *resolve.Document, p, prev *resolve.Paragraph, geom PageGeometry, atFlowStart bool) float64 {
 	if p == nil || atFlowStart {
 		return 0
@@ -2624,9 +2798,11 @@ type legacyShapeFlowState struct {
 const legacyShapeFlowGapPt = 3
 
 // legacyShapeFlowAnchorLineInsetPt is the Word 97 anchor-character line
-// inset. A SHAPE field is anchored to that line's text position, not the
-// browser fallback paragraph-box bottom.
-const legacyShapeFlowAnchorLineInsetPt = 5
+// inset. A SHAPE field is anchored to the anchor character's baseline, which
+// sits one descender above the anchor line's bottom — not at the paragraph
+// box bottom the browser fallback would use. The value is measured from the
+// Word 2021 PDFs of the legacy OfficeArt fixtures.
+const legacyShapeFlowAnchorLineInsetPt = 2.5
 
 func legacyShapeFlowAnchorY(paraPageY, paraHeight float64) float64 {
 	return paraPageY + math.Max(0, paraHeight-legacyShapeFlowAnchorLineInsetPt)
@@ -2943,6 +3119,9 @@ func paragraphFontSizePt(doc *resolve.Document, p *resolve.Paragraph) float64 {
 	maxSize := 0.0
 	if p != nil {
 		for _, run := range p.Runs {
+			if run.Format.Hidden() {
+				continue
+			}
 			if run.Format.FontSize != nil && *run.Format.FontSize > 0 {
 				if size := float64(*run.Format.FontSize) / 2.0; size > maxSize {
 					maxSize = size
@@ -2956,15 +3135,60 @@ func paragraphFontSizePt(doc *resolve.Document, p *resolve.Paragraph) float64 {
 	return defaultFontSizePt(doc)
 }
 
+// paragraphLineHeightRatio is the single-spacing line advance multiple for a
+// paragraph's font family. Word measures a line from the font's own vertical
+// metrics, so Calibri text is taller than Times New Roman at the same point
+// size; the bundled metric tables carry those ratios. Families without bundled
+// metrics keep the generic fallback.
+func paragraphLineHeightRatio(p *resolve.Paragraph) float64 {
+	if family := paragraphFontFamilyName(p); family != "" {
+		if ratio := sharedfontmetrics.LineHeightRatioFor(family); ratio > 0 {
+			return ratio
+		}
+	}
+	return wordSingleLineRatio
+}
+
+// paragraphFontFamilyName returns the family the paragraph's text is set in,
+// which is the first run that carries text and names a font. Without such a
+// run the paragraph mark owns the line, so its family applies.
+func paragraphFontFamilyName(p *resolve.Paragraph) string {
+	if p == nil {
+		return ""
+	}
+	for i := range p.Runs {
+		run := &p.Runs[i]
+		// Hidden text is not displayed, so it cannot own the line's font; the
+		// paragraph mark's format applies instead.
+		if run.Text == "" || run.Format.Hidden() {
+			continue
+		}
+		if run.Format.FontASCII != "" {
+			return run.Format.FontASCII
+		}
+		if run.Format.FontHAnsi != "" {
+			return run.Format.FontHAnsi
+		}
+	}
+	if mark := p.DefaultRunFormat; mark != nil {
+		if mark.FontASCII != "" {
+			return mark.FontASCII
+		}
+		return mark.FontHAnsi
+	}
+	return ""
+}
+
 func paragraphLineHeightPt(p *resolve.Paragraph, geom PageGeometry, fontSizePt float64) float64 {
+
 	inlineHeightPt := paragraphInlineImageHeightPt(p)
-	lineHeight := math.Max(fontSizePt*wordSingleLineRatio, inlineHeightPt)
+	lineHeight := math.Max(fontSizePt*paragraphLineHeightRatio(p), inlineHeightPt)
 	if p == nil || p.Format.LineSpacing == nil {
 		return snapLineHeightToDocGrid(p, geom, lineHeight)
 	}
 	switch p.Format.LineRule {
 	case "auto", "":
-		lineHeight = math.Max(autoParagraphLineHeightPt(p, fontSizePt), inlineHeightPt)
+		lineHeight = autoParagraphLineHeightWithInlinePt(p, fontSizePt, inlineHeightPt)
 	case "exact":
 		lineHeight = twipsToPoints(*p.Format.LineSpacing)
 	case "atLeast":
@@ -2974,7 +3198,7 @@ func paragraphLineHeightPt(p *resolve.Paragraph, geom PageGeometry, fontSizePt f
 }
 
 func autoParagraphLineHeightPt(p *resolve.Paragraph, fontSizePt float64) float64 {
-	baseLineHeight := fontSizePt * wordSingleLineRatio
+	baseLineHeight := fontSizePt * paragraphLineHeightRatio(p)
 	if p == nil || p.Format.LineSpacing == nil || *p.Format.LineSpacing <= 0 {
 		return baseLineHeight
 	}
@@ -2986,16 +3210,50 @@ func autoParagraphLineHeightPt(p *resolve.Paragraph, fontSizePt float64) float64
 	return baseLineHeight * multiple
 }
 
+// autoParagraphLineHeightWithInlinePt sizes an auto-spaced line that may hold an
+// inline object. Word scales only the font's single line by the multiple, so
+// an object line keeps the object's height plus the multiple's extra leading
+// rather than scaling the object itself.
+func autoParagraphLineHeightWithInlinePt(p *resolve.Paragraph, fontSizePt, inlineHeightPt float64) float64 {
+	textHeight := autoParagraphLineHeightPt(p, fontSizePt)
+	if inlineHeightPt <= 0 {
+		return textHeight
+	}
+	return math.Max(textHeight, inlineHeightPt+autoParagraphExtraLeadingPt(p, fontSizePt))
+}
+
+// autoParagraphExtraLeadingPt is what an auto line-spacing multiple adds to the
+// font's single line.
+func autoParagraphExtraLeadingPt(p *resolve.Paragraph, fontSizePt float64) float64 {
+	return math.Max(0, autoParagraphLineHeightPt(p, fontSizePt)-fontSizePt*paragraphLineHeightRatio(p))
+}
+
+// autoParagraphTrailingLeadingPt is the extra leading Word paints below each
+// auto-spaced line's text. Grid-snapped lines own their whole pitch instead.
+func autoParagraphTrailingLeadingPt(p *resolve.Paragraph, geom PageGeometry, fontSizePt float64) float64 {
+	if p == nil || p.Format.LineSpacing == nil || (p.Format.LineRule != "auto" && p.Format.LineRule != "") {
+		return 0
+	}
+	if p.Format.SnapToGrid && geom.DocGridPitchPt > 0 &&
+		(strings.EqualFold(geom.DocGridType, "lines") || strings.EqualFold(geom.DocGridType, "linesAndChars")) {
+		return 0
+	}
+	return autoParagraphExtraLeadingPt(p, fontSizePt)
+}
+
 func paragraphInlineImageHeightPt(p *resolve.Paragraph) float64 {
 	maxHeight := 0.0
 	if p == nil {
 		return maxHeight
 	}
 	for _, run := range p.Runs {
+		if run.Format.Hidden() {
+			continue
+		}
 		if run.Kind != "image" || run.Image == nil || run.Image.Floating {
 			continue
 		}
-		if heightPt := emuToPoints(run.Image.Height); heightPt > maxHeight {
+		if heightPt := inlineImageBoxHeightPt(run.Image); heightPt > maxHeight {
 			maxHeight = heightPt
 		}
 	}
@@ -3116,6 +3374,15 @@ func fieldRenderWidthText(run resolve.Run) string {
 	}
 }
 
+// runIsNonRenderingOLEPlaceholder reports whether a legacy object anchor is
+// only an implementation marker. Word hides these anchors when no payload,
+// preview, link or ProgID can be resolved, so they must not consume flow space
+// either — the renderer applies the same test before writing anything.
+func runIsNonRenderingOLEPlaceholder(run resolve.Run) bool {
+	return run.Kind == "olePlaceholder" && run.OLEPreview == nil && len(run.OLEData) == 0 &&
+		run.OLEProgID == "" && run.OLERelID == "" && run.OLELinkURL == ""
+}
+
 func runNeedsWholeToken(run resolve.Run) bool {
 	return (run.Format.FitTextWidth != nil && *run.Format.FitTextWidth > 0) ||
 		run.FieldKind != "" ||
@@ -3179,9 +3446,14 @@ func paragraphSpatialRenderTokensWithContext(p *resolve.Paragraph, defaultSizePt
 	pendingSpace := false
 	haveText := false
 	for _, run := range runs {
+		// Hidden text is not displayed and takes no space, so it neither measures
+		// nor separates the visible runs around it.
+		if run.Format.Hidden() {
+			continue
+		}
 		// Binary DOC group anchors can surface as synthetic OLE placeholders.
 		// They are non-rendering anchors, not inline "Embedded Object" text.
-		if run.Kind == "olePlaceholder" && run.OLEPreview == nil {
+		if runIsNonRenderingOLEPlaceholder(run) {
 			continue
 		}
 		if run.FieldKind == "ADVANCE" {
@@ -3227,8 +3499,13 @@ func paragraphSpatialRenderTokensWithContext(p *resolve.Paragraph, defaultSizePt
 				continue
 			}
 		case "footnoteRef", "endnoteRef", "commentRef":
+			// A note mark is a character of its paragraph, so it must contribute
+			// the paragraph's own size to the line metric. Using the document
+			// default here measures a 10pt note body at 11pt, which raises its
+			// line pitch and shifts every page break after it.
+			markSizePt := runTokenFontSizePt(run, defaultSizePt)
 			tokens = append(tokens, paragraphRenderToken{
-				run: run, widthPt: defaultSizePt * 0.8, heightPt: defaultSizePt, fontSizePt: defaultSizePt,
+				run: run, widthPt: markSizePt * 0.8, heightPt: markSizePt, fontSizePt: markSizePt,
 				separated: pendingSpace && haveText,
 			})
 			pendingSpace = false
@@ -3314,7 +3591,10 @@ func paragraphRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragr
 	runs := resolve.CanonicalVisibleRuns(p)
 	tokens := make([]paragraphRenderToken, 0, len(runs))
 	for _, run := range runs {
-		if (run.Format.Vanish != nil && *run.Format.Vanish) || (run.Format.SpecVanish != nil && *run.Format.SpecVanish) {
+		if run.Format.Hidden() {
+			continue
+		}
+		if runIsNonRenderingOLEPlaceholder(run) {
 			continue
 		}
 		switch run.Kind {
@@ -3335,7 +3615,11 @@ func paragraphRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragr
 			tokens = append(tokens, paragraphRenderToken{run: run, widthPt: wpt, fontSizePt: defaultSizePt})
 			continue
 		case "footnoteRef", "endnoteRef", "commentRef":
-			tokens = append(tokens, paragraphRenderToken{run: run, widthPt: defaultSizePt * 0.8, fontSizePt: defaultSizePt})
+			// A note mark is a character of the paragraph, so it must not
+			// inflate the line height with the document default when the
+			// paragraph (a 10pt note body, for example) is smaller.
+			markSizePt := runTokenFontSizePt(run, defaultSizePt)
+			tokens = append(tokens, paragraphRenderToken{run: run, widthPt: markSizePt * 0.8, fontSizePt: markSizePt})
 			continue
 		case "textbox":
 			if run.TextBox == nil || run.TextBox.Floating {
@@ -3368,7 +3652,18 @@ func paragraphRenderTokens(p *resolve.Paragraph, defaultSizePt float64) []paragr
 			tokens = append(tokens, paragraphRenderToken{run: tokenRun, widthPt: wpt, fontSizePt: fontSizePt})
 		}
 	}
+
 	return tokens
+}
+
+// runTokenFontSizePt is the point size a synthetic layout token contributes to
+// its line. Runs that carry their own size (a note mark inherits the note
+// style's size) use it; runs that do not fall back to the document default.
+func runTokenFontSizePt(run resolve.Run, defaultSizePt float64) float64 {
+	if run.Format.FontSize != nil && *run.Format.FontSize > 0 {
+		return float64(*run.Format.FontSize) / 2.0
+	}
+	return defaultSizePt
 }
 
 func paragraphNarrowColumnRunLines(p *resolve.Paragraph) [][]resolve.Run {
@@ -3377,6 +3672,9 @@ func paragraphNarrowColumnRunLines(p *resolve.Paragraph) [][]resolve.Run {
 	}
 	lines := make([][]resolve.Run, 0, len([]rune(p.Text)))
 	for _, run := range p.Runs {
+		if run.Format.Hidden() {
+			continue
+		}
 		switch run.Kind {
 		case "image", "footnoteRef", "endnoteRef", "commentRef":
 			lines = append(lines, []resolve.Run{run})
@@ -3444,7 +3742,7 @@ func paragraphNarrowColumnLineMetrics(p *resolve.Paragraph, defaultSizePt float6
 		switch run.Kind {
 		case "image":
 			if run.Image != nil && !run.Image.Floating {
-				metrics = append(metrics, paragraphLineMetric{maxFontSizePt: defaultSizePt, maxInlineHeightPt: emuToPoints(run.Image.Height)})
+				metrics = append(metrics, paragraphLineMetric{maxFontSizePt: defaultSizePt, maxInlineHeightPt: inlineImageBoxHeightPt(run.Image)})
 			}
 			continue
 		case "footnoteRef", "endnoteRef", "commentRef":
@@ -3487,13 +3785,13 @@ func paragraphLineHeightForMetric(p *resolve.Paragraph, geom PageGeometry, metri
 	if fontSizePt <= 0 {
 		fontSizePt = 12.0
 	}
-	lineHeight := math.Max(fontSizePt*wordSingleLineRatio, metric.maxInlineHeightPt)
+	lineHeight := math.Max(fontSizePt*paragraphLineHeightRatio(p), metric.maxInlineHeightPt)
 	if p == nil || p.Format.LineSpacing == nil {
 		return snapLineHeightToDocGrid(p, geom, lineHeight)
 	}
 	switch p.Format.LineRule {
 	case "auto", "":
-		lineHeight = math.Max(autoParagraphLineHeightPt(p, fontSizePt), metric.maxInlineHeightPt)
+		lineHeight = autoParagraphLineHeightWithInlinePt(p, fontSizePt, metric.maxInlineHeightPt)
 	case "exact":
 		lineHeight = twipsToPoints(*p.Format.LineSpacing)
 	case "atLeast":
@@ -3628,6 +3926,48 @@ func wrapFloatsForFlowRegion(page Page) []FloatBox {
 		return nil
 	}
 	return page.Floats
+}
+
+// appendPendingIndependentFloats adds position-independent floats whose anchors
+// have not been emitted yet to the active wrap set. Word places such a float on
+// the page that contains its anchor paragraph, so an anchor separated from the
+// block being measured by a forced page break belongs to a later page and must
+// not wrap this page's text. Without that guard a float anchored several pages
+// ahead narrows every preceding page it is measured against.
+func appendPendingIndependentFloats(active []FloatBox, pending []pendingIndependentFloat, blockList []resolve.Block, index int) []FloatBox {
+	var combined []FloatBox
+	for _, candidate := range pending {
+		if forcedPageBreakBetween(blockList, index, candidate.order) {
+			// Later anchors share the break, so every remaining candidate is on a
+			// later page too.
+			break
+		}
+		if combined == nil {
+			combined = make([]FloatBox, len(active), len(active)+len(pending))
+			copy(combined, active)
+		}
+		combined = append(combined, candidate.fl)
+	}
+	if combined == nil {
+		return active
+	}
+	return combined
+}
+
+// forcedPageBreakBetween reports whether a block after start and no later than
+// end forces a page break, which means end cannot be emitted on the page that
+// contains start.
+func forcedPageBreakBetween(blockList []resolve.Block, start, end int) bool {
+	if start < 0 {
+		start = 0
+	}
+	for i := start + 1; i <= end && i < len(blockList); i++ {
+		block := &blockList[i]
+		if blockForcesPageBreakBefore(block) || blockForcesPageBreakAfter(block) {
+			return true
+		}
+	}
+	return false
 }
 
 func activeWrapFloatsForRange(geom PageGeometry, column int, top, bottom float64, floats []FloatBox) []FloatBox {

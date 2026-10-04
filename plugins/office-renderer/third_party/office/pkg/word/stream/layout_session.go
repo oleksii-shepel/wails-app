@@ -29,6 +29,17 @@ type tableFrame struct {
 	table wordir.Table
 	row   *wordir.TableRow
 	cell  *wordir.TableCell
+	// Raw property XML captured by the SAX walker. Conditional table-style
+	// formatting depends on a cell's row/column position, so the properties are
+	// resolved when the table closes rather than as each cell arrives.
+	rawTable string
+	rawGrid  string
+	rawRows  []string
+	rawCells [][]string
+	// pendingRow and pendingCell hold the property block for the row or cell
+	// that is currently open, before it moves into the slices above.
+	pendingRow  string
+	pendingCell string
 }
 
 // LayoutSession consumes normalized Word events and incrementally builds the
@@ -42,6 +53,7 @@ type LayoutSession struct {
 	paragraphRunBase wordir.RunFormat
 	metadata         *wordresolve.RenderMetadata
 	tables           []*tableFrame
+	end              int
 	closed           bool
 	lastBlocks       int
 	emitted          int
@@ -50,7 +62,7 @@ type LayoutSession struct {
 // NewLayoutSession creates a 1-based inclusive page-window session. end <= 0
 // means unbounded, matching layout.PaginateRange.
 func NewLayoutSession(start, end int) *LayoutSession {
-	return &LayoutSession{window: wordlayout.NewPageWindowSink(start, end)}
+	return &LayoutSession{window: wordlayout.NewPageWindowSink(start, end), end: end}
 }
 
 // SetRenderMetadata seeds the body-independent document metadata used by layout
@@ -114,6 +126,10 @@ func (s *LayoutSession) HandleEvent(event Event) error {
 			}
 		}
 		p := &wordir.Paragraph{StyleID: event.StyleID}
+		if event.ParagraphFrame != nil {
+			frame := *event.ParagraphFrame
+			p.Frame = &frame
+		}
 		direct := wordir.ParagraphFormat{}
 		if event.ParagraphFormat != nil {
 			direct = *event.ParagraphFormat
@@ -123,6 +139,16 @@ func (s *LayoutSession) HandleEvent(event Event) error {
 		} else {
 			p.Format = direct
 			s.paragraphRunBase = wordir.RunFormat{}
+		}
+		markDirect := wordir.RunFormat{}
+		if event.RunFormat != nil {
+			markDirect = *event.RunFormat
+		}
+		if s.metadata != nil {
+			mark := s.metadata.ResolveRunFormat(s.paragraphRunBase, event.RunStyleID, markDirect)
+			p.DefaultRunFormat = &mark
+		} else if event.RunFormat != nil {
+			p.DefaultRunFormat = &markDirect
 		}
 		s.paragraph = p
 		return nil
@@ -172,6 +198,8 @@ func (s *LayoutSession) HandleEvent(event Event) error {
 		return nil
 	case EventEndParagraph:
 		return s.finishParagraph()
+	case EventTableProperty:
+		return s.recordTableProperty(event)
 	case EventStartTable:
 		if s.paragraph != nil {
 			if err := s.finishParagraph(); err != nil {
@@ -245,11 +273,107 @@ func (s *LayoutSession) HandleEvent(event Event) error {
 	}
 }
 
+// tableStyles builds the style resolver for the document being streamed.
+func (s *LayoutSession) tableStyles() streamTableStyles {
+	return newStreamTableStyles(&s.doc, s.metadata)
+}
+
+// resolveStoryFormatting applies effective style resolution to a story parsed
+// outside the body stream (footnotes, endnotes, comments, headers). Note styles
+// carry their own line spacing and fonts, so a story that keeps only direct
+// formatting inherits the document default instead: Word's EndnoteText, for
+// example, is single-spaced while the body is not, which changes note line
+// heights and therefore page fill.
+func (s *LayoutSession) resolveStoryFormatting(story wordir.Story) wordir.Story {
+	if s.metadata == nil {
+		return story
+	}
+	var resolveBlocks func(blocks []wordir.Block)
+	resolve := func(p *wordir.Paragraph) {
+		if p == nil {
+			return
+		}
+		format, runBase := s.metadata.ResolveParagraphFormat(p.StyleID, p.Format)
+		p.Format = format
+		for i := range p.Runs {
+			run := &p.Runs[i]
+			run.Format = s.metadata.ResolveRunFormat(runBase, run.StyleID, run.Format)
+			if run.TextBox != nil {
+				resolveBlocks(run.TextBox.Blocks)
+			}
+			if run.Shape != nil && run.Shape.TextBox != nil {
+				resolveBlocks(run.Shape.TextBox.Blocks)
+			}
+		}
+	}
+	resolveBlocks = func(blocks []wordir.Block) {
+		for i := range blocks {
+			block := &blocks[i]
+			if block.Paragraph != nil {
+				resolve(block.Paragraph)
+			}
+			if block.Table != nil {
+				for r := range block.Table.Rows {
+					for c := range block.Table.Rows[r].Cells {
+						cell := &block.Table.Rows[r].Cells[c]
+						for pi := range cell.Paragraphs {
+							resolve(&cell.Paragraphs[pi])
+						}
+						resolveBlocks(cell.Blocks)
+					}
+				}
+			}
+		}
+	}
+	for i := range story.Paragraphs {
+		resolve(&story.Paragraphs[i])
+	}
+	resolveBlocks(story.Blocks)
+	for i := range story.Tables {
+		for r := range story.Tables[i].Rows {
+			for c := range story.Tables[i].Rows[r].Cells {
+				cell := &story.Tables[i].Rows[r].Cells[c]
+				for pi := range cell.Paragraphs {
+					resolve(&cell.Paragraphs[pi])
+				}
+				resolveBlocks(cell.Blocks)
+			}
+		}
+	}
+	return story
+}
+
+// recordTableProperty stores the raw w:tblPr / w:tblGrid / w:trPr / w:tcPr block
+// the SAX walker captured for the innermost open table element.
+func (s *LayoutSession) recordTableProperty(event Event) error {
+	frame, err := s.currentTable()
+	if err != nil {
+		return err
+	}
+	raw := event.RawXML
+	if raw == "" {
+		return nil
+	}
+	switch event.TablePropertyScope {
+	case "table":
+		frame.rawTable = raw
+	case "grid":
+		frame.rawGrid = raw
+	case "row":
+		frame.pendingRow = raw
+	case "cell":
+		frame.pendingCell = raw
+	}
+	return nil
+}
+
 func (s *LayoutSession) ensureParagraph() {
 	if s.paragraph == nil {
 		s.paragraph = &wordir.Paragraph{}
 		if s.metadata != nil {
 			s.paragraph.Format, s.paragraphRunBase = s.metadata.ResolveParagraphFormat("", wordir.ParagraphFormat{})
+			mark := s.metadata.ResolveRunFormat(s.paragraphRunBase, "", wordir.RunFormat{})
+			s.paragraph.DefaultRunFormat = &mark
 		}
 	}
 }
@@ -261,6 +385,11 @@ func (s *LayoutSession) finishParagraph() error {
 	p := s.paragraph
 	s.paragraph = nil
 	s.paragraphRunBase = wordir.RunFormat{}
+	// The semantic IR treats Paragraph.Index as the document-global paragraph
+	// ordinal; the renderer keys per-paragraph state (list counters, note
+	// numbers) on it. Assign it here so streamed documents match the event
+	// materializer instead of leaving every paragraph at the zero value.
+	p.Index = len(s.doc.Paragraphs)
 	s.doc.Paragraphs = append(s.doc.Paragraphs, *p)
 	block := wordir.Block{Kind: "paragraph", Paragraph: p}
 	if frame := s.topTable(); frame != nil {
@@ -305,6 +434,12 @@ func (s *LayoutSession) finishTableCell() error {
 		return fmt.Errorf("word stream: table cell ended without open cell")
 	}
 	frame.row.Cells = append(frame.row.Cells, *frame.cell)
+	rowIndex := len(frame.table.Rows)
+	for len(frame.rawCells) <= rowIndex {
+		frame.rawCells = append(frame.rawCells, nil)
+	}
+	frame.rawCells[rowIndex] = append(frame.rawCells[rowIndex], frame.pendingCell)
+	frame.pendingCell = ""
 	frame.cell = nil
 	return nil
 }
@@ -323,6 +458,8 @@ func (s *LayoutSession) finishTableRow() error {
 		return fmt.Errorf("word stream: table row ended without open row")
 	}
 	frame.table.Rows = append(frame.table.Rows, *frame.row)
+	frame.rawRows = append(frame.rawRows, frame.pendingRow)
+	frame.pendingRow = ""
 	frame.row = nil
 	return nil
 }
@@ -348,6 +485,7 @@ func (s *LayoutSession) finishTable() error {
 		}
 	}
 	table := frame.table
+	s.tableStyles().apply(&table, frame.rawTable, frame.rawGrid, frame.rawRows, frame.rawCells)
 	s.tables = s.tables[:len(s.tables)-1]
 	block := wordir.Block{Kind: "table", Table: &table}
 	if parent := s.topTable(); parent != nil {
@@ -365,6 +503,12 @@ func (s *LayoutSession) finishTable() error {
 
 func (s *LayoutSession) flush(final bool) error {
 	if s.window == nil || len(s.doc.Blocks) == 0 {
+		return nil
+	}
+	// An unbounded request needs no provisional pages: emit the definitive
+	// pagination once the SAX walk reaches EOF. Re-paginating after each hard
+	// break is quadratic for large documents with recorded Word page markers.
+	if !final && s.end <= 0 {
 		return nil
 	}
 	if !final && len(s.doc.Blocks)-s.lastBlocks < streamPaginationBlockChunk && !lastBlockForcesPageBreak(s.doc.Blocks) {

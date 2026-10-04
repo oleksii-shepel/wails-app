@@ -56,6 +56,32 @@ func TestDOCXSourceLoadsAndInheritsSectionHeadersFooters(t *testing.T) {
 	}
 }
 
+func TestDOCXSourcePreservesHeaderLineSpacing(t *testing.T) {
+	data := makeDOCXHeaderFooterFixture(t)
+	session := NewLayoutSession(1, 0)
+	source := NewDOCXSource(bytes.NewReader(data), int64(len(data)), DOCXOptions{})
+	if err := source.Walk(session); err != nil {
+		t.Fatal(err)
+	}
+
+	header, ok := session.Document().Headers["word/header1.xml"]
+	if !ok || len(header.Blocks) != 1 || header.Blocks[0].Paragraph == nil {
+		t.Fatalf("header blocks = %#v", header)
+	}
+	format := header.Blocks[0].Paragraph.Format
+	if format.LineSpacing == nil || *format.LineSpacing != 480 || format.LineRule != "auto" {
+		t.Fatalf("header line spacing = %#v, want 480/auto", format)
+	}
+	styledHeader, ok := session.Document().Headers["word/header2.xml"]
+	if !ok || len(styledHeader.Blocks) != 1 || styledHeader.Blocks[0].Paragraph == nil {
+		t.Fatalf("styled header blocks = %#v", styledHeader)
+	}
+	styledFormat := styledHeader.Blocks[0].Paragraph.Format
+	if styledFormat.LineSpacing == nil || *styledFormat.LineSpacing != 360 || styledFormat.LineRule != "exact" {
+		t.Fatalf("styled header line spacing = %#v, want 360/exact", styledFormat)
+	}
+}
+
 func refsByType(refs []wordir.Reference) map[string]string {
 	out := make(map[string]string, len(refs))
 	for _, ref := range refs {
@@ -79,6 +105,7 @@ func makeDOCXHeaderFooterFixture(t *testing.T) []byte {
   <Override PartName="/word/header3.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
   <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
   <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
+	  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 </Types>`,
 		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -91,6 +118,7 @@ func makeDOCXHeaderFooterFixture(t *testing.T) []byte {
   <Relationship Id="rIdH3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header3.xml"/>
   <Relationship Id="rIdF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>
   <Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
+	  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`,
 		"word/document.xml": `<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -109,10 +137,11 @@ func makeDOCXHeaderFooterFixture(t *testing.T) []byte {
   </w:body>
 </w:document>`,
 		"word/settings.xml": `<?xml version="1.0" encoding="UTF-8"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:evenAndOddHeaders/></w:settings>`,
-		"word/header1.xml": storyXML("hdr", "default header"),
-		"word/header2.xml": storyXML("hdr", "even header"),
-		"word/header3.xml": storyXML("hdr", "first header"),
-		"word/footer1.xml": storyXML("ftr", "default footer"),
+		"word/styles.xml":   `<?xml version="1.0" encoding="UTF-8"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="HeaderLine"><w:name w:val="Header line"/><w:pPr><w:spacing w:line="360" w:lineRule="exact"/></w:pPr></w:style></w:styles>`,
+		"word/header1.xml":  `<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:spacing w:line="480" w:lineRule="auto"/></w:pPr><w:r><w:t>default header</w:t></w:r></w:p></w:hdr>`,
+		"word/header2.xml":  `<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:pStyle w:val="HeaderLine"/></w:pPr><w:r><w:t>even header</w:t></w:r></w:p></w:hdr>`,
+		"word/header3.xml":  storyXML("hdr", "first header"),
+		"word/footer1.xml":  storyXML("ftr", "default footer"),
 	}
 	for name, content := range files {
 		w, err := zw.Create(name)

@@ -26,6 +26,12 @@ func TestXlsxCorpusLoad(t *testing.T) {
 		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".xlsx") {
 			continue
 		}
+		// Excel drops an owner lock file next to an open workbook. It is not a
+		// ZIP package (and may be locked by the running Office process), so a
+		// fixture left open must not fail the corpus run.
+		if strings.HasPrefix(entry.Name(), "~$") {
+			continue
+		}
 		count++
 		path := filepath.Join(fixturesDir, entry.Name())
 		t.Run(entry.Name(), func(t *testing.T) {

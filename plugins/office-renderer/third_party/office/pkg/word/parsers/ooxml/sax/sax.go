@@ -6,7 +6,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,7 +17,12 @@ import (
 	wordparts "office/pkg/word/parsers/ooxml/parts"
 )
 
-const relationshipTypeOfficeDocument = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+const (
+	relationshipTypeOfficeDocument       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+	relationshipTypeOfficeDocumentStrict = "http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument"
+)
+
+var drawingPercentAttribute = regexp.MustCompile(`([A-Za-z][A-Za-z0-9]*)="([-+]?[0-9]+([.][0-9]+)?)%"`)
 const (
 	relationshipTypeHeader    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
 	relationshipTypeFooter    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
@@ -65,6 +72,10 @@ const (
 	EventEndTableRow EventType = "endTableRow"
 	// EventStartTableCell marks the start of a table cell.
 	EventStartTableCell EventType = "startTableCell"
+	// EventTableProperty carries raw property XML for the innermost open table,
+	// row, or cell. Word writes these blocks after the element that owns them
+	// opens, so they follow the matching start event.
+	EventTableProperty EventType = "tableProperty"
 	// EventEndTableCell marks the end of a table cell.
 	EventEndTableCell EventType = "endTableCell"
 	// EventStartContentControl marks the start of a structured document tag.
@@ -188,7 +199,10 @@ type Event struct {
 	RelatedTargets         []string
 	RelatedParts           []RelatedPart
 	RawXML                 string
-	Display                bool
+	// TablePropertyScope is "table", "row", or "cell" on EventTableProperty,
+	// identifying which open element owns RawXML.
+	TablePropertyScope string
+	Display            bool
 	ProgID                 string
 	MathText               string
 	MathModel              *MathNode
@@ -203,6 +217,13 @@ type Event struct {
 	DrawingHidden          bool
 	WidthEMU               int64
 	HeightEMU              int64
+	// EffectExtentL/T/R/B mirror wp:effectExtent (EMU). Word grows a drawing's
+	// inline bounding box by these amounts and insets the painted shape by the
+	// left/top values, so they move the shape and the text that follows it.
+	EffectExtentL          int64
+	EffectExtentT          int64
+	EffectExtentR          int64
+	EffectExtentB          int64
 	GraphicDataURI         string
 	DrawingGraphicKind     string
 	DrawingHasTextBox      bool
@@ -364,6 +385,10 @@ type drawingToken struct {
 	hidden          bool
 	widthEMU        int64
 	heightEMU       int64
+	effectExtentL   int64
+	effectExtentT   int64
+	effectExtentR   int64
+	effectExtentB   int64
 	graphicDataURI  string
 	graphicKind     string
 	hasTextBox      bool
@@ -512,7 +537,7 @@ func findMainDocumentPartInZip(files map[string]*zip.File) (string, error) {
 		return "", err
 	}
 	for _, relationship := range doc.Relationships {
-		if relationship.Type == relationshipTypeOfficeDocument && !relationship.IsExternal() {
+		if isOfficeDocumentRelationship(relationship.Type) && !relationship.IsExternal() {
 			return rels.ResolveTarget("", relationship.Target), nil
 		}
 	}
@@ -528,11 +553,15 @@ func findMainDocumentPartInPackage(pkg *opc.Package) (string, error) {
 		return "", fmt.Errorf("word sax: root relationships not found")
 	}
 	for _, relationship := range rootRels.Relationships {
-		if relationship.Type == relationshipTypeOfficeDocument && !relationship.IsExternal() {
+		if isOfficeDocumentRelationship(relationship.Type) && !relationship.IsExternal() {
 			return rels.ResolveTarget("", relationship.Target), nil
 		}
 	}
 	return "", fmt.Errorf("word sax: officeDocument relationship not found")
+}
+
+func isOfficeDocumentRelationship(relationshipType string) bool {
+	return relationshipType == relationshipTypeOfficeDocument || relationshipType == relationshipTypeOfficeDocumentStrict
 }
 
 func loadZipRelationshipRefs(files map[string]*zip.File, sourcePart string) map[string]relationshipRef {
@@ -1697,6 +1726,10 @@ func (w *walker) walkRun(dec *xml.Decoder, start xml.StartElement) error {
 					DrawingHidden:          drawing.hidden,
 					WidthEMU:               drawing.widthEMU,
 					HeightEMU:              drawing.heightEMU,
+					EffectExtentL:          drawing.effectExtentL,
+					EffectExtentT:          drawing.effectExtentT,
+					EffectExtentR:          drawing.effectExtentR,
+					EffectExtentB:          drawing.effectExtentB,
 					GraphicDataURI:         drawing.graphicDataURI,
 					DrawingGraphicKind:     drawing.graphicKind,
 					DrawingHasTextBox:      drawing.hasTextBox,
@@ -1833,6 +1866,10 @@ func (w *walker) emitAlternateContentDrawing(rawXML, branch string) (bool, error
 					DrawingHidden:          drawing.hidden,
 					WidthEMU:               drawing.widthEMU,
 					HeightEMU:              drawing.heightEMU,
+					EffectExtentL:          drawing.effectExtentL,
+					EffectExtentT:          drawing.effectExtentT,
+					EffectExtentR:          drawing.effectExtentR,
+					EffectExtentB:          drawing.effectExtentB,
 					GraphicDataURI:         drawing.graphicDataURI,
 					DrawingGraphicKind:     drawing.graphicKind,
 					DrawingHasTextBox:      drawing.hasTextBox || strings.Contains(drawingXML, "txbxContent"),
@@ -1892,6 +1929,18 @@ func (w *walker) walkTable(dec *xml.Decoder, start xml.StartElement) error {
 				}
 				continue
 			}
+			if t.Name.Local == "tblPr" {
+				if err := w.emitTableProperties(dec, t, "table"); err != nil {
+					return err
+				}
+				continue
+			}
+			if t.Name.Local == "tblGrid" {
+				if err := w.emitTableProperties(dec, t, "grid"); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := dec.Skip(); err != nil {
 				return err
 			}
@@ -1901,6 +1950,18 @@ func (w *walker) walkTable(dec *xml.Decoder, start xml.StartElement) error {
 			}
 		}
 	}
+}
+
+// emitTableProperties captures a w:tblPr / w:trPr / w:tcPr block so consumers
+// can resolve table styles and direct cell formatting without re-reading the
+// part. The raw XML keeps the schema in one place: the shape stays owned by the
+// OOXML bindings rather than being re-declared as SAX fields.
+func (w *walker) emitTableProperties(dec *xml.Decoder, start xml.StartElement, scope string) error {
+	raw, err := decodeRawElement(dec, start)
+	if err != nil {
+		return err
+	}
+	return w.emit(Event{Type: EventTableProperty, TablePropertyScope: scope, RawXML: raw})
 }
 
 func (w *walker) walkTableRow(dec *xml.Decoder, start xml.StartElement) error {
@@ -1916,6 +1977,12 @@ func (w *walker) walkTableRow(dec *xml.Decoder, start xml.StartElement) error {
 		case xml.StartElement:
 			if t.Name.Local == "tc" {
 				if err := w.walkTableCell(dec, t); err != nil {
+					return err
+				}
+				continue
+			}
+			if t.Name.Local == "trPr" {
+				if err := w.emitTableProperties(dec, t, "row"); err != nil {
 					return err
 				}
 				continue
@@ -1949,6 +2016,10 @@ func (w *walker) walkTableCell(dec *xml.Decoder, start xml.StartElement) error {
 				}
 			case "tbl":
 				if err := w.walkTable(dec, t); err != nil {
+					return err
+				}
+			case "tcPr":
+				if err := w.emitTableProperties(dec, t, "cell"); err != nil {
 					return err
 				}
 			case "sdt":
@@ -2553,7 +2624,7 @@ func decodeDrawingToken(dec *xml.Decoder, start xml.StartElement, refs map[strin
 
 func summarizeDrawingToken(rawXML string, refs map[string]relationshipRef) (drawingToken, error) {
 	var drawing wordparts.Drawing
-	if err := xml.Unmarshal([]byte(rawXML), &drawing); err != nil {
+	if err := xml.Unmarshal([]byte(normalizeStrictDrawingNamespaces(rawXML)), &drawing); err != nil {
 		return drawingToken{}, err
 	}
 	out := drawingToken{model: &drawing}
@@ -2565,6 +2636,10 @@ func summarizeDrawingToken(rawXML string, refs map[string]relationshipRef) (draw
 		if drawing.Inline.Extent != nil {
 			out.widthEMU = drawing.Inline.Extent.CX
 			out.heightEMU = drawing.Inline.Extent.CY
+		}
+		if e := drawing.Inline.EffectExtent; e != nil {
+			out.effectExtentL, out.effectExtentT = e.L, e.T
+			out.effectExtentR, out.effectExtentB = e.R, e.B
 		}
 		docPr = firstDrawingDocPr(drawing.Inline.DocPr, drawing.Inline.CNvPr)
 		if drawing.Inline.Graphic != nil {
@@ -2596,6 +2671,24 @@ func summarizeDrawingToken(rawXML string, refs map[string]relationshipRef) (draw
 	}
 	out.targets = resolveRelationshipTargets(refs, out.relationshipIDs)
 	return out, nil
+}
+
+// normalizeStrictDrawingNamespaces maps Strict OOXML DrawingML namespaces to
+// the Transitional names used by the typed drawing model. The original XML is
+// kept on the event for preservation and downstream consumers.
+func normalizeStrictDrawingNamespaces(rawXML string) string {
+	replacer := strings.NewReplacer(
+		"http://purl.oclc.org/ooxml/drawingml/", "http://schemas.openxmlformats.org/drawingml/2006/",
+		"http://purl.oclc.org/ooxml/officeDocument/relationships", "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+	)
+	return drawingPercentAttribute.ReplaceAllStringFunc(replacer.Replace(rawXML), func(value string) string {
+		match := drawingPercentAttribute.FindStringSubmatch(value)
+		percent, err := strconv.ParseFloat(match[2], 64)
+		if err != nil {
+			return value
+		}
+		return match[1] + `="` + strconv.Itoa(int(math.Round(percent*1000))) + `"`
+	})
 }
 
 func decodeObjectToken(dec *xml.Decoder, start xml.StartElement, refs map[string]relationshipRef) (rawXML string, object objectToken, err error) {

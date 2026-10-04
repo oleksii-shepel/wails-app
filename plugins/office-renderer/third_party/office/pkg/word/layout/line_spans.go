@@ -65,6 +65,7 @@ func planParagraphLineBands(firstLeft, firstRight, continuationLeft, continuatio
 	}
 	bands := make([]lineBand, 0, len(lineHeights))
 	y := startY
+	firstLineIndent := math.Max(0, firstLeft-continuationLeft)
 	for i, h := range lineHeights {
 		if h <= 0 {
 			h = fallbackHeight
@@ -76,7 +77,15 @@ func planParagraphLineBands(firstLeft, firstRight, continuationLeft, continuatio
 		if i == 0 {
 			left, right = firstLeft, firstRight
 		}
-		bands = append(bands, resolveLineBand(left, right, y, y+h, exclusions))
+		band := resolveLineBand(left, right, y, y+h, exclusions)
+		if i == 0 && firstLineIndent > 0 && len(band.Spans) > 0 && band.Spans[0].Left > firstLeft {
+			// Word applies the first-line indent on top of a wrap-constrained
+			// left edge rather than discarding it: a 21.6pt indented line
+			// beside a square wrap starts at wrapLeft + 21.6pt, not at
+			// wrapLeft.
+			band.Spans[0].Left = math.Min(band.Spans[0].Left+firstLineIndent, band.Spans[0].Right)
+		}
+		bands = append(bands, band)
 		y += h
 	}
 	return paragraphLinePlan{Bands: bands}

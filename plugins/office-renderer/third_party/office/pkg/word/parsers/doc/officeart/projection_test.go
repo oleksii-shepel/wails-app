@@ -204,10 +204,14 @@ func TestApplyImageVisualCarriesTransformCropAndAdjustments(t *testing.T) {
 }
 
 func TestWordLegacyRotationUsesScreenDirection(t *testing.T) {
-	if got := wordLegacyRotationDeg(45); got != -45 {
-		t.Fatalf("rotation = %v, want -45", got)
-	}
-	if got := wordLegacyRotationDeg(315); got != 45 {
+	// The OfficeArt IR already carries the screen/CSS angle; the projection only
+	// normalizes it into [-180,180]. The Word 2021 PDF of
+	// legacy-officeart-rotation.doc draws the shape whose IR rotation is 333deg
+	// with its width axis at -27deg, which is the same angle in CSS terms.
+	if got := wordLegacyRotationDeg(45); got != 45 {
 		t.Fatalf("rotation = %v, want 45", got)
+	}
+	if got := wordLegacyRotationDeg(333); got != -27 {
+		t.Fatalf("rotation = %v, want -27", got)
 	}
 }

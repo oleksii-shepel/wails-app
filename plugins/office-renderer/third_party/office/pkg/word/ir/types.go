@@ -922,6 +922,9 @@ type Numbering struct {
 	FromStyle       bool // true when numPr was inherited from a paragraph style, not the paragraph itself
 	// RunFormat carries the w:lvl/w:rPr formatting for this level's list marker.
 	RunFormat *RunFormat
+	// PictureBullet is the VML image referenced by w:lvlPicBulletId, when the
+	// numbering level uses an image instead of a glyph marker.
+	PictureBullet *Image
 	// LegacyOverride preserves per-list-instance LFOLVL provenance from binary
 	// .doc files. Nil means the numbering reference has no explicit instance
 	// override at this level.
@@ -964,6 +967,8 @@ type ListMarker struct {
 	Start    int
 	Format   string
 	Template string
+	// Picture is the image used as this marker instead of Template text.
+	Picture *Image
 }
 
 // RevisionMark carries tracked property-change attribution for non-run
@@ -1268,6 +1273,7 @@ type Image struct {
 	Brightness       float64        // CSS brightness multiplier; 1 = unchanged, 0 = unset
 	Contrast         float64        // CSS contrast multiplier; 1 = unchanged, 0 = unset
 	Alpha            float64        // 0..1 (1 = fully opaque), from a:alphaMod@val
+	HasAlpha         bool           // true when a:alphaMod is present; permits an explicit fully transparent value
 	Grayscale        bool           // from a:grayscale
 	BiLevel          bool           // from a:biLevel
 	BiLevelThreshold int            // thousandths of a percent; from a:biLevel@thresh
@@ -1402,7 +1408,12 @@ type ParagraphFormat struct {
 	SpacingBeforeAuto  bool              // w:beforeAutospacing — treat spacing-before as 0 regardless of w:before
 	SpacingAfterAuto   bool              // w:afterAutospacing — treat spacing-after as 0 regardless of w:after
 	Borders            *ParagraphBorders // w:pBdr
-	SnapToGrid         bool
+	// NoteSeparator marks the synthesized footnote/endnote separator. Its rule
+	// is drawn at the paragraph's indents instead of spanning the paragraph
+	// box, and the paragraph itself only occupies the band between the rule and
+	// the first note, so renderers must keep the indents for it.
+	NoteSeparator bool
+	SnapToGrid    bool
 	// Bidi marks the paragraph text direction as right-to-left (w:bidi). ECMA-376 Part 1 §17.3.1.6.
 	Bidi bool
 	// Kinsoku controls whether Japanese/Chinese line-breaking rules (kinsoku shori) are applied.

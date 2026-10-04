@@ -2887,9 +2887,14 @@ func TestDropCapAutoWidthUsesContentWidthWhenFrameWidthUnset(t *testing.T) {
 	if fb.Width >= geom.ColumnWidthPt {
 		t.Fatalf("drop cap width = %.3f, want less than column width %.3f", fb.Width, geom.ColumnWidthPt)
 	}
-	want := 21.6 + (58.5 * 0.62)
-	if !almostEqual(fb.Width, want) {
+	// The frame width is the cap glyph alone; the anchor paragraph's
+	// first-line indent is carried by the frame X, matching Word's placement
+	// of the drop cap at margin + indent.
+	if want := 58.5 * 0.62; !almostEqual(fb.Width, want) {
 		t.Fatalf("drop cap auto width = %.3f, want %.3f", fb.Width, want)
+	}
+	if want := 72.0 + 21.6; !almostEqual(fb.X, want) {
+		t.Fatalf("drop cap x = %.3f, want %.3f (margin + first-line indent)", fb.X, want)
 	}
 }
 

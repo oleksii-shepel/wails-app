@@ -46,9 +46,9 @@ type HTMLOptions struct {
 	ExternalImageDir string
 	FontMode         HTMLFontMode
 	ExternalFontDir  string
-	// FastPreview renders the document's semantic flow without pagination or
-	// physical-line projection. It is intended for interactive previews where
-	// time-to-first-render matters more than page-exact placement.
+	// FastPreview renders semantic flow without page pagination. Floating objects
+	// are kept in that flow so later-page drawings cannot be attached to the
+	// first visible page as absolute overlays.
 	FastPreview bool
 	// ShowFormattingMarks renders normally invisible characters (tab arrows,
 	// paragraph marks, page-break indicators) as visible glyphs.
@@ -238,6 +238,8 @@ type htmlRenderer struct {
 	columnGapsPt             []float64
 	columnSep                bool
 	physicalColumnPage       bool
+	mixedColumnPage          bool
+	emittedPages             int
 	basePageWidthPt          float64
 	basePageHeightPt         float64
 	baseMarginTopPt          float64
@@ -308,6 +310,11 @@ type htmlRenderer struct {
 	lineNumbering     *resolve.LineNumbering // nil when disabled
 	lineNumber        int                    // current line number (1-based)
 	pendingNoteTarget *resolve.Block
+	// noteBodyKind is "footnote" or "endnote" while rendering the body story of
+	// a materialized note. Note-reference runs inside note bodies print as plain
+	// superscript marks in Word; the body's own mark must not emit a second
+	// self-referencing backlink or duplicate the body's ref anchor id.
+	noteBodyKind string
 }
 
 // listFrame tracks a currently open list element.
@@ -393,6 +400,7 @@ func (r *htmlRenderer) render() (string, []HTMLAsset, error) {
 			r.pageIndex = i
 			r.sectionIndex = page.SectionIndex
 			r.physicalColumnPage = r.doc.Source != nil && pageHasPhysicalColumns(page)
+			r.mixedColumnPage = pageHasMixedColumnGeometry(page)
 			r.applyGeometry(page.Geometry)
 			r.columnSep = page.Section.Columns != nil && page.Section.Columns.Sep
 			r.applyLineNumbering(page.Section.LineNumbering)
@@ -519,17 +527,22 @@ func (r *htmlRenderer) writeCSS() {
 body { background: #e8e8e8; font-family: %s; font-size: %.1fpt; color: %s; }
 .document { width: %.1fpt; margin: 0 auto; }
 .page { position: relative; isolation: isolate; background: %s; width: %.1fpt; height: %.1fpt; min-height: %.1fpt; margin: 20pt auto; overflow: hidden; }
+.page-num { font: 11px sans-serif; color: #888; margin: 12pt auto -16pt; user-select: none; }
 .page-body { position: relative; z-index: 1; height: %.1fpt; min-height: %.1fpt; padding: %.1fpt %.1fpt %.1fpt %.1fpt; overflow: hidden; }
 .page-overlay { position: absolute; z-index: 2; inset: 0; overflow: hidden; pointer-events: none; }
 .page-overlay-behind { z-index: 0; }
 .word-wrap-proxy { visibility: hidden; pointer-events: none; }
 .page-header, .page-footer, .page-footnotes { position: absolute; overflow: hidden; pointer-events: auto; user-select: text; }
-.page-footnotes::before { content: ""; display: block; width: 25%%; border-top: 0.75pt solid #000; margin-bottom: 4pt; }
+/* The footnote separator is laid out as a real block: it carries Word's own
+   two-inch rule geometry and reserves the band it occupies. A ::before rule
+   here would double it and push the note body off the layout's geometry. */
 .story-overlay { position: absolute; inset: 0; overflow: hidden; }
 p, h1, h2, h3, h4, h5, h6 { line-height: 1.2; margin: 0; }
-h1 { font-size: 2em; font-weight: bold; }
-h2 { font-size: 1.5em; font-weight: bold; }
-h3 { font-size: 1.17em; font-weight: bold; }
+/* Larger headings use progressively tighter leading. An explicit Word
+   w:spacing/@line setting is emitted inline and deliberately wins. */
+h1 { font-size: 2em; font-weight: bold; line-height: 1.10; }
+h2 { font-size: 1.5em; font-weight: bold; line-height: 1.15; }
+h3 { font-size: 1.17em; font-weight: bold; line-height: 1.20; }
 h4 { font-size: 1em; font-weight: bold; }
 h5 { font-size: 0.83em; font-weight: bold; }
 h6 { font-size: 0.67em; font-weight: bold; }
@@ -553,7 +566,7 @@ a { color: inherit; text-decoration: inherit; }
 .note-target { display: inline; }
 .note-backlink { text-decoration: none; margin-right: 0.35em; font-size: 0.85em; }
 .word-comment-range-start, .word-comment-range-end { display: none; }
-@media print { .diagnostics, .note-backlink, .comment-ref, aside.notes .comments { display:none !important; } }
+@media print { .diagnostics, .note-backlink, .comment-ref, aside.notes .comments, .page-num { display:none !important; } }
 .comment-meta { font-size: 0.85em; color: #666; margin-right: 0.4em; }
 .comment-author { font-weight: bold; margin-right: 0.3em; }
 .comment-date { font-style: italic; }
@@ -886,11 +899,9 @@ func (r *htmlRenderer) ensurePage() {
 		r.pendingBreak = false
 	}
 	pageStyle := r.pageStyleAttr()
-	if pageStyle != "" {
-		fmt.Fprintf(&r.buf, "<section class=\"page\"%s>\n", pageStyle)
-	} else {
-		r.buf.WriteString("<section class=\"page\">\n")
-	}
+	r.emittedPages++
+	fmt.Fprintf(&r.buf, "<div class=\"page-num\">Page %d</div>\n", r.emittedPages)
+	fmt.Fprintf(&r.buf, "<section class=\"page\" id=\"page-%d\" data-page=\"%d\"%s>\n", r.emittedPages, r.emittedPages, pageStyle)
 	bodyStyle := r.documentBodyStyleAttr()
 	borderStyle := r.pageBorderStyleAttr()
 	if borderStyle != "" {
@@ -961,7 +972,7 @@ func (r *htmlRenderer) documentBodyStyleAttr() string {
 			return ""
 		}
 		var styles []string
-		if r.columnCount > 1 && !r.hasExplicitPhysicalColumns() {
+		if r.columnCount > 1 && !r.hasExplicitPhysicalColumns() && !r.mixedColumnPage {
 			styles = append(styles,
 				fmt.Sprintf("column-count:%d", r.columnCount),
 				fmt.Sprintf("column-gap:%.1fpt", r.columnGapPt),
@@ -979,7 +990,7 @@ func (r *htmlRenderer) documentBodyStyleAttr() string {
 		fmt.Sprintf("min-height:%.1fpt", r.pageHeightPt),
 		fmt.Sprintf("padding:%.1fpt %.1fpt %.1fpt %.1fpt", r.marginTopPt, r.marginRightPt, r.marginBottomPt, r.marginLeftPt),
 	}
-	if r.columnCount > 1 && !r.hasExplicitPhysicalColumns() {
+	if r.columnCount > 1 && !r.hasExplicitPhysicalColumns() && !r.mixedColumnPage {
 		styles = append(styles,
 			fmt.Sprintf("column-count:%d", r.columnCount),
 			fmt.Sprintf("column-gap:%.1fpt", r.columnGapPt),
@@ -1427,10 +1438,10 @@ func (r *htmlRenderer) initParagraphNumbers() {
 					} else {
 						// Numbering.Text may be an eagerly resolved marker copied from the
 						// source (for example "3."). Reusing that literal for every
-						// paragraph freezes an ordered list at one number. Ordered markers
-						// are sequence state, so reconstruct the current-level template
-						// whenever no semantic placeholder template is available.
-						template = "%" + strconv.Itoa(level+1)
+						// paragraph freezes an ordered list at one number, but discarding
+						// it loses the marker's punctuation. Keep the literal's shape and
+						// run only the current level's counter through it.
+						template = resolvedMarkerTemplate(p.Numbering.Text, level+1)
 						fullNum = substituteNumberTemplate(template, numID, counters, formats)
 					}
 					// Some older DOC producers store only the punctuation suffix in the
@@ -1808,7 +1819,10 @@ func (r *htmlRenderer) collectBookmarkPagesFromBlocks(blocks []resolve.Block, pa
 }
 
 func (r *htmlRenderer) initLayoutMaps() {
-	pages := layout.Paginate(r.doc)
+	r.initLayoutMapsForPages(layout.Paginate(r.doc))
+}
+
+func (r *htmlRenderer) initLayoutMapsForPages(pages []layout.Page) {
 	r.pages = pages
 	r.floatByImage = make(map[*resolve.Image]layout.FloatBox)
 	r.floatByTextBox = make(map[*resolve.TextBox]layout.FloatBox)
@@ -1855,8 +1869,8 @@ func (r *htmlRenderer) initLayoutMaps() {
 }
 
 // initFastPreviewLayout supplies a stable browser page without running the
-// expensive Word pagination engine. Float placement falls back to normal HTML
-// flow, which keeps previews responsive for large documents.
+// expensive Word pagination engine. Floating object placement is deliberately
+// resolved in normal document flow by the renderer.
 func (r *htmlRenderer) initFastPreviewLayout() {
 	r.pages = nil
 	r.floatByImage = make(map[*resolve.Image]layout.FloatBox)
@@ -2003,7 +2017,12 @@ func (r *htmlRenderer) renderPageBlocks(page layout.Page) {
 		r.pageTopFloatImages = nil
 		r.renderedTopFloats = nil
 	}()
-	currentWrappedGeom := page.Geometry
+	baseGeom := page.Geometry
+	if r.mixedColumnPage {
+		// The page body is single-column; every column grid gets its own wrapper.
+		baseGeom = singleColumnGeometry(baseGeom)
+	}
+	currentWrappedGeom := baseGeom
 	sectionWrapperOpen := false
 	columnWrapperOpen := false
 	currentWrappedColumn := -1
@@ -2030,6 +2049,9 @@ func (r *htmlRenderer) renderPageBlocks(page layout.Page) {
 			continue
 		}
 		r.pendingNoteTarget = box.Block
+		// Note bodies print their own reference mark as a plain superscript.
+		// Ordinary blocks carry an empty NoteKind and reset the flag.
+		r.noteBodyKind = box.Block.NoteKind
 		// Field container transitions.
 		if box.Block.FieldKind != "" && box.Block.FieldIndex != r.openFieldIndex {
 			if r.openFieldIndex != -1 {
@@ -2045,7 +2067,7 @@ func (r *htmlRenderer) renderPageBlocks(page layout.Page) {
 		if r.physicalColumnPage {
 			gridGeom = physicalColumnGridGeometry(gridGeom)
 		}
-		if pageBodySectionNeedsWrapper(page.Geometry, gridGeom) {
+		if pageBodySectionNeedsWrapper(baseGeom, gridGeom) {
 			if !sectionWrapperOpen || !samePageBodySectionGeometry(currentWrappedGeom, box.Geometry) {
 				closeSectionWrapper()
 				fmt.Fprintf(&r.buf, "<div class=\"page-body-section\"%s>\n", pageBodySectionStyleAttr(gridGeom))
@@ -2060,7 +2082,7 @@ func (r *htmlRenderer) renderPageBlocks(page layout.Page) {
 			}
 		} else {
 			closeSectionWrapper()
-			currentWrappedGeom = page.Geometry
+			currentWrappedGeom = baseGeom
 		}
 		if box.Block.CustomXml != nil {
 			r.closeAllLists()
@@ -2171,7 +2193,31 @@ func physicalColumnGridGeometry(geom layout.PageGeometry) layout.PageGeometry {
 	return geom
 }
 
+// pageHasMixedColumnGeometry reports whether continuous section breaks put
+// blocks with different column grids on one page.
+func pageHasMixedColumnGeometry(page layout.Page) bool {
+	for _, box := range page.Blocks {
+		if box.Block != nil && !samePageBodySectionGeometry(page.Geometry, box.Geometry) {
+			return true
+		}
+	}
+	return false
+}
+
+func singleColumnGeometry(geom layout.PageGeometry) layout.PageGeometry {
+	geom.ColumnCount = 1
+	geom.ColumnWidthPt = 0
+	geom.ColumnWidthsPt = nil
+	geom.ColumnGapsPt = nil
+	geom.ExplicitColumns = false
+	geom.ColumnSep = false
+	return geom
+}
+
 func samePageBodySectionGeometry(left, right layout.PageGeometry) bool {
+	if left.ColumnCount <= 1 && right.ColumnCount <= 1 {
+		return true
+	}
 	return left.ColumnCount == right.ColumnCount &&
 		left.ExplicitColumns == right.ExplicitColumns &&
 		almostSameFloat(left.ColumnGapPt, right.ColumnGapPt) &&
@@ -2315,7 +2361,7 @@ func (r *htmlRenderer) renderPageParagraphBox(boxes []layout.BlockBox, index int
 		// Square/Tight geometry: doing so creates a second line-breaking engine and
 		// allows pagination and rendered line topology to drift apart.
 		if len(box.Fragment.Lines) > 0 {
-			r.renderPhysicalParagraphFragment(box)
+			r.renderPhysicalParagraphFragment(box, boxes, index)
 			return
 		}
 		// Compatibility fallback only for structural fragments that genuinely have
@@ -2868,7 +2914,7 @@ func (r *htmlRenderer) renderParagraphSegmentContent(p *resolve.Paragraph, runs 
 	}
 
 	styleAttr := paragraphStyleAttrForParagraph(p, suppressBefore, suppressAfter, suppressFirstLineIndent)
-	if p.Format.SnapToGrid && r.docGrid != nil {
+	if p.Format.SnapToGrid && docGridIsActive(r.docGrid) {
 		if r.docGrid.LinePitch > 0 {
 			styleAttr = appendInlineStyleAttr(styleAttr, fmt.Sprintf("line-height:%.2fpt", float64(r.docGrid.LinePitch)/20.0))
 		}
@@ -3023,7 +3069,7 @@ func (r *htmlRenderer) renderListItemSegmentContent(p *resolve.Paragraph, runs [
 	if extraStyle != "" {
 		liStyle = appendInlineStyleAttr(liStyle, extraStyle)
 	}
-	if p.Format.SnapToGrid && r.docGrid != nil {
+	if p.Format.SnapToGrid && docGridIsActive(r.docGrid) {
 		if r.docGrid.LinePitch > 0 {
 			liStyle = appendInlineStyleAttr(liStyle, fmt.Sprintf("line-height:%.2fpt", float64(r.docGrid.LinePitch)/20.0))
 		}
@@ -3045,7 +3091,13 @@ func (r *htmlRenderer) renderListItemSegmentContent(p *resolve.Paragraph, runs [
 	// delegating marker geometry to the browser. Marker run styling is isolated
 	// to the marker so symbol-font bullets (Wingdings/Symbol) keep their glyph.
 	marker, bullet := r.resolvedListMarker(p)
-	if marker != "" && !r.physicalInlineListMarker {
+	if p.List != nil && p.List.Picture != nil && !r.physicalInlineListMarker {
+		markerClass := "word-list-marker"
+		if strings.Contains(extraStyle, "position:relative") {
+			markerClass += " word-physical-list-marker"
+		}
+		r.renderPictureBullet(p.List.Picture, markerClass+" word-list-bullet")
+	} else if marker != "" && !r.physicalInlineListMarker {
 		markerStyle := r.listMarkerStyle(p, runs)
 		markerClass := "word-list-marker"
 		// Physical paragraph slots that cannot host an inline marker keep the
@@ -3087,6 +3139,21 @@ func (r *htmlRenderer) renderListItemSegmentContent(p *resolve.Paragraph, runs [
 	r.currentParagraph = savedParagraph
 	// Deliberately keep </li> open. A following deeper list must be a child of
 	// this item; the sibling/ascend/closeAllLists paths close it later.
+}
+
+func (r *htmlRenderer) renderPictureBullet(img *resolve.Image, className string) {
+	if img == nil || !isBrowserImage(img.MIMEType) || len(img.Data) == 0 {
+		return
+	}
+	width := float64(img.Width) / 12700.0
+	height := float64(img.Height) / 12700.0
+	if width <= 0 {
+		width = 9
+	}
+	if height <= 0 {
+		height = 9
+	}
+	fmt.Fprintf(&r.buf, `<img class=%q src=%q alt="" aria-hidden="true" style="display:inline-block;width:%.2fpt;height:%.2fpt;object-fit:contain;vertical-align:middle">`, className, r.imageSource(img), width, height)
 }
 
 func (r *htmlRenderer) bookmarkRenderedOnAdjacentParagraph(p *resolve.Paragraph, bookmark string, dir int) bool {
@@ -4325,6 +4392,11 @@ func (r *htmlRenderer) revisionTagFor(run resolve.Run) (tag string, extra string
 }
 
 func (r *htmlRenderer) renderRun(run resolve.Run) {
+	if run.Format.Hidden() {
+		// Hidden text is not displayed and takes no layout space; layout already
+		// excludes it, so the semantic path must skip it too.
+		return
+	}
 	if run.Image != nil && r.topFloatAlreadyRendered(run.Image) {
 		return
 	}
@@ -4347,6 +4419,10 @@ func (r *htmlRenderer) renderRun(run resolve.Run) {
 	}
 	if run.Kind == "image" && run.Image != nil {
 		if run.Image.Floating {
+			if r.options.FastPreview {
+				r.renderImage(run.Image, run.ContentControl)
+				return
+			}
 			if r.renderParagraphFloatImage(run.Image) {
 				return
 			}
@@ -4364,6 +4440,10 @@ func (r *htmlRenderer) renderRun(run resolve.Run) {
 	if run.Kind == "chart" && run.Image != nil {
 		// Charts are rendered as SVG images
 		if run.Image.Floating {
+			if r.options.FastPreview {
+				r.renderImage(run.Image, nil)
+				return
+			}
 			if r.renderParagraphFloatImage(run.Image) {
 				return
 			}
@@ -4474,11 +4554,21 @@ func (r *htmlRenderer) renderRun(run resolve.Run) {
 	}
 	if run.Kind == "footnoteRef" {
 		id := run.NoteID
+		if r.noteBodyKind != "" {
+			// The note's own mark: plain superscript, no self-referencing link
+			// and no duplicated ref anchor id.
+			fmt.Fprintf(&r.buf, `<sup>%s</sup>`, html.EscapeString(r.noteDisplayNumber("footnote", id)))
+			return
+		}
 		fmt.Fprintf(&r.buf, `<a href="#fn%d" id="fnref%d"><sup>%s</sup></a>`, id, id, html.EscapeString(r.noteDisplayNumber("footnote", id)))
 		return
 	}
 	if run.Kind == "endnoteRef" {
 		id := run.NoteID
+		if r.noteBodyKind != "" {
+			fmt.Fprintf(&r.buf, `<sup>%s</sup>`, html.EscapeString(r.noteDisplayNumber("endnote", id)))
+			return
+		}
 		fmt.Fprintf(&r.buf, `<a href="#en%d" id="enref%d"><sup>%s</sup></a>`, id, id, html.EscapeString(r.noteDisplayNumber("endnote", id)))
 		return
 	}
@@ -6182,12 +6272,40 @@ func trimTerminalEmptyTextBoxBlocks(blocks []resolve.Block) []resolve.Block {
 	end := len(blocks)
 	for end > 0 {
 		b := blocks[end-1]
-		if b.Paragraph == nil || !paragraphIsEmptyOrAnchorOnly(b.Paragraph.Runs) {
+		if b.Paragraph == nil || !paragraphRendersNothing(b.Paragraph) {
 			break
 		}
 		end--
 	}
 	return blocks[:end]
+}
+
+// paragraphRendersNothing reports whether a paragraph contributes no content at
+// all. A paragraph that only anchors a floating drawing is not empty here: the
+// drawing belongs to the current story's own overlay, so trimming the
+// paragraph would drop the object from the output.
+func paragraphRendersNothing(p *resolve.Paragraph) bool {
+	if p == nil {
+		return true
+	}
+	if strings.TrimSpace(p.Text) != "" {
+		return false
+	}
+	for _, run := range p.Runs {
+		if strings.TrimSpace(run.Text) != "" {
+			return false
+		}
+		switch run.Kind {
+		case "image", "drawing", "textbox", "shape", "chart", "olePlaceholder",
+			"horzRule", "break", "tab", "footnoteRef", "endnoteRef", "commentRef",
+			"annotationRef", "math", "ruby", "formField", "symbol":
+			return false
+		}
+		if run.ContentControl != nil || run.Image != nil || run.TextBox != nil || run.Shape != nil || run.Chart != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *htmlRenderer) renderTextBoxContentHTML(tb *resolve.TextBox, widthPt, heightPt float64) string {
@@ -6323,6 +6441,11 @@ func textBoxInnerStyles(tb *resolve.TextBox) []string {
 	case "bottom":
 		styles = append(styles, "display:grid", "align-items:end", "height:100%")
 	}
+	if tb.AnchorCenter {
+		// a:bodyPr@anchorCtr centers the text box's text horizontally; the
+		// paragraphs keep their own alignment inside that anchor.
+		styles = append(styles, "text-align:center")
+	}
 	if tb.NumCol > 1 {
 		styles = append(styles, fmt.Sprintf("column-count:%d", tb.NumCol))
 		if tb.SpcCol > 0 {
@@ -6349,6 +6472,10 @@ func textBoxInnerStyles(tb *resolve.TextBox) []string {
 // page-absolute coordinates; inline images carry no positioning.
 func (r *htmlRenderer) renderImageTo(buf *bytes.Buffer, img *resolve.Image, cc *resolve.ContentControl) {
 	if img != nil && img.Hidden {
+		return
+	}
+	if img != nil && img.Floating && r.options.FastPreview {
+		r.renderFastPreviewImage(buf, img, cc)
 		return
 	}
 	var styleAttrs []string
@@ -6381,6 +6508,12 @@ func (r *htmlRenderer) renderImageTo(buf *bytes.Buffer, img *resolve.Image, cc *
 		} else if img.Height > 0 {
 			styleAttrs = append(styleAttrs, fmt.Sprintf("height:%.1fpt", emuToPoints(img.Height)))
 		}
+		if img.EffectExtentL > 0 {
+			// An inline drawing's flow box is wp:effectExtent + wp:extent; the
+			// bitmap itself is painted inset by the left effect extent inside
+			// that box. Layout advanced the full box, so restore the inset here.
+			styleAttrs = append(styleAttrs, fmt.Sprintf("margin-left:%.2fpt", emuToPoints(img.EffectExtentL)))
+		}
 	}
 	if img.Floating {
 		if img.BehindDoc {
@@ -6410,6 +6543,36 @@ func (r *htmlRenderer) renderImageTo(buf *bytes.Buffer, img *resolve.Image, cc *
 	}
 	styleAttrs = append(styleAttrs, pictureFrameGeometryStyles(img)...)
 	r.writeImageElement(buf, img, styleAttrs, cc)
+}
+
+// renderFastPreviewImage keeps floating drawings in semantic flow. Fast preview
+// has no page coordinate map, so emitting position:absolute would pin every
+// later-page image to the visible page's origin and make it cover the text.
+func (r *htmlRenderer) renderFastPreviewImage(buf *bytes.Buffer, img *resolve.Image, cc *resolve.ContentControl) {
+	styles := []string{"display:block", "max-width:100%"}
+	if img.Width > 0 {
+		styles = append(styles, fmt.Sprintf("width:%.1fpt", emuToPoints(img.Width)))
+	}
+	if img.Height > 0 {
+		styles = append(styles, fmt.Sprintf("height:%.1fpt", emuToPoints(img.Height)))
+	}
+	if img.DistTop > 0 {
+		styles = append(styles, fmt.Sprintf("margin-top:%.1fpt", img.DistTop))
+	}
+	if img.DistBottom > 0 {
+		styles = append(styles, fmt.Sprintf("margin-bottom:%.1fpt", img.DistBottom))
+	}
+	switch strings.ToLower(img.XAlign) {
+	case "right":
+		styles = append(styles, "margin-left:auto")
+	case "center":
+		styles = append(styles, "margin-left:auto", "margin-right:auto")
+	}
+	if img.BorderColor != "" && img.BorderWidth > 0 {
+		styles = append(styles, fmt.Sprintf("border:%.2fpt solid #%s", img.BorderWidth, img.BorderColor))
+	}
+	styles = append(styles, pictureFrameGeometryStyles(img)...)
+	r.writeImageElement(buf, img, styles, cc)
 }
 
 // pictureFrameGeometryStyles renders the authored DrawingML picture frame.
@@ -6730,11 +6893,8 @@ func imageFilterCSS(img *resolve.Image) string {
 		return ""
 	}
 	var filters []string
-	if img.Brightness > 0 && img.Brightness != 1 {
-		filters = append(filters, fmt.Sprintf("brightness(%.0f%%)", img.Brightness*100))
-	}
-	if img.Contrast > 0 && img.Contrast != 1 {
-		filters = append(filters, fmt.Sprintf("contrast(%.0f%%)", img.Contrast*100))
+	if adjustment := pictureAdjustmentFilterCSS(img.Brightness, img.Contrast); adjustment != "" {
+		filters = append(filters, adjustment)
 	}
 	if img.Grayscale {
 		filters = append(filters, "grayscale(100%)")
@@ -6755,8 +6915,65 @@ func imageFilterCSS(img *resolve.Image) string {
 	return strings.Join(filters, " ")
 }
 
+// pictureAdjustmentFilterCSS renders an authored picture brightness/contrast
+// correction. Word shifts levels for brightness and scales them for contrast,
+// so the correction is the affine map
+//
+//	out = scale*in + (1-scale)/2 + offset*(1+scale)/2
+//
+// where brightness arrives as the 1+offset factor. A plain brightness is
+// therefore "in + offset", which the CSS brightness() shorthand cannot express
+// (it scales the levels instead of shifting them); the equivalent
+// contrast()+brightness() pair reproduces the map exactly, because contrast()
+// supplies both the scale and the mid-grey pivot while brightness() restores
+// the level shift. The intermediate contrast() output always stays inside
+// [0,1], so the pair clamps exactly where Word clamps.
+func pictureAdjustmentFilterCSS(brightness, contrast float64) string {
+	offset := 0.0
+	if brightness > 0 {
+		offset = brightness - 1
+	}
+	scale := 1.0
+	if contrast > 0 {
+		scale = contrast
+	}
+	if offset == 0 && scale == 1 {
+		return ""
+	}
+	if offset == 0 {
+		return fmt.Sprintf("contrast(%s)", filterPercentCSS(scale*100))
+	}
+	intercept := (1-scale)/2 + offset*(1+scale)/2
+	if intercept < 0 {
+		// A darkened picture combined with a strong contrast scale maps dark
+		// levels below black; CSS filter functions cannot express the negative
+		// intercept, so keep the multiplicative approximation.
+		return fmt.Sprintf("brightness(%s) contrast(%s)", filterPercentCSS((1+offset)*100), filterPercentCSS(scale*100))
+	}
+	return fmt.Sprintf("contrast(%s) brightness(%s)", filterPercentCSS(scale/(2*intercept+scale)*100), filterPercentCSS((2*intercept+scale)*100))
+}
+
+// filterPercentCSS formats a CSS filter percentage without trailing zeros.
+// Two decimals keep equivalent OfficeArt and DrawingML corrections byte-identical
+// (a 16.16 fixed-point contrast and its percentage form can differ in the fourth).
+func filterPercentCSS(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 2, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimSuffix(s, ".")
+	return s + "%"
+}
+
 func imageOpacityCSS(img *resolve.Image) string {
-	if img == nil || img.Alpha <= 0 || img.Alpha >= 1 {
+	if img == nil {
+		return ""
+	}
+	if img.HasAlpha {
+		if img.Alpha >= 1 {
+			return ""
+		}
+		return fmt.Sprintf("opacity:%.4f", math.Max(0, img.Alpha))
+	}
+	if img.Alpha <= 0 || img.Alpha >= 1 {
 		return ""
 	}
 	return fmt.Sprintf("opacity:%.4f", img.Alpha)
@@ -6784,7 +7001,9 @@ func imageCombinedOpacity(img *resolve.Image) string {
 		return ""
 	}
 	alpha := 1.0
-	if img.Alpha > 0 && img.Alpha < 1 {
+	if img.HasAlpha {
+		alpha = math.Max(0, math.Min(1, img.Alpha))
+	} else if img.Alpha > 0 && img.Alpha < 1 {
 		alpha = img.Alpha
 	}
 	if len(img.Effects.Effects) > 0 {
@@ -6795,7 +7014,7 @@ func imageCombinedOpacity(img *resolve.Image) string {
 			}
 		}
 	}
-	if alpha > 0 && alpha < 1 {
+	if alpha >= 0 && alpha < 1 {
 		return fmt.Sprintf("opacity:%.4f", alpha)
 	}
 	return ""
@@ -6925,7 +7144,10 @@ func (r *htmlRenderer) renderDropCapFramePara(p *resolve.Paragraph) {
 		return
 	}
 	var styles []string
-	styles = append(styles, "float:left", "overflow:hidden")
+	// A drop cap's float box is its wrap region, not a clipping window: the
+	// glyph's ink can extend past its advance width, so the frame must not
+	// hide the overhang.
+	styles = append(styles, "float:left", "overflow:visible")
 	if fb, ok := r.floatByFramePara[p]; ok {
 		if fb.Width > 0 {
 			styles = append(styles, fmt.Sprintf("width:%.1fpt", fb.Width))
@@ -9273,6 +9495,32 @@ func paragraphIsFloatingAnchorOnly(runs []resolve.Run) bool {
 	return foundAnchor
 }
 
+// resolvedMarkerTemplate turns an eagerly resolved marker such as "3.", "(iv)"
+// or ")" into the placeholder template that renders it, so the current level's
+// counter can be substituted while the marker's punctuation survives. Mixed
+// markers ("1.1.") keep their ancestor text and re-run only the last component.
+func resolvedMarkerTemplate(text string, placeholderLevel int) string {
+	placeholder := "%" + strconv.Itoa(placeholderLevel)
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) == 0 {
+		return placeholder
+	}
+	start, end := -1, -1
+	for i, r := range runes {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if start < 0 {
+				start = i
+			}
+			end = i
+		}
+	}
+	if start < 0 {
+		// Punctuation only: the counter precedes the authored suffix.
+		return placeholder + string(runes)
+	}
+	return string(runes[:start]) + placeholder + string(runes[end+1:])
+}
+
 func paragraphIsEmptyOrAnchorOnly(runs []resolve.Run) bool {
 	if len(runs) == 0 {
 		return true
@@ -9300,6 +9548,16 @@ func paragraphIsEmptyOrAnchorOnly(runs []resolve.Run) bool {
 		}
 	}
 	return true
+}
+
+// docGridIsActive reports whether a section's document grid actually snaps
+// lines. w:docGrid/@w:type defaults to "default", which means no grid, so a
+// section that only carries a line pitch must not impose one on the browser.
+func docGridIsActive(grid *resolve.DocGrid) bool {
+	if grid == nil {
+		return false
+	}
+	return strings.EqualFold(grid.Type, "lines") || strings.EqualFold(grid.Type, "linesAndChars")
 }
 
 func appendInlineStyleAttr(attr, decl string) string {
@@ -9669,9 +9927,20 @@ func (r *htmlRenderer) calculateFieldValue(run resolve.Run) string {
 	case "STYLEREF":
 		return r.resolveStyleRef(run.FieldArg)
 	case "TOC":
-		return r.generateTOC(run.FieldArg)
+		// A block-spanning TOC commonly carries an authored cached result across
+		// many paragraphs. Recomputing a TOC for each cached result run duplicates
+		// the entire table of contents at every entry. Preserve authored result text;
+		// synthesize only for a semantic field carrier with no cached display text.
+		if strings.TrimSpace(run.Text) != "" {
+			return ""
+		}
+		return r.generateTOC(r.resolveFieldInstruction(run))
 	case "INDEX":
-		return r.generateIndex(run.FieldArg)
+		// INDEX has the same block-spanning cached-result semantics as TOC.
+		if strings.TrimSpace(run.Text) != "" {
+			return ""
+		}
+		return r.generateIndex(r.resolveFieldInstruction(run))
 	case "IF", "COMPARE":
 		if value, ok := r.evaluateIfFieldRun(run); ok {
 			return value
@@ -12506,8 +12775,8 @@ func parseTOCOptions(instr string) tocOptions {
 		TCOnly:              tcOnly,
 		TCID:                tcID,
 		CustomStyleLevels:   parseTOCCustomStyles(instr),
-		SuppressPageNumbers: parseTOCSuppressPageNumbers(instr) || parseTOCWebView(instr),
-		HeadingsOnly:        parseTOCHeadingsOnly(instr),
+		SuppressPageNumbers: parseTOCSuppressPageNumbers(instr),
+		HeadingsOnly:        false,
 		Separator:           parseTOCSeparator(instr),
 		PageSeparator:       parseTOCPageSeparator(instr),
 		Bookmark:            parseTOCBookmark(instr),
@@ -12740,11 +13009,9 @@ func parseTOCCustomStyles(instr string) map[string]int {
 }
 
 func parseTOCSuppressPageNumbers(instr string) bool {
-	return hasFieldSwitch(instr, "N") || hasFieldSwitch(instr, "H")
-}
-
-func parseTOCHeadingsOnly(instr string) bool {
-	return hasFieldSwitch(instr, "H")
+	// Word's \n switch controls page-number suppression. The \h switch makes
+	// TOC entries hyperlinks; it does not alter entry selection or page numbers.
+	return hasFieldSwitch(instr, "N")
 }
 
 // parseTOCUseOutline returns true when the TOC instruction contains a \u switch.
@@ -12754,8 +13021,8 @@ func parseTOCUseOutline(instr string) bool {
 }
 
 // parseTOCWebView returns true when the TOC instruction contains a \z switch.
-// In Word this suppresses page numbers in Web layout view; since HTML output
-// is effectively web layout, we treat it the same as \n.
+// Word applies \z only in Web Layout view. Our paginated HTML models Word's
+// page/print layout, so this switch must not suppress page numbers here.
 func parseTOCWebView(instr string) bool {
 	return hasFieldSwitch(instr, "Z")
 }
@@ -13579,68 +13846,12 @@ func normalizeOpenTypeValue(value string) string {
 	return strings.NewReplacer("-", "", "_", "", " ", "").Replace(strings.ToLower(value))
 }
 
+// bestEffortFontFallbacks is the CSS stack a browser needs after an authored
+// font family. It is the same table the layout measures with, so a document
+// whose fonts are not installed still breaks lines against the face the
+// browser will actually paint.
 func bestEffortFontFallbacks(name string) []string {
-	lower := normalizeFontFamily(name)
-	if lower == "" {
-		return nil
-	}
-	if fallbacks, ok := commonFontFallbacks[lower]; ok {
-		return append([]string(nil), fallbacks...)
-	}
-	switch {
-	case containsAnyFontToken(lower, "code", "mono", "typewriter"):
-		return []string{"Consolas", "Courier New", "monospace"}
-	case containsAnyFontToken(lower, "script", "handwriting", "calligraphy", "cursive"):
-		return []string{"Brush Script MT", "cursive"}
-	case containsAnyFontToken(lower, "display", "condensed", "narrow"):
-		return []string{"Arial Narrow", "Arial", "sans-serif"}
-	case containsAnyFontToken(lower, "mincho", "song", "ming", "myeong", "batang"):
-		return []string{"Times New Roman", "serif"}
-	case containsAnyFontToken(lower, "serif", "roman", "garamond", "georgia", "cambria", "baskerville", "bodoni", "didot", "antiqua", "palatino", "bookman", "times"):
-		return []string{"Times New Roman", "Times", "serif"}
-	case containsAnyFontToken(lower, "gothic", "sans", "grotesk", "grotesque", "helvetica", "arial", "verdana", "tahoma", "frutiger", "univers", "aptos", "calibri", "segoe", "yahei", "meiryo", "gulim", "dotum", "malgun"):
-		return []string{"Arial", "sans-serif"}
-	case containsAnyFontToken(lower, "black", "fantasy", "decorative"):
-		return []string{"Impact", "Arial Black", "fantasy"}
-	default:
-		return []string{"Arial", "sans-serif"}
-	}
-}
-
-var commonFontFallbacks = map[string][]string{
-	"aller":             {"Calibri", "Arial", "sans-serif"},
-	"aller light":       {"Segoe UI", "Calibri", "Arial", "sans-serif"},
-	"aptos":             {"Arial", "sans-serif"},
-	"arial narrow":      {"Arial", "sans-serif"},
-	"book antiqua":      {"Palatino", "serif"},
-	"brush script mt":   {"Segoe Script", "cursive"},
-	"calibri":           {"Arial", "sans-serif"},
-	"cambria":           {"Times New Roman", "Times", "serif"},
-	"comic sans ms":     {"Comic Sans", "cursive"},
-	"consolas":          {"Courier New", "monospace"},
-	"constantia":        {"Georgia", "Times New Roman", "serif"},
-	"courier new":       {"Courier", "monospace"},
-	"garamond":          {"Georgia", "Times New Roman", "serif"},
-	"georgia":           {"Times New Roman", "Times", "serif"},
-	"meiryo":            {"Yu Gothic", "MS PGothic", "sans-serif"},
-	"microsoft yahei":   {"SimHei", "sans-serif"},
-	"ms pgothic":        {"Yu Gothic", "Meiryo", "sans-serif"},
-	"oswald":            {"Arial Narrow", "Arial", "sans-serif"},
-	"palatino linotype": {"Palatino", "Book Antiqua", "serif"},
-	"segoe script":      {"Brush Script MT", "cursive"},
-	"simsun":            {"PMingLiU", "serif"},
-	"source code pro":   {"Consolas", "Courier New", "monospace"},
-	"times new roman":   {"Times", "serif"},
-	"yu gothic":         {"Meiryo", "MS PGothic", "sans-serif"},
-}
-
-func containsAnyFontToken(name string, tokens ...string) bool {
-	for _, token := range tokens {
-		if strings.Contains(name, token) {
-			return true
-		}
-	}
-	return false
+	return wordfontmetrics.FamilyFallbacks(name)
 }
 
 func normalizeFontFamily(name string) string {

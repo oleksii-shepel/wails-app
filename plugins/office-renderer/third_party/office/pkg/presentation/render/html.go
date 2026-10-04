@@ -4098,7 +4098,13 @@ func renderParagraphWithPlan(b *strings.Builder, p *ir.Paragraph, plan playout.P
 				}
 			}
 			if line.HeightPt > 0 {
-				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;%swhite-space:pre;text-indent:%.4fpt;line-height:%.4fpt;min-height:%.4fpt;overflow:visible;vertical-align:baseline\">", linePositionStyle, lineIndentPt, line.HeightPt, line.HeightPt)
+				// `line-height` alone is only a minimum contribution to a block's
+				// used height: a browser may grow it when the fallback face has taller
+				// font metrics. That changes the following line's authored origin and
+				// makes dense legacy-PPT paragraphs drift into one another. Lock the
+				// physical advance with height, while keeping overflow visible so ink
+				// such as descenders, shadows, and a substituted font is never clipped.
+				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;%swhite-space:pre;text-indent:%.4fpt;line-height:%.4fpt;height:%.4fpt;min-height:%.4fpt;overflow:visible;vertical-align:baseline\">", linePositionStyle, lineIndentPt, line.HeightPt, line.HeightPt, line.HeightPt)
 			} else {
 				fmt.Fprintf(b, "<span class=\"ppt-physical-line\" style=\"display:block;%swhite-space:pre;text-indent:%.4fpt\">", linePositionStyle, lineIndentPt)
 			}

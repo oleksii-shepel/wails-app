@@ -3444,7 +3444,7 @@ func resolveDrawing(ctx *resolveCtx, drawing *parts.Drawing) *Image {
 		img.ZIndex = drawing.Anchor.RelativeHeight
 		img.BehindDoc = drawing.Anchor.BehindDoc != 0
 		img.WrapType, img.WrapSide = drawingAnchorWrap(drawing.Anchor)
-		img.WrapPolygon = drawingAnchorPolygon(drawing.Anchor)
+		img.WrapPolygon = drawingAnchorPolygonForExtent(drawing.Anchor, img.Width, img.Height)
 		dt, db, dl, dr := drawingAnchorWrapDistances(drawing.Anchor)
 		img.DistTop = emuToPoints(dt)
 		img.DistBottom = emuToPoints(db)
@@ -4663,7 +4663,7 @@ func applyTextBoxPosition(tb *TextBox, drawing *parts.Drawing) {
 		tb.ZIndex = drawing.Anchor.RelativeHeight
 		tb.BehindDoc = drawing.Anchor.BehindDoc != 0
 		tb.WrapType, tb.WrapSide = drawingAnchorWrap(drawing.Anchor)
-		tb.WrapPolygon = drawingAnchorPolygon(drawing.Anchor)
+		tb.WrapPolygon = drawingAnchorPolygonForExtent(drawing.Anchor, tb.Width, tb.Height)
 		dt, db, dl, dr := drawingAnchorWrapDistances(drawing.Anchor)
 		tb.DistTop = emuToPoints(dt)
 		tb.DistBottom = emuToPoints(db)
@@ -5164,7 +5164,7 @@ func resolveChart(ctx *resolveCtx, drawing *parts.Drawing) *Image {
 		img.ZIndex = drawing.Anchor.RelativeHeight
 		img.BehindDoc = drawing.Anchor.BehindDoc != 0
 		img.WrapType, img.WrapSide = drawingAnchorWrap(drawing.Anchor)
-		img.WrapPolygon = drawingAnchorPolygon(drawing.Anchor)
+		img.WrapPolygon = drawingAnchorPolygonForExtent(drawing.Anchor, img.Width, img.Height)
 		img.DistTop = emuToPoints(drawing.Anchor.DistT)
 		img.DistBottom = emuToPoints(drawing.Anchor.DistB)
 		img.DistLeft = emuToPoints(drawing.Anchor.DistL)
@@ -5329,7 +5329,7 @@ func resolveSmartArt(ctx *resolveCtx, drawing *parts.Drawing) *Image {
 		img.ZIndex = drawing.Anchor.RelativeHeight
 		img.BehindDoc = drawing.Anchor.BehindDoc != 0
 		img.WrapType, img.WrapSide = drawingAnchorWrap(drawing.Anchor)
-		img.WrapPolygon = drawingAnchorPolygon(drawing.Anchor)
+		img.WrapPolygon = drawingAnchorPolygonForExtent(drawing.Anchor, img.Width, img.Height)
 		img.DistTop = emuToPoints(drawing.Anchor.DistT)
 		img.DistBottom = emuToPoints(drawing.Anchor.DistB)
 		img.DistLeft = emuToPoints(drawing.Anchor.DistL)
@@ -6356,7 +6356,7 @@ func applyShapePosition(shape *Shape, anchor *parts.DrawingAnchor, inline *parts
 		shape.ZIndex = anchor.RelativeHeight
 		shape.BehindDoc = anchor.BehindDoc != 0
 		shape.WrapType, shape.WrapSide = drawingAnchorWrap(anchor)
-		shape.WrapPolygon = drawingAnchorPolygon(anchor)
+		shape.WrapPolygon = drawingAnchorPolygonForExtent(anchor, shape.Width, shape.Height)
 		dt, db, dl, dr := drawingAnchorWrapDistances(anchor)
 		shape.DistTop = emuToPoints(dt)
 		shape.DistBottom = emuToPoints(db)
@@ -7005,8 +7005,21 @@ func firstNonZero(a, b int64) int64 {
 }
 
 // drawingAnchorPolygon converts a wp:wrapPolygon to a slice of object-relative
-// point coordinates in points. Returns nil if no polygon is present.
+// point coordinates in points. Returns nil if no polygon is present.  Word
+// commonly serializes wrap polygons in its normalized 21600-by-21600 drawing
+// grid (rather than as EMUs); scale that form to the anchor extent before
+// converting it to points.
 func drawingAnchorPolygon(anchor *parts.DrawingAnchor) [][2]float64 {
+	var width, height int64
+	if anchor != nil && anchor.Extent != nil {
+		width, height = anchor.Extent.CX, anchor.Extent.CY
+	}
+	return drawingAnchorPolygonForExtent(anchor, width, height)
+}
+
+// drawingAnchorPolygonForExtent uses the resolved drawing size when the
+// anchor's extent was supplied by a graphic payload instead of wp:extent.
+func drawingAnchorPolygonForExtent(anchor *parts.DrawingAnchor, width, height int64) [][2]float64 {
 	if anchor == nil {
 		return nil
 	}
@@ -7019,10 +7032,26 @@ func drawingAnchorPolygon(anchor *parts.DrawingAnchor) [][2]float64 {
 	if poly == nil {
 		return nil
 	}
-	pts := make([][2]float64, 0, 1+len(poly.LineTo))
-	pts = append(pts, [2]float64{emuToPoints(poly.Start.X), emuToPoints(poly.Start.Y)})
-	for _, pt := range poly.LineTo {
-		pts = append(pts, [2]float64{emuToPoints(pt.X), emuToPoints(pt.Y)})
+	rawPoints := make([]parts.WrapPolygonPt, 0, 1+len(poly.LineTo))
+	rawPoints = append(rawPoints, poly.Start)
+	rawPoints = append(rawPoints, poly.LineTo...)
+	normalized := width > 0 && height > 0
+	if normalized {
+		for _, pt := range rawPoints {
+			if pt.X < 0 || pt.Y < 0 || pt.X > 21600 || pt.Y > 21600 {
+				normalized = false
+				break
+			}
+		}
+	}
+	pts := make([][2]float64, 0, len(rawPoints))
+	for _, pt := range rawPoints {
+		x, y := pt.X, pt.Y
+		if normalized {
+			x = x * width / 21600
+			y = y * height / 21600
+		}
+		pts = append(pts, [2]float64{emuToPoints(x), emuToPoints(y)})
 	}
 	return pts
 }
@@ -9160,30 +9189,15 @@ func symToRune(hexChar string) rune {
 	return rune(v)
 }
 
-// applyWordColorModifier applies a w:themeShade or w:themeTint modifier to a base hex RGB color
-// using the same HSL-based DrawingML pipeline that shapes, effects, and charts use.
-// shade darkens, tint lightens. Only one of shade/tint is applied (shade takes precedence).
-// ECMA-376 Part 1 §17.3.2.6.
+// applyWordColorModifier applies WordprocessingML themeShade/themeTint values.
+// They deliberately differ from DrawingML SolidFill.Tint: Word's FF tint is
+// unchanged and 00 is white, so the shared Word-aware helper must be used
+// rather than mapping the byte directly to a SolidFill transform.
 func applyWordColorModifier(hexRGB, shade, tint string) string {
 	if hexRGB == "" || (shade == "" && tint == "") {
 		return hexRGB
 	}
-	fill := &dml.SolidFill{}
-	if shade != "" {
-		var factor int64
-		if _, err := fmt.Sscanf(shade, "%X", &factor); err == nil && factor != 0xFF {
-			fill.Shade = float64(factor) / 255.0
-			fill.HasShade = true
-		}
-	}
-	if tint != "" {
-		var factor int64
-		if _, err := fmt.Sscanf(tint, "%X", &factor); err == nil && factor != 0xFF {
-			fill.Tint = float64(factor) / 255.0
-			fill.HasTint = true
-		}
-	}
-	return fill.ApplyColorTransforms(hexRGB)
+	return dml.ApplyColorModifier(hexRGB, shade, tint)
 }
 
 // resolveShadingFill returns the resolved hex RGB fill color for a Shading

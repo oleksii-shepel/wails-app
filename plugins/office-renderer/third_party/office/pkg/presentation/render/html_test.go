@@ -1118,7 +1118,7 @@ func TestHTMLAppliesNormAutofitFontAndLineScaling(t *testing.T) {
 	// Measured paragraphs no longer expose normAutofit as a paragraph-level
 	// CSS multiplier. Layout owns the reduced physical line box: 24pt * 0.92
 	// font scale * 1.117 Arial leading * 0.82 line-space scale = 20.2240pt.
-	if !strings.Contains(html, `line-height:20.2240pt;min-height:20.2240pt`) {
+	if !strings.Contains(html, `line-height:20.2240pt;height:20.2240pt;min-height:20.2240pt`) {
 		t.Fatalf("expected normAutofit line spacing reduction in physical line box: %s", html)
 	}
 	if !strings.Contains(html, `line-height:0`) {
@@ -2696,7 +2696,7 @@ func TestHTMLRendersSmartArtNormAutofitScaling(t *testing.T) {
 	// SmartArt uses the same physical text composition boundary as ordinary
 	// text. The normAutofit reduction therefore belongs to the measured line
 	// box, not to a paragraph-level browser line-height multiplier.
-	if !strings.Contains(out, `line-height:20.2240pt;min-height:20.2240pt`) {
+	if !strings.Contains(out, `line-height:20.2240pt;height:20.2240pt;min-height:20.2240pt`) {
 		t.Fatalf("expected SmartArt normAutofit reduction in physical line box, got: %s", out)
 	}
 	if !strings.Contains(out, `line-height:0`) {

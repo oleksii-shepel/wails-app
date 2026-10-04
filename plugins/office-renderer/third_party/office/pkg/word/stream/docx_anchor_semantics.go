@@ -86,6 +86,17 @@ func drawingAnchorWrapDistances(anchor *wordparts.DrawingAnchor) (distT, distB, 
 }
 
 func drawingAnchorWrapPolygon(anchor *wordparts.DrawingAnchor) [][2]float64 {
+	var width, height int64
+	if anchor != nil && anchor.Extent != nil {
+		width, height = anchor.Extent.CX, anchor.Extent.CY
+	}
+	return drawingAnchorWrapPolygonForExtent(anchor, width, height)
+}
+
+// drawingAnchorWrapPolygonForExtent accepts the resolved visual extent because
+// some DrawingML payloads provide their size outside wp:extent. Word commonly
+// encodes wrap polygons on a normalized 21600-by-21600 grid.
+func drawingAnchorWrapPolygonForExtent(anchor *wordparts.DrawingAnchor, width, height int64) [][2]float64 {
 	if anchor == nil {
 		return nil
 	}
@@ -99,10 +110,26 @@ func drawingAnchorWrapPolygon(anchor *wordparts.DrawingAnchor) [][2]float64 {
 	if polygon == nil {
 		return nil
 	}
-	points := make([][2]float64, 0, 1+len(polygon.LineTo))
-	points = append(points, [2]float64{drawingEMUToPoints(polygon.Start.X), drawingEMUToPoints(polygon.Start.Y)})
-	for _, point := range polygon.LineTo {
-		points = append(points, [2]float64{drawingEMUToPoints(point.X), drawingEMUToPoints(point.Y)})
+	rawPoints := make([]wordparts.WrapPolygonPt, 0, 1+len(polygon.LineTo))
+	rawPoints = append(rawPoints, polygon.Start)
+	rawPoints = append(rawPoints, polygon.LineTo...)
+	normalized := width > 0 && height > 0
+	if normalized {
+		for _, point := range rawPoints {
+			if point.X < 0 || point.Y < 0 || point.X > 21600 || point.Y > 21600 {
+				normalized = false
+				break
+			}
+		}
+	}
+	points := make([][2]float64, 0, len(rawPoints))
+	for _, point := range rawPoints {
+		x, y := point.X, point.Y
+		if normalized {
+			x = x * width / 21600
+			y = y * height / 21600
+		}
+		points = append(points, [2]float64{drawingEMUToPoints(x), drawingEMUToPoints(y)})
 	}
 	return points
 }

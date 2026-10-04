@@ -62,3 +62,20 @@ func TestPopulateAnchoredImagePreservesFullAnchorSemantics(t *testing.T) {
 		t.Fatalf("relative size = %d/%q %d/%q", img.SizeRelHPct, img.SizeRelHFrom, img.SizeRelVPct, img.SizeRelVFrom)
 	}
 }
+
+func TestPopulateAnchoredImageScalesNormalizedWrapPolygon(t *testing.T) {
+	anchor := &wordparts.DrawingAnchor{WrapTight: &wordparts.DrawingWrapSided{
+		Polygon: &wordparts.WrapPolygon{
+			Start:  wordparts.WrapPolygonPt{X: 0, Y: 0},
+			LineTo: []wordparts.WrapPolygonPt{{X: 21600, Y: 0}, {X: 21600, Y: 21600}, {X: 0, Y: 21600}},
+		},
+	}}
+	img := &wordir.Image{Width: 1828800, Height: 2743200}
+	populateAnchoredImage(img, wordsax.Event{DrawingModel: &wordparts.Drawing{Anchor: anchor}})
+	if len(img.WrapPolygon) != 4 {
+		t.Fatalf("polygon points = %d, want 4", len(img.WrapPolygon))
+	}
+	if img.WrapPolygon[1] != [2]float64{144, 0} || img.WrapPolygon[2] != [2]float64{144, 216} {
+		t.Fatalf("normalized wrap polygon = %#v, want 144pt by 216pt", img.WrapPolygon)
+	}
+}

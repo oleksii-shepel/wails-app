@@ -216,6 +216,7 @@ func applyAnchoredShapePosition(shape *wordir.Shape, raw wordsax.Event) {
 	placement := drawingPlacementFromAnchor(anchor)
 	placement.Width = shape.Width
 	placement.Height = shape.Height
+	placement.WrapPolygon = drawingAnchorWrapPolygonForExtent(anchor, shape.Width, shape.Height)
 	placement.RotationDeg = shape.RotationDeg
 	placement.FlipH = shape.FlipH
 	placement.FlipV = shape.FlipV
@@ -475,23 +476,31 @@ func parseDOCXVMLDimensionEMU(value string) int64 {
 	case strings.HasSuffix(value, "pt"):
 		value = strings.TrimSpace(strings.TrimSuffix(value, "pt"))
 	case strings.HasSuffix(value, "in"):
-		value = strings.TrimSpace(strings.TrimSuffix(value, "in")); scale = 914400
+		value = strings.TrimSpace(strings.TrimSuffix(value, "in"))
+		scale = 914400
 	case strings.HasSuffix(value, "cm"):
-		value = strings.TrimSpace(strings.TrimSuffix(value, "cm")); scale = 360000
+		value = strings.TrimSpace(strings.TrimSuffix(value, "cm"))
+		scale = 360000
 	case strings.HasSuffix(value, "mm"):
-		value = strings.TrimSpace(strings.TrimSuffix(value, "mm")); scale = 36000
+		value = strings.TrimSpace(strings.TrimSuffix(value, "mm"))
+		scale = 36000
 	case strings.HasSuffix(value, "px"):
-		value = strings.TrimSpace(strings.TrimSuffix(value, "px")); scale = 9525
+		value = strings.TrimSpace(strings.TrimSuffix(value, "px"))
+		scale = 9525
 	}
 	v, err := strconv.ParseFloat(value, 64)
-	if err != nil { return 0 }
+	if err != nil {
+		return 0
+	}
 	return int64(v * scale)
 }
 
 func normalizeDOCXVMLColor(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.TrimPrefix(value, "#")
-	if len(value) == 6 { return strings.ToUpper(value) }
+	if len(value) == 6 {
+		return strings.ToUpper(value)
+	}
 	return ""
 }
 
@@ -519,7 +528,6 @@ func appendDOCXShapeRun(session *LayoutSession, event Event) error {
 	session.paragraph.Runs = append(session.paragraph.Runs, run)
 	return nil
 }
-
 
 func resolveDOCXShapeTextBoxSemantics(session *LayoutSession, shape *wordir.Shape) {
 	if session == nil || shape == nil || shape.TextBox == nil || session.metadata == nil {

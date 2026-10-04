@@ -7,9 +7,11 @@ import (
 )
 
 const (
-	namespacePackageRelationships = "http://schemas.openxmlformats.org/package/2006/relationships"
-	targetModeExternal            = "External"
-	rootRelationshipsPart         = "_rels/.rels"
+	namespacePackageRelationships        = "http://schemas.openxmlformats.org/package/2006/relationships"
+	targetModeExternal                   = "External"
+	rootRelationshipsPart                = "_rels/.rels"
+	strictOfficeRelationshipPrefix       = "http://purl.oclc.org/ooxml/officeDocument/relationships/"
+	transitionalOfficeRelationshipPrefix = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
 )
 
 // Relationship is a single OPC relationship edge.
@@ -32,7 +34,21 @@ func Parse(data []byte) (*Document, error) {
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		return nil, err
 	}
+	for i := range doc.Relationships {
+		doc.Relationships[i].Type = canonicalRelationshipType(doc.Relationships[i].Type)
+	}
 	return &doc, nil
+}
+
+// canonicalRelationshipType maps ECMA-376 Strict relationship URIs to their
+// Transitional equivalents. Relationship kind is semantic rather than a part
+// of XML markup, and the rest of the package readers compare these values to
+// canonical OOXML relationship constants.
+func canonicalRelationshipType(value string) string {
+	if strings.HasPrefix(value, strictOfficeRelationshipPrefix) {
+		return transitionalOfficeRelationshipPrefix + strings.TrimPrefix(value, strictOfficeRelationshipPrefix)
+	}
+	return value
 }
 
 // ByID finds a relationship by its ID.

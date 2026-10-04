@@ -80,8 +80,76 @@ func TestFastPreviewKeepsLaterFloatingImagesOutOfPageOverlay(t *testing.T) {
 		t.Fatalf("could not locate fast-preview image tag: %s", out)
 	}
 	imageTag := out[start : start+end+1]
-	if !strings.Contains(imageTag, "display:block") || strings.Contains(imageTag, "position:absolute") {
+	if !strings.Contains(imageTag, "display:block") || !strings.Contains(imageTag, "float:right") || strings.Contains(imageTag, "position:absolute") {
 		t.Fatalf("fast-preview image should stay in normal flow, got %s", imageTag)
+	}
+}
+
+func TestFastPreviewPreservesSquareImageTextWrapping(t *testing.T) {
+	image := &resolve.Image{
+		Floating:  true,
+		Width:     914400,
+		Height:    914400,
+		WrapType:  "square",
+		DistRight: 9,
+		Alt:       "left-wrapped-image",
+	}
+	doc := &resolve.Document{Blocks: []resolve.Block{{
+		Kind: "paragraph",
+		Paragraph: &resolve.Paragraph{Runs: []resolve.Run{
+			{Kind: "image", Image: image},
+			{Kind: "run", Text: "Text should wrap beside the image."},
+		}},
+	}}}
+	out, _, err := render.HTMLWithOptions(doc, render.HTMLOptions{FastPreview: true})
+	if err != nil {
+		t.Fatalf("HTMLWithOptions: %v", err)
+	}
+	start := strings.Index(out, "left-wrapped-image")
+	if start < 0 {
+		t.Fatalf("fast preview omitted image: %s", out)
+	}
+	start = strings.LastIndex(out[:start], "<")
+	end := strings.Index(out[start:], ">")
+	imageTag := out[start : start+end+1]
+	if !strings.Contains(imageTag, "float:left") || !strings.Contains(imageTag, "margin-right:9.0pt") || strings.Contains(imageTag, "position:absolute") {
+		t.Fatalf("fast-preview square image should wrap text in flow, got %s", imageTag)
+	}
+}
+
+func TestHTMLPreservesVisibleFloatingImageTextWrapping(t *testing.T) {
+	image := &resolve.Image{
+		Floating:  true,
+		Width:     914400,
+		Height:    1371600,
+		WrapType:  "tight",
+		XAlign:    "left",
+		YAlign:    "top",
+		XRelative: "margin",
+		YRelative: "paragraph",
+		DistRight: 9,
+		Alt:       "visible-left-wrapped-image",
+	}
+	doc := &resolve.Document{Blocks: []resolve.Block{{
+		Kind: "paragraph",
+		Paragraph: &resolve.Paragraph{Runs: []resolve.Run{
+			{Kind: "image", Image: image},
+			{Kind: "run", Text: "Text should remain beside the visible image instead of underneath it."},
+		}},
+	}}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	start := strings.Index(out, "visible-left-wrapped-image")
+	if start < 0 {
+		t.Fatalf("HTML omitted image: %s", out)
+	}
+	start = strings.LastIndex(out[:start], "<")
+	end := strings.Index(out[start:], ">")
+	imageTag := out[start : start+end+1]
+	if !strings.Contains(imageTag, "float:left") || !strings.Contains(imageTag, "position:relative") || strings.Contains(imageTag, "position:absolute") {
+		t.Fatalf("normal HTML image should visibly float in flow, got %s", imageTag)
 	}
 }
 
@@ -281,7 +349,7 @@ func TestHTMLDocPartSDTPreservesAttrsAroundImage(t *testing.T) {
 	}
 }
 
-func TestHTMLParagraphRelativeFloatingImageUsesWrapProxyAndOverlay(t *testing.T) {
+func TestHTMLParagraphRelativeFloatingImageUsesVisibleFlowFloat(t *testing.T) {
 	doc := &resolve.Document{
 		Blocks: []resolve.Block{
 			{Index: 0, Kind: "paragraph", Paragraph: &resolve.Paragraph{
@@ -308,14 +376,15 @@ func TestHTMLParagraphRelativeFloatingImageUsesWrapProxyAndOverlay(t *testing.T)
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `class="word-wrap-proxy"`) || !strings.Contains(out, `float:left`) {
-		t.Fatalf("expected paragraph-relative wrap proxy in normal flow: %s", out)
+	start := strings.Index(out, `alt="Anchored"`)
+	if start < 0 {
+		t.Fatalf("expected anchored image: %s", out)
 	}
-	if !strings.Contains(out, `<div class="page-overlay">`) || !strings.Contains(out, `alt="Anchored"`) || !strings.Contains(out, `position:absolute`) {
-		t.Fatalf("expected anchored image to render at its page-absolute layout coordinate: %s", out)
-	}
-	if strings.Count(out, `alt="Anchored"`) != 1 {
-		t.Fatalf("expected one visible anchored image and an image-free wrap proxy: %s", out)
+	start = strings.LastIndex(out[:start], "<")
+	end := strings.Index(out[start:], ">")
+	imageTag := out[start : start+end+1]
+	if !strings.Contains(imageTag, `float:left`) || !strings.Contains(imageTag, `position:relative`) || strings.Contains(imageTag, `position:absolute`) {
+		t.Fatalf("expected visible paragraph-relative float in normal flow: %s", imageTag)
 	}
 }
 
@@ -5020,8 +5089,8 @@ func TestHTMLParagraphLeadingBlockFloatImageRendersInFlow(t *testing.T) {
 	if !strings.Contains(out, `float:right`) {
 		t.Fatalf("expected square-wrapped sibling image to keep rendering as a right float: %s", out)
 	}
-	if !strings.Contains(out, `class="word-wrap-proxy"`) || !strings.Contains(out, `<div class="page-overlay">`) {
-		t.Fatalf("expected square-wrapped sibling image to use a flow proxy plus page overlay: %s", out)
+	if strings.Contains(out, `class="word-wrap-proxy"`) {
+		t.Fatalf("expected square-wrapped sibling image to be the visible flow float: %s", out)
 	}
 }
 
@@ -5120,23 +5189,21 @@ func TestHTMLParagraphRelativeFloatingImageWrapsOnLargestSide(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	proxy := strings.Index(out, `class="word-wrap-proxy"`)
-	if proxy < 0 {
-		t.Fatalf("expected wrap proxy in output: %s", out)
+	imageStart := strings.Index(out, `alt="Largest side"`)
+	if imageStart < 0 {
+		t.Fatalf("expected largest-side image in output: %s", out)
 	}
-	proxyEnd := strings.Index(out[proxy:], `</span>`)
-	if proxyEnd < 0 {
-		t.Fatalf("expected complete wrap proxy: %s", out)
-	}
-	snippet := out[proxy : proxy+proxyEnd]
+	imageStart = strings.LastIndex(out[:imageStart], "<")
+	imageEnd := strings.Index(out[imageStart:], ">")
+	snippet := out[imageStart : imageStart+imageEnd+1]
 	if !strings.Contains(snippet, `float:left`) {
-		t.Fatalf("expected largest-side wrap to place the proxy on the left so text uses the larger right segment: %s", snippet)
+		t.Fatalf("expected largest-side wrap to place the image on the left so text uses the larger right segment: %s", snippet)
 	}
 	if strings.Contains(snippet, `float:right`) {
 		t.Fatalf("did not expect largest-side wrap to choose the smaller left segment: %s", snippet)
 	}
-	if !strings.Contains(out, `alt="Largest side"`) || !strings.Contains(out, `<div class="page-overlay">`) {
-		t.Fatalf("expected visible image in the page overlay: %s", out)
+	if !strings.Contains(snippet, `position:relative`) || strings.Contains(snippet, `position:absolute`) {
+		t.Fatalf("expected largest-side image to remain a visible flow float: %s", snippet)
 	}
 }
 
@@ -5179,6 +5246,30 @@ func TestHTMLBehindTextImageUsesDedicatedBehindOverlay(t *testing.T) {
 	}
 	if strings.Contains(out, `class="word-wrap-proxy"`) {
 		t.Fatalf("behind-text image must not reserve wrapping space: %s", out)
+	}
+}
+
+func TestHTMLBehindTextAnchorPreservesBlankParagraphHeight(t *testing.T) {
+	img := &resolve.Image{Floating: true, BehindDoc: true, Width: 508000, Height: 508000, XRelative: "page", YRelative: "paragraph", WrapType: "none", MIMEType: "image/png", Data: []byte{0x89}, Alt: "background"}
+	doc := &resolve.Document{Blocks: []resolve.Block{
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "Before"}}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Kind: "image", Image: img}}}},
+		{Kind: "paragraph", Paragraph: &resolve.Paragraph{Runs: []resolve.Run{{Kind: "run", Text: "After"}}}},
+	}}
+	out, err := render.HTML(doc)
+	if err != nil {
+		t.Fatalf("HTML: %v", err)
+	}
+	backgroundAt := strings.Index(out, `alt="background"`)
+	if backgroundAt < 0 {
+		t.Fatalf("background image missing: %s", out)
+	}
+	beforeImage := out[:backgroundAt]
+	if strings.Contains(beforeImage[strings.LastIndex(beforeImage, "<p"):], `display:contents`) {
+		t.Fatalf("behind-text anchor paragraph must retain its blank-line height: %s", out)
+	}
+	if !strings.Contains(out, `min-height:`) || !strings.Contains(out, `>After</span>`) {
+		t.Fatalf("expected normal blank paragraph followed by text: %s", out)
 	}
 }
 

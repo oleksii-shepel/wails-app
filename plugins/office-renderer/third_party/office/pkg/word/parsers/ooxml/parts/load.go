@@ -32,7 +32,7 @@ func LoadPackage(pkg *opc.Package) (*Package, error) {
 	}
 
 	var document Document
-	if err := xml.Unmarshal(mainPart.Data, &document); err != nil {
+	if err := unmarshalStrictWordPart(mainPart.Data, &document); err != nil {
 		return nil, fmt.Errorf("word parts: parse %s: %w", mainPartName, err)
 	}
 
@@ -253,27 +253,27 @@ func loadRelatedParts(pkg *opc.Package, out *Package) error {
 		switch relationship.Type {
 		case relationshipTypeStyles:
 			var styles Styles
-			if err := xml.Unmarshal(part.Data, &styles); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &styles); err != nil {
 				return fmt.Errorf("word parts: parse styles %s: %w", partName, err)
 			}
 			out.Styles = &styles
 			out.StylesPartName = partName
 		case relationshipTypeNumbering:
 			var numbering Numbering
-			if err := xml.Unmarshal(part.Data, &numbering); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &numbering); err != nil {
 				return fmt.Errorf("word parts: parse numbering %s: %w", partName, err)
 			}
 			out.Numbering = &numbering
 			out.NumberingPartName = partName
 		case relationshipTypeHeader:
 			var header Header
-			if err := xml.Unmarshal(part.Data, &header); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &header); err != nil {
 				return fmt.Errorf("word parts: parse header %s: %w", partName, err)
 			}
 			out.Headers[partName] = &header
 		case relationshipTypeFooter:
 			var footer Footer
-			if err := xml.Unmarshal(part.Data, &footer); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &footer); err != nil {
 				return fmt.Errorf("word parts: parse footer %s: %w", partName, err)
 			}
 			out.Footers[partName] = &footer
@@ -291,21 +291,21 @@ func loadRelatedParts(pkg *opc.Package, out *Package) error {
 			out.ScopedOLEParts[relRef(out.MainPartName, relationship.ID)] = OLEPart{ContentType: part.ContentType, Data: append([]byte(nil), part.Data...), RelationshipType: relationship.Type}
 		case relationshipTypeTheme:
 			var theme Theme
-			if err := xml.Unmarshal(part.Data, &theme); err != nil {
+			if err := unmarshalStrictThemePart(part.Data, &theme); err != nil {
 				return fmt.Errorf("word parts: parse theme %s: %w", partName, err)
 			}
 			out.Theme = &theme
 			out.ThemePartName = partName
 		case relationshipTypeGlossary:
 			var glossary GlossaryDocument
-			if err := xml.Unmarshal(part.Data, &glossary); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &glossary); err != nil {
 				return fmt.Errorf("word parts: parse glossary %s: %w", partName, err)
 			}
 			out.Glossary = &glossary
 			out.GlossaryPartName = partName
 		case relationshipTypeFont:
 			var fontTable FontTable
-			if err := xml.Unmarshal(part.Data, &fontTable); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &fontTable); err != nil {
 				return fmt.Errorf("word parts: parse font table %s: %w", partName, err)
 			}
 			out.FontTable = &fontTable
@@ -313,28 +313,28 @@ func loadRelatedParts(pkg *opc.Package, out *Package) error {
 			loadEmbeddedFonts(pkg, partName, &fontTable, out)
 		case relationshipTypeSettings:
 			var settings Settings
-			if err := xml.Unmarshal(part.Data, &settings); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &settings); err != nil {
 				return fmt.Errorf("word parts: parse settings %s: %w", partName, err)
 			}
 			out.Settings = &settings
 			out.SettingsPartName = partName
 		case relationshipTypeFootnotes:
 			var fn FootnotesPart
-			if err := xml.Unmarshal(part.Data, &fn); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &fn); err != nil {
 				return fmt.Errorf("word parts: parse footnotes %s: %w", partName, err)
 			}
 			out.Footnotes = &fn
 			out.FootnotesPartName = partName
 		case relationshipTypeEndnotes:
 			var en EndnotesPart
-			if err := xml.Unmarshal(part.Data, &en); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &en); err != nil {
 				return fmt.Errorf("word parts: parse endnotes %s: %w", partName, err)
 			}
 			out.Endnotes = &en
 			out.EndnotesPartName = partName
 		case relationshipTypeComments:
 			var cm CommentsPart
-			if err := xml.Unmarshal(part.Data, &cm); err != nil {
+			if err := unmarshalStrictWordPart(part.Data, &cm); err != nil {
 				return fmt.Errorf("word parts: parse comments %s: %w", partName, err)
 			}
 			out.Comments = &cm

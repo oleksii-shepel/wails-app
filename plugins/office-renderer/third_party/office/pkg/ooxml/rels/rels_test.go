@@ -27,6 +27,22 @@ func TestParseRelationshipsAndLookup(t *testing.T) {
 	}
 }
 
+func TestParseCanonicalizesStrictRelationshipTypes(t *testing.T) {
+	doc, err := rels.Parse([]byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://purl.oclc.org/ooxml/officeDocument/relationships/image" Target="media/image1.png"/>
+</Relationships>`))
+	if err != nil {
+		t.Fatalf("parse relationships: %v", err)
+	}
+	if got, want := doc.Relationships[0].Type, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"; got != want {
+		t.Fatalf("officeDocument relationship type = %q, want %q", got, want)
+	}
+	if got, want := doc.Relationships[1].Type, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"; got != want {
+		t.Fatalf("image relationship type = %q, want %q", got, want)
+	}
+}
+
 func TestRelationshipsPartName(t *testing.T) {
 	cases := map[string]string{
 		"":                      "_rels/.rels",

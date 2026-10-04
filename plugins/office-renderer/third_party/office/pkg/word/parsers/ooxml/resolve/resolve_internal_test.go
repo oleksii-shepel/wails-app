@@ -727,6 +727,9 @@ func TestApplyWordColorModifier(t *testing.T) {
 	if got := applyWordColorModifier("000000", "", "80"); got == "000000" {
 		t.Error("expected tint to lighten black")
 	}
+	if got := applyWordColorModifier("000000", "", "F2"); got != "0D0D0D" {
+		t.Errorf("theme tint F2 applied to black = %q, want 0D0D0D", got)
+	}
 	// invalid hex returns original
 	if got := applyWordColorModifier("invalid", "80", ""); got != "invalid" {
 		t.Errorf("applyWordColorModifier invalid = %q, want invalid", got)
@@ -1256,6 +1259,23 @@ func TestDrawingAnchorPolygon(t *testing.T) {
 	got2 := drawingAnchorPolygon(anchor2)
 	if len(got2) != 2 {
 		t.Fatalf("expected 2 points, got %d", len(got2))
+	}
+	// Word commonly stores tight-wrap vertices in a normalized 21600 grid.
+	// A full normalized rectangle must expand to the anchor's actual extent,
+	// not remain a tiny 21600-EMU sliver.
+	normalized := &parts.DrawingAnchor{
+		Extent: &parts.DrawingExtent{CX: 1828800, CY: 2743200},
+		WrapTight: &parts.DrawingWrapSided{Polygon: &parts.WrapPolygon{
+			Start:  parts.WrapPolygonPt{X: 0, Y: 0},
+			LineTo: []parts.WrapPolygonPt{{X: 21600, Y: 0}, {X: 21600, Y: 21600}, {X: 0, Y: 21600}},
+		}},
+	}
+	gotNormalized := drawingAnchorPolygon(normalized)
+	if len(gotNormalized) != 4 {
+		t.Fatalf("normalized polygon points = %d, want 4", len(gotNormalized))
+	}
+	if math.Abs(gotNormalized[1][0]-144) > 0.01 || math.Abs(gotNormalized[2][1]-216) > 0.01 {
+		t.Errorf("normalized polygon = %v, want 144pt by 216pt contour", gotNormalized)
 	}
 }
 

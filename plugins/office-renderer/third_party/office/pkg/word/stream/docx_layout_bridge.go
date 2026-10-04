@@ -546,6 +546,7 @@ func populateAnchoredImage(img *wordir.Image, raw wordsax.Event) {
 	anchor := raw.DrawingModel.Anchor
 	placement := drawingPlacementFromAnchor(anchor)
 	placement.Width, placement.Height = img.Width, img.Height
+	placement.WrapPolygon = drawingAnchorWrapPolygonForExtent(anchor, img.Width, img.Height)
 	if anchor.PositionH != nil {
 		placement.X = anchor.PositionH.PosOffset
 		placement.XRelative = anchor.PositionH.RelativeFrom

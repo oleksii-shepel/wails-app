@@ -2381,7 +2381,7 @@ func (r *htmlRenderer) renderPageParagraphBox(boxes []layout.BlockBox, index int
 // for a paragraph whose only content is floating anchors. The anchor runs still
 // need to be visited so their objects are emitted to the page overlay.
 func renderPageParagraphRuns(r *htmlRenderer, p *resolve.Paragraph, runs []resolve.Run, includeBookmarks bool, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore bool) {
-	if paragraphIsFloatingAnchorOnly(runs) {
+	if paragraphIsFloatingAnchorOnly(runs) && !paragraphHasOnlyBehindTextAnchors(runs) {
 		r.renderParagraphSegmentContent(
 			p, runs, includeBookmarks, suppressBefore, suppressAfter, suppressListMarker, suppressFirstLineIndent, forceColumnBreakBefore,
 			"display:contents",
@@ -5655,20 +5655,14 @@ func (r *htmlRenderer) renderParagraphFloatImage(img *resolve.Image) bool {
 	if !ok {
 		return false
 	}
-	// Keep wrapping in normal document flow, but render the picture itself at
-	// the layout engine's exact page coordinate. A real image used as a CSS
-	// float drifts whenever browser line metrics differ from Word's, and it
-	// cannot preserve page-relative z-ordering. The invisible proxy owns only
-	// the exclusion geometry; the visible image belongs to the page overlay.
-	r.writeImageWrapProxy(styleAttrs)
-	r.renderImageTo(r.imageOverlayTarget(img), img, nil)
+	// The picture itself must own the CSS float.  A hidden proxy reserves the
+	// right amount of space, but its separately positioned page-overlay image
+	// can still paint over the text when the browser's line metrics differ from
+	// the pagination metrics.  Keeping both the geometry and the visible bitmap
+	// in the same flow box gives square, tight, and through anchors real wrapping.
+	styleAttrs = append(styleAttrs, fmt.Sprintf("position:relative;z-index:%d", r.normalizeZIndex(img.ZIndex)))
+	r.writeImageElement(&r.buf, img, styleAttrs, nil)
 	return true
-}
-
-func (r *htmlRenderer) writeImageWrapProxy(styleAttrs []string) {
-	styles := append([]string(nil), styleAttrs...)
-	styles = append(styles, "visibility:hidden", "pointer-events:none")
-	fmt.Fprintf(&r.buf, `<span class="word-wrap-proxy" aria-hidden="true"%s></span>`, inlineStyleAttr(styles))
 }
 
 func (r *htmlRenderer) imageOverlayTarget(img *resolve.Image) *bytes.Buffer {
@@ -6562,11 +6556,31 @@ func (r *htmlRenderer) renderFastPreviewImage(buf *bytes.Buffer, img *resolve.Im
 	if img.DistBottom > 0 {
 		styles = append(styles, fmt.Sprintf("margin-bottom:%.1fpt", img.DistBottom))
 	}
-	switch strings.ToLower(img.XAlign) {
-	case "right":
-		styles = append(styles, "margin-left:auto")
-	case "center":
-		styles = append(styles, "margin-left:auto", "margin-right:auto")
+	// Preserve the useful part of Word's square/tight wrapping in the one-page
+	// preview. A CSS float stays in document flow, unlike the page-absolute
+	// placement used by the fully paginated renderer, so anchors from later
+	// pages cannot cover this preview's content.
+	wrapType := strings.ToLower(strings.TrimSpace(img.WrapType))
+	wrapsText := wrapType == "square" || wrapType == "tight" || wrapType == "through"
+	if wrapsText && !img.BehindDoc {
+		side := "left"
+		if strings.EqualFold(img.XAlign, "right") || (!strings.EqualFold(img.XAlign, "center") && img.X > 0) {
+			side = "right"
+		}
+		styles = append(styles, "float:"+side)
+		if side == "left" && img.DistRight > 0 {
+			styles = append(styles, fmt.Sprintf("margin-right:%.1fpt", img.DistRight))
+		}
+		if side == "right" && img.DistLeft > 0 {
+			styles = append(styles, fmt.Sprintf("margin-left:%.1fpt", img.DistLeft))
+		}
+	} else {
+		switch strings.ToLower(img.XAlign) {
+		case "right":
+			styles = append(styles, "margin-left:auto")
+		case "center":
+			styles = append(styles, "margin-left:auto", "margin-right:auto")
+		}
 	}
 	if img.BorderColor != "" && img.BorderWidth > 0 {
 		styles = append(styles, fmt.Sprintf("border:%.2fpt solid #%s", img.BorderWidth, img.BorderColor))
@@ -9493,6 +9507,41 @@ func paragraphIsFloatingAnchorOnly(runs []resolve.Run) bool {
 		}
 	}
 	return foundAnchor
+}
+
+// paragraphHasOnlyBehindTextAnchors identifies empty anchor paragraphs that
+// still own a normal blank paragraph line. The background drawing itself is
+// out of flow, but replacing its host with display:contents also erases that
+// line and pulls following text upward. Keep the host block so the subsequent
+// text preserves the authored paragraph break.
+func paragraphHasOnlyBehindTextAnchors(runs []resolve.Run) bool {
+	found := false
+	for _, run := range runs {
+		switch run.Kind {
+		case "image":
+			if run.Image != nil && run.Image.Floating {
+				if !run.Image.BehindDoc {
+					return false
+				}
+				found = true
+			}
+		case "textbox":
+			if run.TextBox != nil && run.TextBox.Floating {
+				if !run.TextBox.BehindDoc {
+					return false
+				}
+				found = true
+			}
+		case "shape":
+			if run.Shape != nil && run.Shape.Floating {
+				if !run.Shape.BehindDoc {
+					return false
+				}
+				found = true
+			}
+		}
+	}
+	return found
 }
 
 // resolvedMarkerTemplate turns an eagerly resolved marker such as "3.", "(iv)"

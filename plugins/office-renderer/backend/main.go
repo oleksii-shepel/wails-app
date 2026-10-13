@@ -8,17 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"office/pkg/ooxml/opc"
 	pptopen "office/pkg/presentation"
 	pptlegacy "office/pkg/presentation/parsers/legacy"
 	pptrender "office/pkg/presentation/render"
+	"office/pkg/sheet"
 	sheetlegacy "office/pkg/sheet/parsers/legacy"
-	sheetparts "office/pkg/sheet/parsers/ooxml/parts"
-	sheetresolve "office/pkg/sheet/parsers/ooxml/resolve"
 	sheetrender "office/pkg/sheet/render"
+	"office/pkg/word"
 	wordlegacy "office/pkg/word/parsers/legacy"
-	wordparts "office/pkg/word/parsers/ooxml/parts"
-	wordresolve "office/pkg/word/parsers/ooxml/resolve"
 	wordrender "office/pkg/word/render"
 )
 
@@ -117,16 +114,11 @@ func render(path string) (string, error) {
 		}
 		return pptrender.HTML(presentation)
 	case "docx":
-		pkg, err := opc.Open(path)
-		if err != nil {
-			return "", err
-		}
-		parts, err := wordparts.LoadPackage(pkg)
-		if err != nil {
-			return "", err
-		}
-		parts.SourcePath = path
-		doc, err := wordresolve.ResolvePackage(parts)
+		// Keep DOCX previews on Word's public streaming path. Besides being the
+		// actively maintained reader, it supplies physical layout slots for
+		// explicit line breaks; the retired package resolver can collapse those
+		// breaks into a single absolute slot, allowing following blocks to overlap.
+		doc, err := word.Open(path)
 		if err != nil {
 			return "", err
 		}
@@ -134,15 +126,7 @@ func render(path string) (string, error) {
 		html, _, err := wordrender.HTMLWithOptions(doc, wordrender.HTMLOptions{})
 		return html, err
 	case "xlsx":
-		pkg, err := opc.Open(path)
-		if err != nil {
-			return "", err
-		}
-		parts, err := sheetparts.LoadPackage(pkg)
-		if err != nil {
-			return "", err
-		}
-		book, err := sheetresolve.ResolvePackage(parts)
+		book, err := sheet.Open(path)
 		if err != nil {
 			return "", err
 		}

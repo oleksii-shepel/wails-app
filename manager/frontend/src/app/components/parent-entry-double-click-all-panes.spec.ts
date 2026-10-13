@@ -52,6 +52,15 @@ describe('parent entry double-click navigation parity', () => {
     }
   });
 
+  it('restores the parent viewport after entering and leaving a directory', () => {
+    const directory = files('directory-pane.component.ts');
+    expect(directory).toContain('private readonly scrollPositionsByPath');
+    expect(directory).toContain('this.rememberCurrentScrollPosition();');
+    expect(directory).toContain('this.paneViewHost.getScrollTop()');
+    expect(directory).toContain('this.restoreScrollTop(parentScrollTop)');
+    expect(directory).toContain('this.paneViewHost.setScrollTop(top);');
+  });
+
   it('always allows parent navigation from double-click handlers', () => {
     expect(files('pane-list.component.ts')).toContain(
       'if (this.isParentEntry(entry)) {\n      this.navigate.emit(entry);',

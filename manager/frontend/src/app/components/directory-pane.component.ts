@@ -1720,6 +1720,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private virtualScrollTop = 0;
   private virtualViewportHeight = 600;
   private virtualViewportWidth = 800;
+  private readonly scrollPositionsByPath = new Map<string, number>();
 
   private readonly virtualThreshold = 300;
   private readonly listRowExtent = 30;
@@ -3910,10 +3911,16 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!parent || parent === this.path) return;
 
     this.lastAction = 'parent directory';
-    await this.load(parent, {
+    const parentScrollTop = this.scrollPositionsByPath.get(
+      this.scrollPositionKey(parent),
+    );
+    const loaded = await this.load(parent, {
       history: 'record',
       selectPath: this.path,
     });
+    if (loaded && parentScrollTop !== undefined) {
+      queueMicrotask(() => this.restoreScrollTop(parentScrollTop));
+    }
   }
 
   showNavigationTrail(direction: 'back' | 'forward', event: MouseEvent): void {
@@ -3989,6 +3996,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (entry.type === FileType.DIRECTORY) {
       this.lastAction = `open directory: ${entry.name}`;
+      this.rememberCurrentScrollPosition();
       void this.load(entry.path, { history: 'record' });
       return;
     }
@@ -7891,6 +7899,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private currentScrollTop(): number {
+    if (this.paneViewHost) {
+      return Math.max(0, this.paneViewHost.getScrollTop());
+    }
+
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
@@ -8210,13 +8222,31 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private restoreScrollTop(scrollTop: number): void {
+    const top = Math.max(0, scrollTop);
+    if (this.paneViewHost) {
+      this.paneViewHost.setScrollTop(top);
+      return;
+    }
+
     const viewport =
       this.viewMode === 'tree'
         ? this.treeViewport?.nativeElement
         : this.listViewport?.nativeElement;
     if (!viewport) return;
 
-    viewport.scrollTop = Math.max(0, scrollTop);
+    viewport.scrollTop = top;
+  }
+
+  private rememberCurrentScrollPosition(): void {
+    if (!this.path) return;
+    this.scrollPositionsByPath.set(
+      this.scrollPositionKey(this.path),
+      this.currentScrollTop(),
+    );
+  }
+
+  private scrollPositionKey(path: string): string {
+    return path.trim().replace(/\\/g, '/').toLowerCase();
   }
 
   private markUserInteraction(): void {

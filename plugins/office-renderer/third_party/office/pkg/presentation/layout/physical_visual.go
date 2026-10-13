@@ -708,7 +708,7 @@ func maxFloat64(a, b float64) float64 {
 // bounds after effect overflow and the final shape rotation have been applied.
 // This keeps effect-aware hit/clip/paint composition out of renderers.
 func resolvePhysicalPaintBounds(shape *ir.Shape, overflow PhysicalOverflowPlan, transform PhysicalTransformPlan) PhysicalPaintBoundsPlan {
-	if shape == nil || shape.Bounds.W <= 0 || shape.Bounds.H <= 0 {
+	if shape == nil || (shape.Bounds.W <= 0 && shape.Bounds.H <= 0) {
 		return PhysicalPaintBoundsPlan{}
 	}
 	const emuPerPt = 12700.0
@@ -716,6 +716,25 @@ func resolvePhysicalPaintBounds(shape *ir.Shape, overflow PhysicalOverflowPlan, 
 	y := float64(shape.Bounds.Y) / emuPerPt
 	w := float64(shape.Bounds.W) / emuPerPt
 	h := float64(shape.Bounds.H) / emuPerPt
+	if w <= 0 || h <= 0 {
+		// A horizontal or vertical rule is authored as a zero-thickness
+		// connector; its stroke still needs a paint box, otherwise the whole
+		// visual is dropped as empty. Give the flat axis the authored line
+		// width, never less than a hairline.
+		if shape.Kind != ir.ShapeConnector && shape.Kind != ir.ShapeSmartArtConnector {
+			return PhysicalPaintBoundsPlan{}
+		}
+		thickness := math.Max(overflow.LeftPt+overflow.RightPt+overflow.TopPt+overflow.BottomPt, 0)
+		if thickness <= 0 {
+			thickness = math.Max(shape.LineWidthPt, 0.75)
+		}
+		if w <= 0 {
+			w = thickness
+		}
+		if h <= 0 {
+			h = thickness
+		}
+	}
 	left := x - overflow.LeftPt
 	top := y - overflow.TopPt
 	right := x + w + overflow.RightPt
@@ -975,11 +994,21 @@ func materializePhysicalGradientOrientation(visual *ShapeVisualPlan, transform P
 		gradient.AngleDeg = math.Atan2(math.Sin(rad)*h, math.Cos(rad)*w) * 180 / math.Pi
 	}
 	if !gradient.RotateWithShape {
+		// The renderer paints the filled geometry inside the shape container,
+		// so a rotWithShape=0 angle (authored in the painted frame) has to be
+		// mapped back through the container transform. Invert
+		// R(rotation) * scale(flipH, flipV): subtract the rotation, add 180
+		// degrees for flipH (a horizontal mirror reverses the x half-axis and
+		// with it the direction), and mirror the angle when exactly one flip is
+		// present (the odd reflection changes handedness). Both orderings are
+		// equivalent modulo 360.
 		gradient.AngleDeg -= transform.RotationDeg
-	}
-	// Reflections change the handedness of the local gradient coordinate system.
-	if transform.FlipH != transform.FlipV {
-		gradient.AngleDeg = -gradient.AngleDeg
+		if transform.FlipH {
+			gradient.AngleDeg += 180
+		}
+		if transform.FlipH != transform.FlipV {
+			gradient.AngleDeg = -gradient.AngleDeg
+		}
 	}
 	for gradient.AngleDeg < 0 {
 		gradient.AngleDeg += 360

@@ -68,8 +68,10 @@ func DecodeGeometryText(props []escher.Property) GeometryText {
 			if prop.IsComplex || prop.IsBlip {
 				continue
 			}
-			values := uint16(prop.Value)
-			use := uint16(prop.Value >> 16)
+			// MS-ODRAW 2.3.22.10 pairs a "use" bit with its value bit: the low
+			// 16 bits carry the fUse* flags, the high 16 the values themselves.
+			use := uint16(prop.Value)
+			values := uint16(prop.Value >> 16)
 			get := func(bit uint) (bool, bool) {
 				mask := uint16(1 << bit)
 				if use&mask == 0 {

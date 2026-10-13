@@ -17,7 +17,7 @@ func TestParserCompletenessConnectorFamilyClaimsBeforeGenericFallback(t *testing
 		containers: []legacyPptShapeContainer{{ShapeID: 601, Node: connector}},
 	}}}
 
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	var matches []*presentationir.Shape
 	for _, shape := range projection.Shapes {
 		if shape != nil && shape.OriginalShapeID == 601 {
@@ -45,7 +45,7 @@ func TestParserCompletenessGenericFallbackStillOwnsOrdinaryAutoShape(t *testing.
 		containers: []legacyPptShapeContainer{{ShapeID: 602, Node: ordinary}},
 	}}}
 
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(projection.Shapes) != 1 || projection.Shapes[0].OriginalShapeID != 602 {
 		t.Fatalf("ordinary AutoShape projection = %+v, want canonical fallback owner", projection.Shapes)
 	}

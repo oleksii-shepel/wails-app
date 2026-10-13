@@ -717,6 +717,16 @@ func wmfToSVGWithOptions(data []byte, opts Options) ([]byte, float64, float64, b
 				style := binary.LittleEndian.Uint16(params[0:2])
 				alloc(&wmfObject{kind: "brush", color: wmfColor(params[2:6]), null: style == 1})
 			}
+		case 0x0142: // META_CREATEPATTERNBRUSH
+			// The record still owns an object-table slot, and skipping it shifted
+			// every later handle: the boxes of the 41246-2 embedded preview then
+			// selected the wrong object and lost their fills. A bitmap pattern
+			// takes its foreground from the text color, which is the box color in
+			// that preview and what PowerPoint paints.
+			if len(params) >= 2 {
+				style := binary.LittleEndian.Uint16(params[0:2])
+				alloc(&wmfObject{kind: "brush", color: state.textColor, null: style == 1})
+			}
 		case 0x02fb: // META_CREATEFONTINDIRECT
 			if len(params) >= 18 {
 				height := math.Abs(float64(int16(binary.LittleEndian.Uint16(params[0:2]))))

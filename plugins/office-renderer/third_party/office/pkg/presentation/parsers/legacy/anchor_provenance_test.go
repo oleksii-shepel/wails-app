@@ -81,15 +81,30 @@ func TestLegacyParagraphSemanticsCannotRewriteOLEBounds(t *testing.T) {
 }
 
 func TestEmptyParagraphUsesCharacterMetricsAfterParagraphMarkBoundary(t *testing.T) {
-	cfRuns := []stpaCFRun{
+	// A marked paragraph mark owns a dedicated single-character CF run that
+	// starts at the CR: PowerPoint's own conversion reproduces its size as
+	// endParaRPr. The covering run (a continuation of the preceding paragraph's
+	// text) must not win over it.
+	marked := []stpaCFRun{
 		{CharCount: 1, FontSize: 2800, FontFamily: "Times New Roman", Color: "FFFFFF"},
 		{CharCount: 1, FontSize: 1200, FontFamily: "Times New Roman", Color: "FFFFFF"},
 	}
-	runs := buildRunsFromCF("", cfRuns, 0, 1)
+	runs := buildRunsFromCF("", marked, 1, 2)
 	if len(runs) != 1 {
 		t.Fatalf("runs = %d, want 1", len(runs))
 	}
 	if runs[0].FontSize != 1200 {
-		t.Fatalf("empty paragraph font size = %d, want following paragraph-mark CF size 1200", runs[0].FontSize)
+		t.Fatalf("empty paragraph font size = %d, want the paragraph mark's own CF size 1200", runs[0].FontSize)
+	}
+
+	// Without a dedicated run at the CR the boundary after the mark describes
+	// the mark, which is what kept the slide-14 spacer metrics (28pt -> 12pt).
+	covering := []stpaCFRun{
+		{CharCount: 2, FontSize: 2800, FontFamily: "Times New Roman", Color: "FFFFFF"},
+		{CharCount: 1, FontSize: 1200, FontFamily: "Times New Roman", Color: "FFFFFF"},
+	}
+	runs = buildRunsFromCF("", covering, 1, 2)
+	if len(runs) != 1 || runs[0].FontSize != 1200 {
+		t.Fatalf("covering-run empty paragraph = %+v, want the following CF size 1200", runs)
 	}
 }

@@ -2,6 +2,7 @@ package layout
 
 import (
 	"math"
+	"strings"
 
 	"office/pkg/ooxml/drawing"
 	ir "office/pkg/presentation/ir"
@@ -16,6 +17,11 @@ type ParagraphMetrics struct {
 	SpaceBeforeScale, SpaceAfterScale         float64
 	LineHeightScale                           float64
 	LineHeightPt                              float64
+	// LineSpacingCompressed is true when the paragraph authors a percentage
+	// line spacing below 100%, which tightens the line box. PowerPoint
+	// compresses the leading, never the text itself, so the box never falls
+	// below the run's own font size (see paragraphPhysicalLineHeightPt).
+	LineSpacingCompressed                     bool
 	AvailableWidthPt                          float64
 	FirstLineAvailableWidthPt                 float64
 	HasMarginLeft, HasMarginRight             bool
@@ -57,7 +63,13 @@ func ResolveParagraphMetrics(p *ir.Paragraph, frameWidthPt, baseFontPt, lineScal
 	if p.HasSpaceBefore {
 		m.HasSpaceBefore = true
 		m.SpaceBeforePt = float64(p.SpaceBefore) / 100.0
-	} else if p.SpaceBeforePct > 0 && baseFontPt > 0 {
+	}
+	if p.SpaceBeforePct > 0 && baseFontPt > 0 && m.SpaceBeforePt <= 0 {
+		// Legacy PPT states the authored spacing as a percentage of the line
+		// height. A paragraph can carry HasSpaceBefore (the author touched the
+		// field) with an absolute value of zero while the percentage is the
+		// real authored distance; ignoring it flattened the 0.2-line paragraph
+		// gap PowerPoint keeps between every body paragraph of 41246-2.
 		m.HasSpaceBefore = true
 		m.SpaceBeforeScale = float64(p.SpaceBeforePct) / 100000.0
 		m.SpaceBeforePt = paragraphReferenceLineHeightPt(p, baseFontPt, m.LineHeightScale) * m.SpaceBeforeScale
@@ -65,7 +77,15 @@ func ResolveParagraphMetrics(p *ir.Paragraph, frameWidthPt, baseFontPt, lineScal
 	if p.HasSpaceAfter {
 		m.HasSpaceAfter = true
 		m.SpaceAfterPt = float64(p.SpaceAfter) / 100.0
-	} else if p.SpaceAfterPct > 0 && baseFontPt > 0 {
+	}
+	if !paragraphHasVisibleRuns(p) && baseFontPt > 0 {
+		// A blank paragraph's line box is its paragraph mark's size, not the
+		// face's 1.2-em line box scaled by the authored percentage: 41246-2
+		// slide 11's five spacer paragraphs (8/9/16/20/24pt marks) each ran
+		// 1.7pt tall and pushed the last body line ten points down its frame.
+		m.LineHeightPt = baseFontPt
+	}
+	if p.SpaceAfterPct > 0 && baseFontPt > 0 && m.SpaceAfterPt <= 0 {
 		m.HasSpaceAfter = true
 		m.SpaceAfterScale = float64(p.SpaceAfterPct) / 100000.0
 		m.SpaceAfterPt = paragraphReferenceLineHeightPt(p, baseFontPt, m.LineHeightScale) * m.SpaceAfterScale
@@ -75,7 +95,13 @@ func ResolveParagraphMetrics(p *ir.Paragraph, frameWidthPt, baseFontPt, lineScal
 		// line-space reduction still scales that authored distance.
 		m.LineHeightPt = float64(p.LineSpacingPt) / 100.0 * m.LineHeightScale
 	} else if p.HasLineSpacing && p.LineSpacingPct > 0 {
-		m.LineHeightScale = float64(p.LineSpacingPct) / 100000.0 * m.LineHeightScale
+		pct := float64(p.LineSpacingPct) / 100000.0
+		m.LineHeightScale = pct * m.LineHeightScale
+		// 41246-2 slide 14 authors its "(OP et opérateurs de formation)"
+		// paragraph at 40% line spacing; the reference draws that 20pt line at a
+		// 20.04pt pitch rather than the 9.6pt the bare percentage implies, so a
+		// compressed line still keeps the text's own height.
+		m.LineSpacingCompressed = pct < 1
 	}
 	return m
 }
@@ -121,4 +147,21 @@ func TextFrameContentHeightPt(shape *ir.Shape, frame TextFrameMetrics) float64 {
 	}
 	height := drawing.EMUToPoints(shape.Bounds.H) - frame.InsetTopPt - frame.InsetBottomPt
 	return math.Max(0, height)
+}
+
+// paragraphHasVisibleRuns reports whether a paragraph has any run text beyond
+// whitespace. Empty spacer paragraphs carry only a paragraph mark.
+func paragraphHasVisibleRuns(p *ir.Paragraph) bool {
+	if p == nil {
+		return false
+	}
+	for _, r := range p.Runs {
+		if r == nil {
+			continue
+		}
+		if strings.TrimSpace(r.Text) != "" || r.MathML != "" {
+			return true
+		}
+	}
+	return false
 }

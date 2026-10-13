@@ -102,7 +102,7 @@ func TestPass9GenericProjectionOwnsZeroAxisStrokedNonPrimitive(t *testing.T) {
 	}
 	scene := legacyPptVisualScene{}
 	scene.dispatch.containers.containers = []legacyPptShapeContainer{{ShapeID: node.ShapeID, Node: node}}
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(projection.Shapes) != 1 {
 		t.Fatalf("projected shapes = %d, want 1", len(projection.Shapes))
 	}
@@ -125,7 +125,7 @@ func TestPass9GenericProjectionPreservesNonPaintingDegenerateShape(t *testing.T)
 	}
 	scene := legacyPptVisualScene{}
 	scene.dispatch.containers.containers = []legacyPptShapeContainer{{ShapeID: node.ShapeID, Node: node}}
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(projection.Shapes) != 1 || projection.Shapes[0].OriginalShapeID != node.ShapeID {
 		t.Fatalf("projection = %+v, want degenerate authored shape preserved", projection.Shapes)
 	}

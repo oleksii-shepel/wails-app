@@ -21,7 +21,7 @@ func TestParserCompletenessUnresolvedPictureFrameFallsBackToCanonicalOfficeArt(t
 		},
 	}}
 
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(projection.Shapes) != 1 {
 		t.Fatalf("shapes = %d, want unresolved picture frame retained as OfficeArt shape", len(projection.Shapes))
 	}

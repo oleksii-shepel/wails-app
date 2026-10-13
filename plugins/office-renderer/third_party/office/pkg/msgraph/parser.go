@@ -1225,6 +1225,11 @@ func scanGraphGroupSemantics(workbook []byte) graphGroupSemantics {
 	currentGroup := -1
 	groupDepth := -1
 	currentSeries := -1
+	// Series are numbered in stream order. currentSeries only says which one is
+	// inside the open block, so the count has to survive a block ending:
+	// resetting it would renumber the next series as 0 and collapse every
+	// series onto the first group binding.
+	seriesCount := 0
 	seriesDepth := -1
 
 	ensureGroup := func(i int) *graphGroup {
@@ -1307,7 +1312,8 @@ func scanGraphGroupSemantics(workbook []byte) graphGroupSemantics {
 				ensureGroup(currentGroup).chartType = chartpkg.ChartSurface
 			}
 		case biffChartSeries:
-			currentSeries++
+			currentSeries = seriesCount
+			seriesCount++
 			seriesDepth = depth + 1
 		case biffChartSerToCrt:
 			if currentSeries >= 0 && len(payload) >= 2 {

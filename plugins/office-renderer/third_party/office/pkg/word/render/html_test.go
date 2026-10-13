@@ -14,8 +14,6 @@ import (
 	"office/pkg/ooxml/opc"
 	resolve "office/pkg/word/ir"
 	"office/pkg/word/parsers/legacy"
-	"office/pkg/word/parsers/ooxml/parts"
-	wordresolve "office/pkg/word/parsers/ooxml/resolve"
 	"office/pkg/word/render"
 )
 
@@ -4767,96 +4765,6 @@ func TestHTMLVectorShapeTreeAlphaReflects(t *testing.T) {
 	}
 	if strings.Contains(out, `class="shape__vector-reflection-content" style="overflow:visible;opacity:0.5000"`) {
 		t.Fatalf("expected combined alpha on the reflected layer, not a leaked inner opacity: %s", out)
-	}
-}
-
-func TestHTMLScopedHyperlinksRenderDifferentURLsInDocumentAndHeader(t *testing.T) {
-	pkg := &parts.Package{
-		MainPartName: "word/document.xml",
-		Document: &parts.Document{
-			Body: &parts.Body{
-				Blocks: []parts.BodyBlock{{
-					Kind: parts.BodyBlockParagraph,
-					Paragraph: &parts.Paragraph{
-						Runs: []*parts.Run{{
-							Contents: []parts.RunContent{{
-								Kind: parts.RunContentText,
-								Text: &parts.Text{Value: "doc text"},
-							}},
-						}},
-						Hyperlinks: []*parts.Hyperlink{{
-							ID: "rId1",
-							Runs: []*parts.Run{{
-								Contents: []parts.RunContent{{
-									Kind: parts.RunContentText,
-									Text: &parts.Text{Value: "doc link"},
-								}},
-							}},
-						}},
-					},
-				}},
-				Section: &parts.SectionProperties{
-					HeaderRefs: []parts.HeaderFooterReference{{Type: "default", ID: "rIdHdr"}},
-				},
-			},
-		},
-		PartRels: map[string]*parts.Relationships{
-			"word/document.xml": {
-				Relationships: []*parts.Relationship{
-					{ID: "rId1", Type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", Target: "https://doc.example.com", TargetMode: "External"},
-					{ID: "rIdHdr", Type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header", Target: "header1.xml"},
-				},
-			},
-			"word/header1.xml": {
-				Relationships: []*parts.Relationship{
-					{ID: "rId1", Type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", Target: "https://header.example.com", TargetMode: "External"},
-				},
-			},
-		},
-		ScopedHyperlinkURLs: map[parts.RelationshipRef]string{
-			{SourcePart: "word/document.xml", ID: "rId1"}: "https://doc.example.com",
-			{SourcePart: "word/header1.xml", ID: "rId1"}:  "https://header.example.com",
-		},
-		Headers: map[string]*parts.Header{
-			"word/header1.xml": {
-				Paragraphs: []*parts.Paragraph{{
-					Runs: []*parts.Run{{
-						Contents: []parts.RunContent{{
-							Kind: parts.RunContentText,
-							Text: &parts.Text{Value: "header text"},
-						}},
-					}},
-					Hyperlinks: []*parts.Hyperlink{{
-						ID: "rId1",
-						Runs: []*parts.Run{{
-							Contents: []parts.RunContent{{
-								Kind: parts.RunContentText,
-								Text: &parts.Text{Value: "header link"},
-							}},
-						}},
-					}},
-				}},
-			},
-		},
-	}
-
-	doc, err := wordresolve.ResolvePackage(pkg)
-	if err != nil {
-		t.Fatalf("ResolvePackage: %v", err)
-	}
-
-	out, err := render.HTML(doc)
-	if err != nil {
-		t.Fatalf("HTML: %v", err)
-	}
-
-	// The rendered HTML should contain both hyperlink URLs since each
-	// resolves to its own scoped target.
-	if !strings.Contains(out, `href="https://doc.example.com"`) {
-		t.Errorf("document hyperlink URL missing from rendered HTML: %s", out)
-	}
-	if !strings.Contains(out, `href="https://header.example.com"`) {
-		t.Errorf("header hyperlink URL missing from rendered HTML: %s", out)
 	}
 }
 

@@ -109,10 +109,14 @@ func TestShapeFromEscherProjectsLegacyGradientFill(t *testing.T) {
 	if got.Fill.Kind != ir.FillGradient || got.Fill.Gradient == nil {
 		t.Fatalf("fill = %#v, want gradient", got.Fill)
 	}
-	if got.Fill.Gradient.Type != "linear" || got.Fill.Gradient.Angle != 45 {
-		t.Fatalf("gradient = %#v, want linear 45deg", got.Fill.Gradient)
+	// OfficeArt angles are clockwise from straight down, DrawingML angles are
+	// clockwise from the positive x-axis: 45deg authored -> 135deg in IR.
+	if got.Fill.Gradient.Type != "linear" || got.Fill.Gradient.Angle != 135 {
+		t.Fatalf("gradient = %#v, want linear 135deg", got.Fill.Gradient)
 	}
-	if len(got.Fill.Gradient.Stops) != 2 || got.Fill.Gradient.Stops[0].Color != "FF0000" || got.Fill.Gradient.Stops[1].Color != "0000FF" {
+	// With no authored fillFocus OfficeArt blends from the background color to
+	// the foreground color (Apache POI's HSLFFill builds the same order).
+	if len(got.Fill.Gradient.Stops) != 2 || got.Fill.Gradient.Stops[0].Color != "0000FF" || got.Fill.Gradient.Stops[1].Color != "FF0000" {
 		t.Fatalf("stops = %#v", got.Fill.Gradient.Stops)
 	}
 }
@@ -459,5 +463,48 @@ func TestShapeFromEscherLineDoesNotAcquireOfficeArtDefaultAreaFill(t *testing.T)
 	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 20})
 	if got.Fill.Kind != ir.FillNone {
 		t.Fatalf("line fill = %#v, want none", got.Fill)
+	}
+}
+
+func TestShapeFromEscherTextureFillCarriesBlipIndexAndTile(t *testing.T) {
+	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 136, Properties: []escher.Property{
+		{ID: escher.PropFillType, Value: 2}, // msofillTextured
+		{ID: escher.PropFillBlip, Value: 7},
+		{ID: escher.PropFillColor, Value: 0x0099CCFF},
+	}})
+	if got.Fill.Kind != ir.FillPicture || got.Fill.Picture == nil {
+		t.Fatalf("texture fill = %#v, want picture", got.Fill)
+	}
+	if got.Fill.Picture.BlipRef != 7 {
+		t.Fatalf("blip ref = %d, want 7", got.Fill.Picture.BlipRef)
+	}
+	if got.Fill.Picture.Tile == nil || got.Fill.Picture.Tile.ScaleX != 1 || got.Fill.Picture.Tile.ScaleY != 1 {
+		t.Fatalf("texture tile = %#v, want a natural-size tile", got.Fill.Picture.Tile)
+	}
+	if got.Fill.Alpha != 1 {
+		t.Fatalf("alpha = %v, want opaque", got.Fill.Alpha)
+	}
+}
+
+func TestShapeFromEscherPictureFillStretches(t *testing.T) {
+	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 136, Properties: []escher.Property{
+		{ID: escher.PropFillType, Value: 3}, // msofillPicture
+		{ID: escher.PropFillBlip, Value: 2},
+	}})
+	if got.Fill.Kind != ir.FillPicture || got.Fill.Picture == nil || got.Fill.Picture.BlipRef != 2 {
+		t.Fatalf("picture fill = %#v", got.Fill)
+	}
+	if got.Fill.Picture.Tile != nil {
+		t.Fatalf("picture tile = %#v, want stretched", got.Fill.Picture.Tile)
+	}
+}
+
+func TestShapeFromEscherTextureFillWithoutBlipFallsBackToColor(t *testing.T) {
+	got := ShapeFromEscher(&escher.ShapeNode{ShapeType: 136, Properties: []escher.Property{
+		{ID: escher.PropFillType, Value: 2},
+		{ID: escher.PropFillColor, Value: 0x0099CCFF},
+	}})
+	if got.Fill.Kind != ir.FillSolid || got.Fill.Color != "FFCC99" {
+		t.Fatalf("fill without a blip = %#v, want the authored solid color", got.Fill)
 	}
 }

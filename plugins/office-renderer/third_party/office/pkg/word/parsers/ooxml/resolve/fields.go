@@ -1,10 +1,8 @@
 package resolve
 
 import (
-	"path/filepath"
 	"strings"
 
-	"office/pkg/ooxml/opc"
 	"office/pkg/word/parsers/ooxml/parts"
 )
 
@@ -51,81 +49,6 @@ func buildAutoTextEntryIndex(ctx *resolveCtx) map[string]autoTextEntry {
 		return nil
 	}
 	return index
-}
-
-// mergeAttachedTemplateAutoText loads the attached template (if any) and
-// appends its AutoText glossary entries to the supplied index.  Entries from
-// the document's own glossary take precedence; template entries fill gaps.
-func mergeAttachedTemplateAutoText(ctx *resolveCtx, index map[string]autoTextEntry) {
-	if ctx == nil || ctx.pkg == nil || index == nil {
-		return
-	}
-	if ctx.pkg.Settings == nil || ctx.pkg.Settings.AttachedTemplate == nil || ctx.pkg.Settings.AttachedTemplate.RelID == "" {
-		return
-	}
-	if ctx.pkg.SourcePath == "" {
-		return
-	}
-
-	// Resolve the template relationship target.
-	var templateTarget string
-	if rels := ctx.pkg.PartRels[ctx.pkg.SettingsPartName]; rels != nil {
-		for _, rel := range rels.Relationships {
-			if rel != nil && rel.ID == ctx.pkg.Settings.AttachedTemplate.RelID {
-				templateTarget = rel.Target
-				break
-			}
-		}
-	}
-	if templateTarget == "" {
-		return
-	}
-
-	// Resolve relative to the document's directory.
-	templatePath := templateTarget
-	if !filepath.IsAbs(templatePath) {
-		docDir := filepath.Dir(ctx.pkg.SourcePath)
-		templatePath = filepath.Join(docDir, templatePath)
-	}
-
-	tplPkg, err := opc.Open(templatePath)
-	if err != nil {
-		return
-	}
-	tplParts, err := parts.LoadPackage(tplPkg)
-	if err != nil {
-		return
-	}
-	if tplParts.Glossary == nil {
-		return
-	}
-
-	temp := *ctx
-	temp.pkg = tplParts
-	temp.currentPart = tplParts.GlossaryPartName
-	temp.autoTextEntries = nil
-	temp.nextParaIndex = 0
-	for _, entry := range tplParts.Glossary.DocParts {
-		if entry == nil || entry.Name == nil || entry.Body == nil {
-			continue
-		}
-		name := normalizeAutoTextName(entry.Name.Val)
-		if name == "" {
-			continue
-		}
-		if !isAutoTextGallery(entry) {
-			continue
-		}
-		// Skip if the document already defines this entry.
-		if _, exists := index[name]; exists {
-			continue
-		}
-		story := normalizeStory(&temp, entry.Body.Blocks, entry.Body.Paragraphs, entry.Body.Tables)
-		if strings.TrimSpace(story.Text) == "" {
-			continue
-		}
-		index[name] = autoTextEntry{Name: entry.Name.Val, Story: story, Text: story.Text}
-	}
 }
 
 func standaloneAutoTextName(paragraph *parts.Paragraph, resolved Paragraph) string {

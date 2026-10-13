@@ -74,7 +74,7 @@ func TestPass9LegacyPptCorpusOwnershipClosure(t *testing.T) {
 			return
 		}
 		auditedScenes++
-		projection := scene.completeProjection(legacySlideText{PersistID: persistID}, nil, nil, nil, nil, nil, nil)
+		projection := scene.completeProjection(legacySlideText{PersistID: persistID}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 		containersByID := make(map[uint32]legacyPptShapeContainer)
 		for _, container := range scene.dispatch.containers.shapeContainers() {
 			if container.ShapeID != 0 {

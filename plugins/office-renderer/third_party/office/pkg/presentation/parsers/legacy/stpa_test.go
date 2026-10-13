@@ -54,9 +54,10 @@ func TestParseCFExceptionBoldItalic(t *testing.T) {
 }
 
 func TestParseCFExceptionUnderlineStrike(t *testing.T) {
-	// masks bit 2 (underline) + bit 7 (strikeout) → grpfBasicAtom 0x84.
-	masks := uint32((1 << 2) | (1 << 7))
-	grpf := []byte{0x84, 0x00} // bits 2 and 7 set
+	// masks bit 2 (underline) + bit 8 (strikeout) → grpfBasicAtom 0x0104.
+	// The flag word's bit 7 is kumi, not strikethrough.
+	masks := uint32((1 << 2) | (1 << 8))
+	grpf := []byte{0x04, 0x01} // bits 2 and 8 set
 	stpa := append(marshalUint32LE(masks), grpf...)
 	run, _, ok := parseCFException(stpa, 0)
 	if !ok {
@@ -156,9 +157,9 @@ func TestParseCFExceptionTypefaceResolvesFontFamily(t *testing.T) {
 }
 
 func TestParseCFExceptionAllBasicFlags(t *testing.T) {
-	// bits 0-2 + 7 all set; grpfBasicAtom has bold+italic+underline+strikeout.
-	masks := uint32((1 << 0) | (1 << 1) | (1 << 2) | (1 << 7))
-	grpf := uint16((1 << 0) | (1 << 1) | (1 << 2) | (1 << 7))
+	// bits 0-2 + 8 all set; grpfBasicAtom has bold+italic+underline+strikeout.
+	masks := uint32((1 << 0) | (1 << 1) | (1 << 2) | (1 << 8))
+	grpf := uint16((1 << 0) | (1 << 1) | (1 << 2) | (1 << 8))
 	stpa := append(marshalUint32LE(masks), marshalUint16LE(grpf)...)
 	run, _, ok := parseCFException(stpa, 0)
 	if !ok {

@@ -12,7 +12,7 @@ func TestClass1MasterBackgroundUsesResolvedPersistOwnership(t *testing.T) {
 	pres := buildPresentationWithMasterComposition(
 		slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "",
 		map[int]string{42: "BADBAD", 7: "123456"},
-	)
+		legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides = %d, want 1", len(pres.Slides))
 	}
@@ -27,7 +27,7 @@ func TestClass1UnresolvedMasterDoesNotBorrowBackgroundByIdentifier(t *testing.T)
 	pres := buildPresentationWithMasterComposition(
 		slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "",
 		map[int]string{42: "BADBAD"},
-	)
+		legacyPptDefaultCanvas())
 	if got := pres.Slides[0].BgColor; got != "EEEEEE" {
 		t.Fatalf("BgColor = %q, want document/theme fallback EEEEEE", got)
 	}

@@ -69,7 +69,7 @@ func TestContextualBuilderResolvesSchemeColorFromStreamedTheme(t *testing.T) {
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="t1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`,
 		"ppt/theme/theme1.xml":                         `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:clrScheme name="x"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme></a:themeElements></a:theme>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestContextualBuilderInheritsLayoutThenMasterPlaceholderVisuals(t *testing.
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="10" name="master body"/><p:nvPr><p:ph type="body" idx="7"/></p:nvPr></p:nvSpPr><p:spPr><a:prstGeom prst="roundRect"/><a:ln w="25400"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:ln></p:spPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestContextualBuilderStreamsAndInheritsPlaceholderTextProperties(t *testing
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="10" name="master body"/><p:nvPr><p:ph type="body" idx="7"/></p:nvPr></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:pPr fontAlgn="base"/><a:r><a:rPr u="sng"><a:solidFill><a:srgbClr val="336699"/></a:solidFill></a:rPr><a:t>master</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestContextualBuilderUsesLayoutListStyleForTitleAndSubtitle(t *testing.T) {
 </p:txStyles></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestContextualBuilderAppliesMasterTextStylesByPlaceholderAndLevel(t *testin
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree/></p:cSld><p:txStyles><p:bodyStyle><a:lvl2pPr marL="914400" indent="-228600" fontAlgn="base"><a:lnSpc><a:spcPct val="120000"/></a:lnSpc><a:spcBef><a:spcPts val="600"/></a:spcBef><a:buFont typeface="Wingdings"/><a:buChar char="•"/><a:buSzPct val="125000"/><a:defRPr sz="2200" b="1"><a:solidFill><a:srgbClr val="336699"/></a:solidFill><a:latin typeface="Aptos"/></a:defRPr></a:lvl2pPr></p:bodyStyle></p:txStyles></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestContextualBuilderStreamsBodyPropsThemeFontsAndPresentationDefaults(t *t
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="t" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`,
 		"ppt/theme/theme1.xml":                         `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:clrScheme name="x"/><a:fontScheme name="x"><a:majorFont><a:latin typeface="Major Face"/></a:majorFont><a:minorFont><a:latin typeface="Minor Face"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestContextualBuilderInheritsPlaceholderTransformAsUnit(t *testing.T) {
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestContextualBuilderAuthoredPlaceholderTransformOverridesTemplateTransform
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestContextualBuilderPreservesAuthoredParagraphBulletAndSpacingChildren(t *
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="body"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:pPr marL="457200" indent="-228600"><a:lnSpc><a:spcPct val="115000"/></a:lnSpc><a:spcBef><a:spcPts val="600"/></a:spcBef><a:buFont typeface="Roboto"/><a:buSzPts val="2400"/><a:buChar char="●"/></a:pPr><a:r><a:t>Hello</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

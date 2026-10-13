@@ -11,17 +11,6 @@ import (
 	"office/pkg/ooxml/rels"
 )
 
-// LoadPackage parses the typed PresentationML parts from a generic OPC package.
-// OPC discovery and top-level traversal are owned by packageAssembler so part
-// decoders do not each reconstruct package semantics.
-func LoadPackage(pkg *opc.Package) (*Package, error) {
-	assembler, err := newPackageAssembler(pkg)
-	if err != nil {
-		return nil, err
-	}
-	return assembler.assemble()
-}
-
 func addPackageLoadDiagnostic(pkg *Package, severity diag.Severity, code, message, partName string, cause error) {
 	if pkg == nil {
 		return

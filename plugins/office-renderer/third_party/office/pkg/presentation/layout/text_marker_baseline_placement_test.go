@@ -22,7 +22,14 @@ func TestMeasuredListMarkerSharesFirstPhysicalLineBaseline(t *testing.T) {
 	if m.AscentPt <= 0 || m.DescentPt <= 0 {
 		t.Fatalf("marker baseline extents not materialized: %+v", m)
 	}
+	// The marker's emitted box is centred on its face's own ascent/descent, so
+	// the offset anchors that baseline onto the first line's baseline.
 	want := math.Max(0, plan.Lines[0].AscentPt-m.AscentPt)
+	if fm := ResolveFontAdvanceMetrics(m.FontFamily); fm.FaceAscent > 0 && fm.FaceDescent > 0 && m.FontSizePt > 0 {
+		boxHeightPt := m.AscentPt + m.DescentPt
+		faceBaselinePt := (boxHeightPt-(fm.FaceAscent+fm.FaceDescent)*m.FontSizePt)/2 + fm.FaceAscent*m.FontSizePt
+		want = plan.Lines[0].AscentPt - faceBaselinePt
+	}
 	if math.Abs(m.TopOffsetPt-want) > .001 {
 		t.Fatalf("marker top offset = %.4f, want %.4f from shared baseline", m.TopOffsetPt, want)
 	}

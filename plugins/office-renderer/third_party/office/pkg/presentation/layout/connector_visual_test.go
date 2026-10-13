@@ -143,11 +143,13 @@ func TestResolveFreeConnectorVisualPlanFilledDiamondTrimsToBackVertex(t *testing
 		ArrowHeadWidth: "med", ArrowHeadLength: "med",
 	}
 	plan := ResolveFreeConnectorVisualPlan(shape)
-	if len(plan.Points) != 2 || plan.Points[0].X != 4 {
-		t.Fatalf("diamond shaft start = %#v, want 4pt back vertex", plan.Points)
+	// Endpoint sizes resolve against the minimum effective stroke (1.5pt), so the
+	// medium diamond's back vertex sits 6pt from the authored endpoint.
+	if len(plan.Points) != 2 || plan.Points[0].X != 6 {
+		t.Fatalf("diamond shaft start = %#v, want 6pt back vertex", plan.Points)
 	}
-	if plan.StartArrow == nil || len(plan.StartArrow.PolyPts) != 4 || plan.StartArrow.PolyPts[2].X != 4 {
-		t.Fatalf("diamond geometry = %#v, want back vertex at 4pt", plan.StartArrow)
+	if plan.StartArrow == nil || len(plan.StartArrow.PolyPts) != 4 || plan.StartArrow.PolyPts[2].X != 6 {
+		t.Fatalf("diamond geometry = %#v, want back vertex at 6pt", plan.StartArrow)
 	}
 }
 

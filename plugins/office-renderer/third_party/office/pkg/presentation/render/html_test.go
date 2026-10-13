@@ -136,7 +136,7 @@ func TestHTMLRendersSVGPreviewOLEObjectInline(t *testing.T) {
 	if !strings.Contains(out, `shape--ole-object-preview`) {
 		t.Fatalf("expected inline OLE preview host in output: %s", out)
 	}
-	if !strings.Contains(out, `<div class="shape--ole-object-preview-svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" preserveAspectRatio="xMidYMid meet"><rect width="10" height="10" fill="#99ffcc"/></svg></div>`) {
+	if !strings.Contains(out, `<div class="shape--ole-object-preview-svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" preserveAspectRatio="none"><rect width="10" height="10" fill="#99ffcc"/></svg></div>`) {
 		t.Fatalf("expected inline SVG OLE preview in output: %s", out)
 	}
 	if strings.Contains(out, `data:image/svg+xml;base64,`) {
@@ -1117,8 +1117,8 @@ func TestHTMLAppliesNormAutofitFontAndLineScaling(t *testing.T) {
 	}
 	// Measured paragraphs no longer expose normAutofit as a paragraph-level
 	// CSS multiplier. Layout owns the reduced physical line box: 24pt * 0.92
-	// font scale * 1.117 Arial leading * 0.82 line-space scale = 20.2240pt.
-	if !strings.Contains(html, `line-height:20.2240pt;height:20.2240pt;min-height:20.2240pt`) {
+	// font scale * 1.2 Arial leading * 0.82 line-space scale = 21.7267pt.
+	if !strings.Contains(html, `line-height:21.7267pt;height:21.7267pt;min-height:21.7267pt`) {
 		t.Fatalf("expected normAutofit line spacing reduction in physical line box: %s", html)
 	}
 	if !strings.Contains(html, `line-height:0`) {
@@ -1285,10 +1285,10 @@ func TestHTMLAppliesPercentageSpacingBeforeAfter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `margin-top:13.4040pt`) {
+	if !strings.Contains(html, `margin-top:14.4000pt`) {
 		t.Fatalf("expected 100%% spacing before to use the physical line height: %s", html)
 	}
-	if !strings.Contains(html, `margin-bottom:6.7020pt`) {
+	if !strings.Contains(html, `margin-bottom:7.2000pt`) {
 		t.Fatalf("expected 50%% spacing after to use half the physical line height: %s", html)
 	}
 }
@@ -1871,7 +1871,9 @@ func TestHTMLRendersThreeDShapeEffects(t *testing.T) {
 	if !strings.Contains(html, `mix-blend-mode:screen`) || !strings.Contains(html, `mix-blend-mode:multiply`) {
 		t.Fatalf("expected 3D scene-light overlays in html: %s", html)
 	}
-	if !strings.Contains(html, `shape-fill-overlay-0`) || !strings.Contains(html, `shape-fill-overlay-1`) {
+	// Definition ids carry the shape's id so several shapes on one slide cannot
+	// collide; the overlay index is what identifies the light gradients.
+	if !strings.Contains(html, `-fill-overlay-0`) || !strings.Contains(html, `-fill-overlay-1`) {
 		t.Fatalf("expected SVG defs for 3D light gradients in html: %s", html)
 	}
 }
@@ -2099,10 +2101,10 @@ func TestHTMLRendersPictureFillOnAutoShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<svg class="shape__vector"`) || !strings.Contains(html, `<pattern id="shape-fill"`) {
+	if !strings.Contains(html, `<svg class="shape__vector"`) || !strings.Contains(html, `<pattern id="shape-1-fill"`) {
 		t.Fatalf("expected SVG pattern definition for picture fill\n%s", html)
 	}
-	if !strings.Contains(html, `fill="url(#shape-fill)"`) || !strings.Contains(html, `<image href="data:image/png;base64,`) {
+	if !strings.Contains(html, `fill="url(#shape-1-fill)"`) || !strings.Contains(html, `<image href="data:image/png;base64,`) {
 		t.Fatalf("expected picture fill image materialized into SVG output\n%s", html)
 	}
 }
@@ -2129,7 +2131,7 @@ func TestHTMLRendersPatternFillOnAutoShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `<pattern id="shape-fill"`) || !strings.Contains(html, `fill="url(#shape-fill)"`) {
+	if !strings.Contains(html, `<pattern id="shape-1-fill"`) || !strings.Contains(html, `fill="url(#shape-1-fill)"`) {
 		t.Fatalf("expected SVG pattern fill definition in output\n%s", html)
 	}
 	if !strings.Contains(html, `stroke="#FF0000"`) || !strings.Contains(html, `fill="#FFFFFF"`) {
@@ -2584,7 +2586,7 @@ func TestHTMLRendersSmartArtBodyPr(t *testing.T) {
 	}
 	// vertical-rl progresses from the right edge. The authored right inset is
 	// therefore combined with the measured bottom-anchor offset on that edge.
-	if !strings.Contains(out, "padding:7.87pt 106.97pt 15.75pt 23.62pt") {
+	if !strings.Contains(out, "padding:7.87pt 105.98pt 15.75pt 23.62pt") {
 		t.Errorf("expected bodyPr insets plus physical progression offset as padding, got: %s", out)
 	}
 }
@@ -2696,7 +2698,7 @@ func TestHTMLRendersSmartArtNormAutofitScaling(t *testing.T) {
 	// SmartArt uses the same physical text composition boundary as ordinary
 	// text. The normAutofit reduction therefore belongs to the measured line
 	// box, not to a paragraph-level browser line-height multiplier.
-	if !strings.Contains(out, `line-height:20.2240pt;height:20.2240pt;min-height:20.2240pt`) {
+	if !strings.Contains(out, `line-height:21.7267pt;height:21.7267pt;min-height:21.7267pt`) {
 		t.Fatalf("expected SmartArt normAutofit reduction in physical line box, got: %s", out)
 	}
 	if !strings.Contains(out, `line-height:0`) {
@@ -2893,10 +2895,10 @@ func TestHTMLRendersSmartArtPictureFill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTML: %v", err)
 	}
-	if !strings.Contains(out, `<pattern id="smartart-fill"`) {
+	if !strings.Contains(out, `<pattern id="smartart-1-fill"`) {
 		t.Fatalf("expected SVG pattern definition for SmartArt picture fill\n%s", out)
 	}
-	if !strings.Contains(out, `fill="url(#smartart-fill)"`) || !strings.Contains(out, `<image href="data:image/png;base64,`) {
+	if !strings.Contains(out, `fill="url(#smartart-1-fill)"`) || !strings.Contains(out, `<image href="data:image/png;base64,`) {
 		t.Fatalf("expected picture fill applied to SmartArt shape\n%s", out)
 	}
 }
@@ -3823,8 +3825,8 @@ func TestHTMLNativeMathUsesSingleNaturalMetricFit(t *testing.T) {
 	if !strings.Contains(out, "inner.style.fontSize=\"16px\"") {
 		t.Fatalf("native MathML renderer must measure from one neutral natural size")
 	}
-	if !strings.Contains(out, "Math.min(box.width/content.width,box.height/content.height)") {
-		t.Fatalf("native MathML must use one natural-metric fit to the OLE frame")
+	if !strings.Contains(out, "Math.min((box.width-originShift)/content.width,box.height/content.height)") {
+		t.Fatalf("native MathML must fit within the authored OLE frame after its preview origin")
 	}
 	if strings.Contains(out, "data-math-base-ratio") {
 		t.Fatalf("native MathML must not inherit preview font/viewBox normalization")

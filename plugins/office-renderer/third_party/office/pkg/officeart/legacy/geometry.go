@@ -258,8 +258,24 @@ func ShapeTypeToPreset(shapeType uint16) string {
 
 	// 136..175 are WordArt/text-effect shapes and are handled by WordArtWarpName.
 	// Later MSOSPT values return to ordinary AutoShapes.
+	case 176:
+		return "flowChartAlternateProcess"
+	case 177:
+		return "flowChartOffpageConnector"
+	case 182:
+		return "leftRightUpArrow"
+	case 183:
+		return "sun"
 	case 184:
 		return "moon"
+	case 185:
+		return "bracketPair"
+	case 186:
+		return "bracePair"
+	case 187:
+		return "star4"
+	case 188:
+		return "doubleWave"
 	default:
 		return ""
 	}

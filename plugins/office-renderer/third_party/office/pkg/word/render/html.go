@@ -551,9 +551,9 @@ td, th { padding: 2pt 4pt; vertical-align: top; }
 ul, ol { padding: 0; margin: 0; }
 li { line-height: 1.2; }
 .word-list-marker { display: inline-block; min-width: 2.2em; margin-left: -2.2em; padding-right: 0.35em; text-align: right; white-space: nowrap; }
-li > ul, li > ol { padding-top: var(--word-list-item-flow-height, 0pt); }
+li > ul, li > ol { margin-left: 36pt; padding-top: var(--word-list-item-flow-height, 0pt); }
 .word-physical-list-marker { position: absolute; right: calc(100%% + 3pt); left: auto; top: 0; width: max-content; min-width: 0; margin-left: 0; padding-right: 0; }
-.word-physical-inline-list-marker { display: inline-block; min-width: 0; margin: 0 3pt 0 0; padding: 0; white-space: nowrap; vertical-align: baseline; }
+.word-physical-inline-list-marker { display: inline-block; width: var(--word-list-marker-width, 18pt); min-width: var(--word-list-marker-width, 18pt); margin: 0; padding: 0; text-align: left; white-space: nowrap; vertical-align: baseline; }
 a { color: inherit; text-decoration: inherit; }
 .floating-textbox { position: absolute; z-index: 2; overflow: visible; line-height: 1.2; }
 .floating-textbox p, .floating-textbox h1, .floating-textbox h2, .floating-textbox h3, .floating-textbox h4, .floating-textbox h5, .floating-textbox h6 { margin: 0; line-height: inherit; }
@@ -563,7 +563,7 @@ a { color: inherit; text-decoration: inherit; }
 .shape-line-v { position: absolute; z-index: 1; border-left-style: solid; }
 .comment-ref { cursor: help; position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .footnote-ref, .endnote-ref { text-decoration: none; }
-.note-target { display: inline; }
+.note-target { position: absolute; left: -18pt; top: 0; display: inline; }
 .note-backlink { text-decoration: none; margin-right: 0.35em; font-size: 0.85em; }
 .word-comment-range-start, .word-comment-range-end { display: none; }
 @media print { .diagnostics, .note-backlink, .comment-ref, aside.notes .comments, .page-num { display:none !important; } }
@@ -5730,7 +5730,7 @@ func (r *htmlRenderer) paragraphFloatImageStyleAttrs(img *resolve.Image) ([]stri
 	} else if img.Height > 0 {
 		styleAttrs = append(styleAttrs, fmt.Sprintf("height:%.1fpt", emuToPoints(img.Height)))
 	}
-	if relTopPt > 0 {
+	if !almostSameFloat(relTopPt, 0) {
 		styleAttrs = append(styleAttrs, fmt.Sprintf("margin-top:%.1fpt", relTopPt))
 	}
 	if img.DistBottom > 0 {
@@ -14121,8 +14121,8 @@ func normalizeOfficeBulletGlyph(marker string) string {
 		return "•"
 	case "\uF0A7": // Wingdings: small square
 		return "▪"
-	case "\uF0A8": // Wingdings: hollow square
-		return "□"
+	case "\uF0A8": // Word 97 list level 5 marker
+		return "◆"
 	case "\uF0D8": // Wingdings: arrow head
 		return "➢"
 	case "\uF0FC": // Wingdings: check mark

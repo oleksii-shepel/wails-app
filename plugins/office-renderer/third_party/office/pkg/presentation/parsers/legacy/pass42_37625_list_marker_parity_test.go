@@ -30,7 +30,7 @@ func Test37625LegacyStorageBulletCodesDecodeEvenAfterFontProvenanceCollapsed(t *
 	}}}}}
 	normalizeLegacyPptSymbolBulletStorageCodes(pres)
 	got := pres.Slides[0].Shapes[0].Paragraphs
-	if got[0].BulletChar != "◆" || got[1].BulletChar != "▪" {
+	if got[0].BulletChar != "◆" || got[1].BulletChar != "■" {
 		t.Fatalf("decoded markers = %q/%q, want diamond/square", got[0].BulletChar, got[1].BulletChar)
 	}
 	for i, p := range got {

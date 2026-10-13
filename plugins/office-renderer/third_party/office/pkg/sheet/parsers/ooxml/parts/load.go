@@ -13,11 +13,6 @@ import (
 	"office/pkg/ooxml/rels"
 )
 
-// LoadPackage parses the typed SpreadsheetML parts from a generic OPC package.
-func LoadPackage(pkg *opc.Package) (*Package, error) {
-	return loadPackage(pkg, false)
-}
-
 // LoadMetadataPackage loads package-level SpreadsheetML metadata plus a sparse
 // worksheet identity skeleton. Worksheet content and relationship-heavy object
 // graphs are owned by the streaming and relationship-object paths respectively.

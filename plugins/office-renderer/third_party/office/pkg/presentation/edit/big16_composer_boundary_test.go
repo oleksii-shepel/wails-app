@@ -17,9 +17,9 @@ func TestPPTXProductionLoaderDoesNotUseWholePackageVisualResolver(t *testing.T) 
 			t.Fatalf("PPTX production loader reacquired superseded whole-package visual boundary %q", forbidden)
 		}
 	}
-	for _, required := range []string{"pressax.BuildContextualPresentationBytes", "applySAXPackageVisualSemantics", "applySAXTableStyleSemantics", "applySAXSmartArtSemantics"} {
+	for _, required := range []string{"pressax.ParseBytes"} {
 		if !strings.Contains(src, required) {
-			t.Fatalf("missing SAX/package ownership marker %q", required)
+			t.Fatalf("missing SAX ownership marker %q", required)
 		}
 	}
 }

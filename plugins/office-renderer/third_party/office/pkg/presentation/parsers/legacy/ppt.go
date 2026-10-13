@@ -86,8 +86,15 @@ const (
 	pptRTExWAVAudioEmbedded     = 0x100F
 	pptRTExOleObjStg            = 0x1011
 	pptRTExWAVAudioEmbeddedAtom = 0x1013
-	defaultSlideWidthEMU        = 9144000
-	defaultSlideHeightEMU       = 6858000
+
+	// defaultSlideWidthEMU/defaultSlideHeightEMU are the legacy 4:3 PowerPoint
+	// canvas (720x540 pt), applied when a deck authors no usable DocumentAtom.
+	// They double as the physical master-unit base -- 720 pt / 5760 units = 1/8 pt
+	// per unit -- so they must NOT be retargeted at a deck's own canvas:
+	// placement.go and parseLegacyPptClientAnchor scale authored anchors with
+	// them and depend on the canvas-independent unit size.
+	defaultSlideWidthEMU  = 9144000
+	defaultSlideHeightEMU = 6858000
 
 	// TextTypeEnum values from TextHeaderAtom.
 	pptTextTypeTitle       = 0
@@ -562,6 +569,7 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 	var slideHeaderFooters map[int]legacyPptHeaderFooterInfo
 	var notesHeaderFooterDefaults legacyPptHeaderFooterInfo
 	var notesHeaderFooters map[int]legacyPptHeaderFooterInfo
+	var canvas legacyPptCanvas
 	if ctx, ok := extractPptPersistContext(f, stream); ok {
 		// BIG22: materialize the persist lifecycle once. Slide visual consumers now
 		// receive the already-opened Slide payload from this index; masters and notes
@@ -572,6 +580,13 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		// physical PowerPoint Document stream for fonts, theme presence, hyperlinks,
 		// the drawing-group picture store, or the external-object list.
 		fontTable = parseLegacyPptFontTable(persistEvents.document.Payload)
+		// The authored canvas is another document-owned resource, so it is read from
+		// the same already-opened Document persist event rather than re-walking the
+		// physical stream.
+		canvas = parseLegacyPptDocumentCanvas(persistEvents.document.Payload)
+		if canvas.WidthEMU <= 0 && !bytes.Equal(rawStream, stream) {
+			canvas = parseLegacyPptDocumentCanvas(rawStream)
+		}
 		colorScheme = presentationColorSchemeFromPersistEvents(persistEvents, ctx.masterEntries)
 		exHyperlinks = parseLegacyPptExHyperlinkURLsFromPayload(persistEvents.document.Payload)
 		theme = parseLegacyPptThemeFromPayload(persistEvents.document.Payload, colorScheme, fontTable)
@@ -603,7 +618,7 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		notesHeaderFooterDefaults = parseLegacyPptDocumentHeaderFooterInfoFromPayload(persistEvents.document.Payload, 4)
 		slideHeaderFooters = parsePersistHeaderFooterInfos(persistEvents.slides, ctx.slidePersistIDs)
 		notesHeaderFooters = parsePersistHeaderFooterInfos(persistEvents.notes, ctx.notesPersistIDs)
-		slides = extractSlideTextsFromPersistEvents(persistEvents, ctx.notesListInstance, fontTable, colorScheme, exHyperlinks)
+		slides = extractSlideTextsFromPersistEvents(persistEvents, ctx.notesListInstance, fontTable, colorScheme, exHyperlinks, canvas)
 		slides = bindLegacyPptMasterOwnership(slides, ctx.masterEntries)
 		externalObjects := parseLegacyPptExternalObjectsFromEvents(persistEvents)
 		var pictureStore map[uint32]*legacyPptPicture
@@ -673,7 +688,7 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		// stream at all. Placeholder shapes remain templates and are not painted as
 		// duplicate master content.
 		masterComposition = composeLegacyPptMasterSemanticScenes(
-			masterScenes, ctx.masterEntries, fontTable, masterColorSchemes, colorScheme, exHyperlinks, pictureStore, externalObjects,
+			masterScenes, ctx.masterEntries, fontTable, masterColorSchemes, colorScheme, exHyperlinks, pictureStore, externalObjects, canvas,
 		)
 
 		// BIG10: resolve each slide record exactly once at the persist boundary, then
@@ -683,7 +698,7 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		// first production ownership transfer to the binary event parser.
 		slideShapes, slideTextRoles = parseLegacyPptSlideVisualsEventDriven(
 			persistEvents, ctx.slidePersistIDs, slides, fontTable, colorScheme,
-			masterColorSchemes, slideColorSchemes, masterComposition.PlaceholderTemplates, exHyperlinks, pictureStore, externalObjects,
+			masterColorSchemes, slideColorSchemes, masterComposition.PlaceholderTemplates, exHyperlinks, pictureStore, externalObjects, canvas,
 		)
 		// Authored slide membership is resolved before master artwork is composed.
 		// Header/footer-only persists must be classified from their local scene;
@@ -698,7 +713,8 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		// Pre-event compatibility path for damaged files without a usable persist chain.
 		fontTable = parseLegacyPptFontTable(stream)
 		colorScheme = parseLegacyPptColorScheme(stream)
-		slides = extractSlideTextsFallback(stream, fontTable, colorScheme, exHyperlinks)
+		canvas = parseLegacyPptDocumentCanvas(stream)
+		slides = extractSlideTextsFallback(stream, fontTable, colorScheme, exHyperlinks, canvas)
 	}
 	slides = attachNotesHeaderFooterInfoByPersistID(slides, notesHeaderFooters, notesHeaderFooterDefaults)
 	if len(slides) == 0 {
@@ -710,9 +726,9 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 		// Recover from the physical stream. Older valid files can have Current User
 		// metadata that makes encryption probing ambiguous while the root
 		// Document -> SlideListWithText tree is already plaintext.
-		slides = extractLegacyPptSlidesFromRootDocument(rawStream, fontTable, colorScheme, exHyperlinks)
+		slides = extractLegacyPptSlidesFromRootDocument(rawStream, fontTable, colorScheme, exHyperlinks, canvas)
 		if len(slides) == 0 && !bytes.Equal(rawStream, stream) {
-			slides = extractLegacyPptSlidesFromRootDocument(stream, fontTable, colorScheme, exHyperlinks)
+			slides = extractLegacyPptSlidesFromRootDocument(stream, fontTable, colorScheme, exHyperlinks, canvas)
 		}
 	}
 	if len(slides) == 0 {
@@ -724,17 +740,51 @@ func parsePptFile(f *cfb.File, filename string) (*presentationir.Presentation, e
 	}
 	// BIG37: effective master background/style selection is owned by presentation
 	// composition itself. There is no post-build inheritance mutation.
-	pres := buildPresentationWithEffectiveMasterComposition(slides, slideShapes, slideTextRoles, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID, masterPictureBgFillByPersistID, masterComposition.Visuals, masterComposition.PlaceholderTemplates)
+	pres := buildPresentationWithEffectiveMasterComposition(slides, slideShapes, slideTextRoles, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID, masterPictureBgFillByPersistID, masterComposition.Visuals, masterComposition.PlaceholderTemplates, canvas)
 	applyLegacyPptThemeFontFallback(pres)
 	normalizeLegacyPptConnectorEndpointOwnership(pres)
 	normalizeLegacyPptEffectiveParagraphDefaults(pres)
+	normalizeLegacyPptBodyPlaceholderOverflow(pres)
 	normalizeLegacyPptEffectiveTextAutofitDefaults(pres)
 	normalizeLegacyPptEmptyBulletMarkers(pres)
 	normalizeLegacyPptSymbolRunStorageCodes(pres)
 	normalizeLegacyPptSymbolBulletStorageCodes(pres)
+	normalizeLegacyPptThemeBulletColors(pres)
+	normalizeLegacyPptAutoShapeTextDefaults(pres)
 	presentationir.NormalizeLegacyListMarkerGlyphs(pres)
 	normalizeLegacyPptDuplicateBulletShapes(pres)
 	return pres, nil
+}
+
+// normalizeLegacyPptBodyPlaceholderOverflow preserves the no-autofit behavior
+// of long, inherited legacy body placeholders. Some binary PPT files inherit a
+// text style that appears to request normal autofit even though PowerPoint lets
+// the authored body text paint past its stored frame. Keeping normAutofit clips
+// later bullet paragraphs in HTML.
+func normalizeLegacyPptBodyPlaceholderOverflow(pres *presentationir.Presentation) {
+	if pres == nil {
+		return
+	}
+	var visit func([]*presentationir.Shape)
+	visit = func(shapes []*presentationir.Shape) {
+		for _, shape := range shapes {
+			if shape == nil {
+				continue
+			}
+			if shape.Placeholder == presentationir.PlaceholderBody &&
+				shape.TextBodyProps.AutofitType == "normAutofit" &&
+				!shape.TextAutoGrow && len(shape.Paragraphs) >= 4 {
+				shape.TextBodyProps.AutofitType = "noAutofit"
+				shape.TextAllowOverflow = true
+			}
+			visit(shape.Children)
+		}
+	}
+	for _, slide := range pres.Slides {
+		if slide != nil {
+			visit(slide.Shapes)
+		}
+	}
 }
 
 // normalizeLegacyPptEmptyBulletMarkers runs after every legacy text/style merge.
@@ -840,6 +890,8 @@ func legacyPptSymbolStorageRune(code byte) (rune, bool) {
 		return '\u00b1', true
 	case 0xb7:
 		return '\u2022', true
+	case 0xbb:
+		return '\u2248', true
 	case 0xbc:
 		return '\u2026', true
 	case 0xf2:
@@ -857,6 +909,96 @@ func legacyPptSymbolStorageRune(code byte) (rune, bool) {
 // are not authored Latin bullet characters: they are legacy symbol-font codes.
 // Decode them here, while the source format is still known, so canonical IR and
 // every downstream layout/render path see stable Unicode marker semantics.
+// normalizeLegacyPptAutoShapeTextDefaults centers the text of an AutoShape
+// whose text body carries anchorCtr, PowerPoint's "center the text block in the
+// shape" switch: 41246-2 slide 8's pyramid captions are the trapezoids' own
+// text, drawn centred in each band, and PowerPoint's OfficeArt->OOXML
+// conversion writes anchorCtr="1" on them (with no paragraph alignment of its
+// own). The legacy PF decodes the same shapes as left-aligned, so the body
+// switch has to win.
+func normalizeLegacyPptAutoShapeTextDefaults(pres *presentationir.Presentation) {
+	if pres == nil {
+		return
+	}
+	var visit func([]*presentationir.Shape)
+	visit = func(shapes []*presentationir.Shape) {
+		for _, shape := range shapes {
+			if shape == nil {
+				continue
+			}
+			if shape.TextBodyProps.AnchorCtr {
+				for _, para := range shape.Paragraphs {
+					if para == nil {
+						continue
+					}
+					if para.Align == "" || para.Align == "l" {
+						para.Align = "ctr"
+					}
+				}
+			}
+			visit(shape.Children)
+		}
+	}
+	for _, slide := range pres.Slides {
+		if slide != nil {
+			visit(slide.Shapes)
+		}
+	}
+}
+
+// normalizeLegacyPptThemeBulletColors gives an unauthored list bullet the
+// theme's accent1. Binary PowerPoint never paints a bullet in the paragraph's
+// own text color: its OfficeArt->OOXML conversion materializes buClr=accent1
+// for 41246-2's bullet levels (hlink and folHlink for the dash levels), and the
+// exported PDF draws blue bullets under orange headings and blue arrows beside
+// white text. The paragraph merge's fallback used the first run's color, which
+// is only right when nothing else speaks.
+func normalizeLegacyPptThemeBulletColors(pres *presentationir.Presentation) {
+	if pres == nil || pres.Theme == nil {
+		return
+	}
+	accent := pres.Theme.ColorScheme["accent1"]
+	if accent == "" {
+		return
+	}
+	var visit func([]*presentationir.Shape)
+	visit = func(shapes []*presentationir.Shape) {
+		for _, shape := range shapes {
+			if shape == nil {
+				continue
+			}
+			for _, para := range shape.Paragraphs {
+				if para == nil || para.BulletColorExplicit || para.BulletNone || para.AutoNum {
+					continue
+				}
+				if para.BulletChar == "" {
+					continue
+				}
+				para.BulletColor = accent
+			}
+			visit(shape.Children)
+		}
+	}
+	for _, slide := range pres.Slides {
+		if slide == nil {
+			continue
+		}
+		visit(slide.Shapes)
+	}
+	for _, master := range pres.SlideMasters {
+		if master == nil {
+			continue
+		}
+		visit(master.Shapes)
+		for _, layout := range master.Layouts {
+			if layout == nil {
+				continue
+			}
+			visit(layout.Shapes)
+		}
+	}
+}
+
 func normalizeLegacyPptSymbolBulletStorageCodes(pres *presentationir.Presentation) {
 	if pres == nil {
 		return
@@ -875,7 +1017,10 @@ func normalizeLegacyPptSymbolBulletStorageCodes(pres *presentationir.Presentatio
 				case "w":
 					paragraph.BulletChar = "◆"
 				case "n":
-					paragraph.BulletChar = "▪"
+					// Wingdings' filled square fills most of the em cell, unlike
+					// U+25AA (a deliberately small square). 41246-2 slide 7's
+					// sub-bullets render three times too small without it.
+					paragraph.BulletChar = "■"
 				default:
 					continue
 				}
@@ -1031,7 +1176,9 @@ func parsePre97Ppt(f *cfb.File, filename string) (*presentationir.Presentation, 
 		if text == "" {
 			return nil, true, fmt.Errorf("legacy ppt: no readable PP40 text found")
 		}
-		return buildPresentation(buildLegacyPptTextOnlySlides(text), filename), true, nil
+		// PP40 and Text_Content streams predate the record format and author no
+		// DocumentAtom, so the legacy 4:3 canvas applies.
+		return buildPresentation(buildLegacyPptTextOnlySlides(text), filename, legacyPptDefaultCanvas()), true, nil
 	}
 	textContent, ok := f.Stream("Text_Content")
 	if !ok || len(textContent) == 0 {
@@ -1048,7 +1195,7 @@ func parsePre97Ppt(f *cfb.File, filename string) (*presentationir.Presentation, 
 	if text == "" {
 		return nil, true, fmt.Errorf("legacy ppt: no readable Text_Content text found")
 	}
-	return buildPresentation(buildLegacyPptTextOnlySlides(text), filename), true, nil
+	return buildPresentation(buildLegacyPptTextOnlySlides(text), filename, legacyPptDefaultCanvas()), true, nil
 }
 
 func buildLegacyPptTextOnlySlides(text string) []legacySlideText {
@@ -1936,6 +2083,7 @@ func parseLegacyPptBaseMasterTextStyles(payload []byte, fontTable map[uint16]str
 	if len(styles) == 0 {
 		return nil
 	}
+
 	return styles
 }
 
@@ -2125,13 +2273,19 @@ func legacyPptDirectMasterFragmentUsable(frag legacySlideFragment) bool {
 
 func legacyPptMasterParagraphFromIR(paragraph *presentationir.Paragraph) stpaPFEntry {
 	entry := stpaPFEntry{
-		Align:          paragraph.Align,
-		TextDirection:  paragraph.TextDirection,
-		AutoNum:        paragraph.AutoNum,
-		AutoNumType:    paragraph.AutoNumType,
-		AutoNumStart:   paragraph.AutoNumStart,
-		BulletColor:    paragraph.BulletColor,
-		HasBulletColor: paragraph.BulletColorExplicit,
+		Align:         paragraph.Align,
+		TextDirection: paragraph.TextDirection,
+		AutoNum:       paragraph.AutoNum,
+		AutoNumType:   paragraph.AutoNumType,
+		AutoNumStart:  paragraph.AutoNumStart,
+		BulletColor:   paragraph.BulletColor,
+		// This converter only ever sees master-level paragraphs, where a
+		// resolved color is the master's authored marker color. The IR flag
+		// marks paragraph-local authorship on a slide, so a master color would
+		// otherwise lose its provenance on the way back into the binary form
+		// and every list marker fell back to the text color (41246-2 slide 5
+		// lost its theme-accent bullets that way).
+		HasBulletColor: paragraph.BulletColor != "" || paragraph.BulletColorExplicit,
 		BulletSize:     paragraph.BulletSize,
 		SpaceBeforePct: paragraph.SpaceBeforePct,
 		SpaceAfterPct:  paragraph.SpaceAfterPct,
@@ -2698,6 +2852,82 @@ func legacyPptAutoNumType(scheme uint16) string {
 	}
 }
 
+// legacyPptCanvas is the authored slide canvas in English Metric Units.
+//
+// Legacy PPT stores it in the DocumentAtom as a PointStruct in master units
+// (MS-PPT 2.4.2). Shape anchors convert from master units with the physical unit
+// size, which is canvas-independent (1/8 pt), so this type carries only the
+// Presentation canvas -- it must not be used to scale geometry.
+type legacyPptCanvas struct {
+	WidthEMU  int64
+	HeightEMU int64
+}
+
+const (
+	// MS-PPT 2.4.2 bounds slideSize.x/y to these master units.
+	legacyPptSlideSizeMinUnits = 0x0240
+	legacyPptSlideSizeMaxUnits = 0x7E00
+)
+
+// legacyPptDefaultCanvas is the 4:3 PowerPoint canvas applied when a deck authors
+// no usable DocumentAtom: pre-97 streams, text-only recovery and damaged files.
+func legacyPptDefaultCanvas() legacyPptCanvas {
+	return legacyPptCanvas{WidthEMU: defaultSlideWidthEMU, HeightEMU: defaultSlideHeightEMU}
+}
+
+// normalized maps "no authored canvas" to the legacy default so every consumer is
+// total, mirroring the renderer's own fallback for non-positive dimensions.
+func (c legacyPptCanvas) normalized() legacyPptCanvas {
+	if c.WidthEMU <= 0 || c.HeightEMU <= 0 {
+		return legacyPptDefaultCanvas()
+	}
+	return c
+}
+
+// parseLegacyPptDocumentCanvas returns the canvas of the first well-formed
+// DocumentAtom reachable from data. data may be the decrypted PowerPoint Document
+// stream or an already-opened Document persist payload; walkPptRecords descends
+// the enclosing 0x0F containers in both cases.
+//
+// PowerPoint lets a deck author any canvas -- the fixture corpus carries 960x540,
+// A4 landscape, US Letter and others -- so the size has to come from the file.
+// Every edit copy of a document carries the same slideSize and the canonical
+// Document container is first, so the first plausible atom wins.
+//
+// Returns the zero canvas when the atom is absent (pre-97, text-only) or
+// implausible; callers fall back through normalized.
+func parseLegacyPptDocumentCanvas(data []byte) legacyPptCanvas {
+	var canvas legacyPptCanvas
+	walkPptRecords(data, func(record pptRecord, payload []byte) {
+		if canvas.WidthEMU > 0 {
+			return
+		}
+		// Deriving a canvas from a damaged atom is worse than keeping the 4:3
+		// default, so the header check is strict rather than liberal.
+		if record.Type != pptRTDocumentAtom || record.Version != 0x01 || record.Instance != 0 || record.Length != 0x28 {
+			return
+		}
+		if len(payload) < 8 {
+			return
+		}
+		// payload[0:8] is slideSize. payload[8:16] is notesSize -- a portrait notes
+		// page the renderer does not paint as a page, so it must not be read here.
+		width := int64(int32(binary.LittleEndian.Uint32(payload[0:4])))
+		height := int64(int32(binary.LittleEndian.Uint32(payload[4:8])))
+		if width < legacyPptSlideSizeMinUnits || width > legacyPptSlideSizeMaxUnits {
+			return
+		}
+		if height < legacyPptSlideSizeMinUnits || height > legacyPptSlideSizeMaxUnits {
+			return
+		}
+		canvas = legacyPptCanvas{
+			WidthEMU:  int64(legacyPptMasterUnitsToEMU(int(width))),
+			HeightEMU: int64(legacyPptMasterUnitsToEMU(int(height))),
+		}
+	})
+	return canvas
+}
+
 func parseLegacyPptColorScheme(stream []byte) map[uint8]string {
 	type paletteEntry struct {
 		key     string
@@ -2868,7 +3098,7 @@ func extractPptPersistContext(f *cfb.File, stream []byte) (pptPersistContext, bo
 	}, true
 }
 
-func extractSlideTextsFallback(stream []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+func extractSlideTextsFallback(stream []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, canvas legacyPptCanvas) []legacySlideText {
 	var combined []legacySlideText
 	var notesList []legacySlideText
 	walkPptRecords(stream, func(record pptRecord, payload []byte) {
@@ -2986,15 +3216,15 @@ func applyPersistDirectoryEntries(directory map[int]int, payload []byte) {
 	}
 }
 
-func extractLegacyPptSlidesFromRootDocument(stream []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+func extractLegacyPptSlidesFromRootDocument(stream []byte, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, canvas legacyPptCanvas) []legacySlideText {
 	record, _, _, ok := readPptRecord(stream, 0)
 	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
 		return nil
 	}
-	return extractSlideTextsFromDocument(stream, 0, 2, nil, fontTable, colorScheme, exHyperlinks)
+	return extractSlideTextsFromDocument(stream, 0, 2, nil, fontTable, colorScheme, exHyperlinks, canvas)
 }
 
-func extractSlideTextsFromDocument(stream []byte, documentOffset int, notesListInstance uint16, persistDirectory map[int]int, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+func extractSlideTextsFromDocument(stream []byte, documentOffset int, notesListInstance uint16, persistDirectory map[int]int, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, canvas legacyPptCanvas) []legacySlideText {
 	record, payload, _, ok := readPptRecord(stream, documentOffset)
 	if !ok || record.Type != pptRTDocument || record.Version != 0x0F {
 		return nil
@@ -3022,7 +3252,7 @@ func extractSlideTextsFromDocument(stream []byte, documentOffset int, notesListI
 		}
 		pos = next
 	}
-	notesList = hydrateLegacyPptNotesFromPersistShapes(notesList, stream, persistDirectory, fontTable, colorScheme, exHyperlinks)
+	notesList = hydrateLegacyPptNotesFromPersistShapes(notesList, stream, persistDirectory, fontTable, colorScheme, exHyperlinks, canvas)
 	if len(notesList) > 0 {
 		combined = attachNotesByIndex(combined, notesList)
 	}
@@ -3087,7 +3317,7 @@ func legacyPptPersistIDsContainRecordType(stream []byte, persistDirectory map[in
 	return false
 }
 
-func hydrateLegacyPptNotesFromPersistShapes(notes []legacySlideText, stream []byte, persistDirectory map[int]int, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+func hydrateLegacyPptNotesFromPersistShapes(notes []legacySlideText, stream []byte, persistDirectory map[int]int, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, canvas legacyPptCanvas) []legacySlideText {
 	if len(notes) == 0 || len(persistDirectory) == 0 {
 		return notes
 	}
@@ -3104,7 +3334,7 @@ func hydrateLegacyPptNotesFromPersistShapes(notes []legacySlideText, stream []by
 			continue
 		}
 		scene := collectLegacyPptVisualScene(payload)
-		shapes := buildLegacyPptTextShapesFromMetas(scene.textMetas(fontTable, colorScheme, exHyperlinks), notes[index])
+		shapes := buildLegacyPptTextShapesFromMetas(scene.textMetas(fontTable, colorScheme, exHyperlinks), notes[index], canvas)
 		fragments := legacyPptNotesFragmentsFromShapes(shapes)
 		if len(fragments) > 0 {
 			notes[index].Fragments = mergeLegacyPptNotesFragments(notes[index].Fragments, fragments)
@@ -3813,6 +4043,7 @@ func fallbackPptText(stream []byte) string {
 func walkPptRecords(data []byte, visit func(record pptRecord, payload []byte)) {
 	for pos := 0; pos+8 <= len(data); {
 		record, payload, next, ok := readPptRecord(data, pos)
+
 		if !ok {
 			// Third-party generators occasionally leave damaged optional records
 			// between otherwise valid siblings. Recover within a bounded window
@@ -3946,8 +4177,8 @@ func legacyPptPrivateUseRune(r rune) bool {
 		(r >= 0x100000 && r <= 0x10FFFD)
 }
 
-func buildPresentation(slides []legacySlideText, filename string) *presentationir.Presentation {
-	return buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, filename, nil, nil, nil, "", nil)
+func buildPresentation(slides []legacySlideText, filename string, canvas legacyPptCanvas) *presentationir.Presentation {
+	return buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, filename, nil, nil, nil, "", nil, canvas)
 }
 
 func legacyPptSlideLayoutType(payload []byte) string {
@@ -4001,23 +4232,26 @@ func legacyPptSlideLayoutType(payload []byte) string {
 // buildPresentationWithMasterComposition is the BIG37 inheritance boundary.
 // Master-specific styles and backgrounds are selected while each effective slide
 // is constructed; callers must not mutate the canonical presentation afterward.
-func buildPresentationWithMasterComposition(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string) *presentationir.Presentation {
-	return buildPresentationWithMasterBackgroundPaint(slides, extraShapes, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID, nil)
+func buildPresentationWithMasterComposition(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string, canvas legacyPptCanvas) *presentationir.Presentation {
+	return buildPresentationWithMasterBackgroundPaint(slides, extraShapes, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID, nil, canvas)
 }
 
-func buildPresentationWithMasterBackgroundPaint(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string, masterPictureBgFillByPersistID map[int]drawing.Fill) *presentationir.Presentation {
-	return buildPresentationWithEffectiveMasterComposition(slides, extraShapes, nil, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID, masterPictureBgFillByPersistID, nil, nil)
+func buildPresentationWithMasterBackgroundPaint(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string, masterPictureBgFillByPersistID map[int]drawing.Fill, canvas legacyPptCanvas) *presentationir.Presentation {
+	return buildPresentationWithEffectiveMasterComposition(slides, extraShapes, nil, slideHeaderFooters, slideHeaderFooterDefaults, filename, theme, masterStylesByID, masterTextStyles, documentBgFill, masterBgFillByPersistID, masterPictureBgFillByPersistID, nil, nil, canvas)
 }
 
 // buildPresentationWithEffectiveMasterComposition is the Pass 7 inheritance boundary.
 // It is the only production location that combines persisted slide content with
 // inherited master paint. Master artwork is no longer pre-spliced into the local
 // shape map before background/style/header-footer inheritance is resolved.
-func buildPresentationWithEffectiveMasterComposition(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideTextRoles map[int]map[uint32]int, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string, masterPictureBgFillByPersistID map[int]drawing.Fill, masterVisualShapesByPersistID map[int][]*presentationir.Shape, masterPlaceholderTemplates map[int]map[presentationir.PlaceholderKind]legacyPptTextShape) *presentationir.Presentation {
+func buildPresentationWithEffectiveMasterComposition(slides []legacySlideText, extraShapes map[int][]*presentationir.Shape, slideTextRoles map[int]map[uint32]int, slideHeaderFooters map[int]legacyPptHeaderFooterInfo, slideHeaderFooterDefaults legacyPptHeaderFooterInfo, filename string, theme *presentationir.Theme, masterStylesByID map[int]legacyPptMasterTextStyles, masterTextStyles legacyPptMasterTextStyles, documentBgFill string, masterBgFillByPersistID map[int]string, masterPictureBgFillByPersistID map[int]drawing.Fill, masterVisualShapesByPersistID map[int][]*presentationir.Shape, masterPlaceholderTemplates map[int]map[presentationir.PlaceholderKind]legacyPptTextShape, canvas legacyPptCanvas) *presentationir.Presentation {
+	// The authored canvas is normalized once here so every synthetic-bounds and
+	// default-geometry consumer below is total without repeating the fallback.
+	canvas = canvas.normalized()
 	slides, slideHeaderFooters = normalizeLegacyPptHeaderFooterOnlySlides(slides, extraShapes, slideHeaderFooters)
 	presentation := &presentationir.Presentation{
-		SlideWidthEMU:  defaultSlideWidthEMU,
-		SlideHeightEMU: defaultSlideHeightEMU,
+		SlideWidthEMU:  canvas.WidthEMU,
+		SlideHeightEMU: canvas.HeightEMU,
 		Slides:         make([]*presentationir.Slide, 0, len(slides)),
 		Theme:          theme,
 	}
@@ -4113,7 +4347,7 @@ func buildPresentationWithEffectiveMasterComposition(slides []legacySlideText, e
 			// projection. In that case synthesize text from SlideListWithText and retain
 			// the surviving non-text scene after it, matching the historical fallback.
 			if len(slideText.Fragments) > 0 {
-				baseShapes = append(baseShapes, buildLegacySlideShapes(index, slideText, filename)...)
+				baseShapes = append(baseShapes, buildLegacySlideShapes(index, slideText, filename, canvas)...)
 			}
 			if extras := cloneLegacyExtraShapes(index, len(baseShapes)+1, nonTextShapes); len(extras) > 0 {
 				baseShapes = append(baseShapes, extras...)
@@ -4144,9 +4378,9 @@ func buildPresentationWithEffectiveMasterComposition(slides []legacySlideText, e
 			}
 		}
 		header, shapes, footer, dateTime, slideNumber := splitLegacySlideShapes(baseShapes)
-		header, footer, dateTime, slideNumber = synthesizeLegacyHeaderFooterShapes(index, headerFooterInfo, masterPlaceholderTemplates[slideText.MasterID], header, footer, dateTime, slideNumber)
+		header, footer, dateTime, slideNumber = synthesizeLegacyHeaderFooterShapes(index, headerFooterInfo, masterPlaceholderTemplates[slideText.MasterID], header, footer, dateTime, slideNumber, canvas)
 		var notes *presentationir.NotesSlide
-		if noteShapes := buildLegacyNotesShapes(index, notesParagraphs, slideText.NotesHeaderFooter); len(noteShapes) > 0 {
+		if noteShapes := buildLegacyNotesShapes(index, notesParagraphs, slideText.NotesHeaderFooter, canvas); len(noteShapes) > 0 {
 			for _, shape := range noteShapes {
 				textType := pptTextTypeOther
 				if shape.Placeholder == presentationir.PlaceholderBody {
@@ -4160,7 +4394,7 @@ func buildPresentationWithEffectiveMasterComposition(slides []legacySlideText, e
 		for _, shape := range shapes {
 			applyLegacyPptMasterTextStylesToShapeWithRoles(shape, slideStyles, legacyPptMasterTextTypeForShapeWithRoles(shape, roles), roles)
 		}
-		normalizeLegacyPptPlaceholderGeometry(shapes)
+		normalizeLegacyPptPlaceholderGeometry(shapes, canvas)
 		normalizeLegacyPptAnimatedEntrancePaint(shapes)
 		markLegacyPptAnimationStateOverlays(shapes)
 		if header != nil {
@@ -4376,36 +4610,36 @@ func parseLegacyPptHeaderFooterInfo(payload []byte) legacyPptHeaderFooterInfo {
 	return info
 }
 
-func synthesizeLegacyHeaderFooterShapes(slideIndex int, info legacyPptHeaderFooterInfo, templates map[presentationir.PlaceholderKind]legacyPptTextShape, header, footer, dateTime, slideNumber *presentationir.Shape) (*presentationir.Shape, *presentationir.Shape, *presentationir.Shape, *presentationir.Shape) {
+func synthesizeLegacyHeaderFooterShapes(slideIndex int, info legacyPptHeaderFooterInfo, templates map[presentationir.PlaceholderKind]legacyPptTextShape, header, footer, dateTime, slideNumber *presentationir.Shape, canvas legacyPptCanvas) (*presentationir.Shape, *presentationir.Shape, *presentationir.Shape, *presentationir.Shape) {
 	nextShapeID := 89
 	if header == nil && info.headerEnabled() && info.headerText != "" {
-		header = newLegacySlideShape(slideIndex, nextShapeID, "hdr", presentationir.PlaceholderOther, legacyHeaderBounds(), buildTextParagraphs(info.headerText))
+		header = newLegacySlideShape(slideIndex, nextShapeID, "hdr", presentationir.PlaceholderOther, legacyHeaderBounds(canvas), buildTextParagraphs(info.headerText))
 		nextShapeID++
 	}
 	if footer == nil && info.footerEnabled() && info.footerText != "" {
-		footer = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Footer %d", slideIndex+1), presentationir.PlaceholderFooter, templates[presentationir.PlaceholderFooter], info.footerText, "")
+		footer = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Footer %d", slideIndex+1), presentationir.PlaceholderFooter, templates[presentationir.PlaceholderFooter], info.footerText, "", canvas)
 		nextShapeID++
 	}
 	if dateTime == nil && info.dateEnabled() {
 		if info.dateText != "" {
-			dateTime = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Date %d", slideIndex+1), presentationir.PlaceholderDateTime, templates[presentationir.PlaceholderDateTime], info.dateText, "")
+			dateTime = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Date %d", slideIndex+1), presentationir.PlaceholderDateTime, templates[presentationir.PlaceholderDateTime], info.dateText, "", canvas)
 		} else if info.flags&legacyPptHFFlagTodayDate != 0 {
-			dateTime = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Date %d", slideIndex+1), presentationir.PlaceholderDateTime, templates[presentationir.PlaceholderDateTime], "", "date")
+			dateTime = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Date %d", slideIndex+1), presentationir.PlaceholderDateTime, templates[presentationir.PlaceholderDateTime], "", "date", canvas)
 		}
 		if dateTime != nil {
 			nextShapeID++
 		}
 	}
 	if slideNumber == nil && info.slideNumberEnabled() {
-		slideNumber = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Slide Number %d", slideIndex+1), presentationir.PlaceholderSlideNumber, templates[presentationir.PlaceholderSlideNumber], "", "slidenum")
+		slideNumber = newLegacyHeaderFooterShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Slide Number %d", slideIndex+1), presentationir.PlaceholderSlideNumber, templates[presentationir.PlaceholderSlideNumber], "", "slidenum", canvas)
 	}
 	return header, footer, dateTime, slideNumber
 }
 
-func newLegacyHeaderFooterShape(slideIndex, shapeID int, name string, placeholder presentationir.PlaceholderKind, template legacyPptTextShape, text, fieldKind string) *presentationir.Shape {
+func newLegacyHeaderFooterShape(slideIndex, shapeID int, name string, placeholder presentationir.PlaceholderKind, template legacyPptTextShape, text, fieldKind string, canvas legacyPptCanvas) *presentationir.Shape {
 	bounds := template.bounds
 	if bounds.W <= 0 || bounds.H <= 0 {
-		bounds = legacyFooterBoundsForPlaceholder(placeholder)
+		bounds = legacyFooterBoundsForPlaceholder(canvas, placeholder)
 	}
 	paragraphs := legacyHeaderFooterParagraphsFromTemplate(template, text, fieldKind)
 	shape := newLegacySlideShape(slideIndex, shapeID, name, placeholder, bounds, paragraphs)
@@ -4503,11 +4737,53 @@ func applyLegacyPptMasterTextStylesToShapeWithRoles(shape *presentationir.Shape,
 		if shape.Placeholder == presentationir.PlaceholderSubtitle && paragraph.Align == "" && textType == pptTextTypeCenterBody {
 			masterLevel.paragraph.Align = "ctr"
 		}
+		if legacyPptParagraphSizesAreInherited(paragraph) {
+			// The paragraph's runs carry no authored size, so its size comes from
+			// the text style. PowerPoint recomputes such a frame to fit at render
+			// time (its own OfficeArt->OOXML conversion of 41246-2 writes 28pt on
+			// slide 10's 32pt-styled intro and 24pt on slide 4's 36pt-styled body),
+			// while a frame with an authored size simply runs past its box.
+			if shape.TextBodyProps.AutofitType == "" && !shape.TextAutoGrow {
+				shape.TextBodyProps.AutofitType = "normAutofit"
+				// -1 asks the layout to derive the shrink; 0 keeps the DrawingML
+				// contract that an absent authored scale means "no shrink".
+				shape.TextBodyProps.AutofitFontScale = -1
+			}
+		}
 		shape.Paragraphs[index] = mergeLegacyPptMasterParagraph(paragraph, masterLevel, inheritedOnly)
 	}
 }
 
+// legacyPptMasterTextLevelSpacingInheritance gives a deeper text-master level
+// the paragraph spacing of level one when it authors none of its own. PowerPoint
+// lays out 41246-2 slide 15's level-1 sub-bullets with the same 20 % space-before
+// as its level-0 items (a 25.9pt pitch on 18pt text), while the decoded level-1
+// entry carries no space-before and no line spacing at all.
+func legacyPptMasterTextLevelSpacingInheritance(levels map[int]legacyPptMasterTextLevel) map[int]legacyPptMasterTextLevel {
+	base, ok := levels[0]
+	if !ok || len(levels) == 0 {
+		return levels
+	}
+	for level, entry := range levels {
+		if level == 0 {
+			continue
+		}
+		if !entry.paragraph.HasSpaceBefore && entry.paragraph.SpaceBefore == 0 && entry.paragraph.SpaceBeforePct == 0 && base.paragraph.SpaceBeforePct > 0 {
+			entry.paragraph.SpaceBeforePct = base.paragraph.SpaceBeforePct
+		}
+		if !entry.paragraph.HasLineSpacing && entry.paragraph.LineSpacingPct == 0 && entry.paragraph.LineSpacingPt == 0 && base.paragraph.LineSpacingPct > 0 {
+			entry.paragraph.LineSpacingPct = base.paragraph.LineSpacingPct
+		}
+		levels[level] = entry
+	}
+	return levels
+}
+
 func legacyPptMasterTextLevelsForType(styles legacyPptMasterTextStyles, textType int) map[int]legacyPptMasterTextLevel {
+	return legacyPptMasterTextLevelSpacingInheritance(legacyPptMasterTextLevelsForTypeResolved(styles, textType))
+}
+
+func legacyPptMasterTextLevelsForTypeResolved(styles legacyPptMasterTextStyles, textType int) map[int]legacyPptMasterTextLevel {
 	if len(styles) == 0 {
 		return legacyPptMasterTextLevelsWithBuiltInFallback(textType, nil)
 	}
@@ -4762,6 +5038,16 @@ func mergeLegacyPptMasterParagraph(paragraph *presentationir.Paragraph, master l
 				merged.BulletChar = "•"
 			}
 		}
+	} else if !merged.BulletNone && merged.BulletChar != "" && master.paragraph.HasBulletSpecified && !master.paragraph.HasBullet {
+		// A local bulletChar without fHasBullet is a cached copy of the master
+		// marker, not an enablement. When the master level explicitly disables
+		// bullets, PowerPoint draws none of it: slide 2 of 41246-2 stores the
+		// Wingdings diamond "w" in its Chap. 14/15/16 paragraphs while the master
+		// level says fHasBullet=false, and the exported PDF has flush-left text
+		// with no marker. Honouring the cached glyph put a cyan diamond in front
+		// of every one of those paragraphs.
+		merged.BulletChar = ""
+		merged.BulletNone = true
 	} else if !merged.BulletNone && merged.BulletChar == "" {
 		if master.paragraph.HasBullet {
 			merged.BulletChar = bulletCharString(master.paragraph.BulletChar)
@@ -5561,32 +5847,38 @@ func attachNotesHeaderFooterInfoByPersistID(slides []legacySlideText, infos map[
 	return slides
 }
 
-func buildLegacyNotesShapes(slideIndex int, paragraphs []*presentationir.Paragraph, info legacyPptHeaderFooterInfo) []*presentationir.Shape {
+// buildLegacyNotesShapes synthesizes the notes page. It takes the slide canvas
+// rather than the DocumentAtom's notesSize: presentationir.NotesSlide carries no
+// canvas of its own and the renderer paints notes content with the slide's
+// dimensions. notesSize is a portrait page, so a synthetic notes footer placed at
+// notesSize.Height - 0.75in would land below the surface it is painted on. Making
+// this spec-correct needs a notes canvas on the IR and in the renderer first.
+func buildLegacyNotesShapes(slideIndex int, paragraphs []*presentationir.Paragraph, info legacyPptHeaderFooterInfo, canvas legacyPptCanvas) []*presentationir.Shape {
 	shapes := make([]*presentationir.Shape, 0, 5)
 	nextShapeID := 1
 	if info.headerEnabled() && info.headerText != "" {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, "hdr", presentationir.PlaceholderOther, legacyHeaderBounds(), buildTextParagraphs(info.headerText)))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, "hdr", presentationir.PlaceholderOther, legacyHeaderBounds(canvas), buildTextParagraphs(info.headerText)))
 		nextShapeID++
 	}
 	if len(paragraphs) > 0 {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes %d", slideIndex+1), presentationir.PlaceholderBody, legacyBodyBounds(false), paragraphs))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes %d", slideIndex+1), presentationir.PlaceholderBody, legacyBodyBounds(canvas, false), paragraphs))
 		nextShapeID++
 	}
 	if info.footerEnabled() && info.footerText != "" {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Footer %d", slideIndex+1), presentationir.PlaceholderFooter, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderFooter), buildTextParagraphs(info.footerText)))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Footer %d", slideIndex+1), presentationir.PlaceholderFooter, legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderFooter), buildTextParagraphs(info.footerText)))
 		nextShapeID++
 	}
 	if info.dateEnabled() {
 		if info.dateText != "" {
-			shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Date %d", slideIndex+1), presentationir.PlaceholderDateTime, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime), buildTextParagraphs(info.dateText)))
+			shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Date %d", slideIndex+1), presentationir.PlaceholderDateTime, legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderDateTime), buildTextParagraphs(info.dateText)))
 			nextShapeID++
 		} else if info.flags&legacyPptHFFlagTodayDate != 0 {
-			shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Date %d", slideIndex+1), presentationir.PlaceholderDateTime, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime), []*presentationir.Paragraph{{Runs: []*presentationir.Run{{FieldKind: "date"}}}}))
+			shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Date %d", slideIndex+1), presentationir.PlaceholderDateTime, legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderDateTime), []*presentationir.Paragraph{{Runs: []*presentationir.Run{{FieldKind: "date"}}}}))
 			nextShapeID++
 		}
 	}
 	if info.slideNumberEnabled() {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Slide Number %d", slideIndex+1), presentationir.PlaceholderSlideNumber, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderSlideNumber), []*presentationir.Paragraph{{Runs: []*presentationir.Run{{FieldKind: "slidenum"}}}}))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextShapeID, fmt.Sprintf("Legacy Notes Slide Number %d", slideIndex+1), presentationir.PlaceholderSlideNumber, legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderSlideNumber), []*presentationir.Paragraph{{Runs: []*presentationir.Run{{FieldKind: "slidenum"}}}}))
 	}
 	return shapes
 }
@@ -5625,11 +5917,11 @@ func splitLegacySlideShapes(shapes []*presentationir.Shape) (header *presentatio
 	return header, content, footer, dateTime, slideNumber
 }
 
-func buildLegacySlideShapes(slideIndex int, slideText legacySlideText, filename string) []*presentationir.Shape {
+func buildLegacySlideShapes(slideIndex int, slideText legacySlideText, filename string, canvas legacyPptCanvas) []*presentationir.Shape {
 	// When TextHeaderAtom type info is available, group fragments by role directly.
 	// Fall back to heuristic partitioning when no type info is present.
 	if hasTypedFragments(slideText.Fragments) {
-		return buildLegacySlideShapesTyped(slideIndex, slideText, filename)
+		return buildLegacySlideShapesTyped(slideIndex, slideText, filename, canvas)
 	}
 	paragraphs := buildTextParagraphs(joinSlideFragments(slideText.Fragments))
 	if len(paragraphs) == 0 {
@@ -5637,8 +5929,8 @@ func buildLegacySlideShapes(slideIndex int, slideText legacySlideText, filename 
 	}
 	title, subtitle, body, footer := partitionLegacySlideParagraphs(paragraphs, filename)
 	if len(title) == 0 && len(subtitle) == 0 {
-		shapes := []*presentationir.Shape{newLegacySlideShape(slideIndex, 1, fmt.Sprintf("Legacy Text %d", slideIndex+1), presentationir.PlaceholderBody, legacyBodyBounds(false), body)}
-		if footerShapes := buildLegacyFooterShapes(slideIndex, 2, footer); len(footerShapes) > 0 {
+		shapes := []*presentationir.Shape{newLegacySlideShape(slideIndex, 1, fmt.Sprintf("Legacy Text %d", slideIndex+1), presentationir.PlaceholderBody, legacyBodyBounds(canvas, false), body)}
+		if footerShapes := buildLegacyFooterShapes(slideIndex, 2, footer, canvas); len(footerShapes) > 0 {
 			shapes = append(shapes, footerShapes...)
 		}
 		return shapes
@@ -5658,18 +5950,18 @@ func buildLegacySlideShapes(slideIndex int, slideText legacySlideText, filename 
 	shapes := make([]*presentationir.Shape, 0, 2)
 	nextID := 1
 	if len(title) > 0 {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Title %d", slideIndex+1), presentationir.PlaceholderTitle, legacyTitleBounds(), title))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Title %d", slideIndex+1), presentationir.PlaceholderTitle, legacyTitleBounds(canvas), title))
 		nextID++
 	}
 	if len(subtitle) > 0 {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Subtitle %d", slideIndex+1), presentationir.PlaceholderSubtitle, legacySubtitleBounds(), subtitle))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Subtitle %d", slideIndex+1), presentationir.PlaceholderSubtitle, legacySubtitleBounds(canvas), subtitle))
 		nextID++
 	}
 	if len(body) > 0 {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Body %d", slideIndex+1), presentationir.PlaceholderBody, legacyBodyBounds(len(title) > 0), body))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Body %d", slideIndex+1), presentationir.PlaceholderBody, legacyBodyBounds(canvas, len(title) > 0), body))
 		nextID++
 	}
-	if footerShapes := buildLegacyFooterShapes(slideIndex, nextID, footer); len(footerShapes) > 0 {
+	if footerShapes := buildLegacyFooterShapes(slideIndex, nextID, footer, canvas); len(footerShapes) > 0 {
 		shapes = append(shapes, footerShapes...)
 	}
 	return shapes
@@ -5865,7 +6157,7 @@ func hasLegacyMeridiemToken(text string) bool {
 	return false
 }
 
-func buildLegacyFooterShapes(slideIndex, startShapeID int, paragraphs []*presentationir.Paragraph) []*presentationir.Shape {
+func buildLegacyFooterShapes(slideIndex, startShapeID int, paragraphs []*presentationir.Paragraph, canvas legacyPptCanvas) []*presentationir.Shape {
 	if len(paragraphs) == 0 {
 		return nil
 	}
@@ -5886,7 +6178,7 @@ func buildLegacyFooterShapes(slideIndex, startShapeID int, paragraphs []*present
 			name = fmt.Sprintf("Legacy Date %d", slideIndex+1)
 		}
 		shapeParagraphs := annotateLegacyPlaceholderFields([]*presentationir.Paragraph{paragraph}, placeholder)
-		shapes = append(shapes, newLegacySlideShape(slideIndex, startShapeID+index, name, placeholder, legacyFooterBoundsForPlaceholder(placeholder), shapeParagraphs))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, startShapeID+index, name, placeholder, legacyFooterBoundsForPlaceholder(canvas, placeholder), shapeParagraphs))
 	}
 	return shapes
 }
@@ -5911,27 +6203,32 @@ func annotateLegacyPlaceholderFields(paragraphs []*presentationir.Paragraph, pla
 	return paragraphs
 }
 
-func legacyFooterBounds() presentationir.Rect {
-	return presentationir.Rect{X: 685800, Y: defaultSlideHeightEMU - 685800, W: defaultSlideWidthEMU - 1371600, H: 304800}
+// The synthetic bounds below apply when a deck omits an authored anchor. They are
+// canvas-relative: PowerPoint places these on the deck's own page, so a 960x540
+// deck must not inherit 720pt offsets. The margins (0.75in, 1.5in) are authored for
+// a presentation-width canvas; no corpus deck is narrower than 540pt, so they are
+// not clamped against the spec's 72pt minimum.
+func legacyFooterBounds(canvas legacyPptCanvas) presentationir.Rect {
+	return presentationir.Rect{X: 685800, Y: canvas.HeightEMU - 685800, W: canvas.WidthEMU - 1371600, H: 304800}
 }
 
-func legacyHeaderBounds() presentationir.Rect {
-	return presentationir.Rect{X: 685800, Y: 381000, W: defaultSlideWidthEMU - 1371600, H: 304800}
+func legacyHeaderBounds(canvas legacyPptCanvas) presentationir.Rect {
+	return presentationir.Rect{X: 685800, Y: 381000, W: canvas.WidthEMU - 1371600, H: 304800}
 }
 
-func legacyFooterBoundsForPlaceholder(placeholder presentationir.PlaceholderKind) presentationir.Rect {
+func legacyFooterBoundsForPlaceholder(canvas legacyPptCanvas, placeholder presentationir.PlaceholderKind) presentationir.Rect {
 	switch placeholder {
 	case presentationir.PlaceholderDateTime:
-		return presentationir.Rect{X: 685800, Y: defaultSlideHeightEMU - 685800, W: 2286000, H: 304800}
+		return presentationir.Rect{X: 685800, Y: canvas.HeightEMU - 685800, W: 2286000, H: 304800}
 	case presentationir.PlaceholderSlideNumber:
-		return presentationir.Rect{X: defaultSlideWidthEMU - 2286000 - 685800, Y: defaultSlideHeightEMU - 685800, W: 2286000, H: 304800}
+		return presentationir.Rect{X: canvas.WidthEMU - 2286000 - 685800, Y: canvas.HeightEMU - 685800, W: 2286000, H: 304800}
 	case presentationir.PlaceholderFooter:
 		// Keep a synthetic footer out of the date and slide-number columns.
 		// Old/damaged PPTs can omit the authored footer anchor; using the generic
 		// full-width fallback makes date and footer paint on top of each other.
-		return presentationir.Rect{X: defaultSlideWidthEMU * 325 / 1000, Y: defaultSlideHeightEMU - 685800, W: defaultSlideWidthEMU * 350 / 1000, H: 304800}
+		return presentationir.Rect{X: canvas.WidthEMU * 325 / 1000, Y: canvas.HeightEMU - 685800, W: canvas.WidthEMU * 350 / 1000, H: 304800}
 	default:
-		return legacyFooterBounds()
+		return legacyFooterBounds(canvas)
 	}
 }
 
@@ -6039,7 +6336,7 @@ func isLegacyBulletRomanMarker(marker string) bool {
 // Escher rectangle aliases the title rectangle instead of contributing its own
 // layout geometry. The fallback is semantic (placeholder role), not fixture-specific.
 // Authored non-overlapping geometry is preserved unchanged.
-func normalizeLegacyPptPlaceholderGeometry(shapes []*presentationir.Shape) {
+func normalizeLegacyPptPlaceholderGeometry(shapes []*presentationir.Shape, canvas legacyPptCanvas) {
 	var title *presentationir.Shape
 	for _, shape := range shapes {
 		if shape != nil && shape.Placeholder == presentationir.PlaceholderTitle {
@@ -6056,7 +6353,7 @@ func normalizeLegacyPptPlaceholderGeometry(shapes []*presentationir.Shape) {
 			continue
 		}
 		if shape.Bounds.Y < titleBottom && legacyRectsOverlap(title.Bounds, shape.Bounds) {
-			shape.Bounds = legacySubtitleBounds()
+			shape.Bounds = legacySubtitleBounds(canvas)
 		}
 	}
 }
@@ -6065,22 +6362,22 @@ func legacyRectsOverlap(a, b presentationir.Rect) bool {
 	return a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H
 }
 
-func legacyTitleBounds() presentationir.Rect {
-	return presentationir.Rect{X: 685800, Y: 457200, W: defaultSlideWidthEMU - 1371600, H: 914400}
+func legacyTitleBounds(canvas legacyPptCanvas) presentationir.Rect {
+	return presentationir.Rect{X: 685800, Y: 457200, W: canvas.WidthEMU - 1371600, H: 914400}
 }
 
-func legacySubtitleBounds() presentationir.Rect {
-	return presentationir.Rect{X: 914400, Y: 1600200, W: defaultSlideWidthEMU - 1828800, H: 762000}
+func legacySubtitleBounds(canvas legacyPptCanvas) presentationir.Rect {
+	return presentationir.Rect{X: 914400, Y: 1600200, W: canvas.WidthEMU - 1828800, H: 762000}
 }
 
-func legacyBodyBounds(hasTitle bool) presentationir.Rect {
+func legacyBodyBounds(canvas legacyPptCanvas, hasTitle bool) presentationir.Rect {
 	y := int64(1371600)
-	h := int64(defaultSlideHeightEMU - 1828800)
+	h := canvas.HeightEMU - 1828800
 	if hasTitle {
 		y = 1828800
-		h = int64(defaultSlideHeightEMU - 2286000)
+		h = canvas.HeightEMU - 2286000
 	}
-	return presentationir.Rect{X: 914400, Y: y, W: defaultSlideWidthEMU - 1828800, H: h}
+	return presentationir.Rect{X: 914400, Y: y, W: canvas.WidthEMU - 1828800, H: h}
 }
 
 func buildTextParagraphs(text string) []*presentationir.Paragraph {
@@ -6154,7 +6451,7 @@ func hasTypedFragments(fragments []legacySlideFragment) bool {
 
 // buildLegacySlideShapesTyped groups fragments by TextHeaderAtom type into
 // title and body shapes, falling back to heuristic footer detection.
-func buildLegacySlideShapesTyped(slideIndex int, slideText legacySlideText, filename string) []*presentationir.Shape {
+func buildLegacySlideShapesTyped(slideIndex int, slideText legacySlideText, filename string, canvas legacyPptCanvas) []*presentationir.Shape {
 	var titleParas, centerBodyParas, bodyParas []*presentationir.Paragraph
 	for _, frag := range slideText.Fragments {
 		paras := fragmentParagraphs(frag)
@@ -6200,19 +6497,19 @@ func buildLegacySlideShapesTyped(slideIndex int, slideText legacySlideText, file
 	shapes := make([]*presentationir.Shape, 0, 4)
 	nextID := 1
 	if len(titleParas) > 0 {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Title %d", slideIndex+1), presentationir.PlaceholderTitle, legacyTitleBounds(), titleParas))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Title %d", slideIndex+1), presentationir.PlaceholderTitle, legacyTitleBounds(canvas), titleParas))
 		nextID++
 	}
 	if len(subtitleParas) > 0 {
-		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Subtitle %d", slideIndex+1), presentationir.PlaceholderSubtitle, legacySubtitleBounds(), subtitleParas))
+		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Subtitle %d", slideIndex+1), presentationir.PlaceholderSubtitle, legacySubtitleBounds(canvas), subtitleParas))
 		nextID++
 	}
 	if len(bodyParas) > 0 {
-		bounds := legacyBodyBounds(len(titleParas) > 0)
+		bounds := legacyBodyBounds(canvas, len(titleParas) > 0)
 		shapes = append(shapes, newLegacySlideShape(slideIndex, nextID, fmt.Sprintf("Legacy Body %d", slideIndex+1), presentationir.PlaceholderBody, bounds, bodyParas))
 		nextID++
 	}
-	if footerShapes := buildLegacyFooterShapes(slideIndex, nextID, footer); len(footerShapes) > 0 {
+	if footerShapes := buildLegacyFooterShapes(slideIndex, nextID, footer, canvas); len(footerShapes) > 0 {
 		shapes = append(shapes, footerShapes...)
 	}
 	return shapes
@@ -6577,6 +6874,9 @@ func canonicalizeLegacyPptGroupChild(child *presentationir.Shape, data []byte, c
 	var transform legacyPptShapeTransform
 	transform.FlipH = node.Flags&legacyOfficeArtSpFlagFlipH != 0
 	transform.FlipV = node.Flags&legacyOfficeArtSpFlagFlipV != 0
+	if officeartlegacy.OfficeArtMirrorsFlipV(node.ShapeType) {
+		transform.FlipV = !transform.FlipV
+	}
 	if len(node.Properties) > 0 {
 		parseLegacyPptFOPTPropertiesTransform(node.Properties, colorScheme, &transform)
 	}
@@ -6815,6 +7115,7 @@ func parseLegacyPptSlideVisualsEventDriven(
 	exHyperlinks map[uint32]string,
 	pictureStore map[uint32]*legacyPptPicture,
 	externalObjects map[uint32]legacyPptExternalObject,
+	canvas legacyPptCanvas,
 ) (map[int][]*presentationir.Shape, map[int]map[uint32]int) {
 	if len(slidePersistIDs) == 0 || len(persistEvents.slides) == 0 {
 		return nil, nil
@@ -6842,7 +7143,7 @@ func parseLegacyPptSlideVisualsEventDriven(
 		projection := scene.completeProjection(
 			textByPersistID[persistID], fontTable, slideScheme,
 			masterPlaceholderTemplates[textByPersistID[persistID].MasterID],
-			exHyperlinks, pictureStore, externalObjects,
+			exHyperlinks, pictureStore, externalObjects, canvas,
 		)
 		if len(projection.Shapes) != 0 {
 			out[persistID] = projection.Shapes
@@ -6860,7 +7161,7 @@ func parseLegacyPptSlideVisualsEventDriven(
 	return out, roles
 }
 
-func buildLegacyPptTextShapesFromMetas(metas []legacyPptTextShape, slideText legacySlideText) []*presentationir.Shape {
+func buildLegacyPptTextShapesFromMetas(metas []legacyPptTextShape, slideText legacySlideText, canvas legacyPptCanvas) []*presentationir.Shape {
 	if len(metas) == 0 {
 		return nil
 	}
@@ -6954,7 +7255,7 @@ func buildLegacyPptTextShapesFromMetas(metas []legacyPptTextShape, slideText leg
 		shapes = append(shapes, shape)
 	}
 	if leftovers := collectUnusedLegacySlideFragments(slideText, usedFragments); len(leftovers.Fragments) > 0 {
-		for _, shape := range buildLegacySlideShapesTyped(0, leftovers, "") {
+		for _, shape := range buildLegacySlideShapesTyped(0, leftovers, "", canvas) {
 			if shape == nil {
 				continue
 			}
@@ -7870,6 +8171,7 @@ func composeLegacyPptMasterSemanticScenes(
 	exHyperlinks map[uint32]string,
 	pictureStore map[uint32]*legacyPptPicture,
 	externalObjects map[uint32]legacyPptExternalObject,
+	canvas legacyPptCanvas,
 ) legacyPptMasterComposition {
 	if len(scenes) == 0 || len(entries) == 0 {
 		return legacyPptMasterComposition{}
@@ -7920,7 +8222,7 @@ func composeLegacyPptMasterSemanticScenes(
 			}
 		}
 
-		projection := scene.completeProjection(legacySlideText{}, fontTable, scheme, nil, exHyperlinks, pictureStore, externalObjects)
+		projection := scene.completeProjection(legacySlideText{}, fontTable, scheme, nil, exHyperlinks, pictureStore, externalObjects, canvas)
 		projected := projection.Shapes
 		visuals := projected[:0]
 		for _, shape := range projected {
@@ -7982,8 +8284,62 @@ func inheritLegacyPptMasterPlaceholderTemplates(metas []legacyPptTextShape, temp
 			metas[i].fillColor = template.fillColor
 		}
 		metas[i].transform = mergeLegacyPptPlaceholderTransform(metas[i].transform, template.transform)
+		// The master placeholder's own text carries authored character
+		// properties the slide inherits, and they outrank the master *style*
+		// level: PowerPoint draws 41246-2's body placeholders at the master
+		// shape's 28pt even though the master's body style level says 32pt
+		// (its own OfficeArt->OOXML conversion writes sz=2800 on the layout
+		// placeholder and 3200 on the body style).
+		mergeLegacyPptPlaceholderRuns(metas[i].paragraphs, template.paragraphs)
 	}
 	return metas
+}
+
+// mergeLegacyPptPlaceholderRuns fills unset run sizes and families from the
+// matching paragraph level of a master placeholder template.
+func mergeLegacyPptPlaceholderRuns(local, master []*presentationir.Paragraph) {
+	if len(local) == 0 || len(master) == 0 {
+		return
+	}
+	byLevel := map[int]*presentationir.Paragraph{}
+	for _, mp := range master {
+		if mp == nil {
+			continue
+		}
+		if _, ok := byLevel[mp.Level]; !ok {
+			byLevel[mp.Level] = mp
+		}
+	}
+	for _, lp := range local {
+		if lp == nil {
+			continue
+		}
+		mp := byLevel[lp.Level]
+		if mp == nil {
+			mp = master[0]
+		}
+		if mp == nil || len(mp.Runs) == 0 {
+			continue
+		}
+		for i, lr := range lp.Runs {
+			if lr == nil {
+				continue
+			}
+			mr := mp.Runs[0]
+			if i < len(mp.Runs) && mp.Runs[i] != nil {
+				mr = mp.Runs[i]
+			}
+			if mr == nil {
+				continue
+			}
+			if lr.FontSize == 0 {
+				lr.FontSize = mr.FontSize
+			}
+			if lr.FontFamily == "" {
+				lr.FontFamily = mr.FontFamily
+			}
+		}
+	}
 }
 
 func normalizeLegacyTextInsetPresence(t *legacyPptShapeTransform) {
@@ -11101,4 +11457,24 @@ type PptProducer struct {
 
 func (p PptProducer) ProducePresentationEvents(consumer presentationevent.Consumer) error {
 	return WalkPptBytes(p.Data, p.Filename, consumer)
+}
+
+// legacyPptParagraphSizesAreInherited reports whether every visible run in a
+// paragraph still lacks an authored font size, which is how the legacy parser
+// records "this text takes its size from the style".
+func legacyPptParagraphSizesAreInherited(paragraph *presentationir.Paragraph) bool {
+	if paragraph == nil {
+		return false
+	}
+	visible := false
+	for _, run := range paragraph.Runs {
+		if run == nil || strings.TrimSpace(run.Text) == "" {
+			continue
+		}
+		visible = true
+		if run.FontSize != 0 {
+			return false
+		}
+	}
+	return visible
 }

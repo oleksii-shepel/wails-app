@@ -575,14 +575,14 @@ func TestLegacyWriterRoundTripsStructuredNumbering(t *testing.T) {
 		}
 	}
 	if got.Paragraphs[0].List.Start != 3 || got.Paragraphs[0].List.Format != "decimal" ||
-		got.Paragraphs[0].List.Template != "%1." {
+		got.Paragraphs[0].List.Template != "1." {
 		t.Fatalf("level0 first=%+v", got.Paragraphs[0].List)
 	}
 	if got.Paragraphs[1].List.Start != 4 {
 		t.Fatalf("level0 continuation=%+v", got.Paragraphs[1].List)
 	}
 	if got.Paragraphs[2].List.Level != 1 || got.Paragraphs[2].List.Format != "lowerLetter" ||
-		got.Paragraphs[2].List.Template != "%1.%2." {
+		got.Paragraphs[2].List.Template != "1.2." {
 		t.Fatalf("level1=%+v", got.Paragraphs[2].List)
 	}
 	if got.Paragraphs[0].Numbering.AbstractNumID != 700 || got.Paragraphs[0].Numbering.NumID != 1 {

@@ -22,12 +22,6 @@ import (
 	"office/pkg/sheet/parsers/ooxml/parts"
 )
 
-// ResolvePackage converts a fully loaded parts.Package into a resolved Workbook IR.
-// It remains as the full-parser oracle for tests and non-production tooling.
-func ResolvePackage(pkg *parts.Package) (*Workbook, error) {
-	return resolvePackage(pkg)
-}
-
 // ResolveMetadataPackage projects package-level metadata and the worksheet
 // identity skeleton into canonical IR. Worksheet content is populated by SAX
 // and relationship-heavy objects are loaded through their explicit boundary.

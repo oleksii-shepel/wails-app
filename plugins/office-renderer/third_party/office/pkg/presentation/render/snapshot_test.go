@@ -85,11 +85,11 @@ func TestSample1HTMLKeepsAuthoredListMarkers(t *testing.T) {
 	// ppt-physical-fragment span. Assert marker identity/style and authored run
 	// styling independently instead of requiring them to be adjacent siblings.
 	for _, want := range []string{
-		`<span class="bullet-marker" style="font-size:24.0pt;font-family:Roboto;color:#424242;`,
+		`<span class="bullet-marker" style="font-size:24.0pt;font-family:Roboto,Arial,sans-serif;color:#424242;`,
 		`>●</span>`,
-		`font-size:24.0pt;font-family:Roboto;color:#424242">Progressive enhancement`,
+		`font-size:24.0pt;font-family:Roboto,Arial,sans-serif;color:#424242">Progressive enhancement`,
 		`>1.</span>`,
-		`font-size:24.0pt;font-family:Roboto;color:#424242">Create account`,
+		`font-size:24.0pt;font-family:Roboto,Arial,sans-serif;color:#424242">Create account`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("sample-1 HTML missing list marker fragment %q", want)

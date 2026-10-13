@@ -21,6 +21,7 @@ func TestResolveParagraphMetricsOwnsPhysicalSpacingAndAvailableWidth(t *testing.
 		HasSpaceAfter:  true,
 		LineSpacingPct: 120000,
 		HasLineSpacing: true,
+		Runs:           []*ir.Run{{Text: "text"}},
 	}
 	got := ResolveParagraphMetrics(p, 300, 18, .82)
 	near(t, "left", got.MarginLeftPt, 7.2)
@@ -33,10 +34,10 @@ func TestResolveParagraphMetricsOwnsPhysicalSpacingAndAvailableWidth(t *testing.
 }
 
 func TestResolveParagraphMetricsConvertsPercentageSpacingUsingTextLineHeight(t *testing.T) {
-	p := &ir.Paragraph{SpaceBeforePct: 50000, SpaceAfterPct: 125000}
+	p := &ir.Paragraph{SpaceBeforePct: 50000, SpaceAfterPct: 125000, Runs: []*ir.Run{{Text: "text"}}}
 	got := ResolveParagraphMetrics(p, 100, 20, 1)
-	near(t, "before", got.SpaceBeforePt, 11.17)
-	near(t, "after", got.SpaceAfterPt, 27.925)
+	near(t, "before", got.SpaceBeforePt, 12)
+	near(t, "after", got.SpaceAfterPt, 30)
 }
 
 func near(t *testing.T, name string, got, want float64) {

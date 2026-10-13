@@ -207,7 +207,10 @@ func normalizeLegacyListMarkerGlyph(p *Paragraph) {
 	if strings.Contains(font, "wingdings") || strings.Contains(font, "webdings") {
 		switch marker {
 		case "n", "\uf06e", "\uf0a7":
-			mapped = "▪"
+			// Wingdings' filled square fills most of the em cell. U+25AA is a
+			// deliberately small square and rendered a third of the size the deck
+			// shows (41246-2 slide 7 sub-bullets).
+			mapped = "■"
 		case "w", "\uf077", "\uf076":
 			mapped = "◆"
 		case "l", "\uf06c":

@@ -13,8 +13,7 @@ import (
 // projection instead of asking the browser to reflow text that layout has
 // already measured. This is the canonical renderer boundary for ordinary
 // paragraphs, explicit line breaks, fragmented paragraphs, and Square/Tight
-// wrapping. List markers remain a temporary exception until marker geometry is
-// represented by physical layout.
+// wrapping. List markers occupy a measured-width gutter in the first line slot.
 func (r *htmlRenderer) renderPhysicalParagraphFragment(box layout.BlockBox, boxes []layout.BlockBox, index int) {
 	if box.Block == nil || box.Block.Paragraph == nil || box.Fragment == nil || len(box.Fragment.Lines) == 0 {
 		return
@@ -221,7 +220,10 @@ func (r *htmlRenderer) renderPhysicalInlineListMarker(p *resolve.Paragraph, runs
 		return
 	}
 	if p.List != nil && p.List.Picture != nil {
-		r.renderPictureBullet(p.List.Picture, "word-list-marker word-physical-inline-list-marker word-list-bullet")
+		markerWidth := physicalListMarkerWidthPt(p)
+		fmt.Fprintf(&r.buf, `<span class="word-list-marker word-physical-inline-list-marker word-list-bullet" style="--word-list-marker-width:%.2fpt">`, markerWidth)
+		r.renderPictureBullet(p.List.Picture, "word-list-bullet")
+		r.buf.WriteString(`</span>`)
 		return
 	}
 	className := "word-list-marker word-physical-inline-list-marker"
@@ -233,11 +235,36 @@ func (r *htmlRenderer) renderPhysicalInlineListMarker(p *resolve.Paragraph, runs
 		ariaHidden = ` aria-hidden="true"`
 	}
 	style := r.listMarkerStyle(p, runs)
-	if style != "" {
-		fmt.Fprintf(&r.buf, `<span class=%q style=%q%s>%s</span>`, className, style, ariaHidden, html.EscapeString(marker))
+	markerWidth := physicalListMarkerWidthPt(p)
+	if style != "" || markerWidth != 18 {
+		if style != "" {
+			style += ";"
+		}
+		style += fmt.Sprintf("--word-list-marker-width:%.2fpt", markerWidth)
+	}
+	if style == "" {
+		fmt.Fprintf(&r.buf, `<span class=%q%s>%s</span>`, className, ariaHidden, html.EscapeString(marker))
 		return
 	}
-	fmt.Fprintf(&r.buf, `<span class=%q%s>%s</span>`, className, ariaHidden, html.EscapeString(marker))
+	fmt.Fprintf(&r.buf, `<span class=%q%s style=%q>%s</span>`, className, ariaHidden, style, html.EscapeString(marker))
+}
+
+func physicalListMarkerWidthPt(p *resolve.Paragraph) float64 {
+	width := 18.0
+	if p != nil {
+		if p.Format.IndentHanging != nil && *p.Format.IndentHanging > 0 {
+			width = twipsToPoints(*p.Format.IndentHanging)
+		} else if p.Format.IndentFirstLine != nil && *p.Format.IndentFirstLine < 0 {
+			width = twipsToPoints(-*p.Format.IndentFirstLine)
+		}
+		if p.List != nil && p.List.Picture != nil {
+			pictureWidth := float64(p.List.Picture.Width) / 12700.0
+			if pictureWidth > width {
+				width = pictureWidth
+			}
+		}
+	}
+	return width
 }
 
 func canRenderPhysicalRunsSequentially(runs []layout.ParagraphRunLayout) bool {

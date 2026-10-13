@@ -43,13 +43,13 @@ func TestParserCompletenessOwnershipAuditExposesDroppedContainer(t *testing.T) {
 func TestMasterPictureBackgroundRespectsFollowMasterBackground(t *testing.T) {
 	fill := drawing.PictureFill{ImageData: []byte{1, 2, 3}, ContentType: "image/png", Stretch: true, Alpha: 1}
 	slides := []legacySlideText{{PersistID: 1, MasterPersistID: 9, HasSlideFlags: true, FollowMasterBackground: true}}
-	pres := buildPresentationWithMasterBackgroundPaint(slides, nil, nil, legacyPptHeaderFooterInfo{}, "x.ppt", nil, nil, nil, "", nil, map[int]drawing.Fill{9: fill})
+	pres := buildPresentationWithMasterBackgroundPaint(slides, nil, nil, legacyPptHeaderFooterInfo{}, "x.ppt", nil, nil, nil, "", nil, map[int]drawing.Fill{9: fill}, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 || pres.Slides[0].BgFill == nil {
 		t.Fatal("master picture background was not inherited")
 	}
 
 	slides[0].FollowMasterBackground = false
-	pres = buildPresentationWithMasterBackgroundPaint(slides, nil, nil, legacyPptHeaderFooterInfo{}, "x.ppt", nil, nil, nil, "", nil, map[int]drawing.Fill{9: fill})
+	pres = buildPresentationWithMasterBackgroundPaint(slides, nil, nil, legacyPptHeaderFooterInfo{}, "x.ppt", nil, nil, nil, "", nil, map[int]drawing.Fill{9: fill}, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 || pres.Slides[0].BgFill != nil {
 		t.Fatal("master picture background inherited despite fMasterBackground=false")
 	}

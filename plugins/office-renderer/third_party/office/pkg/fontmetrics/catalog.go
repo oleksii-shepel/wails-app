@@ -1,6 +1,9 @@
 package fontmetrics
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // NamedFace binds a parsed SFNT face to the authored Office family/style identity.
 type NamedFace struct {
@@ -11,11 +14,33 @@ type NamedFace struct {
 }
 
 // Catalog is a reusable family/style resolver for Office text measurement.
+// Faces are fixed once the catalog is built; the family index is derived from
+// them on first use.
 type Catalog struct {
 	Faces []NamedFace
+
+	familyOnce  sync.Once
+	familyIndex map[string][]int
 }
 
 func (c *Catalog) Empty() bool { return c == nil || len(c.Faces) == 0 }
+
+// facesForFamily returns the indices of the catalog's faces in the given
+// normalized family. Normalizing every face's authored name per lookup shows up
+// as allocation churn in text measurement, so the index is built once.
+func (c *Catalog) facesForFamily(family string) []int {
+	c.familyOnce.Do(func() {
+		c.familyIndex = make(map[string][]int, len(c.Faces))
+		for i := range c.Faces {
+			name := normalizeFamily(c.Faces[i].Family)
+			if name == "" {
+				continue
+			}
+			c.familyIndex[name] = append(c.familyIndex[name], i)
+		}
+	})
+	return c.familyIndex[family]
+}
 
 // Match returns the closest face within the requested family. It never crosses
 // family boundaries: callers retain their existing metric fallback when no face
@@ -34,9 +59,9 @@ func (c *Catalog) Match(family string, bold, italic bool) *Face {
 	}
 	bestScore := int(^uint(0) >> 1)
 	var best *Face
-	for i := range c.Faces {
+	for _, i := range c.facesForFamily(family) {
 		f := &c.Faces[i]
-		if f.Face == nil || normalizeFamily(f.Family) != family {
+		if f.Face == nil {
 			continue
 		}
 		weight := f.Weight

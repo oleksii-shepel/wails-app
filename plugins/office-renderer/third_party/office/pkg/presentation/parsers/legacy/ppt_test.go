@@ -87,7 +87,7 @@ func TestDiagnostic53446PptStructure(t *testing.T) {
 
 	fontTable := parseLegacyPptFontTable(powerPointDocument)
 	colorScheme := parseLegacyPptColorScheme(powerPointDocument)
-	rootSlides := extractLegacyPptSlidesFromRootDocument(powerPointDocument, fontTable, colorScheme, nil)
+	rootSlides := extractLegacyPptSlidesFromRootDocument(powerPointDocument, fontTable, colorScheme, nil, legacyPptDefaultCanvas())
 	t.Logf("root structural slides=%d", len(rootSlides))
 	for i, slide := range rootSlides {
 		t.Logf("root slide[%d]: persistID=%d fragments=%d text=%q", i, slide.PersistID, len(slide.Fragments), diagnosticLegacySlideText(slide))
@@ -441,7 +441,7 @@ func TestParseLegacyPptTableShapesFromSlideBuildsGroupedTable(t *testing.T) {
 	// Raw text extraction remains independent from table projection. The table
 	// collector owns the grouped table semantic shape, while textMetas still
 	// exposes the four authored cell text containers for other ownership passes.
-	textShapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
+	textShapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{}, legacyPptDefaultCanvas())
 	if len(textShapes) != 4 {
 		t.Fatalf("standalone raw text shapes = %d, want 4 authored cell text containers", len(textShapes))
 	}
@@ -775,7 +775,7 @@ func TestParseLegacyPptTextShapesUseOutlineRefToPickSpecificFragment(t *testing.
 			),
 		),
 	)
-	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText, legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("len(shapes) = %d, want 2", len(shapes))
 	}
@@ -818,7 +818,7 @@ func TestParseLegacyPptTextShapesPreferShapeIDMatchOverFallback(t *testing.T) {
 			),
 		),
 	)
-	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText, legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("len(shapes) = %d, want 2", len(shapes))
 	}
@@ -848,7 +848,7 @@ func TestParseLegacyPptTextShapesPreferOutlineRefWhenShapeIDMapsToPrompt(t *test
 			),
 		),
 	)
-	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText)
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), slideText, legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1420,7 +1420,7 @@ func TestBuildPresentationAppliesLegacyMasterTextDefaultsToUnstyledBody(t *testi
 			0: {paragraph: stpaPFEntry{Align: "ctr", HasBullet: true, BulletChar: '•'}, run: stpaCFRun{FontSize: 3200, FontFamily: "Arial", Color: "112233", Bold: boolPtr(true)}},
 		},
 	}
-	pres := buildPresentationWithMasterComposition([]legacySlideText{{Fragments: []legacySlideFragment{{Text: "Agenda item", TextType: pptTextTypeBody}}}}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil)
+	pres := buildPresentationWithMasterComposition([]legacySlideText{{Fragments: []legacySlideFragment{{Text: "Agenda item", TextType: pptTextTypeBody}}}}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 || len(pres.Slides[0].Shapes) != 1 {
 		t.Fatalf("presentation shapes = %#v", pres.Slides)
 	}
@@ -1461,7 +1461,7 @@ func TestBuildPresentationAppliesLegacyMasterTextDefaultsOnlyToUnsetFields(t *te
 			Runs:       []*presentationir.Run{{Text: "Agenda item", FontSize: 3600}},
 		}},
 	}}}
-	pres := buildPresentationWithMasterComposition([]legacySlideText{slide}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil)
+	pres := buildPresentationWithMasterComposition([]legacySlideText{slide}, nil, nil, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, styles, "", nil, legacyPptDefaultCanvas())
 	para := pres.Slides[0].Shapes[0].Paragraphs[0]
 	if para.Align != "r" {
 		t.Fatalf("Align = %q, want existing right alignment", para.Align)
@@ -1681,7 +1681,7 @@ func TestParseLegacyPptMasterBgFillOverridesThemeLt1(t *testing.T) {
 func TestBuildPresentationUsesExplicitMasterBgFillOverThemeLt1(t *testing.T) {
 	theme := &presentationir.Theme{ColorScheme: map[string]string{"lt1": "FFFFFF"}}
 	slides := []legacySlideText{{Fragments: []legacySlideFragment{{Text: "Slide text", TextType: pptTextTypeBody}}}}
-	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "FF0000", nil)
+	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "FF0000", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) == 0 {
 		t.Fatal("no slides")
 	}
@@ -1693,7 +1693,7 @@ func TestBuildPresentationUsesExplicitMasterBgFillOverThemeLt1(t *testing.T) {
 func TestBuildPresentationFallsBackToThemeLt1WhenNoExplicitBgFill(t *testing.T) {
 	theme := &presentationir.Theme{ColorScheme: map[string]string{"lt1": "EEEEEE"}}
 	slides := []legacySlideText{{Fragments: []legacySlideFragment{{Text: "Slide text", TextType: pptTextTypeBody}}}}
-	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "", nil)
+	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", theme, nil, nil, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) == 0 {
 		t.Fatal("no slides")
 	}
@@ -1903,7 +1903,7 @@ func TestParseLegacyPptTextShapeContainerExtractsAnimationInfo(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x0F, container)
 
-	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{}, legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -1968,7 +1968,7 @@ func TestParseLegacyPptTextShapesFromSlideMapsGroupedChildAnchorBounds(t *testin
 		buildOfficeArtRecord(0, legacyOfficeArtSpgrContainer, 0x000F, append(groupContainer, textContainer...)),
 	)
 
-	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{}, legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -2204,7 +2204,7 @@ func TestParseLegacyPptGroupShapesFromSlideBuildsNestedHierarchy(t *testing.T) {
 	))
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, outerGroup)
 
-	flat := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
+	flat := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{}, legacyPptDefaultCanvas())
 	if len(flat) != 2 {
 		t.Fatalf("len(flat) = %d, want 2 flat child text shapes", len(flat))
 	}
@@ -2849,7 +2849,7 @@ func TestPartitionLegacySlideParagraphsKeepsWeakTwoLineTailOutOfFooter(t *testin
 }
 
 func TestBuildLegacySlideShapesCreatesSlideNumberFooterShape(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n- Revenue up\n- Costs down\nSlide 7", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n- Revenue up\n- Costs down\nSlide 7", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 3 {
 		t.Fatalf("shapes len = %d, want 3", len(shapes))
 	}
@@ -2863,65 +2863,65 @@ func TestBuildLegacySlideShapesCreatesSlideNumberFooterShape(t *testing.T) {
 }
 
 func TestBuildLegacySlideShapesCreatesSeparateFooterPlaceholderShapes(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n- Revenue up\n04/23/2026\nSlide 7", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n- Revenue up\n04/23/2026\nSlide 7", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 4 {
 		t.Fatalf("shapes len = %d, want 4", len(shapes))
 	}
 	if shapes[2].Placeholder != presentationir.PlaceholderDateTime {
 		t.Fatalf("shape[2] placeholder = %v, want datetime", shapes[2].Placeholder)
 	}
-	if shapes[2].Bounds != legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime) {
-		t.Fatalf("shape[2] bounds = %+v, want %+v", shapes[2].Bounds, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime))
+	if shapes[2].Bounds != legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime) {
+		t.Fatalf("shape[2] bounds = %+v, want %+v", shapes[2].Bounds, legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime))
 	}
 	if shapes[3].Placeholder != presentationir.PlaceholderSlideNumber {
 		t.Fatalf("shape[3] placeholder = %v, want slide number", shapes[3].Placeholder)
 	}
-	if shapes[3].Bounds != legacyFooterBoundsForPlaceholder(presentationir.PlaceholderSlideNumber) {
-		t.Fatalf("shape[3] bounds = %+v, want %+v", shapes[3].Bounds, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderSlideNumber))
+	if shapes[3].Bounds != legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderSlideNumber) {
+		t.Fatalf("shape[3] bounds = %+v, want %+v", shapes[3].Bounds, legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderSlideNumber))
 	}
 }
 
 func TestBuildLegacySlideShapesTreatsHyphenatedDateAsDateTimeFooter(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n2026-04-24", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n2026-04-24", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes len = %d, want 2", len(shapes))
 	}
 	if shapes[1].Placeholder != presentationir.PlaceholderDateTime {
 		t.Fatalf("shape[1] placeholder = %v, want datetime", shapes[1].Placeholder)
 	}
-	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime) {
-		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime))
+	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime) {
+		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime))
 	}
 }
 
 func TestBuildLegacySlideShapesTreatsMonthNameDateAsDateTimeFooter(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\nApril 24, 2026", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\nApril 24, 2026", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes len = %d, want 2", len(shapes))
 	}
 	if shapes[1].Placeholder != presentationir.PlaceholderDateTime {
 		t.Fatalf("shape[1] placeholder = %v, want datetime", shapes[1].Placeholder)
 	}
-	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime) {
-		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime))
+	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime) {
+		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime))
 	}
 }
 
 func TestBuildLegacySlideShapesTreatsMeridiemTimeAsDateTimeFooter(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n9 AM", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n9 AM", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes len = %d, want 2", len(shapes))
 	}
 	if shapes[1].Placeholder != presentationir.PlaceholderDateTime {
 		t.Fatalf("shape[1] placeholder = %v, want datetime", shapes[1].Placeholder)
 	}
-	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime) {
-		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderDateTime))
+	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime) {
+		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderDateTime))
 	}
 }
 
 func TestBuildLegacySlideShapesDoesNotTreatWordContainingAMAsTimeFooter(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\nTeam 7", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results\nTeam 7", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes len = %d, want 2", len(shapes))
 	}
@@ -2934,7 +2934,7 @@ func TestBuildPresentationPromotesLegacyFooterPlaceholders(t *testing.T) {
 	pres := buildPresentation([]legacySlideText{
 		{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n- Revenue up\n04/23/2026", TextType: pptTextTypeUnknown}}},
 		{Fragments: []legacySlideFragment{{Text: "Roadmap\n- Next steps\nSlide 7", TextType: pptTextTypeUnknown}}},
-	}, "sample.ppt")
+	}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) != 2 {
 		t.Fatalf("slides len = %d, want 2", len(pres.Slides))
 	}
@@ -2959,7 +2959,7 @@ func TestBuildPresentationPromotesLegacyFooterPlaceholders(t *testing.T) {
 func TestBuildPresentationPromotesMultipleLegacyFooterPlaceholders(t *testing.T) {
 	pres := buildPresentation([]legacySlideText{
 		{Fragments: []legacySlideFragment{{Text: "Quarterly Results\n- Revenue up\n04/23/2026\nSlide 7", TextType: pptTextTypeUnknown}}},
-	}, "sample.ppt")
+	}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -2982,7 +2982,7 @@ func TestBuildPresentationPromotesLegacyHeaderPlaceholder(t *testing.T) {
 			flags:      legacyPptHFFlagHeader,
 			headerText: "Agenda",
 		},
-	}, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, nil, "", nil)
+	}, legacyPptHeaderFooterInfo{}, "sample.ppt", nil, nil, nil, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3017,7 +3017,7 @@ func TestBuildPresentationSlideHeaderFooterOverrideCanDisableDocumentDefaults(t 
 		hasAtom:    true,
 		flags:      legacyPptHFFlagFooter,
 		footerText: "Default footer",
-	}, "sample.ppt", nil, nil, nil, "", nil)
+	}, "sample.ppt", nil, nil, nil, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3089,7 +3089,7 @@ func TestSynthesizeLegacyHeaderFooterCreatesTodayDateFieldShape(t *testing.T) {
 	}, nil, nil, legacyPptHeaderFooterInfo{
 		hasAtom: true,
 		flags:   legacyPptHFFlagDateVisible | legacyPptHFFlagTodayDate,
-	}, "sample.ppt", nil, nil, nil, "", nil)
+	}, "sample.ppt", nil, nil, nil, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3106,7 +3106,7 @@ func TestSynthesizeLegacyHeaderFooterCreatesTodayDateFieldShape(t *testing.T) {
 }
 
 func TestBuildLegacySlideShapesUsesTitlePlaceholderForSingleLineSlide(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Quarterly Results", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes len = %d, want 1", len(shapes))
 	}
@@ -3119,20 +3119,20 @@ func TestBuildLegacySlideShapesUsesTitlePlaceholderForSingleLineSlide(t *testing
 }
 
 func TestBuildLegacySlideShapesDoesNotTreatSentenceAsTitle(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Please review the updated forecast by Friday.", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Please review the updated forecast by Friday.", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes len = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("placeholder = %v, want body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
 func TestBuildLegacySlideShapesTreatsAlphaBulletAsBodyNotSubtitle(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Agenda\na. First topic", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Agenda\na. First topic", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes len = %d, want 2", len(shapes))
 	}
@@ -3148,7 +3148,7 @@ func TestBuildLegacySlideShapesTreatsAlphaBulletAsBodyNotSubtitle(t *testing.T) 
 }
 
 func TestBuildLegacySlideShapesDoesNotTreatSentenceAsSubtitle(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Agenda\nPlease review the updated forecast by Friday.", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Agenda\nPlease review the updated forecast by Friday.", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes len = %d, want 2", len(shapes))
 	}
@@ -3158,13 +3158,13 @@ func TestBuildLegacySlideShapesDoesNotTreatSentenceAsSubtitle(t *testing.T) {
 	if shapes[1].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("second placeholder = %v, want body", shapes[1].Placeholder)
 	}
-	if shapes[1].Bounds != legacyBodyBounds(true) {
-		t.Fatalf("bounds = %+v, want %+v", shapes[1].Bounds, legacyBodyBounds(true))
+	if shapes[1].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), true) {
+		t.Fatalf("bounds = %+v, want %+v", shapes[1].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), true))
 	}
 }
 
 func TestBuildLegacySlideShapesDoesNotSplitSentenceLeadLineIntoTitle(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Please review the updated forecast by Friday.\n- Revenue up", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "Please review the updated forecast by Friday.\n- Revenue up", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes len = %d, want 1", len(shapes))
 	}
@@ -3177,28 +3177,28 @@ func TestBuildLegacySlideShapesDoesNotSplitSentenceLeadLineIntoTitle(t *testing.
 }
 
 func TestBuildLegacySlideShapesUsesBodyBoundsForBodyOnlyBulletSlide(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "- Revenue up\n- Costs down", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "- Revenue up\n- Costs down", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes len = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("placeholder = %v, want body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
 func TestBuildLegacySlideShapesUsesBodyBoundsForSingleBulletLine(t *testing.T) {
-	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "- Revenue up", TextType: pptTextTypeUnknown}}}, "sample.ppt")
+	shapes := buildLegacySlideShapes(0, legacySlideText{Fragments: []legacySlideFragment{{Text: "- Revenue up", TextType: pptTextTypeUnknown}}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes len = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("placeholder = %v, want body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
@@ -3340,7 +3340,7 @@ func TestExtractSlideTextsFromDocumentMergesNotesSlideListsByInstance(t *testing
 		append(append(slidesList, notesListPart1...), notesListPart2...),
 	)
 
-	slides := extractSlideTextsFromDocument(document, 0, 2, nil, nil, nil, nil)
+	slides := extractSlideTextsFromDocument(document, 0, 2, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(slides) != 2 {
 		t.Fatalf("slides len = %d, want 2", len(slides))
 	}
@@ -3382,7 +3382,7 @@ func TestBuildPresentationEmitsNotesSlide(t *testing.T) {
 			},
 		},
 	}
-	pres := buildPresentation(slides, "sample.ppt")
+	pres := buildPresentation(slides, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3411,7 +3411,7 @@ func TestBuildPresentationEmitsNotesSlideForHeaderFooterMetadata(t *testing.T) {
 			headerText: "Notes Header",
 			footerText: "Notes Footer",
 		},
-	}}, "sample.ppt")
+	}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3521,7 +3521,7 @@ func TestBuildPresentationEmitsNotesSlideForDateAndSlideNumberMetadata(t *testin
 			flags:    legacyPptHFFlagDateVisible | legacyPptHFFlagSlideNumber,
 			dateText: "April 28, 2026",
 		},
-	}}, "sample.ppt")
+	}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3553,7 +3553,7 @@ func TestBuildPresentationEmitsNotesSlideForTodayDateMetadata(t *testing.T) {
 		NotesHeaderFooter: legacyPptHeaderFooterInfo{
 			flags: legacyPptHFFlagDateVisible | legacyPptHFFlagTodayDate,
 		},
-	}}, "sample.ppt")
+	}}, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides len = %d, want 1", len(pres.Slides))
 	}
@@ -3667,7 +3667,7 @@ func TestBuildLegacySlideShapesTypedCenterBodyBecomesSubtitle(t *testing.T) {
 			{Text: "An introduction", TextType: pptTextTypeCenterBody},
 		},
 	}
-	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt")
+	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes = %d, want 2", len(shapes))
 	}
@@ -3680,8 +3680,8 @@ func TestBuildLegacySlideShapesTypedCenterBodyBecomesSubtitle(t *testing.T) {
 	if len(shapes[1].Paragraphs) == 0 || paragraphText(shapes[1].Paragraphs[0]) != "An introduction" {
 		t.Fatalf("subtitle text = %#v", shapes[1].Paragraphs)
 	}
-	// Subtitle bounds must match legacySubtitleBounds().
-	wantBounds := legacySubtitleBounds()
+	// Subtitle bounds must match legacySubtitleBounds.
+	wantBounds := legacySubtitleBounds(legacyPptDefaultCanvas())
 	if shapes[1].Bounds != wantBounds {
 		t.Fatalf("subtitle bounds = %+v, want %+v", shapes[1].Bounds, wantBounds)
 	}
@@ -3694,15 +3694,15 @@ func TestBuildLegacySlideShapesTypedCenterBodyWithoutTitleBecomesBody(t *testing
 			{Text: "Standalone text", TextType: pptTextTypeCenterBody},
 		},
 	}
-	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt")
+	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("shape placeholder = %v, want Body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
@@ -3712,15 +3712,15 @@ func TestBuildLegacySlideShapesTypedBodyWithoutTitleUsesBodyBounds(t *testing.T)
 			{Text: "Please review the updated forecast by Friday.", TextType: pptTextTypeBody},
 		},
 	}
-	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt")
+	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("shape placeholder = %v, want Body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
@@ -3730,15 +3730,15 @@ func TestBuildLegacySlideShapesTypedBodyOnlyBulletsUseBodyBounds(t *testing.T) {
 			{Text: "- Revenue up\n- Costs down", TextType: pptTextTypeBody},
 		},
 	}
-	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt")
+	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("shape placeholder = %v, want Body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
@@ -3748,15 +3748,15 @@ func TestBuildLegacySlideShapesTypedSingleBulletUsesBodyBounds(t *testing.T) {
 			{Text: "- Revenue up", TextType: pptTextTypeBody},
 		},
 	}
-	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt")
+	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("shapes = %d, want 1", len(shapes))
 	}
 	if shapes[0].Placeholder != presentationir.PlaceholderBody {
 		t.Fatalf("shape placeholder = %v, want Body", shapes[0].Placeholder)
 	}
-	if shapes[0].Bounds != legacyBodyBounds(false) {
-		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(false))
+	if shapes[0].Bounds != legacyBodyBounds(legacyPptDefaultCanvas(), false) {
+		t.Fatalf("shape bounds = %+v, want %+v", shapes[0].Bounds, legacyBodyBounds(legacyPptDefaultCanvas(), false))
 	}
 }
 
@@ -3767,7 +3767,7 @@ func TestBuildLegacySlideShapesTypedPromotesFooterOnlyTypedFragment(t *testing.T
 			{Text: "Slide 7", TextType: pptTextTypeOther},
 		},
 	}
-	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt")
+	shapes := buildLegacySlideShapesTyped(0, slide, "sample.ppt", legacyPptDefaultCanvas())
 	if len(shapes) != 2 {
 		t.Fatalf("shapes = %d, want 2", len(shapes))
 	}
@@ -3780,8 +3780,8 @@ func TestBuildLegacySlideShapesTypedPromotesFooterOnlyTypedFragment(t *testing.T
 	if got := shapes[1].Paragraphs[0].Runs[0].FieldKind; got != "slidenum" {
 		t.Fatalf("shape[1] FieldKind = %q, want slidenum", got)
 	}
-	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(presentationir.PlaceholderSlideNumber) {
-		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(presentationir.PlaceholderSlideNumber))
+	if shapes[1].Bounds != legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderSlideNumber) {
+		t.Fatalf("shape[1] bounds = %+v, want %+v", shapes[1].Bounds, legacyFooterBoundsForPlaceholder(legacyPptDefaultCanvas(), presentationir.PlaceholderSlideNumber))
 	}
 }
 
@@ -3854,7 +3854,7 @@ func TestBuildPresentationSuppressesNotesSlideForClickToAddNotes(t *testing.T) {
 			},
 		},
 	}
-	pres := buildPresentation(slides, "sample.ppt")
+	pres := buildPresentation(slides, "sample.ppt", legacyPptDefaultCanvas())
 	if len(pres.Slides) == 0 {
 		t.Fatal("expected at least one slide")
 	}
@@ -4236,7 +4236,7 @@ func TestExtractSlideTextsFromDocumentExcludesMasterSlides(t *testing.T) {
 	copy(stream[1024:], docContainer)
 
 	// Call extractSlideTextsFromDocument with notesListInstance=2 (should match nothing)
-	slides := extractSlideTextsFromDocument(stream, 1024, 2, map[int]int{}, map[uint16]string{}, map[uint8]string{}, map[uint32]string{})
+	slides := extractSlideTextsFromDocument(stream, 1024, 2, map[int]int{}, map[uint16]string{}, map[uint8]string{}, map[uint32]string{}, legacyPptDefaultCanvas())
 
 	// Verify only 2 slides extracted (not including master slide with ID 200)
 	if len(slides) != 2 {
@@ -4545,7 +4545,7 @@ func TestBuildPresentationUsesPerSlideMasterStyles(t *testing.T) {
 		{PersistID: 1, MasterID: masterIDA, Fragments: []legacySlideFragment{{Text: "slide A", TextType: pptTextTypeBody}}},
 		{PersistID: 2, MasterID: masterIDB, Fragments: []legacySlideFragment{{Text: "slide B", TextType: pptTextTypeBody}}},
 	}
-	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, masterStylesByID, nil, "", nil)
+	pres := buildPresentationWithMasterComposition(slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, masterStylesByID, nil, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 2 {
 		t.Fatalf("slides = %d, want 2", len(pres.Slides))
 	}
@@ -4581,7 +4581,7 @@ func TestBuildPresentationPreservesLegacySlideIdentity(t *testing.T) {
 		MasterID:   -2147483648,
 		LayoutType: "titleBody",
 		Fragments:  []legacySlideFragment{{Text: "Agenda", TextType: pptTextTypeBody}},
-	}}, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "", nil)
+	}}, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "", nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides = %d, want 1", len(pres.Slides))
 	}
@@ -4615,7 +4615,7 @@ func TestParseLegacyPptTextShapesFromSlidePreservesOriginalShapeID(t *testing.T)
 	)
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x0F, container)
 
-	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{})
+	shapes := buildLegacyPptTextShapesFromMetas(collectLegacyPptVisualScene(payload).textMetas(nil, nil, nil), legacySlideText{}, legacyPptDefaultCanvas())
 	if len(shapes) != 1 {
 		t.Fatalf("len(shapes) = %d, want 1", len(shapes))
 	}
@@ -6318,13 +6318,198 @@ func TestParseLegacyPptRecolorInfoPreservesAllColorMappings(t *testing.T) {
 }
 
 func TestNormalizeLegacyPptSymbolRunStorageCodes(t *testing.T) {
-	pres := &presentationir.Presentation{Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "\uf044 \uf03e \uf030", FontFamily: "Symbol"}, {Text: "\uf044 = \uf030", FontFamily: "Symbol"}}}}}}}}}
+	pres := &presentationir.Presentation{Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{Paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "\uf044 \uf03e \uf030", FontFamily: "Symbol"}, {Text: "\uf044 = \uf030 \uf0bb", FontFamily: "Symbol"}}}}}}}}}
 	normalizeLegacyPptSymbolRunStorageCodes(pres)
 	runs := pres.Slides[0].Shapes[0].Paragraphs[0].Runs
 	if got := runs[0].Text; got != "Δ > 0" {
 		t.Fatalf("first text = %q, want %q", got, "Δ > 0")
 	}
-	if got := runs[1].Text; got != "Δ = 0" {
-		t.Fatalf("second text = %q, want %q", got, "Δ = 0")
+	if got := runs[1].Text; got != "Δ = 0 ≈" {
+		t.Fatalf("second text = %q, want %q", got, "Δ = 0 ≈")
+	}
+}
+
+func TestNormalizeLegacyPptBodyPlaceholderOverflow(t *testing.T) {
+	body := &presentationir.Shape{
+		Placeholder:   presentationir.PlaceholderBody,
+		TextBodyProps: drawing.TextBodyProperties{AutofitType: "normAutofit"},
+		Paragraphs:    []*presentationir.Paragraph{{}, {}, {}, {}},
+	}
+	pres := &presentationir.Presentation{Slides: []*presentationir.Slide{{Shapes: []*presentationir.Shape{{Children: []*presentationir.Shape{body}}}}}}
+	normalizeLegacyPptBodyPlaceholderOverflow(pres)
+	if body.TextBodyProps.AutofitType != "noAutofit" || !body.TextAllowOverflow {
+		t.Fatalf("long inherited body frame = %+v, want no-autofit visible overflow", body)
+	}
+}
+
+// documentAtomRecord builds a DocumentAtom (MS-PPT 2.4.2) whose slideSize is the
+// given master-unit pair. notesSize is left zero unless a case overrides it.
+func documentAtomRecord(width, height int32) []byte {
+	payload := make([]byte, 40)
+	binary.LittleEndian.PutUint32(payload[0:4], uint32(width))
+	binary.LittleEndian.PutUint32(payload[4:8], uint32(height))
+	return buildPptContainerRecord(0, pptRTDocumentAtom, 1, payload)
+}
+
+func TestParseLegacyPptDocumentCanvas(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want legacyPptCanvas
+	}{
+		{
+			name: "no document atom",
+			data: buildPptContainerRecord(0, pptRTSlideListWithText, 0x0F, nil),
+			want: legacyPptCanvas{},
+		},
+		{
+			name: "four three default",
+			data: documentAtomRecord(5760, 4320),
+			want: legacyPptCanvas{WidthEMU: 9144000, HeightEMU: 6858000},
+		},
+		{
+			name: "sixteen nine",
+			data: documentAtomRecord(7680, 4320),
+			want: legacyPptCanvas{WidthEMU: 12192000, HeightEMU: 6858000},
+		},
+		{
+			name: "a4 landscape",
+			data: documentAtomRecord(6350, 4762),
+			want: legacyPptCanvas{WidthEMU: 10080625, HeightEMU: 7559675},
+		},
+		{
+			name: "notesSize is not the slide canvas",
+			data: func() []byte {
+				payload := make([]byte, 40)
+				binary.LittleEndian.PutUint32(payload[0:4], 5760)
+				binary.LittleEndian.PutUint32(payload[4:8], 4320)
+				// notesSize follows slideSize; a portrait notes page must not be
+				// mistaken for the slide canvas.
+				binary.LittleEndian.PutUint32(payload[8:12], 4762)
+				binary.LittleEndian.PutUint32(payload[12:16], 6350)
+				return buildPptContainerRecord(0, pptRTDocumentAtom, 1, payload)
+			}(),
+			want: legacyPptCanvas{WidthEMU: 9144000, HeightEMU: 6858000},
+		},
+		{
+			name: "width below the documented range",
+			data: documentAtomRecord(0x023F, 4320),
+			want: legacyPptCanvas{},
+		},
+		{
+			name: "height above the documented range",
+			data: documentAtomRecord(5760, 0x7E01),
+			want: legacyPptCanvas{},
+		},
+		{
+			name: "recLen other than 40 is rejected",
+			data: func() []byte {
+				payload := make([]byte, 44)
+				binary.LittleEndian.PutUint32(payload[0:4], 5760)
+				binary.LittleEndian.PutUint32(payload[4:8], 4320)
+				return buildPptContainerRecord(0, pptRTDocumentAtom, 1, payload)
+			}(),
+			want: legacyPptCanvas{},
+		},
+		{
+			name: "recVer other than 1 is rejected",
+			data: func() []byte {
+				payload := make([]byte, 40)
+				binary.LittleEndian.PutUint32(payload[0:4], 5760)
+				binary.LittleEndian.PutUint32(payload[4:8], 4320)
+				return buildPptContainerRecord(0, pptRTDocumentAtom, 0, payload)
+			}(),
+			want: legacyPptCanvas{},
+		},
+		{
+			name: "nested inside a document container",
+			data: buildPptContainerRecord(0, pptRTDocument, 0x0F, documentAtomRecord(7680, 4320)),
+			want: legacyPptCanvas{WidthEMU: 12192000, HeightEMU: 6858000},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseLegacyPptDocumentCanvas(tt.data); got != tt.want {
+				t.Errorf("parseLegacyPptDocumentCanvas() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLegacyPptSyntheticBoundsFollowAuthoredCanvas(t *testing.T) {
+	canvases := []legacyPptCanvas{
+		legacyPptDefaultCanvas(),
+		{WidthEMU: 12192000, HeightEMU: 6858000}, // 960x540 pt
+		{WidthEMU: 9144000, HeightEMU: 5143500},  // 720x405 pt
+		{WidthEMU: 12954000, HeightEMU: 9720000}, // 1024x768 pt
+	}
+	for _, canvas := range canvases {
+		rects := []struct {
+			name string
+			rect presentationir.Rect
+		}{
+			{"header", legacyHeaderBounds(canvas)},
+			{"footer", legacyFooterBounds(canvas)},
+			{"date", legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderDateTime)},
+			{"slideNumber", legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderSlideNumber)},
+			{"footerPlaceholder", legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderFooter)},
+			{"title", legacyTitleBounds(canvas)},
+			{"subtitle", legacySubtitleBounds(canvas)},
+			{"bodyWithTitle", legacyBodyBounds(canvas, true)},
+			{"bodyWithoutTitle", legacyBodyBounds(canvas, false)},
+		}
+		for _, r := range rects {
+			if r.rect.X < 0 || r.rect.Y < 0 || r.rect.W <= 0 || r.rect.H <= 0 {
+				t.Errorf("canvas %+v: %s bounds = %+v, want a positive rect inside the canvas", canvas, r.name, r.rect)
+				continue
+			}
+			if r.rect.X+r.rect.W > canvas.WidthEMU || r.rect.Y+r.rect.H > canvas.HeightEMU {
+				t.Errorf("canvas %+v: %s bounds = %+v overflow the canvas", canvas, r.name, r.rect)
+			}
+		}
+		date := legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderDateTime)
+		number := legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderSlideNumber)
+		footer := legacyFooterBoundsForPlaceholder(canvas, presentationir.PlaceholderFooter)
+		if legacyRectsOverlap(date, number) {
+			t.Errorf("canvas %+v: date %+v overlaps slide number %+v", canvas, date, number)
+		}
+		if legacyRectsOverlap(footer, number) {
+			t.Errorf("canvas %+v: footer %+v overlaps slide number %+v", canvas, footer, number)
+		}
+	}
+}
+
+func TestBuildPresentationUsesAuthoredCanvas(t *testing.T) {
+	slides := []legacySlideText{{
+		PersistID: 1,
+		Fragments: []legacySlideFragment{{Text: "Motivation", TextType: pptTextTypeTitle}},
+	}}
+	tests := []struct {
+		name   string
+		canvas legacyPptCanvas
+		wantW  int64
+		wantH  int64
+	}{
+		{
+			name:   "authored canvas reaches the IR",
+			canvas: legacyPptCanvas{WidthEMU: 12192000, HeightEMU: 6858000},
+			wantW:  12192000,
+			wantH:  6858000,
+		},
+		{
+			name:   "zero canvas falls back to the 4:3 default",
+			canvas: legacyPptCanvas{},
+			wantW:  defaultSlideWidthEMU,
+			wantH:  defaultSlideHeightEMU,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pres := buildPresentation(slides, "test.ppt", tt.canvas)
+			if pres.SlideWidthEMU != tt.wantW || pres.SlideHeightEMU != tt.wantH {
+				t.Errorf("slide size = %d x %d, want %d x %d",
+					pres.SlideWidthEMU, pres.SlideHeightEMU, tt.wantW, tt.wantH)
+			}
+		})
 	}
 }

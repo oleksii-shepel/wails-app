@@ -16,7 +16,7 @@ func TestContextualBuilderPreservesPresetGeometryAdjustments(t *testing.T) {
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Atmosphere"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="240" cy="5472"/></a:xfrm><a:prstGeom prst="moon"><a:avLst><a:gd name="adj" fmla="val 50000"/></a:avLst></a:prstGeom></p:spPr></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
 
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

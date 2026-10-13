@@ -67,11 +67,18 @@ func TestDecodedSymbolAsciiUsesTextualAdvances(t *testing.T) {
 	}
 }
 
-func TestDecodedSymbolTextDistinguishesPrivateUseGlyphs(t *testing.T) {
-	if !decodedSymbolText("= 733 ") {
-		t.Fatal("decoded textual Symbol run should use textual font metrics")
+func TestDecodedSymbolMathOperatorsUseTextualFallbackMetrics(t *testing.T) {
+	got := measurePlainTextWidthPt("Δ ≈", 20, "Symbol", false, false)
+	if got >= 30 {
+		t.Fatalf("decoded Symbol operators width = %.3fpt, want textual rather than full-cell advances", got)
 	}
-	if decodedSymbolText("\uF0A7") {
-		t.Fatal("private-use Symbol glyph must retain Symbol metrics")
+}
+
+func TestDecodedSymbolOperatorsKeepSymbolGlyphAdvances(t *testing.T) {
+	text := string([]rune{0x0394, ' ', 0x2248})
+	got := measurePlainTextWidthPt(text, 20, "Symbol", true, false)
+	want := 20 * 1.01 * (.612 + .25 + .549)
+	if math.Abs(got-want) > .001 {
+		t.Fatalf("decoded Symbol operator width = %.3fpt, want %.3fpt", got, want)
 	}
 }

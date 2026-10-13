@@ -26,7 +26,10 @@ func TestHTMLRendersPhysicalWordArtAsVectorTextPath(t *testing.T) {
 	}
 	for _, want := range []string{
 		`class="shape__wordart"`, `<textPath`, `Q 50 5 95 78`, `Legacy WordArt`,
-		`font-family:`, `font-weight:700`, `textLength="90"`,
+		`font-family:`, `font-weight:700`,
+		// Legacy WordArt is laid out against its shape's bounding rectangle, so
+		// the glyphs are scaled to the box rather than drawn at their size.
+		`transform="translate(0 `, `scale(1 `, `textLength="109.00"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("WordArt HTML missing %q: %s", want, out)

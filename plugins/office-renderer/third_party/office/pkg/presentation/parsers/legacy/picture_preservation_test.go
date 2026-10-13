@@ -43,7 +43,7 @@ func TestLegacyScenePreservesPictureWhenEntirePictureStoreIsUnavailable(t *testi
 		events:     []OfficeArtEvent{{ShapeStart: true, ShapeNode: node}},
 	}}}
 
-	got := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil).Shapes
+	got := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas()).Shapes
 	if len(got) != 1 {
 		t.Fatalf("projected shapes = %d, want one preserved picture", len(got))
 	}

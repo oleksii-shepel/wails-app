@@ -277,22 +277,25 @@ func parseLevelXst(blob []byte, rgbxchNums []byte) (string, int, bool) {
 	return reconstructLevelText(units, rgbxchNums), need, true
 }
 
-// reconstructLevelText uses LVLF.rgbxchNums, the authoritative zero-based
-// UTF-16 code-unit offsets of numbering placeholders. The character stored in
-// the XST at a placeholder position is display data (often '1', '2', ...), not
-// the semantic level identity. Reconstructing from offsets preserves templates
-// such as %1.%2. instead of freezing them to literal text like 1.2.
+// reconstructLevelText uses LVLF.rgbxchNums to identify XST placeholders.
+// rgbxchNums is a zero-terminated sequence of one-based UTF-16 code-unit
+// offsets, and the XST code unit at each offset contains the zero-based level
+// for that placeholder. The control code unit is never visible text.
 func reconstructLevelText(units []uint16, rgbxchNums []byte) string {
 	if len(units) == 0 {
 		return ""
 	}
 	placeholderAt := make(map[int]int, len(rgbxchNums))
-	for level, raw := range rgbxchNums {
-		if raw == 0xFF {
+	for _, raw := range rgbxchNums {
+		if raw == 0 {
+			break
+		}
+		pos := int(raw) - 1
+		if pos < 0 || pos >= len(units) {
 			continue
 		}
-		pos := int(raw)
-		if pos < 0 || pos >= len(units) {
+		level := int(units[pos])
+		if level > 8 {
 			continue
 		}
 		if _, exists := placeholderAt[pos]; !exists {
@@ -397,6 +400,19 @@ func (c *NumberingCatalog) applyParagraphNumbering(p *wordir.Paragraph) {
 	p.Numbering.IndentLeft = lvl.IndentLeft
 	p.Numbering.IndentFirstLine = lvl.IndentFirstLine
 	p.Numbering.IndentHanging = lvl.IndentHanging
+	if lvl.IndentLeft != 0 {
+		indent := lvl.IndentLeft
+		p.Format.IndentLeft = &indent
+	}
+	if lvl.IndentFirstLine != 0 {
+		indent := lvl.IndentFirstLine
+		p.Format.IndentFirstLine = &indent
+		p.Format.IndentHanging = nil
+	} else if lvl.IndentHanging != 0 {
+		indent := lvl.IndentHanging
+		p.Format.IndentHanging = &indent
+		p.Format.IndentFirstLine = nil
+	}
 	p.Numbering.RunFormat = cloneNumberingRunFormat(lvl.RunFormat)
 	if override, ok := inst.Overrides[lvl.Level]; ok {
 		v := cloneLegacyOverride(override)

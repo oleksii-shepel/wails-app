@@ -1,9 +1,14 @@
 package render
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"math"
 	"sort"
 	"strconv"
@@ -14,6 +19,7 @@ import (
 	"office/pkg/ooxml/drawing"
 	"office/pkg/ooxml/fontdata"
 	"office/pkg/ooxml/htmlasset"
+	"office/pkg/presentation/imageutil"
 	ir "office/pkg/presentation/ir"
 	playout "office/pkg/presentation/layout"
 	drawingcss "office/pkg/render/drawingcss"
@@ -59,6 +65,7 @@ type htmlRenderContext struct {
 	nextFontIndex    int
 	nextEffectIndex  int
 	nextWordArtIndex int
+	nextSVGDefIndex  int
 	animShapeIDs     map[int]struct{}
 	slideNumber      int    // 1-based current slide number for field rendering
 	defaultTextColor string // sRGB hex fallback when run.Color is empty (theme dk1)
@@ -108,7 +115,10 @@ func HTMLWithOptions(pres *ir.Presentation, opts HTMLOptions) (string, []HTMLAss
 	b.WriteString("<meta charset=\"utf-8\">\n")
 	b.WriteString("<style>\n")
 	renderEmbeddedFontCSS(&b, pres, ctx)
-	fmt.Fprintf(&b, slideCSS, slideW, slideH, slideW/slideH, slideW, slideH)
+	// The slide cap tracks the canvas: .slide-scroll should scroll only when the
+	// viewport is narrower than the deck's own page, not whenever the author picks a
+	// canvas other than 720x540pt.
+	fmt.Fprintf(&b, slideCSS, slideW, slideW, slideH, slideW/slideH, slideW, slideH)
 	b.WriteString(oleMathCSS)
 	if behaviorRuntimeEnabled {
 		fmt.Fprintf(&b, playbackCSS, slideW/slideH)
@@ -200,7 +210,17 @@ func presentationFontMetricsCatalog(pres *ir.Presentation) *fontmetrics.Catalog 
 		}
 	}
 	if cat.Empty() {
-		return nil
+		// A deck that ships no fonts still measures better against the bundled
+		// Office metric tables than against the coarse advance profile: the
+		// profile underestimates Tahoma bold by about ten percent, which let a
+		// body line hold one word more than the exported PDF and overflow the
+		// placeholder ("Chap. 15 : ... de la société" on slide 2 of 41246-2).
+		return fontmetrics.BundledCatalog()
+	}
+	// Document-embedded faces stay first so they win ties; the bundled tables
+	// follow as the fallback for families the document does not ship.
+	if bundled := fontmetrics.BundledCatalog(); bundled != nil {
+		cat.Faces = append(cat.Faces, bundled.Faces...)
 	}
 	return cat
 }
@@ -895,6 +915,22 @@ func renderTextShape(b *strings.Builder, item *playout.PhysicalVisual, slideW, s
 
 	contentStyles = appendTextBoxPlacementStyles(contentStyles, textFrame, frameLayout, textBox)
 
+	// PowerPoint mirrors a flipped shape's geometry but never its text, so the
+	// content box has to counter the outer flip or every label inside a flipped
+	// shape reads backwards (the 41246-2 pyramid bands).
+	var mirrorTransforms []string
+	if textPlan.Transform.FlipH {
+		mirrorTransforms = append(mirrorTransforms, "scaleX(-1)")
+	}
+	if textPlan.Transform.FlipV {
+		mirrorTransforms = append(mirrorTransforms, "scaleY(-1)")
+	}
+	if len(mirrorTransforms) > 0 {
+		contentStyles = append(contentStyles,
+			"transform:"+strings.Join(mirrorTransforms, " "),
+			"transform-origin:50% 50%")
+	}
+
 	// Shape/effect overflow and text-frame clipping are independent physical
 	// contracts. Shadows, glows, reflections and other paint may need the outer
 	// shape to overflow while a fixed text frame still clips its text. Keep the
@@ -964,15 +1000,32 @@ func renderPhysicalWordArt(b *strings.Builder, geometry playout.TextGeometryVisu
 		return false
 	}
 	pathID := fmt.Sprintf("wordart-path-%d", ctx.nextWordArtIndex)
-	ctx.nextWordArtIndex++
+	fitScale, fitToShape := wordArtFitToShapeScale(geometry)
+	fillDefinition := ""
 	fill := visual.Fill.FallbackColor
+	// WordArt takes an authored picture/texture fill for the glyphs themselves:
+	// PowerPoint's conversion of 41246-2 slide 16 carries the deck's crumpled
+	// paper as a tiled blipFill on the run, and the fallback CF color alone
+	// (FFCC99) loses the texture.
+	if picture, ok := pictureFillOf(visual.Fill.Fill); ok {
+		if def := wordArtPatternFillDefinition(picture, fmt.Sprintf("wordart-fill-%d", ctx.nextWordArtIndex), visual.WidthPt, visual.HeightPt, fitScale); def != "" {
+			fillDefinition = def
+			fill = fmt.Sprintf("url(#wordart-fill-%d)", ctx.nextWordArtIndex)
+		}
+	}
+	ctx.nextWordArtIndex++
 	if fill == "" {
 		fill = "000000"
 	}
-	if !strings.HasPrefix(fill, "#") {
+	if !strings.HasPrefix(fill, "#") && !strings.HasPrefix(fill, "url(") {
 		fill = "#" + fill
 	}
-	styles := []string{"dominant-baseline:middle", "paint-order:stroke fill"}
+	styles := []string{"paint-order:stroke fill"}
+	if !fitToShape {
+		// Stretched WordArt measures the glyphs from the baseline so the caps
+		// span the shape box; every other warp centres them on the path.
+		styles = append(styles, "dominant-baseline:middle")
+	}
 	if geometry.FontFamily != "" {
 		styles = append(styles, "font-family:'"+strings.ReplaceAll(geometry.FontFamily, "'", "\\\\'")+"'")
 	}
@@ -988,11 +1041,15 @@ func renderPhysicalWordArt(b *strings.Builder, geometry playout.TextGeometryVisu
 	if geometry.Italic {
 		styles = append(styles, "font-style:italic")
 	}
-	if geometry.SmallCaps {
-		styles = append(styles, "font-variant:small-caps")
-	}
+	// MS-ODRAW's geometry-text small-caps bit is documented as one consumers
+	// SHOULD ignore, and PowerPoint ignores it: 41246-2's "Fin" is painted as
+	// typed, the lowercase letters keeping their x-height under the stretched
+	// capital. font-variant:small-caps turned it into a word of even capitals.
 	var decorations []string
-	if geometry.Underline {
+	// MS-ODRAW's geometry-text underline bit is documented as one consumers
+	// SHOULD ignore, and PowerPoint both ignores it and writes no underline for
+	// 41246-2's WordArt; drawing one adds a stroke the reference never shows.
+	if geometry.Underline && !geometry.FitToShape {
 		decorations = append(decorations, "underline")
 	}
 	if geometry.Strike {
@@ -1009,8 +1066,13 @@ func renderPhysicalWordArt(b *strings.Builder, geometry playout.TextGeometryVisu
 	}
 
 	fmt.Fprintf(b, `<svg class="shape__wordart" viewBox="0 0 100 100" width="100%%" height="100%%" preserveAspectRatio="none" role="img" aria-label=%q xmlns="http://www.w3.org/2000/svg">`, geometry.Text)
-	fmt.Fprintf(b, `<defs><path id=%q d=%q pathLength="100"/></defs>`, pathID, geometry.PathData)
+	fmt.Fprintf(b, `<defs><path id=%q d=%q pathLength="100"/>%s</defs>`, pathID, geometry.PathData, fillDefinition)
 	fmt.Fprintf(b, `<text fill=%q text-anchor=%q style=%q`, fill, geometry.TextAnchor, strings.Join(styles, ";"))
+	if fitToShape {
+		// The path carries the baseline; scaling it up and shifting it back down
+		// puts the cap box exactly on the shape's bounding rectangle.
+		fmt.Fprintf(b, ` transform="translate(0 %.4f) scale(1 %.4f)"`, 100-50*fitScale, fitScale)
+	}
 	if visual.Stroke.Color != "" && visual.Stroke.WidthPt > 0 {
 		stroke := visual.Stroke.Color
 		if !strings.HasPrefix(stroke, "#") {
@@ -1020,13 +1082,109 @@ func renderPhysicalWordArt(b *strings.Builder, geometry playout.TextGeometryVisu
 	}
 	b.WriteString(`>`)
 	fmt.Fprintf(b, `<textPath href="#%s" startOffset=%q`, pathID, geometry.StartOffset)
-	if geometry.Stretch || geometry.BestFit || geometry.ShrinkFit {
+	if geometry.FitToShape {
+		// The stretched glyphs span the whole shape, not the inset baseline.
+		// textLength scales the advance box, and PowerPoint paints the ink: the
+		// glyph bearings of a small-caps word are about 8% of its width (the
+		// reference's "Fin" paper reaches the box edge that a 100-unit advance
+		// leaves ~7 units short of), so the box is inflated to match the ink.
+		fmt.Fprintf(b, ` textLength="%.2f" lengthAdjust="spacingAndGlyphs"`, 100*wordArtFitInkAllowance)
+	} else if geometry.Stretch || geometry.BestFit || geometry.ShrinkFit {
 		b.WriteString(` textLength="90" lengthAdjust="spacingAndGlyphs"`)
 	}
 	b.WriteString(`>`)
 	b.WriteString(escapeHTML(geometry.Text))
 	b.WriteString(`</textPath></text></svg>`)
 	return true
+}
+
+// wordArtFitToShapeScale returns the vertical scale that stretches WordArt
+// glyphs to the shape's bounding rectangle, measured from the baseline path.
+// The authored font size defines the glyphs in viewport units - one CSS point
+// is 4/3 of a unit - so capitals fill the box when the em is scaled to
+// 100/(em x capHeightEm). Cap heights cluster around 0.72 em for the faces
+// legacy WordArt uses (Arial Black, whose capitals 41246-2's "Fin" is drawn
+// with, is 0.73).
+func wordArtFitToShapeScale(geometry playout.TextGeometryVisualPlan) (float64, bool) {
+	if !geometry.FitToShape || geometry.FontSizePt <= 0 {
+		return 0, false
+	}
+	emUnits := geometry.FontSizePt * 4.0 / 3.0
+	const capHeightEm = 0.72
+	scale := 100.0 / (emUnits * capHeightEm)
+	if scale <= 0 {
+		return 0, false
+	}
+	return scale, true
+}
+
+// wordArtFitInkAllowance inflates a stretched WordArt's advance box so its ink
+// covers the shape's bounding rectangle, which is what PowerPoint paints.
+const wordArtFitInkAllowance = 1.09
+
+// pictureFillOf extracts a picture fill from a shape fill plan.
+func pictureFillOf(fill drawing.Fill) (drawing.PictureFill, bool) {
+	switch f := fill.(type) {
+	case drawing.PictureFill:
+		return f, f.SourceURL() != ""
+	case *drawing.PictureFill:
+		if f != nil && f.SourceURL() != "" {
+			return *f, true
+		}
+	}
+	return drawing.PictureFill{}, false
+}
+
+// wordArtPatternFillDefinition builds the pattern that paints WordArt glyphs
+// with a tiled picture fill. The WordArt viewport spans 0..100 on both axes and
+// is stretched to the shape, so a tile authored in points is converted per axis
+// into viewport units; sizing it in viewport units directly would scale the
+// texture with the shape. fitScale is the glyph stretch applied to the text
+// element, whose coordinate system the pattern is resolved in, so the tile's
+// height is scaled back out to keep the texture square.
+func wordArtPatternFillDefinition(fill drawing.PictureFill, id string, widthPt, heightPt, fitScale float64) string {
+	source := fill.SourceURL()
+	if source == "" || id == "" || widthPt <= 0 || heightPt <= 0 {
+		return ""
+	}
+	tileWPt, tileHPt := pictureTileSizePt(fill)
+	if tileWPt <= 0 || tileHPt <= 0 {
+		return ""
+	}
+	unitsX, unitsY := 100.0/widthPt, 100.0/heightPt
+	if fitScale > 0 {
+		unitsY /= fitScale
+	}
+	width, height := tileWPt*unitsX, tileHPt*unitsY
+	x := float64(fill.TileOffsetX) / 12700.0 * unitsX
+	y := float64(fill.TileOffsetY) / 12700.0 * unitsY
+	return fmt.Sprintf(`<pattern id=%q patternUnits="userSpaceOnUse" x="%.4f" y="%.4f" width="%.4f" height="%.4f"><image href=%q width="%.4f" height="%.4f" preserveAspectRatio="none"/></pattern>`,
+		id, x, y, width, height, source, width, height)
+}
+
+// pictureTileSizePt returns one tile of a picture fill in points. A tile repeats
+// the image at its natural size: the pixel size resolved at the image's own
+// resolution metadata, defaulting to 96 dpi when the image states none.
+func pictureTileSizePt(fill drawing.PictureFill) (float64, float64) {
+	if len(fill.ImageData) == 0 {
+		return 0, 0
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(fill.ImageData))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0
+	}
+	dpi := imageutil.NaturalDPI(fill.ImageData)
+	if dpi <= 0 {
+		dpi = 96
+	}
+	scaleX, scaleY := float64(fill.TileScaleX)/100000.0, float64(fill.TileScaleY)/100000.0
+	if scaleX <= 0 {
+		scaleX = 1
+	}
+	if scaleY <= 0 {
+		scaleY = 1
+	}
+	return float64(cfg.Width) * 72.0 / float64(dpi) * scaleX, float64(cfg.Height) * 72.0 / float64(dpi) * scaleY
 }
 
 func renderTextShapeVector(b *strings.Builder, shape *ir.Shape, visual playout.ShapeVisualPlan, effectStyles map[string]string, svgOverflowVisible bool, ctx *htmlRenderContext) bool {
@@ -1037,6 +1195,7 @@ func renderTextShapeVector(b *strings.Builder, shape *ir.Shape, visual playout.S
 	if shape != nil && shape.ID != 0 {
 		prefix = fmt.Sprintf("shape-%d", shape.ID)
 	}
+	prefix = ctx.nextSVGDefinitionPrefix(prefix)
 	return renderCanonicalShapeVector(b, visual, effectStyles, shapeVectorRenderOptions{
 		DefPrefix:          prefix,
 		UsePictureTile:     true,
@@ -2973,7 +3132,14 @@ func oleMathPreviewPlacement(ole *playout.PhysicalOLEPlan) (float64, float64, fl
 	// The formula follows text in an authored OLE gap, so its horizontal
 	// placement is determined by the preview's left ink origin—not its centre.
 	// Centre-derived offsets pull narrow formulas back over the preceding text.
-	return (minX - vx) / vw, (baseline - vy) / vh, ((minY+maxY)/2 - vy) / vh, true
+	// Classic WMF conversion stores a tight viewBox but leaves width at 100%.
+	// A positive viewBox origin is cropped leading frame space in that form, not
+	// the local origin of the OLE object. Restore it before mapping MathML.
+	leftInk, frameWidth := minX-vx, vw
+	if strings.TrimSpace(svgAttributeValue(svg[start:start+end], "width")) == "100%" && vx > 0 {
+		leftInk, frameWidth = minX, vx+vw
+	}
+	return leftInk / frameWidth, (baseline - vy) / vh, ((minY+maxY)/2 - vy) / vh, true
 }
 
 func oleMathPreviewIsMultiline(ole *playout.PhysicalOLEPlan) bool {
@@ -3216,10 +3382,23 @@ func oleInlineSVGPreviewMarkup(data []byte) string {
 		return markup
 	}
 	end += start
-	if strings.Contains(markup[start:end], "preserveAspectRatio=") {
+	head := markup[start:end]
+	// The authored OLE frame is authoritative: PowerPoint maps the preview
+	// metafile's extent onto it, so the inline SVG must stretch instead of
+	// letterboxing. A 2665x1525.8 metafile in a 692.7x331.5pt frame otherwise
+	// renders thirteen percent small and centred (41246-2 slide 3).
+	if idx := strings.Index(head, "preserveAspectRatio="); idx >= 0 {
+		valueStart := idx + len("preserveAspectRatio=")
+		if valueStart < len(head) && (head[valueStart] == '"' || head[valueStart] == '\'') {
+			quote := head[valueStart]
+			if valueEnd := strings.IndexByte(head[valueStart+1:], quote); valueEnd >= 0 {
+				valueEnd += valueStart + 2
+				return markup[:start+valueStart] + `"none"` + markup[start+valueEnd:]
+			}
+		}
 		return markup
 	}
-	return markup[:end] + ` preserveAspectRatio="xMidYMid meet"` + markup[end:]
+	return markup[:end] + ` preserveAspectRatio="none"` + markup[end:]
 }
 
 func imageVisualSource(ctx *htmlRenderContext, image playout.ImageVisualPlan) string {
@@ -3651,10 +3830,22 @@ func renderSmartArtVectorShape(b *strings.Builder, item *playout.PhysicalVisual,
 	}
 	visual := item.Drawing.Visual
 	renderCanonicalShapeVector(b, visual, effectStyles, shapeVectorRenderOptions{
-		DefPrefix:          "smartart",
+		DefPrefix:          ctx.nextSVGDefinitionPrefix("smartart"),
 		WidthHeightAttr:    true,
 		SVGOverflowVisible: item.Drawing.Paint.SVG.OverflowVisible,
 	})
+}
+
+// nextSVGDefinitionPrefix returns a document-unique namespace for definitions
+// inside an inline SVG. HTML puts all inline SVG IDs in one document-wide ID
+// space; reusing "shape-fill" made later gradients and picture patterns point
+// at an earlier shape's definition in browsers.
+func (ctx *htmlRenderContext) nextSVGDefinitionPrefix(base string) string {
+	if ctx == nil {
+		return base
+	}
+	ctx.nextSVGDefIndex++
+	return fmt.Sprintf("%s-%d", base, ctx.nextSVGDefIndex)
 }
 
 // renderSmartArtConnector draws a connector line between two SmartArt nodes,
@@ -4086,14 +4277,21 @@ func renderParagraphWithPlan(b *strings.Builder, p *ir.Paragraph, plan playout.P
 			// to re-measure centred/right-aligned inline children: small font-engine
 			// differences otherwise shift text relative to independently authored
 			// highlight rectangles and chart annotations.
-			if markerText == "" && !paragraphMetrics.HasTextIndent && line.WidthPt > 0 {
+			// A line wider than the available width keeps a signed offset: clamping
+			// at zero left-aligned it instead of centring, which pushed ellipse
+			// captions out through the right edge of their shape (41246-2 slide 4).
+			// Lines that actually carry a marker keep browser alignment: the
+			// marker is emitted as part of the line's inline content, and a
+			// percentage-bullet sentinel must not disable positioning either.
+			markerInLine := lineIndex == 0 && markerText != "" && physicalLineHasVisibleText(line)
+			if !markerInLine && paragraphMetrics.TextIndentPt == 0 && line.WidthPt > 0 {
 				available := paragraphMetrics.AvailableWidthPt
 				switch plan.Align {
 				case "ctr", "center":
-					offset := math.Max(0, (available-line.WidthPt)/2)
+					offset := (available - line.WidthPt) / 2
 					linePositionStyle = fmt.Sprintf("width:%.4fpt;margin-left:%.4fpt;text-align:left;", line.WidthPt, offset)
 				case "r", "right":
-					offset := math.Max(0, available-line.WidthPt)
+					offset := available - line.WidthPt
 					linePositionStyle = fmt.Sprintf("width:%.4fpt;margin-left:%.4fpt;text-align:left;", line.WidthPt, offset)
 				}
 			}
@@ -4128,8 +4326,17 @@ func renderParagraphWithPlan(b *strings.Builder, p *ir.Paragraph, plan playout.P
 				if fragment.AscentPt > 0 || fragment.DescentPt > 0 {
 					// Layout owns the baseline box. Place each mixed-font fragment from
 					// the physical line top instead of asking the browser to synthesize
-					// a common baseline from font-specific inline metrics.
-					fmt.Fprintf(b, "<span class=\"ppt-physical-fragment\" style=\"display:inline-block;vertical-align:top;position:relative;top:%.4fpt;height:%.4fpt;line-height:%.4fpt\">", fragment.TopOffsetPt, fragment.AscentPt+fragment.DescentPt, fragment.AscentPt+fragment.DescentPt)
+					// a common baseline from font-specific inline metrics. Its width is
+					// layout-owned as well: independent drawing shapes use the same
+					// authored coordinate system, so later runs must not drift with a
+					// browser's substituted-font advances.
+					// text-indent must not inherit into the fragment: the inline-block
+					// is itself a block container, so the line's hanging indent would
+					// apply a second time inside it, shifting the text left of the box
+					// origin while shrink-to-fit sized the box from the shifted
+					// content. The fragment then came out narrower than its own glyphs
+					// and the next fragment overprinted it.
+					fmt.Fprintf(b, "<span class=\"ppt-physical-fragment\" style=\"display:inline-block;width:%.4fpt;text-indent:0;vertical-align:top;position:relative;top:%.4fpt;height:%.4fpt;line-height:%.4fpt\">", fragment.WidthPt, fragment.TopOffsetPt, fragment.AscentPt+fragment.DescentPt, fragment.AscentPt+fragment.DescentPt)
 					renderRunWithPlan(b, &run, fragment.Visual, ctx)
 					b.WriteString("</span>")
 				} else {
@@ -4642,7 +4849,7 @@ const slideCSS = `
 html { box-sizing: border-box; }
 *, *::before, *::after { box-sizing: inherit; }
 body { font-family: sans-serif; margin: 0; padding: 1rem; background: #888; }
-.slide { margin: 1rem auto; max-width: 960px; }
+.slide { margin: 1rem auto; max-width: %.2fpt; }
 .slide-num { font-size: 11px; color: #aaa; margin-bottom: 4px; }
 .slide-scroll { overflow-x: auto; }
 .canvas {
@@ -4777,7 +4984,10 @@ const oleMathScript = `
   inner.style.left="0px"; inner.style.top="0px"; inner.style.transform="none";
   void inner.offsetHeight;
   var content=inner.getBoundingClientRect(); if(!(content.width>0&&content.height>0))return;
-  var scale=Math.min(box.width/content.width,box.height/content.height);
+  var originShift=(isFinite(offsetX)?offsetX:0)*box.width;
+  // Leading preview frame space is authored geometry. Fit MathML within the
+  // remaining width so the semantic formula does not spill past the frame.
+  var scale=Math.min((box.width-originShift)/content.width,box.height/content.height);
   if(!isFinite(scale)||scale<=0)return; scale=Math.max(0.05,scale);
   // The OLE frame owns absolute placement.  The preview contributes only the
   // authored content centre and baseline *inside* that frame.  This preserves
@@ -4787,7 +4997,6 @@ const oleMathScript = `
   // authored equation viewport, and centring moves the visible formula away
   // from the gap PowerPoint reserved for the OLE object.  The preview offset is
   // an origin correction inside that rectangle, not a centring hint.
-  var originShift=(isFinite(offsetX)?offsetX:0)*box.width;
   inner.style.left=originShift+"px";
   // Align semantic ink to the authored preview's ink centre. Scripted MathML
   // and a cached MTEF preview do not share a browser baseline box, whereas their

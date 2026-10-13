@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-func TestBuildAuthoredSlidesBytesBuildsSourceOrderedNestedIR(t *testing.T) {
+func TestParseSlidesBytesBuildsSourceOrderedNestedIR(t *testing.T) {
 	data := buildPPTX(t, map[string]string{
 		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`,
 		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
@@ -23,7 +23,7 @@ func TestBuildAuthoredSlidesBytesBuildsSourceOrderedNestedIR(t *testing.T) {
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdSlide1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name="root"/></p:nvGrpSpPr><p:grpSpPr/><p:grpSp><p:nvGrpSpPr><p:cNvPr id="10" name="G"/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="1000" cy="800"/><a:chOff x="0" y="0"/><a:chExt cx="500" cy="400"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="11" name="T"/><p:nvPr><p:ph type="title" idx="2"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm rot="120000"><a:off x="5" y="6"/><a:ext cx="300" cy="100"/></a:xfrm><a:prstGeom prst="roundRect"/><a:solidFill><a:srgbClr val="AABBCC"/></a:solidFill></p:spPr><p:txBody><a:p><a:r><a:t>Hello</a:t></a:r></a:p></p:txBody></p:sp></p:grpSp><p:pic><p:nvPicPr><p:cNvPr id="12" name="P"/></p:nvPicPr><p:blipFill><a:blip r:embed="rIdImg"/><a:srcRect l="1000"/></p:blipFill><p:spPr><a:xfrm><a:off x="20" y="30"/><a:ext cx="40" cy="50"/></a:xfrm></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestBuildAuthoredSlidesBytesBuildsSourceOrderedNestedIR(t *testing.T) {
 	}
 }
 
-func TestBuildAuthoredSlidesPreservesSyntaxOnlyEmptyTextParagraph(t *testing.T) {
+func TestParseSlidesPreservesSyntaxOnlyEmptyTextParagraph(t *testing.T) {
 	data := buildPPTX(t, map[string]string{
 		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
 		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
@@ -55,7 +55,7 @@ func TestBuildAuthoredSlidesPreservesSyntaxOnlyEmptyTextParagraph(t *testing.T) 
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="empty geometry"/></p:nvSpPr><p:spPr><a:prstGeom prst="ellipse"/><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:p/></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestBuildAuthoredSlidesPreservesSyntaxOnlyEmptyTextParagraph(t *testing.T) 
 	}
 }
 
-func TestBuildAuthoredSlidesPreservesEndParaRPrForEmptyParagraph(t *testing.T) {
+func TestParseSlidesPreservesEndParaRPrForEmptyParagraph(t *testing.T) {
 	data := buildPPTX(t, map[string]string{
 		"[Content_Types].xml":             `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
 		"_rels/.rels":                     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
@@ -75,7 +75,7 @@ func TestBuildAuthoredSlidesPreservesEndParaRPrForEmptyParagraph(t *testing.T) {
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="empty paragraph mark"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="457200"/></a:xfrm><a:prstGeom prst="ellipse"/><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:lstStyle><a:defPPr><a:defRPr sz="2800"/></a:defPPr></a:lstStyle><a:p><a:endParaRPr sz="2000"/></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestContextualBuilderOwnsRichRunFieldsHyperlinksAndParagraphTabs(t *testing
 		"ppt/slides/_rels/slide1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="web" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.test/docs" TargetMode="External"/></Relationships>`,
 		"ppt/slides/slide1.xml":            `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="text"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:pPr rtl="1"><a:tabLst><a:tab pos="914400" algn="ctr"/></a:tabLst></a:pPr><a:r><a:rPr lang="en-US" altLang="uk-UA" sz="2400" b="1" spc="120" kern="900"><a:hlinkClick r:id="web"/><a:latin typeface="Aptos"/></a:rPr><a:t>linked</a:t></a:r><a:fld id="{1}" type="slidenum"><a:rPr i="1"/><a:t>7</a:t></a:fld></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestContextualBuilderPreservesLocalParagraphListMarkers(t *testing.T) {
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="text"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p><a:pPr marL="457200" indent="-228600"><a:lnSpc><a:spcPct val="115000"/></a:lnSpc><a:spcBef><a:spcPts val="0"/></a:spcBef><a:spcAft><a:spcPts val="0"/></a:spcAft><a:buClr><a:srgbClr val="424242"/></a:buClr><a:buSzPts val="2400"/><a:buFont typeface="Roboto"/><a:buChar char="●"/></a:pPr><a:r><a:t>Bullet</a:t></a:r></a:p><a:p><a:pPr marL="457200" indent="-228600"><a:lnSpc><a:spcPct val="115000"/></a:lnSpc><a:spcBef><a:spcPts val="0"/></a:spcBef><a:spcAft><a:spcPts val="0"/></a:spcAft><a:buClr><a:srgbClr val="424242"/></a:buClr><a:buSzPts val="2400"/><a:buFont typeface="Roboto"/><a:buAutoNum type="arabicPeriod"/></a:pPr><a:r><a:t>Number</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestContextualBuilderPreservesSample1AuthoredListMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestContextualBuilderInheritsSample2LayoutPlaceholderTextStyles(t *testing.
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestContextualBuilderDoesNotMaterializeUnrelatedSample3LayoutArtwork(t *tes
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestContextualBuilderInheritsSample3MasterTitleHighlight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestContextualBuilderReproduces45541FooterLayoutPlaceholders(t *testing.T) 
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestContextualBuilderOwnsGradientPatternAndNoFill(t *testing.T) {
 <p:sp><p:nvSpPr><p:cNvPr id="4" name="none"/></p:nvSpPr><p:spPr><a:noFill/></p:spPr></p:sp>
 </p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +488,7 @@ func TestContextualBuilderLoadsRelationshipPayloadsWithoutComposer(t *testing.T)
 		"ppt/charts/chart1.xml":            `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart/></c:chartSpace>`,
 		"ppt/slides/slide1.xml":            `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><p:cSld><p:spTree><p:pic><p:nvPicPr><p:cNvPr id="2" name="picture"/></p:nvPicPr><p:blipFill><a:blip r:embed="img"/></p:blipFill><p:spPr/></p:pic><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="chart"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="chart"/></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>`,
 	})
-	pres, err := sax.BuildContextualPresentationBytes(data, sax.Options{})
+	pres, err := sax.ParseBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,12 +512,14 @@ func TestContextualBuilderResolvesScriptSpecificRunTypeface(t *testing.T) {
 		"ppt/presentation.xml":            `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="s"/></p:sldIdLst></p:presentation>`,
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml": `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="text"/></p:nvSpPr><p:txBody><a:bodyPr/><a:p>` +
-			`<a:r><a:rPr><a:latin typeface="Times New Roman"/><a:sym typeface="Symbol"/></a:rPr><a:t></a:t></a:r>` +
+			// U+F0FC is a symbol slot the decoder leaves in place, so the run stays
+			// symbol-typed and the family has to come from <a:sym>.
+			`<a:r><a:rPr><a:latin typeface="Times New Roman"/><a:sym typeface="Symbol"/></a:rPr><a:t></a:t></a:r>` +
 			`<a:r><a:rPr><a:sym typeface="Math1"/></a:rPr><a:t>2</a:t></a:r>` +
 			`<a:r><a:rPr><a:latin typeface="Arial"/><a:sym typeface="Symbol"/></a:rPr><a:t>normal</a:t></a:r>` +
 			`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +549,7 @@ func TestContextualBuilderDecodesSymbolPUAOperatorsAndDigits(t *testing.T) {
 			`<a:r><a:rPr><a:latin typeface="Times New Roman"/><a:sym typeface="Symbol"/></a:rPr><a:t> = </a:t></a:r>` +
 			`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +577,7 @@ func TestContextualBuilderMixedSymbolRunUsesSymbolOnlyForPUASlot(t *testing.T) {
 			`<a:r><a:rPr><a:sym typeface="Symbol"/></a:rPr><a:t> and its frequency-domain equivalent</a:t></a:r>` +
 			`</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +598,7 @@ func TestContextualBuilderFieldsInheritParagraphListStyleTypeface(t *testing.T) 
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="field"/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:defRPr sz="2400"><a:latin typeface="Times New Roman"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p><a:fld id="{1}" type="slidenum"><a:rPr sz="1200" b="1"/><a:t>1</a:t></a:fld></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +616,7 @@ func TestPass33ContextualBuilderInheritsShapeListStyleTabStops(t *testing.T) {
 		"ppt/_rels/presentation.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="tabbed"/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle><a:lvl1pPr><a:tabLst><a:tab pos="227013" algn="l"/></a:tabLst><a:defRPr sz="2000"/></a:lvl1pPr></a:lstStyle><a:p><a:r><a:rPr sz="2000"/><a:t>\tvalue</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +637,7 @@ func TestContextualBuilderDropsNoPaintWhitespaceConversionArtifacts(t *testing.T
 			<p:sp><p:nvSpPr><p:cNvPr id="3" name="real text"/></p:nvSpPr><p:spPr><a:prstGeom prst="rect"/><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Visible</a:t></a:r></a:p></p:txBody></p:sp>
 		</p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +649,7 @@ func TestContextualBuilderDropsNoPaintWhitespaceConversionArtifacts(t *testing.T
 	}
 }
 
-func TestBuildAuthoredSlidesMaterializesBlipTransparentColorKey(t *testing.T) {
+func TestParseSlidesMaterializesBlipTransparentColorKey(t *testing.T) {
 	var pngBuf bytes.Buffer
 	img := image.NewNRGBA(image.Rect(0, 0, 2, 1))
 	img.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
@@ -664,7 +666,7 @@ func TestBuildAuthoredSlidesMaterializesBlipTransparentColorKey(t *testing.T) {
 		"ppt/media/image1.png":             string(pngBuf.Bytes()),
 		"ppt/slides/slide1.xml":            `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:pic><p:nvPicPr><p:cNvPr id="2" name="keyed"/></p:nvPicPr><p:blipFill><a:blip r:embed="img"><a:clrChange><a:clrFrom><a:srgbClr val="FF0000"/></a:clrFrom><a:clrTo><a:srgbClr val="FF0000"><a:alpha val="0"/></a:srgbClr></a:clrTo></a:clrChange></a:blip><a:srcRect l="10000" t="20000" r="30000" b="40000"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`,
 	})
-	slides, err := sax.BuildAuthoredSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -697,7 +699,7 @@ func Test37625PictureBulletMaterializesRelationshipPayload(t *testing.T) {
 		"ppt/slides/_rels/slide1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdBullet" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bullet.png"/></Relationships>`,
 		"ppt/media/bullet.png":             "PNG-BULLET",
 	})
-	pres, err := sax.BuildContextualPresentationBytes(data, sax.Options{})
+	pres, err := sax.ParseBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}

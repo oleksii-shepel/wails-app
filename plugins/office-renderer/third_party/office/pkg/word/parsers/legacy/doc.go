@@ -5152,6 +5152,7 @@ func buildLegacyParagraphFromRuns(index int, lineRuns []binaryWordRun, bookmarks
 			list = &wordir.ListMarker{Kind: kind, Level: level, Start: start, Format: format, Template: template}
 		}
 	}
+	legacyNormalizeListAndHangingIndents(&paraFormat, list)
 	if styleID == "" && paraFormat.BinaryStyleIndex != nil {
 		if styleNameByIstd != nil {
 			if mapped, ok := styleNameByIstd[*paraFormat.BinaryStyleIndex]; ok {
@@ -5187,6 +5188,39 @@ func buildLegacyParagraphFromRuns(index int, lineRuns []binaryWordRun, bookmarks
 		Frame:            frame,
 		Source:           paraSource,
 	}, fromStyle
+}
+
+// legacyNormalizeListAndHangingIndents fills the conventional marker gutter
+// when a binary list supplies only a negative first-line indent. Some legacy
+// files also repeat the left indent in dxaRight on hanging paragraphs; keeping
+// that mirrored value as a real right indent narrows every line a second time.
+func legacyNormalizeListAndHangingIndents(format *wordir.ParagraphFormat, list *wordir.ListMarker) {
+	if format == nil {
+		return
+	}
+
+	hanging := 0
+	if format.IndentHanging != nil && *format.IndentHanging > hanging {
+		hanging = *format.IndentHanging
+	}
+	if format.IndentFirstLine != nil && *format.IndentFirstLine < 0 && -*format.IndentFirstLine > hanging {
+		hanging = -*format.IndentFirstLine
+	}
+	if hanging <= 0 {
+		return
+	}
+
+	if list != nil && format.IndentLeft == nil {
+		// Word's ordinary list tab stop leaves one hanging-indent width between
+		// the marker and the item text.
+		left := hanging * 2
+		format.IndentLeft = &left
+	}
+	if format.IndentLeft != nil && format.IndentRight != nil &&
+		*format.IndentLeft == *format.IndentRight &&
+		((list != nil && *format.IndentRight >= hanging) || (list == nil && *format.IndentRight == hanging)) {
+		format.IndentRight = nil
+	}
 }
 
 // binaryWordRunsToParagraphSource builds a wordir.ParagraphSource from the raw data

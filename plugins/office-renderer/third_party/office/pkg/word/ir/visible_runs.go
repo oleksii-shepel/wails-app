@@ -1,6 +1,9 @@
 package ir
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // CanonicalVisibleRuns returns the paragraph run stream shared by layout and
 // rendering. Paragraph.Text owns authored whitespace; Runs own formatting and
@@ -52,7 +55,7 @@ func reconcileVisibleTextInterval(runs []Run, canonical string) {
 	if len(owners) == 0 {
 		return
 	}
-	if stripRunWhitespace(visibleText) != stripRunWhitespace(canonical) {
+	if !sameVisibleText(visibleText, canonical) {
 		// Paragraph.Text is the canonical authored text. Legacy CHPX projection can
 		// occasionally lose a short edge fragment when a formatting boundary and a
 		// paragraph/story boundary share the same CP. Repair only exact raw-text
@@ -78,10 +81,14 @@ func reconcileVisibleTextInterval(runs []Run, canonical string) {
 	}
 	ownerPos, remaining := 0, ownerCounts[0]
 	atOwnerStart := false
-	var pending strings.Builder
+	// Accumulate into one builder per owner. Appending per character straight
+	// onto Run.Text reallocates the whole string each time, which makes the
+	// rebuild quadratic in the paragraph's length.
+	builders := make([]strings.Builder, len(owners))
+	var pending []byte
 	for _, ch := range canonical {
 		if isRunWhitespace(ch) {
-			pending.WriteRune(ch)
+			pending = utf8.AppendRune(pending, ch)
 			continue
 		}
 		if remaining == 0 && ownerPos+1 < len(owners) {
@@ -89,9 +96,8 @@ func reconcileVisibleTextInterval(runs []Run, canonical string) {
 			remaining = ownerCounts[ownerPos]
 			atOwnerStart = true
 		}
-		idx := owners[ownerPos]
-		ws := pending.String()
-		pending.Reset()
+		ws := pending
+		pending = pending[:0]
 		if atOwnerStart {
 			atOwnerStart = false
 			keep := ownerTrailingWS[ownerPos-1]
@@ -99,16 +105,19 @@ func reconcileVisibleTextInterval(runs []Run, canonical string) {
 				keep = len(ws)
 			}
 			if keep > 0 {
-				runs[owners[ownerPos-1]].Text += ws[:keep]
+				builders[ownerPos-1].Write(ws[:keep])
 				ws = ws[keep:]
 			}
 		}
-		runs[idx].Text += ws
-		runs[idx].Text += string(ch)
+		builders[ownerPos].Write(ws)
+		builders[ownerPos].WriteRune(ch)
 		remaining--
 	}
-	if pending.Len() > 0 {
-		runs[owners[len(owners)-1]].Text += pending.String()
+	if len(pending) > 0 {
+		builders[len(owners)-1].Write(pending)
+	}
+	for k, idx := range owners {
+		runs[idx].Text = builders[k].String()
 	}
 }
 
@@ -143,14 +152,40 @@ func runOwnsVisibleText(run Run) bool {
 		return false
 	}
 }
-func stripRunWhitespace(s string) string {
-	return strings.Map(func(r rune) rune {
-		if isRunWhitespace(r) {
-			return -1
+
+// sameVisibleText reports whether two strings carry the same non-whitespace
+// text. It compares in place: stripping both sides with strings.Map allocates a
+// copy of the whole paragraph on every call.
+func sameVisibleText(a, b string) bool {
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		if isRunWhitespace(rune(a[i])) {
+			i++
+			continue
 		}
-		return r
-	}, s)
+		if isRunWhitespace(rune(b[j])) {
+			j++
+			continue
+		}
+		if a[i] != b[j] {
+			return false
+		}
+		i++
+		j++
+	}
+	for ; i < len(a); i++ {
+		if !isRunWhitespace(rune(a[i])) {
+			return false
+		}
+	}
+	for ; j < len(b); j++ {
+		if !isRunWhitespace(rune(b[j])) {
+			return false
+		}
+	}
+	return true
 }
+
 func isRunWhitespace(r rune) bool {
 	switch r {
 	case ' ', '\t', '\r', '\n', '\f', '\v':

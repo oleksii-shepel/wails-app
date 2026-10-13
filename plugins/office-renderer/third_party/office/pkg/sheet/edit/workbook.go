@@ -82,7 +82,7 @@ func OpenIR(ir *sheetir.Workbook) (*Workbook, error) {
 
 // OpenXLSX loads an XLSX package into editable IR.
 func OpenXLSX(r io.ReaderAt, size int64) (*Workbook, error) {
-	ir, xlPkg, err := sheetooxml.ParseReaderAtWithPackage(r, size)
+	ir, err := sheetooxml.ParseReaderAt(r, size)
 	if err != nil {
 		return nil, err
 	}
@@ -90,8 +90,6 @@ func OpenXLSX(r io.ReaderAt, size int64) (*Workbook, error) {
 	if err != nil {
 		return nil, err
 	}
-	wb.seedLegacyDrawingVML(xlPkg)
-	wb.seedLegacyPivotTables(xlPkg)
 	return wb, nil
 }
 

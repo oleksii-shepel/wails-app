@@ -60,6 +60,11 @@ type PatternFill struct {
 type PictureFill struct {
 	Image Image
 	Tile  *Tile
+	// BlipRef is the source OfficeArt BLIP index (pib) when the fill names its
+	// image by store index instead of by relationship. The shared decoder cannot
+	// reach a picture store, so hosts resolve the index themselves; a shape whose
+	// fill has neither Image data nor a resolvable BlipRef is unpainted.
+	BlipRef uint32
 }
 
 type Tile struct {

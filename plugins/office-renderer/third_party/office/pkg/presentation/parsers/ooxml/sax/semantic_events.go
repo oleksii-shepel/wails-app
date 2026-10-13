@@ -9,7 +9,7 @@ import (
 // semantic event boundary used by legacy PPT. XML SAX remains the producer;
 // callers no longer need to bind themselves to PresentationML token events.
 func WalkPresentationEventsBytes(data []byte, consumer presentationevent.Consumer, opts Options) error {
-	p, err := BuildContextualPresentationBytes(data, opts)
+	p, err := ParseBytes(data, opts)
 	if err != nil {
 		return err
 	}

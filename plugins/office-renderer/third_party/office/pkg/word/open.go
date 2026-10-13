@@ -115,7 +115,7 @@ func OpenWithOptions(path string, options OpenOptions) (*Document, error) {
 		if err != nil {
 			return nil, fmt.Errorf("word: stat OOXML %q: %w", path, err)
 		}
-		doc, err := wordstream.ReadDOCXDocument(file, info.Size(), wordstream.DOCXOptions{
+		doc, err := wordstream.ParseReaderAt(file, info.Size(), wordstream.DOCXOptions{
 			IncludeFieldInstructions: true,
 			Password:                 options.Password,
 		})
@@ -161,7 +161,7 @@ func OpenBytes(name string, data []byte) (*Document, error) {
 func OpenBytesWithOptions(name string, data []byte, options OpenOptions) (*Document, error) {
 	switch DetectFormat(name, data) {
 	case FormatDOCX:
-		doc, err := wordstream.ReadDOCXDocument(bytes.NewReader(data), int64(len(data)), wordstream.DOCXOptions{
+		doc, err := wordstream.ParseReaderAt(bytes.NewReader(data), int64(len(data)), wordstream.DOCXOptions{
 			IncludeFieldInstructions: true,
 			Password:                 options.Password,
 		})

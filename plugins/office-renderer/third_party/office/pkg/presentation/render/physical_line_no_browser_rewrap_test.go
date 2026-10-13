@@ -12,13 +12,31 @@ func TestPhysicalLinesDoNotAskBrowserToRewrapMeasuredText(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(src)
-	if strings.Contains(body, `ppt-physical-line\" style=\"display:block;width:100%%;white-space:pre-wrap`) {
-		t.Fatal("measured physical lines must not be browser-rewrapped after layout has chosen breaks")
+	const marker = `class=\"ppt-physical-line\" style=\"`
+	checked := 0
+	for rest := body; ; {
+		i := strings.Index(rest, marker)
+		if i < 0 {
+			break
+		}
+		rest = rest[i+len(marker):]
+		end := strings.Index(rest, `\">`)
+		if end < 0 {
+			t.Fatal("unterminated physical line style in html.go")
+		}
+		style := rest[:end]
+		checked++
+		if strings.Contains(style, "white-space:pre-wrap") {
+			t.Fatalf("measured physical lines must not be browser-rewrapped after layout has chosen breaks: %q", style)
+		}
+		if !strings.Contains(style, "white-space:pre;") {
+			t.Fatalf("physical line must keep the breaks layout measured: %q", style)
+		}
+		if !strings.Contains(style, "display:block;") {
+			t.Fatalf("measured physical line should serialize as a non-rewrapping block: %q", style)
+		}
 	}
-	// Layout may provide a measured width/margin for centered or right-aligned
-	// lines; otherwise a block's automatic width fills the available frame.
-	// In both cases whitespace must remain preformatted so CSS cannot re-wrap it.
-	if !strings.Contains(body, `display:block;%swhite-space:pre;text-indent:`) {
-		t.Fatal("measured physical line should serialize as a non-rewrapping block")
+	if checked == 0 {
+		t.Fatal("html.go no longer serializes physical lines")
 	}
 }

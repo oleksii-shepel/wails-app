@@ -28,7 +28,10 @@ func TestTextFlowKeepsAuthoredWidthWhenFrameIsInsideSlide(t *testing.T) {
 
 func TestLeadingTabOnHangingContinuationReturnsToTextEdge(t *testing.T) {
 	p := &ir.Paragraph{HasMarginLeft: true, MarginLeftEMU: 26 * 12700, HasTextIndent: true, TextIndentEMU: -26 * 12700, Runs: []*ir.Run{{Text: "\t(single complex pole pair)", FontFamily: "Times New Roman", FontSize: 2800}}}
-	m := ResolveParagraphMetrics(p, 300, 28, 1)
+	// The run measures ~295pt at 28pt, and the leading tab advances to the 26pt
+	// text edge, so the line needs ~321pt to stay unbroken and show that the tab
+	// itself never contributes a break.
+	m := ResolveParagraphMetrics(p, 340, 28, 1)
 	got := LayoutParagraphLines(p, m, 1, "", 0)
 	if len(got.Lines) != 1 {
 		t.Fatalf("leading continuation tab produced %d lines, want 1", len(got.Lines))

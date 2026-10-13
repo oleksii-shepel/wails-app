@@ -16,7 +16,7 @@ func TestPass7EffectiveCompositionOwnsMasterArtworkOrdering(t *testing.T) {
 		map[int][]*presentationir.Shape{7: {local}}, nil,
 		nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "", nil, nil,
 		map[int][]*presentationir.Shape{142: {master}}, nil,
-	)
+		legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 || len(pres.Slides[0].Shapes) != 2 {
 		t.Fatalf("effective slide shapes = %+v, want master + local", pres.Slides)
 	}
@@ -45,7 +45,7 @@ func TestPass7EffectiveCompositionHonorsMasterObjectSwitchIndependently(t *testi
 		nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "AAAAAA",
 		map[int]string{142: "112233"}, nil,
 		map[int][]*presentationir.Shape{142: {master}}, nil,
-	)
+		legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 || len(pres.Slides[0].Shapes) != 1 || pres.Slides[0].Shapes[0].OriginalShapeID != 200 {
 		t.Fatalf("fMasterObjects=false did not suppress only master artwork: %+v", pres.Slides)
 	}

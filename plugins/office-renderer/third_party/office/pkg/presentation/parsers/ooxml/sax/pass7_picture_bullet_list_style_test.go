@@ -19,7 +19,7 @@ func TestPass7ShapeListStylePictureBulletMaterializesBeforePhysicalLayout(t *tes
 		"ppt/media/bullet.png":             "PNG-BULLET",
 	})
 
-	pres, err := BuildContextualPresentationBytes(data, Options{})
+	pres, err := ParseBytes(data, Options{})
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}

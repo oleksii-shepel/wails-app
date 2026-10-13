@@ -605,6 +605,14 @@ func pfRunForCharPos(runs []textPFRun, charPos int) (textPFRun, bool) {
 // or after the last receive no formatting.
 func buildRunsFromCF(paraText string, cfRuns []stpaCFRun, start, end int) []*presentationir.Run {
 	if paraText == "" {
+		// A paragraph mark that carries its own single-character TextCFRun owns
+		// that formatting: the run starts exactly at the CR, and PowerPoint's own
+		// OfficeArt->OOXML conversion reproduces its size as endParaRPr (41246-2
+		// slide 11's spacer paragraphs are 8pt and 9pt, and PowerPoint gives them
+		// an 8.6pt/9.7pt line box instead of the 19pt/29pt inherited ones).
+		if idx := legacyPptCFRunIndexAt(cfRuns, start); idx >= 0 && legacyPptCFRunStartsAt(cfRuns, idx, start) {
+			return []*presentationir.Run{legacyPptIRRunFromCF(cfRuns[idx], "")}
+		}
 		// TextCFRun boundaries describe the formatting that follows a paragraph
 		// mark. For a CR-only paragraph, looking up `start` therefore returns the
 		// preceding visible paragraph's CF run (28pt on the slide-14 regression).
@@ -687,6 +695,20 @@ func buildRunsFromCF(paraText string, cfRuns []stpaCFRun, start, end int) []*pre
 		}
 	}
 	return runs
+}
+
+// legacyPptCFRunStartsAt reports whether the CF run at idx begins exactly at
+// charPos, which distinguishes a paragraph mark's own run from the run that
+// merely covers it.
+func legacyPptCFRunStartsAt(cfRuns []stpaCFRun, idx, charPos int) bool {
+	pos := 0
+	for i, cf := range cfRuns {
+		if i == idx {
+			return pos == charPos
+		}
+		pos += cf.CharCount
+	}
+	return false
 }
 
 func legacyPptCFRunIndexAt(cfRuns []stpaCFRun, charPos int) int {
@@ -772,6 +794,7 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 	pos += 4
 
 	var entry stpaPFEntry
+	_ = 0
 
 	// TextPFException is serialized in structure order (MS-PPT 2.9.20),
 	// which is deliberately different from PFMasks bit order. TxMasterStyleAtom
@@ -982,6 +1005,18 @@ func parsePFExceptionSpecWithTheme(stpa []byte, pos int, colorScheme map[uint8]s
 
 	// bullet.blip / bullet.scheme / hasBulletScheme and higher reserved bits are
 	// mask-only in the base TextPFException. Their data lives in extension atoms.
+	if !entry.HasBulletColor && (bulletFlags&1 != 0 || entry.BulletChar != 0) {
+		// PowerPoint draws an unauthored list bullet in the theme's accent1,
+		// never in the text color: its own OfficeArt->OOXML conversion
+		// materializes buClr=accent1 for 41246-2's bullet levels (hlink and
+		// folHlink for the dash levels), and the deck's PDF shows blue bullets
+		// under orange headings and blue arrows beside white text.
+		if value := colorScheme[4]; value != "" { // scheme slot 4 = accent1
+			entry.BulletColor = value
+			entry.HasBulletColor = true
+		}
+	}
+
 	return entry, pos, true
 }
 
@@ -994,6 +1029,7 @@ func parsePFExceptionLegacyWithTheme(stpa []byte, pos int, colorScheme map[uint8
 	pos += 4
 
 	var entry stpaPFEntry
+	_ = 0
 	if masks&0x0F != 0 {
 		if pos+2 > len(stpa) {
 			return entry, pos, false
@@ -1159,6 +1195,16 @@ func parsePFExceptionLegacyWithTheme(stpa []byte, pos int, colorScheme map[uint8
 			pos += 2
 		}
 	}
+	if !entry.HasBulletColor && (entry.HasBullet || entry.BulletChar != 0) {
+		// PowerPoint draws an unauthored list bullet in the theme's accent1,
+		// never in the text color: its own OfficeArt->OOXML conversion
+		// materializes buClr=accent1 for 41246-2's bullet levels, and the deck's
+		// PDF shows blue bullets under orange headings.
+		if value := colorScheme[4]; value != "" {
+			entry.BulletColor = value
+			entry.HasBulletColor = true
+		}
+	}
 
 	return entry, pos, true
 }
@@ -1182,7 +1228,8 @@ func legacyPptParagraphDirection(value uint16) string {
 //	masks (4 bytes, uint32)
 //	  bits 0-8: if ANY set → 2-byte grpfBasicAtom:
 //	              bit 0 = bold, bit 1 = italic, bit 2 = underline,
-//	              bit 3 = shadow, bit 7 = strikeout, bit 8 = emboss
+//	              bit 4 = shadow, bit 7 = kumi, bit 8 = strikeout,
+//	              bit 9 = emboss
 //	  bit 9  (typeface)  → uint16 font index
 //	  bit 10 (fontSize)  → uint16 in hundredths of a point
 //	  bit 11 (color)     → 4 bytes (R, G, B, extra)
@@ -1237,8 +1284,10 @@ func parseCFExceptionSpecWithTheme(stpa []byte, pos int, fontTable map[uint16]st
 			ul := (grpf & (1 << 2)) != 0
 			run.Underline = &ul
 		}
-		if masks&(1<<7) != 0 {
-			st := (grpf & (1 << 7)) != 0
+		// The flag word's bit 7 is kumi (vertical-text Kumimoji); strikethrough is
+		// bit 8. Reading bit 7 turns every kumi run into struck-through text.
+		if masks&(1<<8) != 0 {
+			st := (grpf & (1 << 8)) != 0
 			run.Strike = &st
 		}
 	}
@@ -1346,8 +1395,10 @@ func parseCFExceptionLegacyWithTheme(stpa []byte, pos int, fontTable map[uint16]
 			ul := (grpf & (1 << 2)) != 0
 			run.Underline = &ul
 		}
-		if masks&(1<<7) != 0 {
-			st := (grpf & (1 << 7)) != 0
+		// The flag word's bit 7 is kumi (vertical-text Kumimoji); strikethrough is
+		// bit 8. Reading bit 7 turns every kumi run into struck-through text.
+		if masks&(1<<8) != 0 {
+			st := (grpf & (1 << 8)) != 0
 			run.Strike = &st
 		}
 	}
@@ -1480,6 +1531,13 @@ func legacyPptSplitCFRunByTypeface(run stpaCFRun, text string) []legacyPptCFFont
 				// That empty ownership is a real script boundary, not a neutral
 				// character that should inherit the preceding Symbol family.
 				current = ""
+			} else if legacyPptIsSymbolTypeface(current) && !unicode.IsSpace(r) {
+				// Digits and punctuation never take a symbol typeface either.
+				// PowerPoint keeps "===" ASCII in the "===" run of
+				// 41246-2 while the private-use arrow right after it stays
+				// Wingdings; inheriting the symbol family here drew the three
+				// ASCII equals signs as Wingdings keypad glyphs.
+				family = ""
 			} else {
 				family = current
 			}
@@ -1508,6 +1566,19 @@ func legacyPptIsSymbolTypeface(family string) bool {
 	}
 }
 
+// legacyPptCFSymbolRune reports whether a symbol-charset typeface owns this
+// character.  Windows symbol faces declare only the private-use range
+// (U+F000-U+F0FF) plus genuine symbol characters; their ASCII forms are drawn
+// from the ANSI typeface instead.  PowerPoint therefore renders the "===" and
+// "(1999)" of a Wingdings-formatted run as plain text while the private-use
+// "" next to them stays a Wingdings arrow (41246-2 slide 2).
+func legacyPptCFSymbolRune(r rune) bool {
+	if r < 0x80 {
+		return false
+	}
+	return unicode.In(r, unicode.Sm, unicode.Sc, unicode.Sk, unicode.So) || (r >= 0xE000 && r <= 0xF8FF)
+}
+
 func legacyPptCFRuneFontFamily(run stpaCFRun, r rune) string {
 	if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsDigit(r) {
 		return ""
@@ -1517,7 +1588,7 @@ func legacyPptCFRuneFontFamily(run stpaCFRun, r rune) string {
 		if run.EAFontFamily != "" {
 			return run.EAFontFamily
 		}
-	case unicode.In(r, unicode.Sm, unicode.Sc, unicode.Sk, unicode.So) || (r >= 0xE000 && r <= 0xF8FF):
+	case legacyPptCFSymbolRune(r):
 		if run.SymbolFontFamily != "" {
 			return run.SymbolFontFamily
 		}
@@ -1551,7 +1622,7 @@ func legacyPptCFRunFontFamily(run stpaCFRun, text string) string {
 		switch {
 		case unicode.In(r, unicode.Han, unicode.Hangul, unicode.Hiragana, unicode.Katakana, unicode.Bopomofo):
 			c = 2
-		case unicode.In(r, unicode.Sm, unicode.Sc, unicode.Sk, unicode.So) || (r >= 0xE000 && r <= 0xF8FF):
+		case legacyPptCFSymbolRune(r):
 			c = 3
 		}
 		if class != 0 && class != c {
@@ -1573,8 +1644,16 @@ func legacyPptCFRunFontFamily(run stpaCFRun, text string) string {
 		if run.SymbolFontFamily != "" {
 			return run.SymbolFontFamily
 		}
+		return run.FontFamily
 	}
-	if run.FontFamily != "" {
+	// A symbol typeface owns only symbol-classified characters. PowerPoint
+	// draws letters, digits and punctuation of a Wingdings/Webdings run with
+	// the ANSI typeface (or the paragraph/master cascade), so a symbol family
+	// must never be handed back for text that contains no symbol character.
+	// Handing it back turned French prose stored in a symbol-font run into
+	// phone and folder glyphs on slide 2 of the 41246-2 deck, where the PDF
+	// ground truth shows plain "(déf. des objectifs globaux - 1995)".
+	if run.FontFamily != "" && !legacyPptIsSymbolTypeface(run.FontFamily) {
 		return run.FontFamily
 	}
 	if run.AnsiFontFamily != "" {
@@ -1583,7 +1662,7 @@ func legacyPptCFRunFontFamily(run stpaCFRun, text string) string {
 	if run.EAFontFamily != "" {
 		return run.EAFontFamily
 	}
-	return run.SymbolFontFamily
+	return ""
 }
 
 func resolveLegacyPptOfficeArtColorRef(raw uint32, colorScheme map[uint8]string) string {

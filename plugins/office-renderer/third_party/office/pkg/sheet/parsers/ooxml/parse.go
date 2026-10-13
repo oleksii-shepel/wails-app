@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,20 @@ import (
 	"office/pkg/sheet/parsers/ooxml/resolve"
 	"office/pkg/sheet/parsers/ooxml/sax"
 )
+
+// ParsePath parses an XLSX-family file into canonical Sheet IR.
+func ParsePath(path string) (*sheetir.Workbook, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open workbook: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat workbook: %w", err)
+	}
+	return ParseReaderAt(file, info.Size())
+}
 
 // ParseBytes parses an XLSX-family payload into the canonical Sheet IR.
 func ParseBytes(data []byte) (*sheetir.Workbook, error) {
@@ -32,43 +47,33 @@ func ParseBytes(data []byte) (*sheetir.Workbook, error) {
 // have separate ownership boundaries. High-level callers must not compose those
 // layers directly.
 func ParseReaderAt(r io.ReaderAt, size int64) (*sheetir.Workbook, error) {
-	wb, _, err := ParseReaderAtWithPackage(r, size)
-	return wb, err
-}
-
-// ParseReaderAtWithPackage parses canonical XLSX IR and returns the exact typed
-// package graph used to build it. Editors use this boundary when raw
-// relationship-heavy parts must be preserved on round-trip; it prevents a
-// second OPC open and a second metadata/object parse with potentially divergent
-// ownership or diagnostics.
-func ParseReaderAtWithPackage(r io.ReaderAt, size int64) (*sheetir.Workbook, *parts.Package, error) {
 	if r == nil {
-		return nil, nil, fmt.Errorf("sheet ooxml: reader cannot be nil")
+		return nil, fmt.Errorf("sheet ooxml: reader cannot be nil")
 	}
 	if size < 0 {
-		return nil, nil, fmt.Errorf("sheet ooxml: invalid package size %d", size)
+		return nil, fmt.Errorf("sheet ooxml: invalid package size %d", size)
 	}
 
 	pkg, err := opc.OpenReaderAt(r, size)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open package: %w", err)
+		return nil, fmt.Errorf("open package: %w", err)
 	}
 	parsed, err := parts.LoadMetadataPackage(pkg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load package metadata: %w", err)
+		return nil, fmt.Errorf("load package metadata: %w", err)
 	}
 	if err := parts.LoadRelationshipObjects(pkg, parsed); err != nil {
-		return nil, nil, fmt.Errorf("load worksheet relationship objects: %w", err)
+		return nil, fmt.Errorf("load worksheet relationship objects: %w", err)
 	}
 	wb, err := resolve.ResolveMetadataPackage(parsed)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve package metadata: %w", err)
+		return nil, fmt.Errorf("resolve package metadata: %w", err)
 	}
 	styles := resolve.ResolveCellStyleTable(parsed.Styles, parsed.Theme)
 	if err := applyStreamingWorksheetCore(r, size, wb, styles, parsed.Styles, parsed.Theme); err != nil {
-		return nil, nil, fmt.Errorf("stream worksheet core: %w", err)
+		return nil, fmt.Errorf("stream worksheet core: %w", err)
 	}
-	return wb, parsed, nil
+	return wb, nil
 }
 
 // applyStreamingWorksheetCore transfers ownership of worksheet identity, row
@@ -99,6 +104,7 @@ func applyStreamingWorksheetCore(r io.ReaderAt, size int64, wb *sheetir.Workbook
 	}
 
 	sharedBySheet := make(map[int]map[int]*sheetir.SharedFormula)
+	sharedCellBySheet := make(map[int]map[string]int)
 	arrayBySheet := make(map[int]map[string]*sheetir.ArrayFormula)
 	printBySheet := make(map[int]*streamingPrintMetadata)
 	validationBySheet := make(map[int][]parts.DataValidation)
@@ -106,6 +112,7 @@ func applyStreamingWorksheetCore(r io.ReaderAt, size int64, wb *sheetir.Workbook
 	autoFilterBySheet := make(map[int]*parts.AutoFilter)
 	for i := range wb.Sheets {
 		sharedBySheet[i] = make(map[int]*sheetir.SharedFormula)
+		sharedCellBySheet[i] = make(map[string]int)
 		arrayBySheet[i] = make(map[string]*sheetir.ArrayFormula)
 	}
 
@@ -229,7 +236,7 @@ func applyStreamingWorksheetCore(r io.ReaderAt, size int64, wb *sheetir.Workbook
 			}
 			cell := &sheetir.Cell{}
 			applyStreamingCellCore(cell, event, styles)
-			applyStreamingFormulaMetadata(sheet, cell, event, sharedBySheet[event.SheetIndex], arrayBySheet[event.SheetIndex])
+			applyStreamingFormulaMetadata(sheet, cell, event, sharedBySheet[event.SheetIndex], sharedCellBySheet[event.SheetIndex], arrayBySheet[event.SheetIndex])
 			if event.CommentText != "" {
 				applyStreamingComment(sheet, event, styleSheet, theme)
 			}
@@ -252,6 +259,7 @@ func applyStreamingWorksheetCore(r io.ReaderAt, size int64, wb *sheetir.Workbook
 		for _, group := range arrayBySheet[sheetIndex] {
 			sheet.ArrayFormulas = append(sheet.ArrayFormulas, group)
 		}
+		applyStreamingFormulaGroups(sheet, sharedBySheet[sheetIndex], sharedCellBySheet[sheetIndex], arrayBySheet[sheetIndex])
 		meta := printBySheet[sheetIndex]
 		if meta == nil {
 			meta = &streamingPrintMetadata{}
@@ -335,13 +343,14 @@ func applyStreamingComment(sheet *sheetir.Sheet, event sax.Event, styles *parts.
 	sheet.Notes[ref] = &sheetir.CommentNote{Ref: ref, Author: event.CommentAuthor, Text: text, RichText: resolve.ResolveStreamingCommentRichText(event.CommentRichText, styles, theme)}
 }
 
-func applyStreamingFormulaMetadata(sheet *sheetir.Sheet, cell *sheetir.Cell, event sax.Event, shared map[int]*sheetir.SharedFormula, arrays map[string]*sheetir.ArrayFormula) {
+func applyStreamingFormulaMetadata(sheet *sheetir.Sheet, cell *sheetir.Cell, event sax.Event, shared map[int]*sheetir.SharedFormula, sharedCells map[string]int, arrays map[string]*sheetir.ArrayFormula) {
 	switch event.FormulaType {
 	case "shared":
 		if event.FormulaSharedIndex == nil {
 			return
 		}
 		index := *event.FormulaSharedIndex
+		sharedCells[cell.Ref] = index
 		group := shared[index]
 		if group == nil {
 			group = &sheetir.SharedFormula{Index: index}
@@ -372,6 +381,38 @@ func applyStreamingFormulaMetadata(sheet *sheetir.Sheet, cell *sheetir.Cell, eve
 		}
 		cell.ArrayFormulaAnchor = group.AnchorRef
 		cell.ArrayFormulaRange = group.RangeRef
+	}
+}
+
+// applyStreamingFormulaGroups expands OOXML formula-group metadata after SAX
+// has observed every cell. Shared-formula dependants do not carry formula text,
+// and array members need the anchor's metadata even when they are not anchors.
+func applyStreamingFormulaGroups(sheet *sheetir.Sheet, shared map[int]*sheetir.SharedFormula, sharedCells map[string]int, arrays map[string]*sheetir.ArrayFormula) {
+	if sheet == nil {
+		return
+	}
+	for _, row := range sheet.Rows {
+		if row == nil {
+			continue
+		}
+		for _, cell := range row.Cells {
+			if cell == nil {
+				continue
+			}
+			if index, ok := sharedCells[cell.Ref]; ok {
+				if group := shared[index]; group != nil && group.Formula != "" {
+					cell.Formula = sax.TranslateFormula(group.Formula, cell.Row-group.TopRow, cell.Col-group.LeftCol)
+				}
+			}
+			for _, group := range arrays {
+				if group != nil && cell.Row >= group.TopRow && cell.Row <= group.BottomRow && cell.Col >= group.LeftCol && cell.Col <= group.RightCol {
+					cell.Formula = group.Formula
+					cell.ArrayFormulaAnchor = group.AnchorRef
+					cell.ArrayFormulaRange = group.RangeRef
+					break
+				}
+			}
+		}
 	}
 }
 

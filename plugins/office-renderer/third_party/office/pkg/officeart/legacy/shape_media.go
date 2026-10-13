@@ -14,6 +14,18 @@ func PictureRef(props []escher.Property) (uint32, bool) {
 	return 0, false
 }
 
+// fillBlipRef returns the BLIP index an OfficeArt fill paints with. Texture and
+// picture fills reference the picture store through fillBlip (0x0186), which is
+// separate from the shape's own picture index (pib).
+func fillBlipRef(props []escher.Property) uint32 {
+	for _, prop := range props {
+		if prop.ID == escher.PropFillBlip && !prop.IsComplex {
+			return prop.Value
+		}
+	}
+	return 0
+}
+
 // ResolveShapeMedia follows a shape's pib reference through a parsed BStore.
 func ResolveShapeMedia(node *escher.ShapeNode, store BStore) (Media, bool) {
 	if node == nil || len(store) == 0 {

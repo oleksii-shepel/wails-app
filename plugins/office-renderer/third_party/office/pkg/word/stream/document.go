@@ -1,7 +1,9 @@
 package stream
 
 import (
+	"bytes"
 	"io"
+	"os"
 
 	wordir "office/pkg/word/ir"
 )
@@ -14,10 +16,29 @@ func NewDocumentSession() *LayoutSession {
 	return &LayoutSession{}
 }
 
-// ReadDOCXDocument streams a DOCX into the shared semantic Word IR without
+// ParsePath parses a DOCX-family file into shared semantic Word IR.
+func ParsePath(path string, opts DOCXOptions) (*wordir.Document, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return ParseReaderAt(file, info.Size(), opts)
+}
+
+// ParseBytes parses an in-memory DOCX-family payload into shared semantic Word IR.
+func ParseBytes(data []byte, opts DOCXOptions) (*wordir.Document, error) {
+	return ParseReaderAt(bytes.NewReader(data), int64(len(data)), opts)
+}
+
+// ParseReaderAt streams a DOCX into the shared semantic Word IR without
 // using the materialized OOXML parts/resolver pipeline. The returned document
 // is suitable for the existing renderer/edit-neutral consumers.
-func ReadDOCXDocument(r io.ReaderAt, size int64, opts DOCXOptions) (*wordir.Document, error) {
+func ParseReaderAt(r io.ReaderAt, size int64, opts DOCXOptions) (*wordir.Document, error) {
 	session := NewDocumentSession()
 	source := NewDOCXSource(r, size, opts)
 	if err := source.Walk(session); err != nil {

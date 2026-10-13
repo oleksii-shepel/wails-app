@@ -21,7 +21,7 @@ func TestPass31ContextualBuilderKeepsAlternateContentChartSemantic(t *testing.T)
 <p:pic><p:nvPicPr><p:cNvPr id="5" name="Photo"/></p:nvPicPr><p:blipFill><a:blip r:embed="photo"/></p:blipFill><p:spPr/></p:pic>
 </p:spTree></p:cSld></p:sld>`,
 	})
-	pres, err := sax.BuildContextualPresentationBytes(data, sax.Options{})
+	pres, err := sax.ParseBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

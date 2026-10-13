@@ -43,6 +43,9 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 			ShapeID: node.ShapeID,
 		},
 	}
+	if OfficeArtMirrorsFlipV(node.ShapeType) {
+		shape.Transform.FlipV = !shape.Transform.FlipV
+	}
 	// A picture frame remains a picture semantically even when the host has not
 	// supplied the BStore payload yet. DOC commonly resolves the shared BLIP
 	// separately from DggInfo; losing picture ownership here makes picture-frame
@@ -99,17 +102,30 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 		shape.Fill.Color = background
 		shape.Fill.Alpha = 1
 		shape.Fill.Pattern = &ir.PatternFill{Foreground: foreground, Background: background}
-	} else if visual.HasFillType && visual.FillType >= 4 && visual.FillType <= 8 && visual.HasFillColor && visual.HasFillBackColor {
+	} else if visual.HasFillType && visual.FillType >= 4 && visual.FillType <= 8 && visual.HasFillColor && visual.FillColor != "" {
 		gradientType := legacyGradientType(visual.FillType)
 		angle := visual.FillAngleDeg
-		// OfficeArt zero is a bottom-to-top vector; DrawingML/CSS zero is horizontal.
+		// OfficeArt angles are clockwise from straight down in the painted
+		// frame; DrawingML/CSS angles are clockwise from the positive x-axis,
+		// so a legacy angle maps to a DrawingML angle as 90 + angle.
+		// PowerPoint's own OfficeArt->OOXML conversion confirms the sign on the
+		// 41246-2 edge rules: fillAngle -90 becomes a:lin ang="0", and the
+		// deck's PDF paints those rules left-to-right with the first stop at
+		// the left.
 		if gradientType == "linear" {
-			angle = 90 - angle
+			angle = 90 + angle
 		}
 		shape.Fill.Kind = ir.FillGradient
+		// Shade fills may omit the back color; PowerPoint resolves that stop
+		// against the page background, which renders as white here. Requiring an
+		// authored back color downgraded those shapes to a flat foreground fill.
+		back := visual.FillBackColor
+		if !visual.HasFillBackColor || back == "" {
+			back = "FFFFFF"
+		}
 		stops := legacyGradientShadeStops(node.Properties, contextResolve)
 		if len(stops) == 0 {
-			stops = legacyGradientStops(visual.FillColor, visual.FillBackColor, visual)
+			stops = legacyGradientStops(visual.FillColor, back, visual)
 		}
 		gradient := &ir.GradientFill{Type: gradientType, Angle: angle, Stops: stops, ScaleAngleWithAspect: visual.FillType == 7, LegacyShadeType: legacyGradientShadeType(visual.FillType)}
 		if visual.HasFillToLeft || visual.HasFillToTop || visual.HasFillToRight || visual.HasFillToBottom {
@@ -120,6 +136,32 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 			gradient.FillToBottom = visual.FillToBottom
 		}
 		shape.Fill.Gradient = gradient
+		// A gradient fill is opaque unless the authored opacity says otherwise.
+		// Leaving alpha at zero made the shape look unpainted to the
+		// empty-textbox heuristic, which then dropped grouped edge rules that
+		// carry a text property (41246-2 lost one of the two bars on its left
+		// edge that way).
+		shape.Fill.Alpha = 1
+		if visual.HasFillOpacity {
+			shape.Fill.Alpha = visual.FillOpacity
+		}
+	} else if visual.HasFillType && (visual.FillType == 2 || visual.FillType == 3) && fillBlipRef(node.Properties) != 0 {
+		// msofillTextured (2) / msofillPicture (3) paint the shape with the BLIP
+		// named by fillBlip. A texture repeats the image at its natural size from
+		// the shape's top-left corner; a picture fill stretches it. WordArt text
+		// takes this fill for the glyphs themselves (PowerPoint's conversion of
+		// 41246-2 slide 16 writes the deck's crumpled-paper BLIP as an a:tile
+		// blipFill on the run). The decoder cannot reach a picture store, so the
+		// index travels in OfficeArt IR and the host resolves the bytes.
+		shape.Fill.Kind = ir.FillPicture
+		shape.Fill.Picture = &ir.PictureFill{BlipRef: fillBlipRef(node.Properties)}
+		if visual.FillType == 2 {
+			shape.Fill.Picture.Tile = &ir.Tile{ScaleX: 1, ScaleY: 1}
+		}
+		shape.Fill.Alpha = 1
+		if visual.HasFillOpacity {
+			shape.Fill.Alpha = visual.FillOpacity
+		}
 	} else if visual.HasFillColor && visual.FillColor != "" {
 		shape.Fill.Kind = ir.FillSolid
 		shape.Fill.Color = visual.FillColor
@@ -127,7 +169,7 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 		if visual.HasFillOpacity {
 			shape.Fill.Alpha = visual.FillOpacity
 		}
-	} else if !node.HasClientTextbox && (!visual.HasFill || visual.FillEnabled) {
+	} else if !node.HasClientTextbox && !officeArtLineGeometry(node.ShapeType) && (!visual.HasFill || visual.FillEnabled) {
 		// OfficeArt AutoShapes are filled by default.  The default fill color is
 		// white even when neither fillColor nor fFilled is repeated in the local
 		// FOPT.  Preserve that default for area geometry; line/connector families
@@ -143,7 +185,7 @@ func ShapeFromEscherWithColorResolver(node *escher.ShapeNode, resolve ColorResol
 	// PPTX conversion materializes the same semantic as a:noFill. Publish the
 	// semantic value here so downstream presentation IR does not depend on source
 	// syntax (nil fill in PPT versus explicit noFill in DrawingML).
-	if shape.Fill.Kind == "" && (node.ShapeType == 20 || (node.ShapeType >= 32 && node.ShapeType <= 40)) {
+	if shape.Fill.Kind == "" && officeArtLineGeometry(node.ShapeType) {
 		shape.Fill.Kind = ir.FillNone
 	}
 
@@ -572,10 +614,18 @@ func legacyGradientStops(fore, back string, visual VisualProperties) []ir.Gradie
 	if focus < -100 {
 		focus = -100
 	}
-	if focus == 0 {
+	if focus == 100 {
 		return []ir.GradientStop{{Position: 0, Color: fore, Alpha: 1}, {Position: 1, Color: back, Alpha: 1}}
 	}
-	if focus == 100 || focus == -100 {
+	if focus == 0 {
+		// An absent focus is OfficeArt's default, and it is not the same as
+		// focus 100: the blend runs from the back color to the fill color.
+		// Apache POI's HSLFFill builds the same order, and PowerPoint's own
+		// OfficeArt -> OOXML conversion of the 41246-2 edge rules writes the
+		// reversed stop list, matching the exported PDF.
+		return []ir.GradientStop{{Position: 0, Color: back, Alpha: 1}, {Position: 1, Color: fore, Alpha: 1}}
+	}
+	if focus == -100 {
 		return []ir.GradientStop{{Position: 0, Color: back, Alpha: 1}, {Position: 1, Color: fore, Alpha: 1}}
 	}
 	position := math.Abs(float64(focus)) / 100.0
@@ -591,4 +641,24 @@ func legacyGradientStops(fore, back string, visual VisualProperties) []ir.Gradie
 		outer, inner = inner, outer
 	}
 	return []ir.GradientStop{{Position: 0, Color: outer, Alpha: 1}, {Position: position, Color: inner, Alpha: 1}, {Position: 1, Color: outer, Alpha: 1}}
+}
+
+// officeArtLineGeometry reports shape types whose geometry is a line or
+// connector. OfficeArt fills AutoShape areas white by default, but these
+// families carry no area at all, so they must stay no-fill whether or not the
+// record repeats a fillStyleBooleanProperties.
+func officeArtLineGeometry(shapeType uint16) bool {
+	return shapeType == 20 || (shapeType >= 32 && shapeType <= 40)
+}
+
+// OfficeArtMirrorsFlipV reports whether an OfficeArt preset is authored
+// vertically mirrored relative to the IR preset that renders it, so callers
+// have to exchange the fFlipV flag to keep the authored orientation.
+//
+// mso_sptTrapezoid is authored with its long edge on top, the mirror of the
+// DrawingML trapezoid preset. The pyramid bands of the 41246-2 deck carry
+// fFlipV and PowerPoint draws them long-edge-down, which is this preset
+// unflipped.
+func OfficeArtMirrorsFlipV(shapeType uint16) bool {
+	return shapeType == 8
 }

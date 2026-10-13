@@ -18,13 +18,23 @@ func TestMixedFontFragmentsOwnPhysicalTopOffsets(t *testing.T) {
 		t.Fatalf("lines/fragments = %d/%d", len(got.Lines), len(got.Lines[0].Fragments))
 	}
 	line := got.Lines[0]
-	for i, f := range line.Fragments {
-		want := math.Max(0, line.AscentPt-f.AscentPt)
-		if math.Abs(f.TopOffsetPt-want) > .001 {
-			t.Fatalf("fragment %d top = %.3f, want %.3f", i, f.TopOffsetPt, want)
-		}
+	for i := range line.Fragments {
+		f := &line.Fragments[i]
 		if f.AscentPt <= 0 || f.DescentPt <= 0 {
 			t.Fatalf("fragment %d missing baseline extents: %.3f/%.3f", i, f.AscentPt, f.DescentPt)
+		}
+		// The emitted child box is centred on the face's own ascent/descent, so
+		// the offset has to move that baseline onto the layout-owned one. Faces
+		// without face metrics fall back to the clamped box-ascent offset.
+		fm := ResolveFontAdvanceMetrics(fragmentFontFamily(f))
+		want := math.Max(0, line.AscentPt-f.AscentPt)
+		if fm.FaceAscent > 0 && fm.FaceDescent > 0 && f.Visual.FontSizePt > 0 {
+			boxHeightPt := f.AscentPt + f.DescentPt
+			faceBaselinePt := (boxHeightPt-(fm.FaceAscent+fm.FaceDescent)*f.Visual.FontSizePt)/2 + fm.FaceAscent*f.Visual.FontSizePt
+			want = line.AscentPt - faceBaselinePt
+		}
+		if math.Abs(f.TopOffsetPt-want) > .001 {
+			t.Fatalf("fragment %d top = %.3f, want %.3f", i, f.TopOffsetPt, want)
 		}
 	}
 	if !(line.Fragments[1].TopOffsetPt > line.Fragments[0].TopOffsetPt) {

@@ -19,7 +19,7 @@ func TestContextualBuilderMaterializesMasterAndLayoutDecorativeShapes(t *testing
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="10" name="master-decoration"/></p:nvSpPr></p:sp><p:sp><p:nvSpPr><p:cNvPr id="11" name="master-body-template"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestContextualBuilderDoesNotPaintMasterEditingPromptAsArtwork(t *testing.T)
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="10" name="master-editing-prompt"/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Click to edit Master text styles</a:t></a:r></a:p><a:p><a:r><a:t>Second level</a:t></a:r></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="11" name="real-master-label"/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>University</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestContextualBuilderHonorsSlideShowMasterShapesFalse(t *testing.T) {
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="10" name="master-decoration"/></p:nvSpPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestContextualBuilderHonorsLayoutShowMasterShapesFalse(t *testing.T) {
 		"ppt/slideMasters/slideMaster1.xml":            `<p:sldMaster xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="10" name="master-decoration"/></p:nvSpPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`,
 	})
-	slides, err := sax.BuildContextualSlidesBytes(data, sax.Options{})
+	slides, err := sax.ParseSlidesBytes(data, sax.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

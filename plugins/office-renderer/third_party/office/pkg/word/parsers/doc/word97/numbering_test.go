@@ -15,17 +15,15 @@ func canonicalTestLVL(start int, nfc byte, template string) []byte {
 	binary.LittleEndian.PutUint32(header[:4], uint32(start))
 	header[4] = nfc
 	header[5] = 1 << 3 // fNoRestart
-	for i := 6; i < 15; i++ {
-		header[i] = 0xFF
-	}
-
 	runes := []rune(template)
 	outRunes := make([]rune, 0, len(runes))
+	placeholderCount := 0
 	for i := 0; i < len(runes); i++ {
 		if runes[i] == '%' && i+1 < len(runes) && runes[i+1] >= '1' && runes[i+1] <= '9' {
 			level := int(runes[i+1] - '1')
-			header[6+level] = byte(len(utf16.Encode(outRunes)))
-			outRunes = append(outRunes, rune('1'+level))
+			header[6+placeholderCount] = byte(len(utf16.Encode(outRunes)) + 1)
+			placeholderCount++
+			outRunes = append(outRunes, rune(level))
 			i++
 			continue
 		}
@@ -177,8 +175,8 @@ func TestCanonicalNumberingParsesPackedLfoStartOverride(t *testing.T) {
 }
 
 func TestReconstructLevelTextUsesRgbxchNums(t *testing.T) {
-	units := utf16.Encode([]rune("1.2."))
-	rgb := []byte{0, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	units := []uint16{0, '.', 1, '.'}
+	rgb := []byte{1, 3, 0, 0, 0, 0, 0, 0, 0}
 	if got := reconstructLevelText(units, rgb); got != "%1.%2." {
 		t.Fatalf("template=%q", got)
 	}

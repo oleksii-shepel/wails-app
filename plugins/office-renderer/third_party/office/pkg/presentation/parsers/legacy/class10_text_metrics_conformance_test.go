@@ -107,8 +107,10 @@ func TestClass10NeutralCharactersStayWithSurroundingScriptMetricRun(t *testing.T
 }
 
 func TestClass10MixedLegacySymbolGlyphDoesNotOwnFollowingANSIText(t *testing.T) {
-	cf := stpaCFRun{CharCount: 36, FontFamily: "Symbol", SymbolFontFamily: "Symbol", FontSize: 2800}
-	runs := buildRunsFromCF("\uf0bc and its frequency-domain equivalent", []stpaCFRun{cf}, 0, 36)
+	// The paragraph text is 37 characters; the CF run has to cover all of them,
+	// otherwise the trailing character surfaces as an unowned extra run.
+	cf := stpaCFRun{CharCount: 37, FontFamily: "Symbol", SymbolFontFamily: "Symbol", FontSize: 2800}
+	runs := buildRunsFromCF("\uf0bc and its frequency-domain equivalent", []stpaCFRun{cf}, 0, 37)
 	if len(runs) != 2 {
 		t.Fatalf("runs = %#v, want symbol glyph + ANSI segment", runs)
 	}

@@ -3,6 +3,8 @@ package layout
 import (
 	"math"
 	"strings"
+	"sync"
+	"weak"
 
 	sharedfontmetrics "office/pkg/fontmetrics"
 	wordfontmetrics "office/pkg/word/fontmetrics"
@@ -149,8 +151,50 @@ type paragraphFlowContext struct {
 	ContentLeftPt float64
 }
 
+// flowCatalogForDocument returns the document's font metrics catalog. Flow
+// asks for it once per paragraph, and building it re-parses every embedded
+// face, so the most recently used catalogs are retained instead. The cache
+// holds weak references: it never keeps a document alive, and a recycled
+// address cannot alias an entry because a weak pointer clears when its object
+// is collected. Embedded fonts are fixed when a document is parsed, so a live
+// entry cannot go stale.
+func flowCatalogForDocument(doc *resolve.Document) *sharedfontmetrics.Catalog {
+	if doc == nil {
+		return wordfontmetrics.BuildCatalog(nil)
+	}
+	flowCatalogMu.Lock()
+	for i := range flowCatalogSlots {
+		if flowCatalogSlots[i].doc.Value() == doc {
+			cat := flowCatalogSlots[i].cat
+			flowCatalogMu.Unlock()
+			return cat
+		}
+	}
+	flowCatalogMu.Unlock()
+
+	cat := wordfontmetrics.BuildCatalog(doc)
+
+	flowCatalogMu.Lock()
+	slot := flowCatalogNext
+	flowCatalogNext = (slot + 1) % len(flowCatalogSlots)
+	flowCatalogSlots[slot] = flowCatalogSlot{doc: weak.Make(doc), cat: cat}
+	flowCatalogMu.Unlock()
+	return cat
+}
+
+type flowCatalogSlot struct {
+	doc weak.Pointer[resolve.Document]
+	cat *sharedfontmetrics.Catalog
+}
+
+var (
+	flowCatalogMu    sync.Mutex
+	flowCatalogNext  int
+	flowCatalogSlots [2]flowCatalogSlot
+)
+
 func paragraphFlowContextForDocument(doc *resolve.Document, contentLeftPt ...float64) paragraphFlowContext {
-	ctx := paragraphFlowContext{DefaultTabStopTwips: defaultWordTabStopTwips, FontMetrics: wordfontmetrics.BuildCatalog(doc)}
+	ctx := paragraphFlowContext{DefaultTabStopTwips: defaultWordTabStopTwips, FontMetrics: flowCatalogForDocument(doc)}
 	if doc != nil && doc.DefaultTabStop > 0 {
 		ctx.DefaultTabStopTwips = doc.DefaultTabStop
 	}

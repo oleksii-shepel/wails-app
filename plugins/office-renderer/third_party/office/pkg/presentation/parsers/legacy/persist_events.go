@@ -209,7 +209,7 @@ func masterTextFallbackFromPersistEvents(events legacyPptPersistEventIndex, entr
 // from the Document event and hydrates notes from their already-opened persist
 // events. It is the sequential replacement for extractSlideTextsFromDocument:
 // no persist object is reopened through the directory after WalkPersistEvents.
-func extractSlideTextsFromPersistEvents(events legacyPptPersistEventIndex, notesListInstance uint16, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+func extractSlideTextsFromPersistEvents(events legacyPptPersistEventIndex, notesListInstance uint16, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, canvas legacyPptCanvas) []legacySlideText {
 	payload := events.document.Payload
 	if len(payload) == 0 {
 		return nil
@@ -242,7 +242,7 @@ func extractSlideTextsFromPersistEvents(events legacyPptPersistEventIndex, notes
 	// Without this step every event-driven slide retained MasterID=-1 and silently
 	// bypassed the authored MainMaster (0x80000000) or explicit master.
 	slides = hydrateLegacyPptSlideMetadataFromPersistEvents(slides, events.slides)
-	notes = hydrateLegacyPptNotesFromPersistEvents(notes, events.notes, fontTable, colorScheme, exHyperlinks)
+	notes = hydrateLegacyPptNotesFromPersistEvents(notes, events.notes, fontTable, colorScheme, exHyperlinks, canvas)
 	if len(notes) != 0 {
 		slides = attachNotesByIndex(slides, notes)
 	}
@@ -282,7 +282,7 @@ func hydrateLegacyPptSlideMetadataFromPersistEvents(slides []legacySlideText, ev
 	return slides
 }
 
-func hydrateLegacyPptNotesFromPersistEvents(notes []legacySlideText, events map[int]PersistEvent, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string) []legacySlideText {
+func hydrateLegacyPptNotesFromPersistEvents(notes []legacySlideText, events map[int]PersistEvent, fontTable map[uint16]string, colorScheme map[uint8]string, exHyperlinks map[uint32]string, canvas legacyPptCanvas) []legacySlideText {
 	for index := range notes {
 		e, ok := events[notes[index].PersistID]
 		if !ok || e.Record.Type != pptRTNotes || len(e.Payload) == 0 {
@@ -290,7 +290,7 @@ func hydrateLegacyPptNotesFromPersistEvents(notes []legacySlideText, events map[
 		}
 		scene := collectLegacyPptVisualScene(e.Payload)
 		metas := scene.textMetas(fontTable, colorScheme, exHyperlinks)
-		shapes := buildLegacyPptTextShapesFromMetas(metas, notes[index])
+		shapes := buildLegacyPptTextShapesFromMetas(metas, notes[index], canvas)
 		if fragments := legacyPptNotesFragmentsFromShapes(shapes); len(fragments) != 0 {
 			notes[index].Fragments = mergeLegacyPptNotesFragments(notes[index].Fragments, fragments)
 		}

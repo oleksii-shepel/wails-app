@@ -12,7 +12,7 @@ func TestParserCompletenessProjectionCarriesOwnershipLedger(t *testing.T) {
 		ShapeID: 77,
 		Node:    &officeartescher.ShapeNode{ShapeID: 77},
 	}}
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(projection.Ownership) != 1 {
 		t.Fatalf("ownership entries = %d, want 1", len(projection.Ownership))
 	}
@@ -29,7 +29,7 @@ func TestParserCompletenessBackgroundIsNotCanonicalShape(t *testing.T) {
 		ShapeID: 88,
 		Node:    &officeartescher.ShapeNode{ShapeID: 88, Flags: backgroundFlag},
 	}}
-	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil)
+	projection := scene.completeProjection(legacySlideText{}, nil, nil, nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(projection.Ownership) != 1 || !projection.Ownership[0].Claimed || projection.Ownership[0].Reason != "background paint" {
 		t.Fatalf("background ownership = %+v", projection.Ownership)
 	}

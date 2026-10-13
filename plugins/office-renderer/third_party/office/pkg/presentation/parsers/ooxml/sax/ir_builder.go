@@ -1,13 +1,16 @@
 package sax
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 
 	"office/pkg/mathtype"
 	"office/pkg/msgraph"
 	"office/pkg/ooxml/drawing"
+	"office/pkg/ooxml/smartart"
 	"office/pkg/presentation/imageutil"
 	"office/pkg/presentation/ir"
 	"office/pkg/render/metafile"
@@ -26,10 +29,10 @@ func canonicalLineCapToken(value string) drawing.LineCap {
 	}
 }
 
-// BuildContextualSlidesPath builds slide IR directly from the forward-only SAX
+// ParseSlidesPath builds slide IR directly from the forward-only SAX
 // stream. Package relationships and theme colors are resolved as immutable
 // context before each slide's authored visual events are consumed.
-func BuildContextualSlidesPath(filePath string, opts Options) ([]*ir.Slide, error) {
+func ParseSlidesPath(filePath string, opts Options) ([]*ir.Slide, error) {
 	b := newIRBuilder()
 	if err := WalkPath(filePath, b, opts); err != nil {
 		return nil, err
@@ -39,8 +42,8 @@ func BuildContextualSlidesPath(filePath string, opts Options) ([]*ir.Slide, erro
 	return b.slides, nil
 }
 
-// BuildContextualSlidesBytes is the in-memory counterpart of BuildContextualSlidesPath.
-func BuildContextualSlidesBytes(data []byte, opts Options) ([]*ir.Slide, error) {
+// ParseSlidesBytes is the in-memory counterpart of ParseSlidesPath.
+func ParseSlidesBytes(data []byte, opts Options) ([]*ir.Slide, error) {
 	b := newIRBuilder()
 	if err := WalkBytes(data, b, opts); err != nil {
 		return nil, err
@@ -50,30 +53,37 @@ func BuildContextualSlidesBytes(data []byte, opts Options) ([]*ir.Slide, error) 
 	return b.slides, nil
 }
 
-// BuildContextualPresentationBytes builds the presentation-level canonical IR directly
-// from SAX events. It is the production-oriented boundary used while the old
-// package composer is being dismantled.
-func BuildContextualPresentationBytes(data []byte, opts Options) (*ir.Presentation, error) {
+// ParsePath parses a PPTX-family file into canonical presentation IR.
+func ParsePath(path string, opts Options) (*ir.Presentation, error) {
 	b := newIRBuilder()
-	if err := WalkBytes(data, b, opts); err != nil {
+	if err := WalkPath(path, b, opts); err != nil {
 		return nil, err
 	}
+	return finishPresentation(b), nil
+}
+
+// ParseBytes parses an in-memory PPTX-family payload into canonical
+// presentation IR.
+func ParseBytes(data []byte, opts Options) (*ir.Presentation, error) {
+	return ParseReaderAt(bytes.NewReader(data), int64(len(data)), opts)
+}
+
+// ParseReaderAt parses a seekable PPTX-family payload into canonical
+// presentation IR.
+func ParseReaderAt(r io.ReaderAt, size int64, opts Options) (*ir.Presentation, error) {
+	b := newIRBuilder()
+	if err := WalkReaderAt(r, size, b, opts); err != nil {
+		return nil, err
+	}
+	return finishPresentation(b), nil
+}
+
+func finishPresentation(b *irBuilder) *ir.Presentation {
 	b.presentation.Slides = b.slides
 	b.finalizeCanonicalTheme()
 	ir.NormalizeLegacyListMarkerGlyphs(b.presentation)
 	ir.NormalizeDuplicateBulletGlyphShapes(b.presentation)
-	return b.presentation, nil
-}
-
-// BuildAuthoredSlidesPath is retained as a compatibility name while callers
-// migrate to the contextual SAX builder.
-func BuildAuthoredSlidesPath(filePath string, opts Options) ([]*ir.Slide, error) {
-	return BuildContextualSlidesPath(filePath, opts)
-}
-
-// BuildAuthoredSlidesBytes is retained as a compatibility name.
-func BuildAuthoredSlidesBytes(data []byte, opts Options) ([]*ir.Slide, error) {
-	return BuildContextualSlidesBytes(data, opts)
+	return b.presentation
 }
 
 type irBuilder struct {
@@ -741,6 +751,7 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 			case "smartArt":
 				s.Kind = ir.ShapeSmartArt
 				s.ImageRelID = ev.RelID
+				b.attachSmartArt(s, payload.Data)
 			case "video", "audio":
 				s.Kind = ir.ShapeMedia
 				s.MediaKind = ev.GraphicObjectKind
@@ -966,6 +977,32 @@ func (b *irBuilder) HandleEvent(ev Event) error {
 	return nil
 }
 
+// attachSmartArt projects a diagram-data relationship onto the canonical slide
+// IR while preserving the graphic frame as its authored visual anchor.
+func (b *irBuilder) attachSmartArt(shape *ir.Shape, data []byte) {
+	if b.slide == nil || shape == nil || len(data) == 0 {
+		return
+	}
+	diagram, err := smartart.ParseDiagram(data)
+	if err != nil || diagram == nil {
+		return
+	}
+	art := &ir.SmartArt{Type: diagram.Type, X: shape.Bounds.X, Y: shape.Bounds.Y, W: shape.Bounds.W, H: shape.Bounds.H}
+	for _, node := range diagram.Nodes {
+		if node == nil {
+			continue
+		}
+		art.Nodes = append(art.Nodes, &ir.SmartArtNode{ID: node.ID, Type: node.Type, Text: node.Text})
+		if node.Text != "" {
+			b.slide.Shapes = append(b.slide.Shapes, &ir.Shape{Kind: ir.ShapeText, Bounds: shape.Bounds, SmartArtNodeID: node.ID, Paragraphs: []*ir.Paragraph{{Runs: []*ir.Run{{Text: node.Text}}}}})
+		}
+	}
+	for _, connection := range diagram.Connections {
+		art.Connections = append(art.Connections, ir.SmartArtConnection{SrcID: connection.SrcID, DestID: connection.DestID})
+	}
+	b.slide.SmartArt = append(b.slide.SmartArt, art)
+}
+
 // promoteOOXMLMSGraphOLE gives embedded Microsoft Graph OLE objects the same
 // canonical chart ownership as the legacy PPT parser. The authored OLE preview
 // remains fallback media; a later nested preview blip will populate ImageData
@@ -1152,8 +1189,18 @@ func ooxmlSymbolStorageRune(code byte) (rune, bool) {
 		return '\u00b1', true
 	case 0xb7:
 		return '\u2022', true
+	case 0xb8:
+		return '\u00f7', true
+	case 0xb9:
+		return '\u2260', true
+	case 0xba:
+		return '\u2261', true
+	case 0xbb:
+		return '\u2248', true
 	case 0xbc:
 		return '\u2026', true
+	case 0xde:
+		return '\u21d2', true
 	case 0xf2:
 		return '\u222b', true
 	default:

@@ -42,7 +42,8 @@ func TestDecodeGeometryTextUnicodeImpliesPresence(t *testing.T) {
 }
 
 func TestDecodeGeometryTextReadsBooleanSemantics(t *testing.T) {
-	// Upper word is fUse*, lower word is the corresponding value bitmap.
+	// Lower word holds the fUse* flags, upper word the value bitmap
+	// (MS-ODRAW 2.3.22.10).
 	const bits = (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 10) | (1 << 11) | (1 << 12) | (1 << 15)
 	got := DecodeGeometryText([]escher.Property{{
 		ID: escher.PropGTextBooleans, Value: uint32(bits) | uint32(bits)<<16,
@@ -52,6 +53,21 @@ func TestDecodeGeometryTextReadsBooleanSemantics(t *testing.T) {
 	}
 	if got.Tight || got.ShrinkFit || got.Normalize {
 		t.Fatalf("unexpected geometry text booleans = %+v", got)
+	}
+}
+
+func TestDecodeGeometryTextUsesLowWordAsUseFlags(t *testing.T) {
+	// 41246-2 slide 16's WordArt: only Normalize, DxMeasure, Bold, Underline and
+	// SmallCaps are authored, and all five are true. Reading the words the wrong
+	// way round would drop them into whichever bits the use mask happens to set.
+	got := DecodeGeometryText([]escher.Property{{
+		ID: escher.PropGTextBooleans, Value: 0xFFFF5700,
+	}})
+	if !got.Normalize || !got.DxMeasure || !got.Bold || !got.Underline || !got.SmallCaps {
+		t.Fatalf("authored booleans = %+v", got)
+	}
+	if got.Italic || got.Shadow || got.Strikethrough || got.Vertical || got.Stretch || got.BestFit || got.Kerning || got.Tight {
+		t.Fatalf("unauthored booleans decoded as set = %+v", got)
 	}
 }
 

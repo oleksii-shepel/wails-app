@@ -73,7 +73,7 @@ func TestNormalizeLegacyListMarkerGlyphsCanonicalizesWingdingsStorageCodes(t *te
 	NormalizeLegacyListMarkerGlyphs(p)
 	got0 := p.Slides[0].Shapes[0].Paragraphs[0]
 	got1 := p.Slides[0].Shapes[0].Paragraphs[1]
-	if got0.BulletChar != "◆" || got1.BulletChar != "▪" {
+	if got0.BulletChar != "◆" || got1.BulletChar != "■" {
 		t.Fatalf("canonical markers = %q/%q, want diamond/square", got0.BulletChar, got1.BulletChar)
 	}
 	if got0.BulletFontFamily != "" || !got0.BulletFontTx || got1.BulletFontFamily != "" || !got1.BulletFontTx {

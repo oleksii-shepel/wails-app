@@ -63,7 +63,7 @@ func TestStep2StructuralDrawingRootDoesNotDiscardAuthoredNestedGroup(t *testing.
 	payload := buildPptContainerRecord(0, pptRTPPDrawing, 0x000F, structuralRoot)
 
 	scene := collectLegacyPptVisualScene(payload)
-	flat := buildLegacyPptTextShapesFromMetas(scene.textMetas(nil, nil, nil), legacySlideText{})
+	flat := buildLegacyPptTextShapesFromMetas(scene.textMetas(nil, nil, nil), legacySlideText{}, legacyPptDefaultCanvas())
 	groups := buildLegacyPptGroupShapesFromSceneWithOwnership(
 		scene.dispatch.containers,
 		legacyPptDiscoveredShapeSource(legacyPptShapeIndexByOriginalID(flat)),

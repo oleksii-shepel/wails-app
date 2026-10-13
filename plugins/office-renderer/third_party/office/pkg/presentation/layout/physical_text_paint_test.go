@@ -1,8 +1,8 @@
 package layout
 
 import (
-	"strings"
 	"math"
+	"strings"
 	"testing"
 
 	"office/pkg/ooxml/drawing"
@@ -85,11 +85,10 @@ func TestPhysicalTabsHonorCenterRightAndDecimalAlignment(t *testing.T) {
 	}
 }
 
-
 func TestPhysicalMarkerFallsBackToEffectiveParagraphTextFont(t *testing.T) {
 	p := &ir.Paragraph{
 		BulletChar: "•",
-		Runs: []*ir.Run{{Text: "Body", FontFamily: "Aptos", FontSize: 2000, Color: "336699"}},
+		Runs:       []*ir.Run{{Text: "Body", FontFamily: "Aptos", FontSize: 2000, Color: "336699"}},
 	}
 	plan := ResolveParagraphVisualPlan(p, 300, 1, 1)
 	if plan.Marker.FontFamily != "Aptos" {
@@ -122,11 +121,10 @@ func TestPhysicalMarkerPercentageSizeWinsIfBothRepresentationsReachLayout(t *tes
 	}
 }
 
-
 func TestPhysicalTabsSkipStopsBehindCurrentPenAndUseNextAuthoredStop(t *testing.T) {
 	p := &ir.Paragraph{
 		TabStops: []ir.TabStop{{Pos: 36 * 12700, Algn: "l"}, {Pos: 72 * 12700, Algn: "l"}},
-		Runs: []*ir.Run{{Text: "XXXXXXXX\tA", FontSize: 1200, FontFamily: "Arial"}},
+		Runs:     []*ir.Run{{Text: "XXXXXXXX\tA", FontSize: 1200, FontFamily: "Arial"}},
 	}
 	plan := ResolveParagraphVisualPlan(p, 300, 1, 1)
 	if len(plan.Lines) != 1 {
@@ -145,12 +143,29 @@ func TestPhysicalTabsSkipStopsBehindCurrentPenAndUseNextAuthoredStop(t *testing.
 	}
 }
 
+func TestPhysicalTabsResolveFromParagraphMargin(t *testing.T) {
+	p := &ir.Paragraph{
+		TabStops: []ir.TabStop{{Pos: 72 * 12700, Algn: "l"}},
+		Runs:     []*ir.Run{{Text: "X\tA", FontSize: 1200, FontFamily: "Arial"}},
+	}
+	plan := ResolveParagraphVisualPlan(p, 300, 1, 1)
+	plan.Metrics.MarginLeftPt = 36
+	lines := LayoutParagraphLines(p, plan.Metrics, 1, "", 0)
+	if len(lines.Lines) != 1 || len(lines.Lines[0].Fragments) < 3 {
+		t.Fatalf("physical lines = %+v", lines)
+	}
+	want := 72 - 36 - measureRunTextWidthPt("X", p.Runs[0], 12)
+	if got := lines.Lines[0].Fragments[1].WidthPt; math.Abs(got-want) > .001 {
+		t.Fatalf("tab advance = %.3f, want %.3f", got, want)
+	}
+}
+
 func TestHangingIndentKeepsMarkerInsideAuthoredMarkerRegion(t *testing.T) {
 	p := &ir.Paragraph{
 		HasMarginLeft: true, MarginLeftEMU: 36 * 12700,
 		HasTextIndent: true, TextIndentEMU: -30 * 12700,
 		BulletChar: "•",
-		Runs: []*ir.Run{{Text: "Body", FontFamily: "Arial", FontSize: 1800}},
+		Runs:       []*ir.Run{{Text: "Body", FontFamily: "Arial", FontSize: 1800}},
 	}
 	plan := ResolveParagraphVisualPlan(p, 300, 1, 1)
 	if math.Abs(plan.Marker.OffsetPt-(-30)) > .01 {
@@ -160,7 +175,6 @@ func TestHangingIndentKeepsMarkerInsideAuthoredMarkerRegion(t *testing.T) {
 		t.Fatalf("paragraph metrics = %+v", plan.Metrics)
 	}
 }
-
 
 func TestClass12CalculatedWrapNeverManufacturesEmptyLineForOversizeGlyph(t *testing.T) {
 	p := &ir.Paragraph{Runs: []*ir.Run{{Text: "WW", FontFamily: "Arial", FontSize: 7200}}}
@@ -197,7 +211,6 @@ func TestClass12NoWrapPreservesAuthoredBreakButSuppressesCalculatedWrap(t *testi
 	}
 }
 
-
 func TestClass12MultiRunWrapPreservesRunOwnershipAcrossBoundary(t *testing.T) {
 	r1 := &ir.Run{Text: "AAAA ", FontFamily: "Arial", FontSize: 1800}
 	r2 := &ir.Run{Text: "BBBB", FontFamily: "Times New Roman", FontSize: 1800, Italic: true}
@@ -232,7 +245,7 @@ func TestClass12WhitespaceWithinAuthoredLineIsPreserved(t *testing.T) {
 func TestClass12TabAtWrapBoundaryMovesToNextPhysicalLine(t *testing.T) {
 	p := &ir.Paragraph{
 		DefaultTabSizeEMU: 36 * 12700,
-		Runs: []*ir.Run{{Text: "XXXXXXXX\tA", FontFamily: "Arial", FontSize: 1200}},
+		Runs:              []*ir.Run{{Text: "XXXXXXXX\tA", FontFamily: "Arial", FontSize: 1200}},
 	}
 	plan := ResolveParagraphVisualPlan(p, 60, 1, 1)
 	if len(plan.Lines) < 2 {

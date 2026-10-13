@@ -26,7 +26,7 @@ func TestPass12SynthesizedHeaderFooterUsesMasterPlaceholderTemplate(t *testing.T
 		legacyPptHeaderFooterInfo{flags: legacyPptHFFlagFooter, footerText: "Transport CDM Workshop"},
 		map[presentationir.PlaceholderKind]legacyPptTextShape{presentationir.PlaceholderFooter: template},
 		nil, nil, nil, nil,
-	)
+		legacyPptDefaultCanvas())
 	if footer == nil {
 		t.Fatal("footer = nil")
 	}

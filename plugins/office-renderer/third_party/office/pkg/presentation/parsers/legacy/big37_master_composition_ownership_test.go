@@ -24,7 +24,7 @@ func TestBIG37MasterSemanticProjectionDoesNotRequirePictureStore(t *testing.T) {
 		map[int]legacyPptVisualScene{5: scene},
 		[]legacyPptMasterEntry{{RefID: 5, SlideIdentifier: 42}},
 		nil, nil, nil, nil, nil, nil,
-	)
+		legacyPptDefaultCanvas())
 	if len(got.Visuals[5]) != 1 {
 		t.Fatalf("master generic artwork = %d shapes, want 1 without Pictures stream", len(got.Visuals[5]))
 	}
@@ -53,7 +53,7 @@ func TestBIG37PerMasterBackgroundResolvedDuringComposition(t *testing.T) {
 	pres := buildPresentationWithMasterComposition(
 		slides, nil, nil, legacyPptHeaderFooterInfo{}, "test.ppt", nil, nil, nil, "AAAAAA",
 		map[int]string{101: "112233", 202: "445566"},
-	)
+		legacyPptDefaultCanvas())
 	if len(pres.Slides) != 2 {
 		t.Fatalf("slides = %d, want 2", len(pres.Slides))
 	}

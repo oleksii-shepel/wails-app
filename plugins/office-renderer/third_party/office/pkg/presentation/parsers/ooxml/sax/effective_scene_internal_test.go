@@ -6,6 +6,25 @@ import (
 	"office/pkg/presentation/ir"
 )
 
+func TestOOXMLSymbolStorageRuneDecodesCommonMathOperators(t *testing.T) {
+	tests := []struct {
+		code byte
+		want rune
+	}{
+		{0xb8, '\u00f7'},
+		{0xb9, '\u2260'},
+		{0xba, '\u2261'},
+		{0xbb, '\u2248'},
+		{0xde, '\u21d2'},
+	}
+	for _, tt := range tests {
+		got, ok := ooxmlSymbolStorageRune(tt.code)
+		if !ok || got != tt.want {
+			t.Errorf("Symbol code %#x = %U (ok=%t), want %U", tt.code, got, ok, tt.want)
+		}
+	}
+}
+
 func TestAppendDecorativeShapesPrunesNestedPlaceholderTemplates(t *testing.T) {
 	source := []*ir.Shape{{
 		Name: "master-group",

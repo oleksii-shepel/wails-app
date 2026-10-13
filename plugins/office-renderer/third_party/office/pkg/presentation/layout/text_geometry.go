@@ -25,6 +25,12 @@ type TextGeometryVisualPlan struct {
 	StartOffset string
 	TextAnchor  string
 	Vector      bool
+	// FitToShape marks legacy WordArt, whose glyphs PowerPoint stretches to
+	// fill the shape's bounding rectangle: MS-ODRAW's geometry text is laid out
+	// against the container, not at its authored size. 41246-2 slide 16's "Fin"
+	// is authored at 54pt in a 134x106pt box and renders with its capitals
+	// spanning the full box height.
+	FitToShape bool
 	Vertical    bool
 	ReverseRows bool
 	Kerning     bool
@@ -51,7 +57,7 @@ func ResolveTextGeometryVisualPlan(shape *ir.Shape) TextGeometryVisualPlan {
 		return TextGeometryVisualPlan{}
 	}
 	plan := TextGeometryVisualPlan{
-		Enabled: true, Text: g.Text, FontFamily: g.FontFamily, FontSizePt: g.FontSizePt,
+		Enabled: true, FitToShape: true, Text: g.Text, FontFamily: g.FontFamily, FontSizePt: g.FontSizePt,
 		LetterSpaceEm: g.Spacing, Warp: g.Warp, Vertical: g.Vertical, ReverseRows: g.ReverseRows,
 		Kerning: g.Kerning, Tight: g.Tight, Stretch: g.Stretch, ShrinkFit: g.ShrinkFit,
 		BestFit: g.BestFit, Normalize: g.Normalize, DxMeasure: g.DxMeasure,

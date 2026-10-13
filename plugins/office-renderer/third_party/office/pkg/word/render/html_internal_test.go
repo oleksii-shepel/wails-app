@@ -1215,6 +1215,44 @@ func TestHTMLMaterializedListNoteTargetIsInsideListItem(t *testing.T) {
 	}
 }
 
+func TestHTMLNoteBacklinkDoesNotOccupyPhysicalTextSlot(t *testing.T) {
+	out, err := HTML(&resolve.Document{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `.note-target { position: absolute; left: -18pt; top: 0; display: inline; }`) {
+		t.Fatalf("note backlink target must sit in the list gutter, outside the physical text slot: %s", out)
+	}
+}
+
+func TestParagraphFloatImagePreservesNegativeVerticalOffset(t *testing.T) {
+	image := &resolve.Image{
+		Floating:  true,
+		WrapType:  "square",
+		XRelative: "column",
+		YRelative: "paragraph",
+		Width:     76 * 12700,
+		Height:    76 * 12700,
+	}
+	paragraph := &resolve.Paragraph{Index: 1, Runs: []resolve.Run{{Image: image}, {Text: "wrapped text"}}}
+	r := &htmlRenderer{
+		currentParagraph: paragraph,
+		floatByImage: map[*resolve.Image]layout.FloatBox{
+			image: {Image: image, Page: 1, X: 56.7, Y: 14.2, Width: 76, Height: 76},
+		},
+		paraBoxes: map[int]layout.BlockBox{
+			1: {Page: 1, Geometry: layout.PageGeometry{MarginLeft: 56.7, MarginTop: 56.7, ColumnWidthPt: 468}},
+		},
+	}
+	styles, ok := r.paragraphFloatImageStyleAttrs(image)
+	if !ok {
+		t.Fatal("expected paragraph float image styles")
+	}
+	if !strings.Contains(strings.Join(styles, ";"), "margin-top:-42.5pt") {
+		t.Fatalf("negative vertical offset was dropped: %v", styles)
+	}
+}
+
 func TestHTMLPrintCSSHidesInteractiveNoteChrome(t *testing.T) {
 	out, err := HTML(&resolve.Document{})
 	if err != nil {
@@ -1342,7 +1380,7 @@ func TestBulletMarkerTextNormalizesLegacyOfficePrivateUseGlyphs(t *testing.T) {
 	}{
 		{"\uF0B7", "•"},
 		{"\uF0A7", "▪"},
-		{"\uF0A8", "□"},
+		{"\uF0A8", "◆"},
 		{"\uF0D8", "➢"},
 		{"\uF0FC", "✓"},
 		{"\uF076", "◆"},
@@ -1885,7 +1923,7 @@ func TestHTMLPhysicalNestedListReservesParentRowBeforeChildren(t *testing.T) {
 	if !strings.Contains(out, `--word-list-item-flow-height:`) {
 		t.Fatalf("physical list item must expose its measured row height:\n%s", out)
 	}
-	if !strings.Contains(out, `li > ul, li > ol { padding-top: var(--word-list-item-flow-height, 0pt); }`) {
+	if !strings.Contains(out, `li > ul, li > ol { margin-left: 36pt; padding-top: var(--word-list-item-flow-height, 0pt); }`) {
 		t.Fatalf("nested list must start below its owning physical row")
 	}
 }

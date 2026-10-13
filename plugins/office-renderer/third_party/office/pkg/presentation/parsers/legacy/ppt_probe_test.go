@@ -61,7 +61,7 @@ func TestProbePowerPointGeneratedNotesDateFixture(t *testing.T) {
 			t.Logf("notes persist id=%d type=0x%04x version=0x%x instance=%d", persistID, record.Type, record.Version, record.Instance)
 		}
 		scene := collectLegacyPptVisualScene(payload)
-		shapes := buildLegacyPptTextShapesFromMetas(scene.textMetas(fontTable, colorScheme, nil), legacySlideText{PersistID: persistID})
+		shapes := buildLegacyPptTextShapesFromMetas(scene.textMetas(fontTable, colorScheme, nil), legacySlideText{PersistID: persistID}, legacyPptDefaultCanvas())
 		t.Logf("parsed note-persist shapes = %#v", shapes)
 		if len(texts) > 0 || persistID == ctx.notesPersistIDs[0] {
 			walkPptRecords(payload, func(record pptRecord, childPayload []byte) {
@@ -110,7 +110,7 @@ func TestProbeLegacyTableFixtures(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: extractPptPersistContext = false", name)
 		}
-		slides := extractSlideTextsFromDocument(stream, ctx.documentOffset, ctx.notesListInstance, ctx.persistDirectory, fontTable, colorScheme, nil)
+		slides := extractSlideTextsFromDocument(stream, ctx.documentOffset, ctx.notesListInstance, ctx.persistDirectory, fontTable, colorScheme, nil, legacyPptDefaultCanvas())
 		for _, slide := range slides {
 			t.Logf("%s extracted slide persist=%d fragments=%d text=%q", name, slide.PersistID, len(slide.Fragments), joinSlideFragments(slide.Fragments))
 			for _, frag := range slide.Fragments {
@@ -128,7 +128,7 @@ func TestProbeLegacyTableFixtures(t *testing.T) {
 				continue
 			}
 			t.Logf("%s persist=%d type=0x%04x version=0x%x instance=%d", name, persistID, record.Type, record.Version, record.Instance)
-			projection := collectLegacyPptVisualScene(payload).completeProjection(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil, nil, nil, nil)
+			projection := collectLegacyPptVisualScene(payload).completeProjection(legacySlideText{PersistID: persistID}, fontTable, colorScheme, nil, nil, nil, nil, legacyPptDefaultCanvas())
 			textCount, tableCount := 0, 0
 			for _, shape := range projection.Shapes {
 				if shape == nil {

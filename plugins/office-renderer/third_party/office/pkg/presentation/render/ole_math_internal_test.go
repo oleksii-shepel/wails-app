@@ -1,6 +1,7 @@
 package render
 
 import (
+	"math"
 	playout "office/pkg/presentation/layout"
 	"testing"
 )
@@ -57,5 +58,13 @@ func TestOLEMathPreviewPlacementIncludesLeftInkOrigin(t *testing.T) {
 	left, baseline, center, ok := oleMathPreviewPlacement(ole)
 	if !ok || left != .2 || baseline != .6 || center != .54 {
 		t.Fatalf("placement = left %.3f, baseline %.3f, centre %.3f, ok %t; want .2, .6, .54, true", left, baseline, center, ok)
+	}
+}
+
+func TestOLEMathPreviewPlacementRestoresCroppedWMFFrameOrigin(t *testing.T) {
+	ole := &playout.PhysicalOLEPlan{IconMIME: "image/svg+xml", IconData: []byte(`<svg viewBox="87 0 1674 450" width="100%"><text x="88" y="320" font-size="384">x</text></svg>`)}
+	left, _, _, ok := oleMathPreviewPlacement(ole)
+	if !ok || math.Abs(left-88.0/1761.0) > 1e-9 {
+		t.Fatalf("left origin = %.6f, want %.6f (ok=%t)", left, 88.0/1761.0, ok)
 	}
 }

@@ -10,7 +10,7 @@
 //
 // # Overview
 //
-// The IR is produced by [office/pkg/sheet/parsers/ooxml/resolve.ResolvePackage]
+// The IR is produced by the format's canonical SAX or legacy event parser
 // and consumed by the layout and render layers. It can also be consumed
 // directly by callers who need structured access to workbook content without
 // going through the rendering pipeline.

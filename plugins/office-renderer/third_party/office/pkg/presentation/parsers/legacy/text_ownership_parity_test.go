@@ -17,7 +17,7 @@ func TestOrdinaryBodyTextTypeDoesNotStealExplicitPlaceholderFragment(t *testing.
 		Text:     "owned by placeholder",
 	}}}
 
-	got := buildLegacyPptTextShapesFromMetas(metas, slideText)
+	got := buildLegacyPptTextShapesFromMetas(metas, slideText, legacyPptDefaultCanvas())
 	if len(got) != 1 {
 		t.Fatalf("materialized text shapes = %d, want only explicitly owned placeholder", len(got))
 	}
@@ -37,7 +37,7 @@ func TestSlideLocalTextTypeDoesNotInventPlaceholderRole(t *testing.T) {
 			bounds:     presentationir.Rect{W: 100, H: 100},
 			paragraphs: []*presentationir.Paragraph{{Runs: []*presentationir.Run{{Text: "ordinary"}}}},
 		}}
-		got := buildLegacyPptTextShapesFromMetas(metas, legacySlideText{})
+		got := buildLegacyPptTextShapesFromMetas(metas, legacySlideText{}, legacyPptDefaultCanvas())
 		if len(got) != 1 {
 			t.Fatalf("text type %d shapes = %d", textType, len(got))
 		}

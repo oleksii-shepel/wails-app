@@ -3,6 +3,7 @@ package layout
 import (
 	"math"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -149,6 +150,18 @@ func ResolveFontAdvanceMetrics(family string) FontAdvanceMetrics {
 		m.BoldScale = 1.01
 		m.LineBoxScale = 1.20
 		m.AscentShare, m.DescentShare = .82, .18
+	case strings.Contains(f, "tahoma"), strings.Contains(f, "verdana"):
+		// Tahoma is the authored face of the 41246-2 deck. PowerPoint's single
+		// spacing for Latin faces is 1.2 em — measured on the deck's Tahoma
+		// body (14.04pt -> 16.82pt) and on its 28pt Arial italic headings
+		// (33.6pt) — while falling through to the Arial profile's 1.117
+		// compressed every Tahoma line by seven percent.
+		m.Profile = "arial"
+		m.Lower, m.Upper, m.Digit, m.Punct, m.Space = .50, .667, .556, .278, .278
+		m.NarrowLower, m.WideLower, m.NarrowUpper, m.WideUpper = .222, .833, .278, .944
+		m.LineBoxScale = 1.2
+		m.AscentShare, m.DescentShare = .829, .171
+		m.FaceAscent, m.FaceDescent = .905, .212
 	case strings.Contains(f, "arial"), strings.Contains(f, "helvetica"), strings.Contains(f, "liberation sans"), strings.Contains(f, "lucida sans"):
 		m.Profile = "arial"
 		// Helvetica/Arial-compatible advances. The narrow/wide classes matter
@@ -156,7 +169,7 @@ func ResolveFontAdvanceMetrics(family string) FontAdvanceMetrics {
 		// e.g. Arial 'l' is ~0.22em while 'm' is ~0.83em.
 		m.Lower, m.Upper, m.Digit, m.Punct, m.Space = .50, .667, .556, .278, .278
 		m.NarrowLower, m.WideLower, m.NarrowUpper, m.WideUpper = .222, .833, .278, .944
-		m.LineBoxScale = 1.117
+		m.LineBoxScale = 1.2
 		m.FaceAscent, m.FaceDescent = .905, .212
 		if strings.Contains(f, "narrow") {
 			// Keep the canonical Arial glyph table and scale the final advances.
@@ -210,6 +223,21 @@ func ResolveFontAdvanceMetrics(family string) FontAdvanceMetrics {
 	return m
 }
 
+// splitTrailingSpace separates the whitespace a wrap token ends on (the
+// tokenizer folds each word's following space into the token) from the visible
+// text. Whitespace may hang past the paper edge and never decides a wrap, so
+// the two parts are measured and placed separately.
+func splitTrailingSpace(token string) (string, string) {
+	if token == "" {
+		return "", ""
+	}
+	visible := strings.TrimRightFunc(token, unicode.IsSpace)
+	if visible == token {
+		return token, ""
+	}
+	return visible, token[len(visible):]
+}
+
 // LayoutParagraphLines resolves authored breaks, tabs and calculated wraps into
 // physical line boxes. Text indent and list marker reservation apply to the
 // first physical line only; continuation lines recover the paragraph width.
@@ -256,6 +284,17 @@ func layoutParagraphLinesWithMarkerAndCatalog(p *ir.Paragraph, metrics Paragraph
 			return firstWidth
 		}
 		return continuationWidth
+	}
+	tabCursorOrigin := func() float64 {
+		// Tab stops are positions in the paragraph's text frame, whereas a
+		// physical line records width from its own text origin. Continuation
+		// lines therefore start at the paragraph margin; the first line also
+		// carries its authored text indent.
+		origin := metrics.MarginLeftPt
+		if lineIndex == 0 && metrics.HasTextIndent {
+			origin += metrics.TextIndentPt
+		}
+		return origin
 	}
 	flush := func(force bool, reason string) {
 		if !force && len(line.Fragments) == 0 {
@@ -322,18 +361,42 @@ func layoutParagraphLinesWithMarkerAndCatalog(p *ir.Paragraph, metrics Paragraph
 			appendFrag(run, part, w, lineH)
 		}
 	}
+	// Whitespace never decides a wrap, so it is held back until the token that
+	// follows proves it fits. Counting it first pushed a word to the next line
+	// whenever the visible line came within one space of the paper edge (slide
+	// 6's title dropped "des" although PowerPoint fits it exactly), and left
+	// wrapped lines reporting a width their visible text does not have.
+	type pendingSpace struct {
+		run   *ir.Run
+		text  string
+		width float64
+		lineH float64
+	}
+	var pending []pendingSpace
+	pendingWidth := 0.0
+	commitPending := func() {
+		for _, sp := range pending {
+			appendFrag(sp.run, sp.text, sp.width, sp.lineH)
+		}
+		pending = pending[:0]
+		pendingWidth = 0
+	}
 	tokens := paragraphLayoutTokens(p)
 	for tokenIndex, item := range tokens {
 		run, token := item.run, item.text
 		fontPt := runFontPt(run, p, fontScale)
 		lineH := paragraphPhysicalLineHeightPt(fontPt, runFontFamily(run, p), metrics)
 		if token == "\n" {
+			// An authored break keeps the trailing space in the line box, the
+			// way PowerPoint's own text extraction shows it.
+			commitPending()
 			flush(true, "authored")
 			continue
 		}
 		if token == "\t" {
+			commitPending()
 			fieldWidth, decimalPrefix := followingTabFieldMetricsWithCatalog(tokens, tokenIndex+1, p, fontScale, catalog)
-			tw := nextAlignedTabAdvancePt(line.WidthPt, p, fontPt, fieldWidth, decimalPrefix)
+			tw := nextAlignedTabAdvancePt(tabCursorOrigin()+line.WidthPt, p, fontPt, fieldWidth, decimalPrefix)
 			// Binary PPT commonly persists a leading tab on a non-bulleted
 			// continuation paragraph that also carries a hanging indent. The
 			// hanging indent already moves the first-line origin left; advancing to
@@ -343,25 +406,57 @@ func layoutParagraphLinesWithMarkerAndCatalog(p *ir.Paragraph, metrics Paragraph
 			if line.WidthPt == 0 && markerText == "" && metrics.TextIndentPt < 0 {
 				tw = math.Min(tw, -metrics.TextIndentPt)
 			}
-			if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+tw+fieldWidth > lim {
+			// Only the tab's own advance decides a break: the field that follows
+			// wraps word by word like any other text. Measuring the whole field
+			// pushed a label ("Art.63 : Dispenser une ...") onto the next line
+			// whenever the label's remaining text could not fit beside it, while
+			// PowerPoint keeps the tab stop and wraps the field itself.
+			if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+tw > lim {
 				flush(false, "wrap")
-				tw = nextAlignedTabAdvancePt(line.WidthPt, p, fontPt, fieldWidth, decimalPrefix)
+				tw = nextAlignedTabAdvancePt(tabCursorOrigin()+line.WidthPt, p, fontPt, fieldWidth, decimalPrefix)
 			}
 			appendFrag(run, token, tw, lineH)
 			continue
 		}
-		tw := measureRunTextWidthPtWithCatalog(token, run, fontPt, catalog) + leadingRunCharacterSpacingPt(run)
-		if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+tw > lim && strings.TrimSpace(token) != "" {
-			flush(false, "wrap")
-			tw = measureRunTextWidthPtWithCatalog(token, run, fontPt, catalog)
-		}
-		if lim := currentLimit(); lim > 0 && tw > lim && strings.TrimSpace(token) != "" {
-			appendWrappedToken(run, token, lineH)
+		visible, trailing := splitTrailingSpace(token)
+		if visible == "" {
+			// The whole token is whitespace: hold it until the token that
+			// follows proves it fits on the line.
+			tw := measureRunTextWidthPtWithCatalog(token, run, fontPt, catalog) + leadingRunCharacterSpacingPt(run)
+			pending = append(pending, pendingSpace{run: run, text: token, width: tw, lineH: lineH})
+			pendingWidth += tw
 			continue
 		}
-		appendFrag(run, token, tw, lineH)
+		tw := measureRunTextWidthPtWithCatalog(visible, run, fontPt, catalog) + leadingRunCharacterSpacingPt(run)
+		if lim := currentLimit(); lim > 0 && line.WidthPt > 0 && line.WidthPt+pendingWidth+tw > fitLimit(lim) {
+			// The word moves to the next line but the space before it stays on
+			// this one, hanging past the paper edge exactly as PowerPoint's own
+			// text extraction reports (the 41246-2 title's first line ends in a
+			// space that overflows its placeholder by six points).
+			commitPending()
+			flush(false, "wrap")
+			tw = measureRunTextWidthPtWithCatalog(visible, run, fontPt, catalog)
+		}
+		commitPending()
+		if lim := currentLimit(); lim > 0 && tw > lim {
+			appendWrappedToken(run, visible, lineH)
+		} else {
+			appendFrag(run, visible, tw, lineH)
+		}
+		if trailing != "" {
+			// The space after a word may hang past the paper edge, exactly as
+			// PowerPoint's text extraction shows it doing.
+			sw := measureRunTextWidthPtWithCatalog(trailing, run, fontPt, catalog) + leadingRunCharacterSpacingPt(run)
+			pending = append(pending, pendingSpace{run: run, text: trailing, width: sw, lineH: lineH})
+			pendingWidth += sw
+		}
 	}
-	flush(len(out.Lines) == 0, "")
+	commitPending()
+	// A paragraph that ends on a line break keeps an empty final line, exactly
+	// as PowerPoint lays out a trailing a:br or soft break. Dropping it pulled
+	// the following paragraph up by a full line (41246-2 slide 5).
+	trailingBreak := len(tokens) > 0 && tokens[len(tokens)-1].text == "\n"
+	flush(trailingBreak || len(out.Lines) == 0, "")
 	return out
 }
 
@@ -369,7 +464,14 @@ func paragraphPhysicalLineHeightPt(fontPt float64, family string, metrics Paragr
 	if metrics.LineHeightPt > 0 {
 		return metrics.LineHeightPt
 	}
-	return fontPt * ResolveFontAdvanceMetrics(family).LineBoxScale * metrics.LineHeightScale
+	box := fontPt * ResolveFontAdvanceMetrics(family).LineBoxScale * metrics.LineHeightScale
+	if metrics.LineSpacingCompressed && box < fontPt {
+		// A compressed percentage line spacing eats the leading above the
+		// baseline, and PowerPoint never lets it eat the glyphs: the line box
+		// keeps the run's own height as a floor.
+		return fontPt
+	}
+	return box
 }
 
 func paragraphPhysicalBaselineExtentsPt(fontPt float64, family string, metrics ParagraphMetrics) (float64, float64) {
@@ -528,36 +630,46 @@ func measureRunTextWidthPtWithCatalog(s string, r *ir.Run, fontPt float64, catal
 	}
 	return w
 }
-func decodedSymbolText(s string) bool {
-	for _, r := range s {
-		if unicode.Is(unicode.Co, r) {
-			return false
-		}
-	}
-	return s != ""
-}
-
 func measurePlainTextWidthPt(s string, fontPt float64, family string, bold, italic bool) float64 {
 	return measurePlainTextWidthPtWithCatalog(s, fontPt, family, bold, italic, nil)
 }
 
+var (
+	bundledCatalogOnce sync.Once
+	bundledCatalog     *fontmetrics.Catalog
+)
+
+// bundledMeasurementCatalog lazily materializes the shared metrics for the
+// Office families so every measurement path can resolve real advances without
+// re-parsing the compiled tables for each call.
+func bundledMeasurementCatalog() *fontmetrics.Catalog {
+	bundledCatalogOnce.Do(func() { bundledCatalog = fontmetrics.BundledCatalog() })
+	return bundledCatalog
+}
+
 func measurePlainTextWidthPtWithCatalog(s string, fontPt float64, family string, bold, italic bool, catalog *fontmetrics.Catalog) float64 {
+	measurementFamily := family
+	// Canonical text uses Unicode even when its authored face was Symbol. Keep
+	// that face for measurement: runeAdvanceFactor recognizes the canonical
+	// equivalents of Symbol glyphs and uses their actual Symbol advances, while
+	// ordinary decoded ASCII still takes the Times-compatible fallback below.
+	// Treating every decoded character as Times makes a compact operator such as
+	// Delta or approximately equal a full prose glyph and changes legitimate
+	// wraps.
+	if catalog == nil {
+		// Callers that own a document catalog pass it in; everything else still
+		// measures against the bundled Office metric tables. The coarse advance
+		// profile underestimates Tahoma bold by about ten percent, which let a
+		// body line hold one word more than the exported PDF and overflow its
+		// placeholder ("Chap. 15 : ... de la société" on 41246-2 slide 2).
+		catalog = bundledMeasurementCatalog()
+	}
 	if catalog != nil {
-		measurementFamily := family
-		// Legacy Symbol runs are decoded before layout, but the canonical run can
-		// still retain FontFamily=Symbol. Measuring normalized ASCII/Unicode with
-		// the physical Symbol face re-introduces the old full-cell advances and can
-		// create a wrap that PowerPoint never had (for example "= 733 nsec").
-		// Use the same Times-compatible face that the HTML serializer falls back to
-		// for decoded textual Symbol content. Private-use glyphs remain Symbol.
-		if ResolveFontAdvanceMetrics(family).Profile == "symbol" && decodedSymbolText(s) {
-			measurementFamily = "Times New Roman"
-		}
 		if width, ok := catalog.MeasureText(s, measurementFamily, bold, italic, fontPt); ok {
 			return width
 		}
 	}
-	m := ResolveFontAdvanceMetrics(family)
+	m := ResolveFontAdvanceMetrics(measurementFamily)
 	scale := 1.0
 	if bold {
 		scale *= m.BoldScale
@@ -572,6 +684,11 @@ func measurePlainTextWidthPtWithCatalog(s string, fontPt float64, family string,
 	return w * scale * m.AdvanceScale
 }
 func runeAdvanceFactor(r rune, m FontAdvanceMetrics) float64 {
+	if m.Profile == "symbol" {
+		if factor, ok := symbolUnicodeAdvanceFactor(r); ok {
+			return factor
+		}
+	}
 	if m.Profile == "symbol" && (unicode.Is(unicode.Co, r) || unicode.Is(unicode.Sm, r) || unicode.Is(unicode.Sc, r) || unicode.Is(unicode.Sk, r) || unicode.Is(unicode.So, r)) {
 		return m.Wide
 	}
@@ -645,6 +762,33 @@ func runeAdvanceFactor(r rune, m FontAdvanceMetrics) float64 {
 	default:
 		return m.Lower
 	}
+}
+
+// symbolUnicodeAdvanceFactor records the Adobe Symbol advances for the
+// canonical Unicode characters PowerPoint writes through a Symbol run. The
+// OOXML and binary-PPT parsers decode their private-use storage codes before
+// layout, so retaining these advances preserves the authored geometry without
+// asking the HTML renderer to identify a particular slide or shape.
+func symbolUnicodeAdvanceFactor(r rune) (float64, bool) {
+	switch r {
+	case '\u0394': // Delta
+		return .612, true
+	case '\u03a3': // Sigma
+		return .592, true
+	case '\u03b1', '\u03b4', '\u03c0', '\u03c1', '\u03c4':
+		return .549, true
+	case '\u2248': // approximately equal
+		return .549, true
+	case '\u2212': // mathematical minus
+		return .549, true
+	case '\u00b1': // plus-minus
+		return .549, true
+	case '\u2260', '\u2261':
+		return .549, true
+	case '\u21d2': // right double arrow
+		return .987, true
+	}
+	return 0, false
 }
 func standardLatinAdvanceFactor(r rune, profile string) (float64, bool) {
 	if profile == "mono" && r >= 32 && r <= 126 {
@@ -782,7 +926,12 @@ func nextAlignedTabAdvancePt(x float64, p *ir.Paragraph, fontPt, fieldWidth, dec
 		step = float64(p.DefaultTabSizeEMU) / 12700.0
 	}
 	if step <= 0 {
-		step = fontPt * 4
+		// DrawingML's default tab size (defTabSz) is one inch, and PowerPoint
+		// applies it even when the paragraph names no tab stops: 41246-2 slide
+		// 6 puts ":" exactly 72pt from the paragraph's left edge (49.24 ->
+		// 121.22). Scaling the step with the font size (4em) put the tab 8pt too
+		// far right, which cost the paragraph its last word on line one.
+		step = 72
 	}
 	next := math.Floor(x/step+1) * step
 	if next <= x {
@@ -898,4 +1047,14 @@ func layoutParagraphAuthoredLinesWithMarker(p *ir.Paragraph, metrics ParagraphMe
 	}
 	flush(len(out.Lines) == 0, "")
 	return out
+}
+
+// fitLimit gives the wrap test a sliver of slack. Our advance tables differ
+// from the vendor's by a few hundredths of a point per glyph, which is enough
+// to break a line the deck's PDF keeps: 41246-2 slide 14's "renforcement ... et
+// des OP" measures 676.9pt against a 675.6pt frame where PowerPoint fits it by
+// 0.3pt. A fifth of a percent keeps that from flipping a wrap while never
+// admitting a word the frame cannot show.
+func fitLimit(limit float64) float64 {
+	return limit + math.Max(0.5, limit*0.002)
 }

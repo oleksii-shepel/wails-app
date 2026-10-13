@@ -225,61 +225,203 @@ func (pg *PresetGeometry) cloudPath(width, height float64) Path {
 	}
 }
 
-// curvedArrowPath creates a curved arrow pointing in the given direction.
+// curvedArrowPath materializes the curved-arrow presets from the DrawingML
+// preset definitions (ECMA-376 20.1.10.22 and neighbours) instead of a fixed
+// crescent outline.
 //
-// Curved-arrow presets have three independent authored handles.  Keep those
-// semantics in the preset geometry instead of reducing the shape to a fixed
-// six-point polygon:
+// The authored handles are:
 //
-//	adj[0] - shaft/band thickness
-//	adj[1] - arrow-head width
-//	adj[2] - arrow-head length
+//	adj[0] - shaft/band thickness (fraction of the short side)
+//	adj[1] - arrow-head height (fraction of the short side)
+//	adj[2] - arrow-head length along the arc
 //
 // Legacy OfficeArt values have already been normalized by the presentation
-// bridge before they reach this package.
+// bridge before they reach this package. The band is a genuine elliptical arc
+// band whose radius depends on the authored thickness, which is why a constant
+// crescent can never match the preset at any handle value.
 func (pg *PresetGeometry) curvedArrowPath(width, height float64, angleDeg float64) Path {
-	shaft := pg.adjOrDefault(0, 0.28)
-	headWidth := pg.adjOrDefault(1, 0.58)
-	headLength := pg.adjOrDefault(2, 0.28)
+	adj1 := pg.adjOrDefault(0, 0.25)
+	adj2 := pg.adjOrDefault(1, 0.50)
+	adj3 := pg.adjOrDefault(2, 0.25)
 
-	// Keep the band and head well-formed even for extreme authored handles.
-	shaft = math.Max(0.06, math.Min(0.72, shaft))
-	headWidth = math.Max(shaft+0.08, math.Min(0.96, headWidth))
-	headLength = math.Max(0.10, math.Min(0.48, headLength))
-
-	cy := height * 0.58
-	outerY := cy - height*shaft*0.5
-	innerY := cy + height*shaft*0.5
-	tipX := width
-	neckX := width * (1 - headLength)
-	headTop := cy - height*headWidth*0.5
-	headBottom := cy + height*headWidth*0.5
-
-	// The two cubic edges share the same curvature but remain separated by the
-	// authored shaft thickness. This gives the preset a genuine curved band and
-	// leaves a stable tangent where the arrow head begins.
-	cmds := []PathCommand{
-		{Type: "M", Points: []Point{{X: 0, Y: innerY}}},
-		{Type: "C", Points: []Point{{X: width * 0.18, Y: height * 0.06}, {X: neckX * 0.72, Y: height * 0.08}, {X: neckX, Y: outerY}}},
-		{Type: "L", Points: []Point{{X: neckX, Y: headTop}}},
-		{Type: "L", Points: []Point{{X: tipX, Y: cy}}},
-		{Type: "L", Points: []Point{{X: neckX, Y: headBottom}}},
-		{Type: "L", Points: []Point{{X: neckX, Y: innerY}}},
-		{Type: "C", Points: []Point{{X: neckX * 0.70, Y: height * 0.24}, {X: width * 0.22, Y: height * 0.25}, {X: 0, Y: innerY}}},
-		{Type: "Z"},
-	}
-
-	if angleDeg != 0 {
-		for ci := range cmds {
-			for pi := range cmds[ci].Points {
-				p := cmds[ci].Points[pi]
-				r := rotatePoints([][2]float64{{p.X, p.Y}}, width, height, angleDeg)[0]
-				cmds[ci].Points[pi] = Point{X: r[0], Y: r[1]}
-			}
-		}
+	// The canonical definition is the right-pointing arrow. The other three
+	// directions are mirrored/transposed copies of it in the authored frame.
+	var cmds []PathCommand
+	switch angleDeg {
+	case 180: // curvedLeftArrow
+		cmds = curvedArrowRightCommands(width, height, adj1, adj2, adj3)
+		mirrorPathX(cmds, width)
+	case 270: // curvedUpArrow
+		cmds = curvedArrowRightCommands(height, width, adj1, adj2, adj3)
+		transposePath(cmds)
+	case 90: // curvedDownArrow
+		cmds = curvedArrowRightCommands(height, width, adj1, adj2, adj3)
+		transposePath(cmds)
+		mirrorPathY(cmds, height)
+	default: // curvedRightArrow
+		cmds = curvedArrowRightCommands(width, height, adj1, adj2, adj3)
 	}
 
 	return Path{Commands: cmds, FillRule: "nonzero"}
+}
+
+// curvedArrowRightCommands builds the curvedRightArrow outline in a width x
+// height box. Angles are DrawingML angle units (60000ths of a degree, y-down);
+// cd2 is the three-o'clock angle, cd4 the six-o'clock angle.
+func curvedArrowRightCommands(w, h, adj1, adj2, adj3 float64) []PathCommand {
+	const (
+		cd2      = 10800000.0
+		cd4      = 5400000.0
+		threeCd4 = 16200000.0
+	)
+	ss := math.Min(w, h)
+	hd2 := h / 2
+
+	maxAdj2 := 50000 * h / ss
+	a2 := pinValue(adj2*100000, 0, maxAdj2)
+	a1 := pinValue(adj1*100000, 0, a2)
+	th := ss * a1 / 100000
+	aw := ss * a2 / 100000
+
+	q1 := (th + aw) / 4
+	hR := hd2 - q1
+	if hR <= 0 {
+		hR = math.Max(hd2/2, 0.001)
+	}
+	q7 := hR * 2
+	q10 := math.Max(0, q7*q7-th*th)
+	idx := math.Sqrt(q10) * w / q7
+
+	maxAdj3 := 100000 * idx / ss
+	a3 := pinValue(adj3*100000, 0, maxAdj3)
+	ah := ss * a3 / 100000
+
+	y3 := hR + th
+	q4 := math.Max(0, w*w-ah*ah)
+	dy := math.Sqrt(q4) * hR / w
+	y5 := hR + dy
+	y7 := y3 + dy
+	dh := (aw - th) / 2
+	y4 := y5 - dh
+	y8 := y7 + dh
+	y6 := h - aw/2
+	x1 := w - ah
+
+	// The band's sweep is the ellipse's parametric angle, not the angle of the
+	// (ah, dy) triangle: PowerPoint resolves the authored geometry with the
+	// normalized pair, which is why an aspect-scaled arc lands exactly on the
+	// authored neck point (x1, y5).
+	swAng := math.Atan2(dy/hR, ah/w) / math.Pi * 180 * 60000
+	stAng := cd2 - swAng
+	mswAng := -swAng
+
+	var cmds []PathCommand
+	cmds = append(cmds, PathCommand{Type: "M", Points: []Point{{X: 0, Y: hR}}})
+	cmds = arcToCommands(cmds, Point{X: 0, Y: hR}, w, hR, cd2, mswAng)
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x1, Y: y4}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: w, Y: y6}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x1, Y: y8}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x1, Y: y7}}})
+	cmds = arcToCommands(cmds, Point{X: x1, Y: y7}, w, hR, stAng, swAng)
+	cmds = append(cmds, PathCommand{Type: "Z"})
+
+	// The preset's second subpath ("darkenLess") is not shading alone: it is
+	// the band's tail, and PowerPoint fills it as part of the arrow. Without it
+	// the shape loses the whole upper half of the band (visible as a short hook
+	// instead of the full "C" on 41246-2 slide 2). Its two arcs meet the outer
+	// ellipse at the authored neck offsets, so they use the same normalized
+	// neck angle derived above.
+	tailQ7 := hR * 2
+	tailIdx := math.Sqrt(math.Max(0, tailQ7*tailQ7-th*th)) * w / tailQ7
+	dang2 := math.Atan2((th/2)/hR, tailIdx/w) / math.Pi * 180 * 60000
+	tailStart := Point{X: w, Y: th}
+	tailMid := arcEndPoint(tailStart, w, hR, threeCd4, dang2-cd4)
+	cmds = append(cmds, PathCommand{Type: "M", Points: []Point{tailStart}})
+	cmds = arcToCommands(cmds, tailStart, w, hR, threeCd4, dang2-cd4)
+	cmds = arcToCommands(cmds, tailMid, w, hR, cd2-dang2, cd4+dang2)
+	cmds = append(cmds, PathCommand{Type: "Z"})
+
+	return cmds
+}
+
+// arcEndPoint returns where a DrawingML arc that starts at cur with the given
+// radii and angles ends. Multi-arc preset paths need the intermediate endpoints
+// to chain their arcs, and the center is derived from the start point.
+func arcEndPoint(cur Point, rx, ry, stAng, swAng float64) Point {
+	start := stAng / 60000.0 * math.Pi / 180.0
+	end := (stAng + swAng) / 60000.0 * math.Pi / 180.0
+	cx := cur.X - rx*math.Cos(start)
+	cy := cur.Y - ry*math.Sin(start)
+	return Point{X: cx + rx*math.Cos(end), Y: cy + ry*math.Sin(end)}
+}
+
+// arcToCommands appends cubic approximations of the elliptical arc that
+// DrawingML describes with a start angle and a signed sweep, both in 60000ths
+// of a degree with the y axis pointing down. cur is the arc's start point; the
+// ellipse center is derived from it, matching the preset definitions.
+func arcToCommands(cmds []PathCommand, cur Point, rx, ry, stAng, swAng float64) []PathCommand {
+	if rx == 0 || ry == 0 || swAng == 0 {
+		return cmds
+	}
+	start := stAng / 60000.0 * math.Pi / 180.0
+	total := swAng / 60000.0 * math.Pi / 180.0
+	cx := cur.X - rx*math.Cos(start)
+	cy := cur.Y - ry*math.Sin(start)
+
+	segments := int(math.Ceil(math.Abs(total) / (math.Pi / 2)))
+	if segments < 1 {
+		segments = 1
+	}
+	step := total / float64(segments)
+	for i := 0; i < segments; i++ {
+		a0 := start + step*float64(i)
+		a1 := a0 + step
+		alpha := 4.0 / 3.0 * math.Tan((a1-a0)/4)
+		x0, y0 := cx+rx*math.Cos(a0), cy+ry*math.Sin(a0)
+		x3, y3 := cx+rx*math.Cos(a1), cy+ry*math.Sin(a1)
+		c1x := x0 - alpha*rx*math.Sin(a0)
+		c1y := y0 + alpha*ry*math.Cos(a0)
+		c2x := x3 + alpha*rx*math.Sin(a1)
+		c2y := y3 - alpha*ry*math.Cos(a1)
+		cmds = append(cmds, PathCommand{Type: "C", Points: []Point{
+			{X: c1x, Y: c1y},
+			{X: c2x, Y: c2y},
+			{X: x3, Y: y3},
+		}})
+	}
+	return cmds
+}
+
+func pinValue(v, lo, hi float64) float64 {
+	if hi < lo {
+		hi = lo
+	}
+	return math.Max(lo, math.Min(hi, v))
+}
+
+func mirrorPathX(cmds []PathCommand, width float64) {
+	for ci := range cmds {
+		for pi := range cmds[ci].Points {
+			cmds[ci].Points[pi].X = width - cmds[ci].Points[pi].X
+		}
+	}
+}
+
+func mirrorPathY(cmds []PathCommand, height float64) {
+	for ci := range cmds {
+		for pi := range cmds[ci].Points {
+			cmds[ci].Points[pi].Y = height - cmds[ci].Points[pi].Y
+		}
+	}
+}
+
+func transposePath(cmds []PathCommand) {
+	for ci := range cmds {
+		for pi := range cmds[ci].Points {
+			p := cmds[ci].Points[pi]
+			cmds[ci].Points[pi] = Point{X: p.Y, Y: p.X}
+		}
+	}
 }
 
 // flowChartProcessPath creates a flowchart process shape (rectangle).
@@ -534,9 +676,52 @@ func (pg *PresetGeometry) smileyFacePath(width, height float64) Path {
 	return Path{Commands: cmds, FillRule: "evenodd"}
 }
 
-// sunPath creates a simple sunburst.
+// sunPath draws the DrawingML sun preset: a central disc with eight detached
+// triangular rays. The star burst that used to stand in for it (16 points, no
+// disc) is a different figure; PowerPoint's own rendering of 41246-2 slide 11
+// shows the classic sun, with ray tips on the inscribed ellipse and a small gap
+// between each ray and the disc.
 func (pg *PresetGeometry) sunPath(width, height float64) Path {
-	return pg.starPath(width, height, 16, 0.7)
+	if width <= 0 || height <= 0 {
+		return Path{FillRule: "nonzero"}
+	}
+	adj := pg.adjOrDefault(0, 0.25)
+	if adj < 0.125 {
+		adj = 0.125
+	}
+	if adj > 0.46875 {
+		adj = 0.46875
+	}
+	// Proportions measured from PowerPoint's own rendering of the preset:
+	// a disc of about two thirds of the box with rays that reach the inscribed
+	// ellipse and stay a couple of points clear of the disc.
+	discR := adj
+	rayTipR := 0.5
+	rayBaseR := discR + 0.05
+	rayHalfWidth := 0.085
+	ss := math.Min(width, height)
+
+	cx, cy := width/2, height/2
+	cmds := make([]PathCommand, 0, 8*3+1)
+	for i := 0; i < 8; i++ {
+		ang := float64(i) * math.Pi / 4
+		ux, uy := math.Cos(ang), math.Sin(ang)
+		// Perpendicular half-width in box-relative units, so the rays keep
+		// their proportions when the box is not square.
+		px, py := -uy*rayHalfWidth*ss, ux*rayHalfWidth*ss
+		tip := Point{X: cx + ux*rayTipR*width, Y: cy + uy*rayTipR*height}
+		base := Point{X: cx + ux*rayBaseR*width, Y: cy + uy*rayBaseR*height}
+		cmds = append(cmds,
+			PathCommand{Type: "M", Points: []Point{tip}},
+			PathCommand{Type: "L", Points: []Point{{X: base.X + px, Y: base.Y + py}}},
+			PathCommand{Type: "L", Points: []Point{{X: base.X - px, Y: base.Y - py}}},
+			PathCommand{Type: "Z"},
+		)
+	}
+	cmds = append(cmds, PathCommand{Type: "M", Points: []Point{{X: cx + discR*width, Y: cy}}})
+	cmds = arcToCommands(cmds, Point{X: cx + discR*width, Y: cy}, discR*width, discR*height, 0, 21600000)
+	cmds = append(cmds, PathCommand{Type: "Z"})
+	return Path{Commands: cmds}
 }
 
 // moonPath creates the DrawingML moon preset. The geometry is adjustment-
@@ -1438,13 +1623,51 @@ func (pg *PresetGeometry) bentUpArrowPath(width, height float64) Path {
 	}
 	return polygonPath([]Point{{0, height}, {bendX + shaft, height}, {bendX + shaft, head}, {bendX + head, head}, {bendX, 0}, {bendX - head, head}, {bendX, head}, {bendX, height - shaft}, {0, height - shaft}})
 }
+
+// bentArrowPath materializes the DrawingML bentArrow preset: a band whose bend
+// is a quarter arc, with the arrow head at the right edge. adj1 is the band
+// thickness, adj2 the head height, adj3 the head length and adj4 the bend
+// radius, all as fractions of the short side. The previous hand-rolled chevron
+// ignored the bend radius entirely, so a legacy deck's "bent arrow" came out
+// angular where PowerPoint draws the rounded band.
 func (pg *PresetGeometry) bentArrowPath(width, height float64) Path {
-	shaft := math.Min(width, height) * math.Max(.08, math.Min(.38, pg.adjOrDefault(0, .20)))
-	headLen := width * math.Max(.16, math.Min(.45, pg.adjOrDefault(1, .28)))
-	bendY := height * math.Max(.25, math.Min(.78, pg.adjOrDefault(2, .58)))
-	headHalf := math.Min(height*.45, shaft*1.65)
-	base := width - headLen
-	return polygonPath([]Point{{0, height}, {shaft, height}, {shaft, bendY + shaft/2}, {base, bendY + shaft/2}, {base, bendY + headHalf}, {width, bendY}, {base, bendY - headHalf}, {base, bendY - shaft/2}, {0, bendY - shaft/2}})
+	w, h := width, height
+	ss := math.Min(w, h)
+	a2 := pinValue(pg.adjOrDefault(1, 0.25)*100000, 0, 50000)
+	a1 := pinValue(pg.adjOrDefault(0, 0.25)*100000, 0, 2*a2)
+	a3 := pinValue(pg.adjOrDefault(2, 0.25)*100000, 0, 50000)
+	th := ss * a1 / 100000
+	aw2 := ss * a2 / 100000
+	dh2 := aw2 - th/2
+	ah := ss * a3 / 100000
+	bs := math.Min(w-ah, h-dh2)
+	a4 := pinValue(pg.adjOrDefault(3, 0.4375)*100000, 0, 100000*bs/ss)
+	bd := ss * a4 / 100000
+	bd2 := math.Max(bd-th, 0)
+	x3 := th + bd2
+	x4 := w - ah
+	y3 := dh2 + th
+	y4 := y3 + dh2
+	y5 := dh2 + bd
+
+	const (
+		cd2      = 10800000.0
+		cd4      = 5400000.0
+		threeCd4 = 16200000.0
+	)
+	cmds := []PathCommand{{Type: "M", Points: []Point{{X: 0, Y: h}}}}
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: 0, Y: y5}}})
+	cmds = arcToCommands(cmds, Point{X: 0, Y: y5}, bd, bd, cd2, cd4)
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x4, Y: dh2}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x4, Y: 0}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: w, Y: aw2}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x4, Y: y4}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x4, Y: y3}}})
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: x3, Y: y3}}})
+	cmds = arcToCommands(cmds, Point{X: x3, Y: y3}, bd2, bd2, threeCd4, -cd4)
+	cmds = append(cmds, PathCommand{Type: "L", Points: []Point{{X: th, Y: h}}})
+	cmds = append(cmds, PathCommand{Type: "Z"})
+	return Path{Commands: cmds, FillRule: "nonzero"}
 }
 func (pg *PresetGeometry) uturnArrowPath(width, height float64) Path {
 	shaft := math.Min(width, height) * math.Max(.07, math.Min(.28, pg.adjOrDefault(0, .14)))
@@ -2732,19 +2955,40 @@ func svgArcEllipseBoundsPoints(start, end Point, args []float64) []Point {
 // Class 13: canonical flowchart preset families. These paths deliberately live
 // in preset geometry rather than renderer CSS so PPT and PPTX share topology.
 
+// flowChartMultidocumentPath follows the DrawingML preset: one wavy sheet in
+// the lower left with two plain sheets stacked behind it to the upper right.
+// Each sheet's outline is authored separately in the preset; stroking the
+// filled subpaths keeps the same edges without duplicating them.
 func (pg *PresetGeometry) flowChartMultidocumentPath(w, h float64) Path {
-	dx, dy := w*.10, h*.10
+	const box = 21600.0
+	sx, sy := w/box, h/box
+	pt := func(x, y float64) Point { return Point{X: x * sx, Y: y * sy} }
 	p := Path{FillRule: "nonzero"}
-	// Three staggered document sheets; each sheet owns its wavy lower edge.
-	for i := 2; i >= 0; i-- {
-		x, y := float64(i)*dx/2, float64(i)*dy/2
-		r, b := w-float64(2-i)*dx/2, h-float64(2-i)*dy/2
-		p.Commands = append(p.Commands,
-			PathCommand{Type: "M", Points: []Point{{x, y}}},
-			PathCommand{Type: "L", Points: []Point{{r, y}, {r, b * .78}}},
-			PathCommand{Type: "C", Points: []Point{{r * .72, b * .66}, {r * .42, b * .96}, {x, b * .82}}},
-			PathCommand{Type: "Z"})
+	add := func(kind string, points ...Point) {
+		p.Commands = append(p.Commands, PathCommand{Type: kind, Points: points})
 	}
+	// Front sheet with the folded bottom edge.
+	add("M", pt(0, 20782))
+	add("C", pt(9298, 23542), pt(9298, 18022), pt(18595, 18022))
+	add("L", pt(18595, 3675))
+	add("L", pt(0, 3675))
+	add("Z")
+	// Middle sheet.
+	add("M", pt(1532, 3675))
+	add("L", pt(1532, 1815))
+	add("L", pt(20000, 1815))
+	add("L", pt(20000, 16252))
+	add("C", pt(19298, 16252), pt(18595, 16352), pt(18595, 16352))
+	add("L", pt(18595, 3675))
+	add("Z")
+	// Back sheet.
+	add("M", pt(2972, 1815))
+	add("L", pt(2972, 0))
+	add("L", pt(21600, 0))
+	add("L", pt(21600, 14392))
+	add("C", pt(20800, 14392), pt(20000, 14467), pt(20000, 14467))
+	add("L", pt(20000, 1815))
+	add("Z")
 	return p
 }
 

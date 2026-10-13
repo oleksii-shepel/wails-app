@@ -57,6 +57,7 @@ const (
 	PropFillOpacity  uint16 = 0x0182
 	PropFillBooleans uint16 = 0x01BF
 
+	PropFillBlip        uint16 = 0x0186
 	PropFillBackColor   uint16 = 0x0183
 	PropFillAngle       uint16 = 0x018B
 	PropFillFocus       uint16 = 0x018C

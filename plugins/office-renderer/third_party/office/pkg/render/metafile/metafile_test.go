@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -527,13 +528,19 @@ func TestClassicWMFRespectsSavedViewportMappingsForMultipleChartRegions(t *testi
 		t.Fatalf("mapped WMF ok=%v size=%gx%g", ok, w, h)
 	}
 	out := string(svg)
-	if !strings.Contains(out, `viewBox="0 0 4866.000 2583.000"`) {
-		t.Fatalf("full-image viewport was lost: %s", out)
-	}
-	// First wedge center is around x=1383; second around x=3600. Both must remain
-	// in the same full-image coordinate system rather than being overlaid near x=200.
+	// The renderer shrink-wraps the viewBox to the drawn ink, so the saved
+	// viewport mappings are what has to keep the regions apart: both chart
+	// wedges must stay inside one shared coordinate system, far from each other,
+	// rather than being stacked near the origin.
 	if !strings.Contains(out, `M 1383.`) || !strings.Contains(out, `M 3720.`) {
 		t.Fatalf("saved viewport mappings were not projected into separate regions: %s", out)
+	}
+	vb := viewBoxNumbers(out)
+	if len(vb) != 4 {
+		t.Fatalf("svg viewBox missing: %s", out)
+	}
+	if vb[0] > 1383 || vb[0]+vb[2] < 3721 {
+		t.Fatalf("viewBox %v does not span both mapped chart regions: %s", vb, out)
 	}
 }
 
@@ -1951,4 +1958,28 @@ func TestApplySVGColorReplacementsMapsVectorPaints(t *testing.T) {
 	if strings.Count(got, "#FFFFFF") != 2 || !strings.Contains(got, "#ABCDEF") {
 		t.Fatalf("destination paints missing: %s", got)
 	}
+}
+
+// viewBoxNumbers extracts the four numbers of the first SVG viewBox attribute.
+func viewBoxNumbers(svg string) []float64 {
+	const marker = `viewBox="`
+	i := strings.Index(svg, marker)
+	if i < 0 {
+		return nil
+	}
+	rest := svg[i+len(marker):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		return nil
+	}
+	fields := strings.Fields(rest[:end])
+	out := make([]float64, 0, len(fields))
+	for _, f := range fields {
+		v, err := strconv.ParseFloat(f, 64)
+		if err != nil {
+			return nil
+		}
+		out = append(out, v)
+	}
+	return out
 }

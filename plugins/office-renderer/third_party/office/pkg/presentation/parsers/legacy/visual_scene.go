@@ -100,6 +100,7 @@ func (s legacyPptVisualScene) completeProjection(
 	exHyperlinks map[uint32]string,
 	pictureStore map[uint32]*legacyPptPicture,
 	externalObjects map[uint32]legacyPptExternalObject,
+	canvas legacyPptCanvas,
 ) legacyPptVisualProjection {
 	// Table ownership is outcome-based. Project tables first so text can be
 	// suppressed only for group paths that actually materialized as canonical
@@ -122,7 +123,7 @@ func (s legacyPptVisualScene) completeProjection(
 	if len(textRoles) == 0 {
 		textRoles = nil
 	}
-	shapes := buildLegacyPptTextShapesFromMetas(metas, slideText)
+	shapes := buildLegacyPptTextShapesFromMetas(metas, slideText, canvas)
 
 	tablesByScene := map[int][]*presentationir.Shape{1: tables}
 	textByScene := map[int][]*presentationir.Shape{1: shapes}
@@ -167,7 +168,49 @@ func (s legacyPptVisualScene) completeProjection(
 		shapes = append(flatMap[1], groups...)
 	}
 	shapes = s.sourceOrdered(shapes)
+	resolveLegacyPptShapePictureFills(shapes, pictureStore)
 	return legacyPptVisualProjection{Shapes: shapes, Ownership: s.ownershipAuditWithTablePaths(shapes, tableOwnedPaths), TextRoles: textRoles}
+}
+
+// resolveLegacyPptShapePictureFills materializes authored texture/picture fills
+// against the presentation Pictures store. The shared OfficeArt decoder owns the
+// fill semantics but cannot reach the store, so it carries the BLIP index and
+// this boundary turns it into image bytes. WordArt text is the visible case:
+// 41246-2 slide 16's "Fin" is painted with the deck's crumpled-paper texture.
+func resolveLegacyPptShapePictureFills(shapes []*presentationir.Shape, pictureStore map[uint32]*legacyPptPicture) {
+	if len(pictureStore) == 0 {
+		return
+	}
+	var walk func(*presentationir.Shape)
+	walk = func(shape *presentationir.Shape) {
+		if shape == nil {
+			return
+		}
+		resolveLegacyPptShapePictureFill(shape, pictureStore)
+		for _, child := range shape.Children {
+			walk(child)
+		}
+	}
+	for _, shape := range shapes {
+		walk(shape)
+	}
+}
+
+func resolveLegacyPptShapePictureFill(shape *presentationir.Shape, pictureStore map[uint32]*legacyPptPicture) {
+	fill, ok := shape.Fill.(drawing.PictureFill)
+	if !ok || len(fill.ImageData) > 0 || fill.ImageURL != "" {
+		return
+	}
+	if shape.OfficeArt == nil || shape.OfficeArt.Fill.Picture == nil {
+		return
+	}
+	picture := pictureStore[shape.OfficeArt.Fill.Picture.BlipRef]
+	if picture == nil || len(picture.Data) == 0 {
+		return
+	}
+	fill.ImageData = append([]byte(nil), picture.Data...)
+	fill.ContentType = picture.MIME
+	shape.Fill = fill
 }
 
 // sourceOrdered restores authored OfficeArt z/source order after the semantic
@@ -363,9 +406,13 @@ func applyLegacyPptOfficeArtSurface(shape *presentationir.Shape, shared *officea
 	if shape == nil {
 		return
 	}
-	applyLegacyPptOfficeArtGeometry(shape, shared)
 	applyLegacyPptOfficeArtVisual(shape, shared)
+	// Geometry comes last: a rotated OfficeArt anchor is stored in its
+	// orientation quadrant, so the canonical bounds only exist after the
+	// transform step transposes them, and geometry scaled into the box (the
+	// binary bent arrow) must use the canonical frame.
 	applyLegacyPptShapeTransform(shape, transform)
+	applyLegacyPptOfficeArtGeometry(shape, shared)
 }
 
 // applyLegacyPptOfficeArtGeometry bridges the shared OfficeArt geometry model to
@@ -415,6 +462,17 @@ func applyLegacyPptOfficeArtGeometry(shape *presentationir.Shape, shared *office
 	if geometry.Preset != "" {
 		shape.Geometry = geometry.Preset
 	}
+	if geometry.Preset == "bentArrow" && len(geometry.Adjustments) == 0 {
+		// OfficeArt's bent arrow is not DrawingML's: its bend is a pair of
+		// authored ellipses rather than the preset's quarter arc, so the
+		// DrawingML formulas cannot reproduce it at any handle value.
+		// PowerPoint's own conversion of such a shape materializes the binary
+		// geometry as a custom path in a 21600 box; use it verbatim instead of
+		// approximating the preset.
+		shape.Geometry = ""
+		shape.GeometryData = legacyPptOfficeArtBentArrowGeometry()
+		return
+	}
 	if geometry.Preset == "rightArrow" {
 		// OfficeArt and DrawingML expose the same two visual handles through
 		// different coordinate systems and in a different order. Materialize
@@ -424,6 +482,55 @@ func applyLegacyPptOfficeArtGeometry(shape *presentationir.Shape, shared *office
 		shape.GeometryAdjustments = normalizeLegacyPptRightArrowAdjustments(geometry.Adjustments, geometry.AdjustmentPresent, shape.Bounds)
 	} else if len(geometry.Adjustments) != 0 {
 		shape.GeometryAdjustments = normalizeLegacyPptPresetAdjustments(geometry.Preset, geometry.Adjustments)
+	} else if defaults := legacyPptDefaultPresetAdjustments(geometry.Preset); len(defaults) != 0 {
+		shape.GeometryAdjustments = defaults
+	}
+}
+
+// legacyPptOfficeArtBentArrowGeometry returns the binary format's bent-arrow
+// outline with the control points PowerPoint itself writes when it converts
+// such a shape to a custom path (verified against the OOXML copy of 41246-2) —
+// the only faithful source for a shape whose binary geometry predates the
+// DrawingML preset. Custom geometry is stored in normalized 0..1 coordinates,
+// so the authored 21600-unit box becomes the unit square.
+func legacyPptOfficeArtBentArrowGeometry() *drawing.Geometry {
+	const box = 21600.0
+	pt := func(x, y float64) drawing.Point { return drawing.Point{X: x / box, Y: y / box} }
+	path := drawing.Path{FillRule: "nonzero", PaintFlagsSet: true, FillEnabled: true, StrokeEnabled: true}
+	add := func(kind string, points ...drawing.Point) {
+		path.Commands = append(path.Commands, drawing.PathCommand{Type: kind, Points: points})
+	}
+	add("M", pt(21600, 6079))
+	add("L", pt(15126, 0))
+	add("L", pt(15126, 2912))
+	add("L", pt(12427, 2912))
+	add("C", pt(5564, 2912), pt(0, 7052), pt(0, 12158))
+	add("L", pt(0, 21600))
+	add("L", pt(6474, 21600))
+	add("L", pt(6474, 12158))
+	add("C", pt(6474, 10550), pt(9139, 9246), pt(12427, 9246))
+	add("L", pt(15126, 9246))
+	add("L", pt(15126, 12158))
+	add("Z")
+	return &drawing.Geometry{Type: drawing.GeometryTypeCustom, Paths: []drawing.Path{path}}
+}
+
+// legacyPptDefaultPresetAdjustments returns the OfficeArt default handles for
+// presets whose binary-format defaults differ from the DrawingML ones. Binary
+// PowerPoint applies these when a shape authors no adjust properties, and its
+// own OfficeArt -> DrawingML conversion materializes them: the converted
+// copy of 41246-2 carries adj1=20000/adj2=40000/adj3=33333 for the curved
+// right arrow and adj1=36667/adj2=73333/adj3=33333 for the curved left arrow,
+// and the exported PDF draws that geometry. DrawingML's own defaults (25000 /
+// 50000 / 25000) drew a visibly thinner, wrong-proportioned arrow.
+func legacyPptDefaultPresetAdjustments(preset string) []float64 {
+	switch preset {
+	case "curvedRightArrow":
+		return []float64{0.2, 0.4, 0.33333}
+	case "curvedLeftArrow":
+		return []float64{0.36667, 0.73333, 0.33333}
+	default:
+		return nil
 	}
 }
 
@@ -563,7 +670,11 @@ func applyLegacyPptOfficeArtVisual(shape *presentationir.Shape, shared *officear
 		}
 	case officeartir.FillGradient:
 		if shared.Fill.Gradient != nil {
-			g := drawing.GradientFill{GradientType: drawing.GradientType(shared.Fill.Gradient.Type), Angle: shared.Fill.Gradient.Angle, RotateWithShape: true, ScaleAngleWithAspect: shared.Fill.Gradient.ScaleAngleWithAspect, LegacyShadeType: shared.Fill.Gradient.LegacyShadeType}
+			// OfficeArt stores the fill angle in the painted (screen) frame: PowerPoint's own
+			// conversion of a 90-degree-rotated edge rule keeps ang="0" and still draws the
+			// gradient along the rule. Rotating the fill with the shape turned those edge
+			// gradients across the rule instead of along it.
+			g := drawing.GradientFill{GradientType: drawing.GradientType(shared.Fill.Gradient.Type), Angle: shared.Fill.Gradient.Angle, RotateWithShape: false, ScaleAngleWithAspect: shared.Fill.Gradient.ScaleAngleWithAspect, LegacyShadeType: shared.Fill.Gradient.LegacyShadeType}
 			if shared.Fill.Gradient.HasFillTo {
 				left, top := shared.Fill.Gradient.FillToLeft, shared.Fill.Gradient.FillToTop
 				right, bottom := shared.Fill.Gradient.FillToRight, shared.Fill.Gradient.FillToBottom

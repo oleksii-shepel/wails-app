@@ -1,11 +1,10 @@
+// Package resolve preserves the former presentation IR type names while the
+// materialized PresentationML resolver remains retired. It contains no parser
+// or package-resolution entry point; new code should import presentation/ir.
 package resolve
 
 import ir "office/pkg/presentation/ir"
 
-// The following type aliases re-export all IR types from office/pkg/presentation/ir.
-// Existing callers can continue to use resolve.Presentation, resolve.Slide, etc.
-// without importing presentation/ir directly. New format parsers (legacy, ODF) should
-// import presentation/ir directly and produce ir.Presentation values.
 type (
 	Presentation     = ir.Presentation
 	Slide            = ir.Slide

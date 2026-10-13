@@ -14,7 +14,7 @@ func TestLegacyBuilderPublishesCanonicalMasterLayoutGraph(t *testing.T) {
 		map[int][]*presentationir.Shape{11: {{ID: 9, Name: "local", Kind: presentationir.ShapeText}}},
 		nil, nil, legacyPptHeaderFooterInfo{}, "fixture.ppt", nil, nil, legacyPptMasterTextStyles{}, "", nil, nil,
 		map[int][]*presentationir.Shape{41: {masterShape}}, nil,
-	)
+		legacyPptDefaultCanvas())
 	if len(pres.Slides) != 1 {
 		t.Fatalf("slides = %d, want 1", len(pres.Slides))
 	}
@@ -50,7 +50,7 @@ func TestLegacyBuilderReusesCanonicalMasterAndLogicalLayout(t *testing.T) {
 		12: {{ID: 2, Kind: presentationir.ShapeText}},
 		13: {{ID: 3, Kind: presentationir.ShapeText}},
 	}
-	pres := buildPresentationWithEffectiveMasterComposition(slides, extra, nil, nil, legacyPptHeaderFooterInfo{}, "fixture.ppt", nil, nil, legacyPptMasterTextStyles{}, "", nil, nil, nil, nil)
+	pres := buildPresentationWithEffectiveMasterComposition(slides, extra, nil, nil, legacyPptHeaderFooterInfo{}, "fixture.ppt", nil, nil, legacyPptMasterTextStyles{}, "", nil, nil, nil, nil, legacyPptDefaultCanvas())
 	if len(pres.Slides) != 3 || len(pres.SlideMasters) != 1 {
 		t.Fatalf("slides/masters = %d/%d, want 3/1", len(pres.Slides), len(pres.SlideMasters))
 	}

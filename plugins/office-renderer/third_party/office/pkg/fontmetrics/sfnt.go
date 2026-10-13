@@ -18,6 +18,20 @@ type Face struct {
 	LineGap int16
 	kern    map[uint32]int16
 	gpos    map[uint32]int16
+	// gposClasses holds the class-based PairPos subtables in lookup order. They
+	// stay compact (coverage and class maps plus the class matrix) instead of
+	// being expanded into per-glyph-pair entries: a single common font expands
+	// to ~80k pairs, which costs tens of milliseconds and megabytes to build
+	// every time a face is parsed.
+	gposClasses []classPairPos
+}
+
+// classPairPos is a PairPos format 2 subtable. Rows are indexed by the class of
+// the left glyph, columns by the class of the right glyph.
+type classPairPos struct {
+	coverage map[uint16]uint16 // glyph -> class-1 row, limited to the subtable's Coverage
+	class2   map[uint16]uint16 // glyph -> class-2 column
+	values   [][]int16
 }
 
 // LineHeightRatio is the face's single-spacing line advance as a multiple of
@@ -108,6 +122,7 @@ func ParseSFNT(data []byte) (*Face, bool) {
 	if len(r2g) == 0 {
 		return nil, false
 	}
+	gposPairs, gposClasses := parseGPOSKern(table("GPOS"))
 	return &Face{
 		UnitsPerEm:  units,
 		RuneToGlyph: r2g,
@@ -117,7 +132,8 @@ func ParseSFNT(data []byte) (*Face, bool) {
 		Descent:     absInt16(int16(binary.BigEndian.Uint16(hhea[6:8]))),
 		LineGap:     int16(binary.BigEndian.Uint16(hhea[8:10])),
 		kern:        parseKern(table("kern")),
-		gpos:        parseGPOSKern(table("GPOS")),
+		gpos:        gposPairs,
+		gposClasses: gposClasses,
 	}, true
 }
 
@@ -134,12 +150,39 @@ func (f *Face) PairAdjustment(left, right uint16, size float64) float64 {
 	if f == nil || f.UnitsPerEm == 0 {
 		return 0
 	}
-	key := uint32(left)<<16 | uint32(right)
-	value, ok := f.gpos[key]
+	value, ok := f.pairAdjustment(left, right)
 	if !ok {
-		value = f.kern[key]
+		return 0
 	}
 	return float64(value) / float64(f.UnitsPerEm) * size
+}
+
+// pairAdjustment resolves a glyph pair against explicit GPOS pairs, then the
+// class matrices (later lookups first, matching the order they were parsed in),
+// then the legacy kern table.
+func (f *Face) pairAdjustment(left, right uint16) (int16, bool) {
+	key := uint32(left)<<16 | uint32(right)
+	if value, ok := f.gpos[key]; ok {
+		return value, true
+	}
+	for i := len(f.gposClasses) - 1; i >= 0; i-- {
+		table := &f.gposClasses[i]
+		row, ok := table.coverage[left]
+		if !ok || int(row) >= len(table.values) {
+			continue
+		}
+		col, ok := table.class2[right]
+		if !ok || int(col) >= len(table.values[row]) {
+			continue
+		}
+		if value := table.values[row][col]; value != 0 {
+			return value, true
+		}
+	}
+	if value, ok := f.kern[key]; ok {
+		return value, true
+	}
+	return 0, false
 }
 
 func parseKern(data []byte) map[uint32]int16 {
@@ -324,16 +367,18 @@ func parseCmap4(data []byte, glyphCount int, r2g map[rune]uint16, g2r map[uint16
 }
 
 // parseGPOSKern extracts horizontal PairPos adjustments from lookups referenced
-// by the OpenType 'kern' feature. PairPos formats 1/2 and Extension lookups are supported.
-func parseGPOSKern(g []byte) map[uint32]int16 {
+// by the OpenType 'kern' feature. PairPos formats 1/2 and Extension lookups are
+// supported. Format 2 subtables stay compact: expanding them into one entry per
+// glyph pair dominates the cost of loading a face.
+func parseGPOSKern(g []byte) (map[uint32]int16, []classPairPos) {
 	out := map[uint32]int16{}
 	if len(g) < 10 {
-		return out
+		return out, nil
 	}
 	featureList := int(binary.BigEndian.Uint16(g[6:8]))
 	lookupList := int(binary.BigEndian.Uint16(g[8:10]))
 	if featureList <= 0 || lookupList <= 0 || featureList+2 > len(g) || lookupList+2 > len(g) {
-		return out
+		return out, nil
 	}
 	var lookupIDs []uint16
 	featureCount := int(binary.BigEndian.Uint16(g[featureList : featureList+2]))
@@ -355,6 +400,7 @@ func parseGPOSKern(g []byte) map[uint32]int16 {
 		}
 	}
 	lookupCount := int(binary.BigEndian.Uint16(g[lookupList : lookupList+2]))
+	var classes []classPairPos
 	for _, id := range lookupIDs {
 		if int(id) >= lookupCount {
 			continue
@@ -363,14 +409,14 @@ func parseGPOSKern(g []byte) map[uint32]int16 {
 		if po+2 > len(g) {
 			continue
 		}
-		parseLookup(g, lookupList+int(binary.BigEndian.Uint16(g[po:po+2])), out)
+		classes = parseLookup(g, lookupList+int(binary.BigEndian.Uint16(g[po:po+2])), out, classes)
 	}
-	return out
+	return out, classes
 }
 
-func parseLookup(g []byte, off int, out map[uint32]int16) {
+func parseLookup(g []byte, off int, out map[uint32]int16, classes []classPairPos) []classPairPos {
 	if off+6 > len(g) {
-		return
+		return classes
 	}
 	typ := binary.BigEndian.Uint16(g[off : off+2])
 	n := int(binary.BigEndian.Uint16(g[off+4 : off+6]))
@@ -382,13 +428,14 @@ func parseLookup(g []byte, off int, out map[uint32]int16) {
 		so := off + int(binary.BigEndian.Uint16(g[po:po+2]))
 		switch typ {
 		case 2:
-			parsePairPos(g, so, out)
+			classes = parsePairPos(g, so, out, classes)
 		case 9:
 			if so+8 <= len(g) && binary.BigEndian.Uint16(g[so:so+2]) == 1 && binary.BigEndian.Uint16(g[so+2:so+4]) == 2 {
-				parsePairPos(g, so+int(binary.BigEndian.Uint32(g[so+4:so+8])), out)
+				classes = parsePairPos(g, so+int(binary.BigEndian.Uint32(g[so+4:so+8])), out, classes)
 			}
 		}
 	}
+	return classes
 }
 
 type valueRecord struct{ xPlacement, xAdvance int16 }
@@ -424,16 +471,16 @@ func readValueRecord(g []byte, off int, format uint16) (valueRecord, int) {
 	return v, p - off
 }
 
-func parsePairPos(g []byte, off int, out map[uint32]int16) {
+func parsePairPos(g []byte, off int, out map[uint32]int16, classes []classPairPos) []classPairPos {
 	if off+10 > len(g) {
-		return
+		return classes
 	}
 	format := binary.BigEndian.Uint16(g[off : off+2])
 	coverage := parseCoverage(g, off+int(binary.BigEndian.Uint16(g[off+2:off+4])))
 	v1f := binary.BigEndian.Uint16(g[off+4 : off+6])
 	v2f := binary.BigEndian.Uint16(g[off+6 : off+8])
 	if len(coverage) == 0 {
-		return
+		return classes
 	}
 	switch format {
 	case 1:
@@ -464,7 +511,7 @@ func parsePairPos(g []byte, off int, out map[uint32]int16) {
 		}
 	case 2:
 		if off+16 > len(g) {
-			return
+			return classes
 		}
 		class1 := parseClassDef(g, off+int(binary.BigEndian.Uint16(g[off+8:off+10])))
 		class2 := parseClassDef(g, off+int(binary.BigEndian.Uint16(g[off+10:off+12])))
@@ -482,19 +529,18 @@ func parsePairPos(g []byte, off int, out map[uint32]int16) {
 				values[i][j] = a.xAdvance + b.xPlacement
 			}
 		}
+		// Keep the class matrix instead of expanding it into one map entry per
+		// glyph pair. A glyph the Coverage lists but the class definition does
+		// not still belongs to class 0, so a missing entry keeps the zero value.
+		rows := make(map[uint16]uint16, len(coverage))
 		for _, left := range coverage {
-			li := int(class1[left])
-			if li >= c1n {
-				continue
-			}
-			for right, rclass := range class2 {
-				ri := int(rclass)
-				if ri < c2n && values[li][ri] != 0 {
-					out[uint32(left)<<16|uint32(right)] = values[li][ri]
-				}
+			if row := class1[left]; int(row) < c1n {
+				rows[left] = row
 			}
 		}
+		classes = append(classes, classPairPos{coverage: rows, class2: class2, values: values})
 	}
+	return classes
 }
 
 func parseCoverage(g []byte, off int) []uint16 {

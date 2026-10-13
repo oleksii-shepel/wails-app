@@ -37,6 +37,21 @@ describe('parent entry double-click navigation parity', () => {
     );
   });
 
+  it('selects the directory being exited after parent navigation', () => {
+    for (const name of [
+      'directory-pane.component.ts',
+      'environment-pane.component.ts',
+      'autorun-pane.component.ts',
+      'network-pane.component.ts',
+      'registry-pane.component.ts',
+      'bin-pane.component.ts',
+    ]) {
+      const source = files(name);
+      expect(source).toContain('selectPath: this.path');
+      expect(source).toContain('const previousCursor = options.selectPath ??');
+    }
+  });
+
   it('always allows parent navigation from double-click handlers', () => {
     expect(files('pane-list.component.ts')).toContain(
       'if (this.isParentEntry(entry)) {\n      this.navigate.emit(entry);',

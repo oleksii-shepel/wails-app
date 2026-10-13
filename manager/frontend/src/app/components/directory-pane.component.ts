@@ -3910,7 +3910,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!parent || parent === this.path) return;
 
     this.lastAction = 'parent directory';
-    await this.load(parent, { history: 'record' });
+    await this.load(parent, {
+      history: 'record',
+      selectPath: this.path,
+    });
   }
 
   showNavigationTrail(direction: 'back' | 'forward', event: MouseEvent): void {
@@ -8558,6 +8561,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     requestedPath: string,
     options: {
       preserveCursor?: boolean;
+      selectPath?: string;
       history?: 'record' | 'none';
       syncTab?: boolean;
       restoreSession?: boolean;
@@ -8580,7 +8584,8 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     const generation = ++this.loadGeneration;
-    const previousCursor = options.preserveCursor ? this.cursorPath : null;
+    const previousCursor = options.selectPath ??
+      (options.preserveCursor ? this.cursorPath : null);
 
     this.loading = true;
     this.error = null;

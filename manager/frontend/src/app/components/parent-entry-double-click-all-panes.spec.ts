@@ -57,8 +57,11 @@ describe('parent entry double-click navigation parity', () => {
     expect(directory).toContain('private readonly scrollPositionsByPath');
     expect(directory).toContain('this.rememberCurrentScrollPosition();');
     expect(directory).toContain('this.paneViewHost.getScrollTop()');
-    expect(directory).toContain('this.restoreScrollTop(parentScrollTop)');
+    expect(directory).toContain('this.restoreScrollTopWhenReady(parentScrollTop)');
     expect(directory).toContain('this.paneViewHost.setScrollTop(top);');
+    expect(directory).toContain('requestAnimationFrame(restore);');
+    expect(directory).toContain('initialScrollTop: parentScrollTop');
+    expect(directory).toContain('this.virtualScrollTop = Math.max(0, options.initialScrollTop);');
   });
 
   it('always allows parent navigation from double-click handlers', () => {

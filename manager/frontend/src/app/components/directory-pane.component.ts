@@ -3917,9 +3917,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const loaded = await this.load(parent, {
       history: 'record',
       selectPath: this.path,
+      initialScrollTop: parentScrollTop,
     });
     if (loaded && parentScrollTop !== undefined) {
-      queueMicrotask(() => this.restoreScrollTop(parentScrollTop));
+      this.restoreScrollTopWhenReady(parentScrollTop);
     }
   }
 
@@ -8237,6 +8238,25 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     viewport.scrollTop = top;
   }
 
+  private restoreScrollTopWhenReady(scrollTop: number): void {
+    const restore = () => this.restoreScrollTop(scrollTop);
+
+    queueMicrotask(() => {
+      if (typeof requestAnimationFrame !== 'function') {
+        restore();
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        restore();
+        // The first assignment can trigger virtual-window rendering. Repeat on
+        // the next frame so long directories are not clamped to the initial
+        // viewport-sized content height.
+        requestAnimationFrame(restore);
+      });
+    });
+  }
+
   private rememberCurrentScrollPosition(): void {
     if (!this.path) return;
     this.scrollPositionsByPath.set(
@@ -8592,6 +8612,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     options: {
       preserveCursor?: boolean;
       selectPath?: string;
+      initialScrollTop?: number;
       history?: 'record' | 'none';
       syncTab?: boolean;
       restoreSession?: boolean;
@@ -8616,6 +8637,12 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     const generation = ++this.loadGeneration;
     const previousCursor = options.selectPath ??
       (options.preserveCursor ? this.cursorPath : null);
+    if (options.initialScrollTop !== undefined) {
+      // The backend listing is windowed. Seed its virtual window before the
+      // first read so the returned entries include the restored viewport and
+      // its cursor rather than only the first page.
+      this.virtualScrollTop = Math.max(0, options.initialScrollTop);
+    }
 
     this.loading = true;
     this.error = null;

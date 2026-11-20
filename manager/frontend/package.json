@@ -27,7 +27,7 @@
     "@epikodelabs/actionstack": "^3.0.24",
     "@epikodelabs/streamix": "^2.0.52",
     "@reassembly/core": "file:../../packages/core",
-    "@reassembly/registry-plugin": "file:../../plugins/registry/dist",
+    "@reassembly/registry-plugin": "file:../../plugins/registry",
     "codemirror": "^6.0.2",
     "jasmine-core": "^6.0.0",
     "mediabunny": "^1.53.1",

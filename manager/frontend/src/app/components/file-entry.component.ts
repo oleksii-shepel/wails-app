@@ -88,7 +88,7 @@ function truncateFileName(name: string, maxLength: number): string {
                 </span>
               </span>
               <ng-template #fileSizeValue>
-                <span class="file-size">{{ formatSize(entry.size) }}</span>
+                <span class="file-size" *ngIf="entry.size > 0">{{ formatSize(entry.size) }}</span>
               </ng-template>
               <span class="file-date">{{ formatDate(entry.modified) }}</span>
             </ng-container>
@@ -305,13 +305,18 @@ function truncateFileName(name: string, maxLength: number): string {
 
       .file-details {
         display: flex;
-        gap: var(--vsc-padding-lg);
         font-size: var(--vsc-font-size-small);
         color: var(--vsc-foreground-dim);
         margin-top: 2px;
         min-width: 0;
 
         .file-size, .file-date { white-space: nowrap; }
+
+        /* The size slot is absent (or empty) for directories. Spacing must be
+           owned by the visible child so the date still aligns with the name. */
+        .file-size:not(:empty) {
+          margin-right: var(--vsc-padding-lg);
+        }
 
         .file-size--pending {
           display: inline-flex;
@@ -321,6 +326,7 @@ function truncateFileName(name: string, maxLength: number): string {
 
         .file-context {
           min-width: 0;
+          margin-left: var(--vsc-padding-lg);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;

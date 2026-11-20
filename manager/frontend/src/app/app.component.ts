@@ -48,6 +48,7 @@ import { ClosedTabsComponent } from './components/closed-tabs.component';
 import { OperationJournalComponent } from './components/operation-journal.component';
 import { KeyboardHelpComponent } from './components/keyboard-help.component';
 import { InputCenterComponent } from './components/input-center.component';
+import { AboutDialogComponent } from './components/about-dialog.component';
 import {
   ApplicationOverlayHostService,
   type ApplicationOverlayHost,
@@ -89,6 +90,7 @@ import {
     OperationJournalComponent,
     KeyboardHelpComponent,
     InputCenterComponent,
+    AboutDialogComponent,
   ],
   template: `
     <main class="app-shell">
@@ -181,6 +183,12 @@ import {
         [visible]="inputCenterVisible"
         (closed)="inputCenterVisible = false">
       </app-input-center>
+      <app-about-dialog
+        [visible]="aboutVisible"
+        (close)="aboutVisible = false"
+        (shortcutsRequested)="showKeyboardHelp()"
+        (settingsRequested)="openSettingsFromAbout()">
+      </app-about-dialog>
       <app-perf-overlay></app-perf-overlay>
       <reassembly-registry-plugin-host></reassembly-registry-plugin-host>
     </main>
@@ -239,6 +247,7 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
   inputCenterVisible = false;
   operationJournalVisible = false;
   closedTabsVisible = false;
+  aboutVisible = false;
   diskUsageDialogVisible = false;
   diskUsageDialogPath = '';
   managerRef: DualPaneComponent | undefined;
@@ -335,6 +344,13 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
     this.diskUsageDialogVisible = false;
     this.diskUsageDialogPath = '';
     this.cdr.markForCheck();
+  }
+  openAbout(): void {
+    this.aboutVisible = true;
+    this.cdr.markForCheck();
+  }
+  openSettingsFromAbout(): void {
+    void this.settingsService.openSettings();
   }
 
   isDestinationWritable(paneId: 'left' | 'right'): boolean {

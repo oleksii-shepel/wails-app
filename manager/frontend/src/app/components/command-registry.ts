@@ -31,6 +31,7 @@ export const FILE_MANAGER_COMMANDS = {
   remoteConnect:        'reassembly.navigation.remoteConnect',
   openTrash:            'reassembly.navigation.trash',
   openInputCenter:      'reassembly.help.shortcuts',
+  openAbout:            'reassembly.help.about',
   openPluginSettings:   'reassembly.settings.plugins',
   cursorUp:             'pane.cursor.up',
   cursorDown:           'pane.cursor.down',
@@ -86,6 +87,8 @@ export const FILE_MANAGER_COMMANDS = {
   findDuplicates:       'pane.tools.findDuplicates',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
+  uploadFiles:          'pane.files.upload',
+  downloadSelected:     'pane.files.download',
   createArchive:        'pane.files.createArchive',
 } as const;
 

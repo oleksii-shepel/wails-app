@@ -232,7 +232,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       [attr.aria-busy]="loading"
       [attr.aria-describedby]="paneStatusId"
       (focusin)="onPaneFocusIn()"
-      (mousedown)="onPanePointerDown()">
+      (mousedown)="onPanePointerDown()"
+      (dragover)="onPaneExternalDragOver($event)"
+      (dragleave)="onPaneExternalDragLeave($event)"
+      (drop)="onPaneExternalDrop($event)">
 
       <div
         #tabStrip
@@ -4087,11 +4090,20 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   onEntryDrop(entry: FileInfo, event: DragEvent): void {
     this.cancelDragSpringOpen();
-    if (
-      entry.path === '__parent__' ||
-      entry.type !== FileType.DIRECTORY ||
-      !this.hasInternalDrag(event)
-    ) return;
+    if (entry.path === '__parent__' || entry.type !== FileType.DIRECTORY) return;
+
+    if (this.hasExternalFileDrag(event)) {
+      if (!this.isDirectoryTab || this.isInArchive || !this.canCreate) return;
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.clearDropFeedback();
+      void this.uploadLocalFiles(files, entry.path);
+      return;
+    }
+
+    if (!this.hasInternalDrag(event)) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -4111,6 +4123,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onBackgroundDragOver(event: DragEvent): void {
+    if (this.hasExternalFileDrag(event)) {
+      this.onPaneExternalDragOver(event);
+      return;
+    }
     if (!this.hasInternalDrag(event)) return;
     this.cancelDragSpringOpen();
 
@@ -4128,6 +4144,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onBackgroundDrop(event: DragEvent): void {
+    if (this.hasExternalFileDrag(event)) {
+      this.onPaneExternalDrop(event);
+      return;
+    }
     if (!this.hasInternalDrag(event)) return;
 
     event.preventDefault();
@@ -4144,6 +4164,53 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       targetEntry: null,
     });
     this.cdr.markForCheck();
+  }
+
+  onPaneExternalDragOver(event: DragEvent): void {
+    if (
+      !this.hasExternalFileDrag(event) ||
+      !this.isDirectoryTab ||
+      this.isInArchive ||
+      !this.canCreate ||
+      !this.path
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+    if (!this.backgroundDropActive || this.dropIntentText !== 'Drop files to upload here') {
+      this.backgroundDropActive = true;
+      this.dragOverPath = null;
+      this.dropIntent = 'copy';
+      this.dropIntentText = 'Drop files to upload here';
+      this.cdr.markForCheck();
+    }
+  }
+
+  onPaneExternalDragLeave(event: DragEvent): void {
+    if (!this.backgroundDropActive) return;
+    const root = this.paneRoot?.nativeElement;
+    const related = event.relatedTarget as Node | null;
+    if (root && related && root.contains(related)) return;
+    this.clearDropFeedback();
+  }
+
+  onPaneExternalDrop(event: DragEvent): void {
+    if (!this.hasExternalFileDrag(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    this.clearDropFeedback();
+
+    if (!this.isDirectoryTab || this.isInArchive || !this.canCreate || !this.path || files.length === 0) {
+      return;
+    }
+
+    void this.uploadLocalFiles(files, this.path);
   }
 
   private scheduleDragSpringOpen(entry: FileInfo): void {
@@ -4258,6 +4325,12 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private hasInternalDrag(event: DragEvent): boolean {
     const types = Array.from(event.dataTransfer?.types ?? []);
     return types.includes('application/json');
+  }
+
+  private hasExternalFileDrag(event: DragEvent): boolean {
+    if (this.hasInternalDrag(event)) return false;
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    return types.includes('Files') || (event.dataTransfer?.files?.length ?? 0) > 0;
   }
 
   onEntryContextMenu(entry: FileInfo, event: MouseEvent): void {
@@ -4986,6 +5059,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         source: 'builtin',
         commandId: 'pane.files.newFolder',
         execute: () => this.newFolder(),
+      },
+      {
+        id: 'directory.upload',
+        label: 'Upload',
+        enabled: !this.loading && !this.isInArchive && this.canCreate,
+        source: 'builtin',
+        commandId: 'pane.files.upload',
+        execute: () => void this.uploadFiles(),
       },
       {
         id: 'directory.rename',
@@ -6536,6 +6617,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       defaultValue: `${baseName}.zip`,
       historyKey: 'reassembly.createZip',
     });
+    if (requestedName == null) return;
 
     let cleanName = this.cleanLeafName(requestedName);
     if (!cleanName) {
@@ -6564,11 +6646,139 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
 
       this.lastAction = `archive created: ${cleanName}`;
+      this.actionFeedback.success('ZIP archive created', cleanName);
       await this.refresh();
       this.selectPath(destination);
     } catch (error) {
       await this.showOperationError('Create ZIP Archive', error);
     }
+  }
+
+  async uploadFiles(targetDirectory = this.path): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive || !this.canCreate || !targetDirectory) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    const selectedFiles = await new Promise<File[]>(resolve => {
+      let settled = false;
+      const finish = (files: File[]) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('focus', onFocusReturn);
+        resolve(files);
+      };
+      const onFocusReturn = () => {
+        setTimeout(() => {
+          const picked = Array.from(input.files ?? []);
+          if (picked.length === 0) finish([]);
+        }, 350);
+      };
+      input.addEventListener('change', () => {
+        finish(Array.from(input.files ?? []));
+      }, { once: true });
+      window.addEventListener('focus', onFocusReturn, { once: true });
+      input.click();
+    });
+    if (selectedFiles.length === 0) return;
+    await this.uploadLocalFiles(selectedFiles, targetDirectory);
+  }
+
+  async uploadLocalFiles(files: readonly File[], targetDirectory = this.path): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive || !this.canCreate || !targetDirectory || files.length === 0) return;
+
+    try {
+      const payload: Array<{ name: string; contentBase64: string }> = [];
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        payload.push({
+          name: file.name,
+          contentBase64: this.arrayBufferToBase64(buffer),
+        });
+      }
+
+      const response = await fetch('/api/fs/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: targetDirectory, files: payload }),
+      });
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(errBody.error || `Upload failed (${response.status})`);
+      }
+      const result = await response.json() as { uploadedPaths?: string[]; count?: number };
+      const uploadedPaths = Array.isArray(result.uploadedPaths) ? result.uploadedPaths : [];
+
+      this.lastAction = `uploaded: ${uploadedPaths.length} file${uploadedPaths.length === 1 ? '' : 's'}`;
+      this.actionFeedback.success(
+        'Upload complete',
+        uploadedPaths.length === 1
+          ? payload[0]?.name
+          : `${uploadedPaths.length} files uploaded`,
+      );
+
+      await this.refresh();
+      if (targetDirectory === this.path && uploadedPaths.length > 0) {
+        this.selectPaths(uploadedPaths);
+      }
+    } catch (error) {
+      await this.showOperationError('Upload Files', error);
+    }
+  }
+
+  async downloadSelected(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive) return;
+    const candidates = this.selectedEntries.length > 0
+      ? this.selectedEntries
+      : this.cursorEntry
+        ? [this.cursorEntry]
+        : [];
+    const regularFiles = candidates.filter(
+      entry => entry.path !== '__parent__' && entry.type !== FileType.DIRECTORY,
+    );
+    if (regularFiles.length === 0) {
+      this.actionFeedback.warning(
+        'No downloadable files selected',
+        'Select one or more files, or create a ZIP archive for folders.',
+      );
+      return;
+    }
+
+    for (let i = 0; i < regularFiles.length; i++) {
+      const file = regularFiles[i];
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 120));
+      }
+      const link = document.createElement('a');
+      link.href = `/api/download?path=${encodeURIComponent(file.path)}`;
+      link.download = file.name;
+      link.rel = 'noopener';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    const skippedDirs = candidates.filter(entry => entry.type === FileType.DIRECTORY).length;
+    if (skippedDirs > 0) {
+      this.actionFeedback.warning(
+        'Download started for files only',
+        `${skippedDirs} folder${skippedDirs === 1 ? '' : 's'} skipped — use Create ZIP Archive to bundle folders.`,
+      );
+    } else {
+      this.actionFeedback.success(
+        'Download started',
+        regularFiles.length === 1 ? regularFiles[0].name : `${regularFiles.length} files`,
+      );
+    }
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    const parts: string[] = [];
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      parts.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
+    }
+    return btoa(parts.join(''));
   }
 
   async editSelectedAttributes(): Promise<void> {
@@ -8324,6 +8534,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onSharedPaneDrop(event: { event: DragEvent; source: FileInfo[]; targetPath: string }): void {
+    if (this.hasExternalFileDrag(event.event)) {
+      const files = Array.from(event.event.dataTransfer?.files ?? []);
+      if (files.length > 0 && this.isDirectoryTab && !this.isInArchive && this.canCreate) {
+        const destination = event.targetPath || this.path;
+        if (destination) {
+          void this.uploadLocalFiles(files, destination);
+          return;
+        }
+      }
+    }
+
     const targetEntry = this.visibleEntries.find(entry => entry.path === event.targetPath) ?? null;
     this.internalDrop.emit({
       event: event.event,

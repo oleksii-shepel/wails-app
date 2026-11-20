@@ -1,38 +1,7 @@
 {
   "name": "@reassembly/registry-plugin",
-  "version": "1.3.2",
+  "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "npm run build:frontend",
-    "build:watch": "ng-packagr -p ng-package.json --watch",
-    "test": "tsc -p tsconfig.spec.json --noEmit",
-    "build:backend:windows-x64": "npm run build:backend",
-    "build:frontend": "ng-packagr -p ng-package.json",
-    "build:backend": "node scripts/build-backend.mjs",
-    "build:plugin": "npm run build:frontend && npm run build:backend",
-    "pack:plugin": "node scripts/pack-plugin.mjs",
-    "plugin": "npm run build:plugin && npm run pack:plugin"
-  },
-  "peerDependencies": {
-    "@angular/animations": "22.1.2",
-    "@angular/common": "22.1.2",
-    "@angular/core": "22.1.2",
-    "@angular/forms": "22.1.2",
-    "@epikodelabs/streamix": "^2.0.52",
-    "@reassembly/core": "0.2.0"
-  },
-  "devDependencies": {
-    "@angular/animations": "22.1.2",
-    "@angular/common": "22.1.2",
-    "@angular/compiler": "22.1.2",
-    "@angular/compiler-cli": "22.1.2",
-    "@angular/core": "22.1.2",
-    "@angular/forms": "22.1.2",
-    "@epikodelabs/streamix": "^2.0.52",
-    "archiver": "^7.0.1",
-    "ng-packagr": "^22.1.0",
-    "typescript": "~6.0.3",
-    "@reassembly/core": "file:../../packages/core"
-  }
+  "main": "./src/index.ts",
+  "types": "./src/index.ts"
 }

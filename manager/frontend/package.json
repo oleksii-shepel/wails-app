@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
-    "dev": "ng serve",
+    "start": "ng serve --host 0.0.0.0 --port 3000",
+    "dev": "ng serve --host 0.0.0.0 --port 3000",
     "build": "ng build --configuration production",
     "watch": "ng build --configuration development --watch",
     "test": "cd ../.. && npx testify --exclusive --project file-manager-client --config manager/frontend/testify.json",

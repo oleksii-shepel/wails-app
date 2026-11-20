@@ -55,6 +55,8 @@ const MENUS: readonly ApplicationMenu[] = [
       command(FILE_MANAGER_COMMANDS.newFolder, 'New Folder'),
       command('reassembly.manager.newFile', 'New File'),
       command('reassembly.manager.newTextDocument', 'New Text Document'),
+      command(FILE_MANAGER_COMMANDS.uploadFiles, 'Upload Files…'),
+      command(FILE_MANAGER_COMMANDS.downloadSelected, 'Download'),
       command(FILE_MANAGER_COMMANDS.createArchive, 'Archive Files…'),
       separator(),
       command('reassembly.manager.properties', 'Properties'),
@@ -168,6 +170,8 @@ const MENUS: readonly ApplicationMenu[] = [
       command(FILE_MANAGER_COMMANDS.openSettings, 'Settings…'),
       separator(),
       command(FILE_MANAGER_COMMANDS.openCommandPalette, 'Command Palette…'),
+      separator(),
+      command(FILE_MANAGER_COMMANDS.openAbout, 'About Reassembly…'),
     ],
   },
 ] as const;

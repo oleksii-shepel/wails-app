@@ -79,7 +79,8 @@ import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from
 import type { PanePresentation } from './pane-component.contract';
 import { FILE_MANAGER_COMMANDS } from './command-registry';
 import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
-import { ArchiveService } from '../services/archive.service';
+import { ArchiveService, isArchive as isArchiveFileName } from '../services/archive.service';
+import { ActionFeedbackService } from '../services/action-feedback.service';
 import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { PowerFileOperationsService } from '../services/power-file-operations.service';
@@ -99,6 +100,7 @@ const COMMAND = {
   toggleShortcutHelp: FILE_MANAGER_COMMANDS.openInputCenter,
   showShortcutReference: FILE_MANAGER_COMMANDS.showKeyboardHelp,
   openCommandPalette: FILE_MANAGER_COMMANDS.openCommandPalette,
+  openAbout: FILE_MANAGER_COMMANDS.openAbout,
   openSettings: FILE_MANAGER_COMMANDS.openSettings,
   openPluginSettings: FILE_MANAGER_COMMANDS.openPluginSettings,
   switchPane: FILE_MANAGER_COMMANDS.switchPane,
@@ -159,7 +161,6 @@ const COMMAND = {
   undo: 'reassembly.edit.undo',
   redo: 'reassembly.edit.redo',
   operationHistory: FILE_MANAGER_COMMANDS.operationHistory,
-  createArchive: FILE_MANAGER_COMMANDS.createArchive,
   checksum: 'reassembly.files.checksum',
   splitFile: 'reassembly.files.splitFile',
   joinFiles: 'reassembly.files.joinFiles',
@@ -260,6 +261,9 @@ const COMMAND = {
   quickPathJump: FILE_MANAGER_COMMANDS.quickPathJump,
   quickView: FILE_MANAGER_COMMANDS.quickView,
   openWithExternal: FILE_MANAGER_COMMANDS.openWithExternal,
+  createArchive: FILE_MANAGER_COMMANDS.createArchive,
+  uploadFiles: FILE_MANAGER_COMMANDS.uploadFiles,
+  downloadSelected: FILE_MANAGER_COMMANDS.downloadSelected,
   openWithChooser: 'reassembly.files.openWithChooser',
   extractArchiveSelection: 'reassembly.archive.extractSelection',
   extractArchiveToOther: 'reassembly.archive.extractToOther',
@@ -1001,6 +1005,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     private readonly paneIntelligence: PaneIntelligenceService,
     private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly overlays: ApplicationOverlayHostService,
+    private readonly actionFeedback: ActionFeedbackService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -3762,6 +3767,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     try {
       await this.api.openTerminalAt(pane.contextState.path);
+      this.actionFeedback.show(
+        'info',
+        'Directory path copied',
+        `Paste into your terminal: cd "${pane.contextState.path}"`,
+      );
       this.cdr.markForCheck();
     } catch (error) {
       await this.confirmDialog.alert({
@@ -4543,30 +4553,107 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.paneSyncReviewDialog.notifyActiveChanged();
   }
 
+  private selectedArchiveEntries(pane: PaneHostComponent | undefined): FileInfo[] {
+    if (!pane?.contextState.isDirectoryTab || pane.contextState.isInArchive) return [];
+    const selected = pane.selection.selectedEntries.length > 0
+      ? pane.selection.selectedEntries
+      : pane.selection.cursorEntry
+        ? [pane.selection.cursorEntry]
+        : [];
+    return selected.filter(
+      entry =>
+        entry.path !== '__parent__' &&
+        entry.type !== FileType.DIRECTORY &&
+        (entry.type === FileType.ARCHIVE || isArchiveFileName(entry.name)),
+    );
+  }
+
+  private selectedRegularFiles(pane: PaneHostComponent | undefined): FileInfo[] {
+    if (!pane?.contextState.isDirectoryTab || pane.contextState.isInArchive) return [];
+    const selected = pane.selection.selectedEntries.length > 0
+      ? pane.selection.selectedEntries
+      : pane.selection.cursorEntry
+        ? [pane.selection.cursorEntry]
+        : [];
+    return selected.filter(
+      entry => entry.path !== '__parent__' && entry.type !== FileType.DIRECTORY,
+    );
+  }
+
+  private canExtractFromActivePane(requireOtherWritable: boolean): boolean {
+    const source = this.activePane;
+    if (!source) return false;
+    if (requireOtherWritable) {
+      const other = this.otherPane;
+      if (!other?.contextState.isDirectoryTab || !other.contextState.sourceCapabilities.create) {
+        return false;
+      }
+    }
+    if (source.contextState.isInArchive) {
+      return !!source.mutationState.hasSelection;
+    }
+    return this.selectedArchiveEntries(source).length > 0;
+  }
+
+  async uploadToActivePane(): Promise<void> {
+    const pane = this.activePane;
+    if (!pane?.contextState.isDirectoryTab || pane.contextState.isInArchive || !pane.mutationState.canCreate) {
+      return;
+    }
+    const commands = pane.commands as (typeof pane.commands & { uploadFiles?: () => Promise<void> }) | undefined;
+    await commands?.uploadFiles?.();
+  }
+
+  async downloadActiveSelection(): Promise<void> {
+    const pane = this.activePane;
+    if (!pane?.contextState.isDirectoryTab || pane.contextState.isInArchive) {
+      return;
+    }
+    const commands = pane.commands as (typeof pane.commands & { downloadSelected?: () => Promise<void> }) | undefined;
+    await commands?.downloadSelected?.();
+  }
+
   async extractArchiveSelectionToOther(): Promise<void> {
     const source = this.activePane;
     const destination = this.otherPane;
-    if (!source?.contextState.isInArchive || !destination?.contextState.isDirectoryTab) return;
+    if (!source || !destination?.contextState.isDirectoryTab || !destination.contextState.sourceCapabilities.create) return;
 
-    const extracted = await source.commands?.extractSelectedTo(destination.contextState.path);
-    if (!extracted) return;
+    if (source.contextState.isInArchive) {
+      const extracted = await source.commands?.extractSelectedTo(destination.contextState.path);
+      if (!extracted) return;
 
-    this.lastTransfer = 'archive extract to other pane';
-    await destination.navigation?.refresh();
-    this.cdr.markForCheck();
+      this.lastTransfer = 'archive extract to other pane';
+      this.actionFeedback.success('Archive extracted', destination.contextState.path);
+      await destination.navigation?.refresh();
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const archives = this.selectedArchiveEntries(source);
+    if (archives.length === 0) return;
+    await this.extractArchiveFilesToDestination(archives, destination.contextState.path);
   }
 
   async extractArchiveSelectionToFolder(): Promise<void> {
     const source = this.activePane;
-    if (!source?.contextState.isInArchive) return;
+    if (!source) return;
+
+    const archives = source.contextState.isInArchive ? [] : this.selectedArchiveEntries(source);
+    if (!source.contextState.isInArchive && archives.length === 0) return;
 
     const suggested = this.otherPane?.contextState.isDirectoryTab
       ? this.otherPane.contextState.path
-      : '';
+      : (source.contextState.isDirectoryTab && !source.contextState.isInArchive
+        ? source.contextState.path
+        : '');
 
     const destination = (await this.confirmDialog.prompt({
-      title: 'Extract Archive Entries',
-      message: 'Extract selected archive entries to:',
+      title: source.contextState.isInArchive ? 'Extract Archive Entries' : 'Extract Archive',
+      message: source.contextState.isInArchive
+        ? 'Extract selected archive entries to:'
+        : archives.length === 1
+          ? `Extract "${archives[0].name}" to:`
+          : `Extract ${archives.length} archives to:`,
       confirmText: 'Extract',
       defaultValue: suggested,
       historyKey: 'reassembly.archive.extract.destination',
@@ -4574,18 +4661,66 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     if (!destination) return;
 
-    const extracted = await source.commands?.extractSelectedTo(destination);
-    if (!extracted) return;
+    if (source.contextState.isInArchive) {
+      const extracted = await source.commands?.extractSelectedTo(destination);
+      if (!extracted) return;
 
-    if (
-      this.leftPane?.contextState.path === destination ||
-      this.rightPane?.contextState.path === destination
-    ) {
-      await this.refreshBothPanes();
+      if (
+        this.leftPane?.contextState.path === destination ||
+        this.rightPane?.contextState.path === destination
+      ) {
+        await this.refreshBothPanes();
+      }
+
+      this.lastTransfer = `archive extract -> ${destination}`;
+      this.actionFeedback.success('Archive extracted', destination);
+      this.cdr.markForCheck();
+      return;
     }
 
-    this.lastTransfer = `archive extract -> ${destination}`;
-    this.cdr.markForCheck();
+    await this.extractArchiveFilesToDestination(archives, destination);
+  }
+
+  private async extractArchiveFilesToDestination(
+    archives: readonly FileInfo[],
+    destination: string,
+  ): Promise<void> {
+    try {
+      const result = await this.api.batchExtract({
+        archives: archives.map(entry => entry.path),
+        destinationDir: destination,
+        createSubdirectory: archives.length > 1,
+      });
+
+      if (
+        this.leftPane?.contextState.path === destination ||
+        this.rightPane?.contextState.path === destination
+      ) {
+        await this.refreshBothPanes();
+      } else {
+        await this.activePane?.navigation?.refresh();
+      }
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: 'Archive Extraction Completed with Errors',
+          message: result.errors?.[0]?.error || `${result.failed} archive(s) failed to extract.`,
+        });
+      } else {
+        this.actionFeedback.success(
+          'Archive extracted',
+          `${result.extractedFiles} file${result.extractedFiles === 1 ? '' : 's'} to ${destination}`,
+        );
+      }
+
+      this.lastTransfer = `archive extract -> ${destination}`;
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Extract Archive Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async copyToOther(): Promise<void> {
@@ -4895,7 +5030,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
     const isParent = entry.path === '__parent__';
     const isDirectory = entry.type === FileType.DIRECTORY;
-    const isArchive = entry.type === FileType.ARCHIVE;
+    const isArchive = entry.type === FileType.ARCHIVE || isArchiveFileName(entry.name);
     const selectionCount = pane?.selection.selectedEntries.length ?? 0;
     const canRename = !!pane?.mutationState.canRename;
     const canMutate = !!pane?.contextState.isDirectoryTab && !pane.contextState.isInArchive;
@@ -4910,6 +5045,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.quickView, 'Quick view', 'F3'),
         this.menuCommand(COMMAND.openWithExternal, 'Open with default app', 'Ctrl+Shift+O'),
         this.menuCommand(COMMAND.openWithChooser, 'Open With…'),
+        ...(!pane?.contextState.isInArchive
+          ? [this.menuCommand(COMMAND.downloadSelected, 'Download')]
+          : []),
       ] : []),
     ]);
 
@@ -5241,6 +5379,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.newTextDocument, 'New Text Document'),
         this.menuCommand(COMMAND.newMarkdownDocument, 'New Markdown Document'),
         this.menuCommand(COMMAND.newJsonDocument, 'New JSON Document'),
+        ...(!pane.contextState.isInArchive
+          ? [this.menuCommand(COMMAND.uploadFiles, 'Upload Files…')]
+          : []),
       ] : []),
       this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
       this.menuCommand(COMMAND.undo, 'Undo', 'Ctrl+Z'),
@@ -5802,6 +5943,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     descriptor(COMMAND.toggleShortcutHelp, 'Input & Shortcuts', 'Help', () => this.toggleShortcutHelp());
     descriptor(COMMAND.showShortcutReference, 'Shortcut Reference', 'Help', () => this.showShortcutReference());
+    descriptor(COMMAND.openAbout, 'About Reassembly…', 'Help', () => this.overlays.openAbout());
     descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', async () => {
       await this.refreshCommandPaletteCommands();
       this.openCommandPaletteSurface();
@@ -6315,22 +6457,35 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.activePane.contextState.sourceCapabilities.rename,
     );
     descriptor(
+      COMMAND.uploadFiles,
+      'Upload Files…',
+      'File Operations',
+      () => this.uploadToActivePane(),
+      () =>
+        !!this.activePane?.contextState.isDirectoryTab &&
+        !this.activePane?.contextState.isInArchive &&
+        !!this.activePane?.mutationState.canCreate,
+    );
+    descriptor(
+      COMMAND.downloadSelected,
+      'Download Selected Files',
+      'File Operations',
+      () => this.downloadActiveSelection(),
+      () => this.selectedRegularFiles(this.activePane).length > 0,
+    );
+    descriptor(
       COMMAND.extractArchiveSelection,
       'Extract Archive Selection',
       'Archive',
       () => this.extractArchiveSelectionToFolder(),
-      () => !!this.activePane?.contextState.isInArchive && !!this.activePane?.mutationState.hasSelection,
+      () => this.canExtractFromActivePane(false),
     );
     descriptor(
       COMMAND.extractArchiveToOther,
       'Extract Archive Selection to Other Pane',
       'Archive',
       () => this.extractArchiveSelectionToOther(),
-      () =>
-        !!this.activePane?.contextState.isInArchive &&
-        !!this.activePane?.mutationState.hasSelection &&
-        !!this.otherPane?.contextState.isDirectoryTab &&
-        !!this.otherPane?.contextState.sourceCapabilities.create,
+      () => this.canExtractFromActivePane(true),
     );
 
     descriptor(COMMAND.globalSearch, 'Open Global Search', 'Search & Filter', () => this.openGlobalSearch(), () => !!this.activePane?.contextState.isDirectoryTab);

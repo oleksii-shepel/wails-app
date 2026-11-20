@@ -41,6 +41,9 @@
       ],
       "@reassembly/core": [
         "../../packages/core/frontend/src/index.ts"
+      ],
+      "@reassembly/registry-plugin": [
+        "./src/app/plugin/registry-plugin-host.component.ts"
       ]
     },
     "outDir": "./out-tsc/app",

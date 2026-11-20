@@ -1,30 +1,30 @@
 {
-  "name": "reassembly-workspace",
+  "name": "reassembly-file-manager",
+  "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev:app": "npm run build:core:frontend && node scripts/run-wails-dev.mjs",
-    "build:core": "npm run build:core:frontend && npm run build:core:go",
-    "build:plugins": "npm run build:core && npm run verify:core-package && npm run build --workspace @reassembly/registry-plugin",
-    "build:frontend": "npm run build:plugins && npm --prefix manager/frontend run build",
-    "build:go": "npm run build:core:go && go build ./manager/...",
-    "build:app": "npm run build:plugins && cd manager && wails build",
-    "build": "npm run build:app",
-    "check": "npm run build:plugins && npm --prefix manager/frontend run build && npm run build:go",
-    "test:core": "npm run test:core:frontend && npm run test:core:go",
-    "test:plugins": "npm run test:core && npm run verify:core-package && npm run test --workspace @reassembly/registry-plugin",
-    "test:frontend": "npm --prefix manager/frontend test",
-    "test:go": "npm run test:core:go && go test ./manager/...",
-    "test": "npm run test:plugins && npm run test:frontend && npm run test:go",
-    "verify:core-package": "node scripts/verify-core-package.mjs",
-    "verify:workspace": "npm run verify:core-package && node scripts/verify-workspace.mjs",
-    "build:core:frontend": "npm run build --workspace @reassembly/core",
-    "build:core:go": "go build ./packages/core/go/...",
-    "test:core:frontend": "npm run test --workspace @reassembly/core",
-    "test:core:go": "go test ./packages/core/go/..."
-  },
+  "type": "module",
   "workspaces": [
-    "manager/frontend",
-    "packages/*",
-    "plugins/*"
-  ]
+    "manager/frontend"
+  ],
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "build": "npm --prefix manager/frontend run build",
+    "build:dev": "npm --prefix manager/frontend run ng -- build --configuration development",
+    "lint": "npx tsc -p manager/frontend/tsconfig.app.json --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@lezer/highlight": "^1.2.5",
+    "express": "^4.21.2",
+    "rxjs": "^7.8.2",
+    "tslib": "^2.9.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.1.4"
+  }
 }

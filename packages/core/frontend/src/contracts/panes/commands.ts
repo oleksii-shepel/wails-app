@@ -1,38 +1,97 @@
-import type { FileInfo } from '../files/index.js';
-
-export interface ArchiveTransferError {
-  readonly source: string;
-  readonly error: string;
-}
+import type { FileInfo } from '../files';
+import type { PanePeerState, PanePresentation, PaneState, PaneViewportSnapshot } from './state';
 
 export interface ArchiveTransferResult {
-  readonly operationId?: string;
-  readonly total: number;
+  readonly operation?: 'copy' | 'move';
   readonly succeeded: number;
+  readonly total: number;
   readonly failed: number;
   readonly sourceRemoved?: boolean;
-  readonly errors?: readonly ArchiveTransferError[];
+  readonly transferredCount?: number;
+  readonly destinations?: readonly string[];
 }
 
-export interface QuickViewSource {
-  readonly sourcePane: 'left' | 'right';
-  readonly sourceTabId: string;
-  readonly sourceDir: string;
-  readonly fileList: readonly { path: string; name: string }[];
+export interface PaneNavigation {
+  refresh(): Promise<void>;
+  navigateTo(path: string): Promise<void>;
+  navigateUp(): void;
+  goBack(): void;
+  goForward(): void;
+  canGoBack(): boolean;
+  canGoForward(): boolean;
+  canNavigateToLocation(path: string): boolean;
+  navigateLinkedLocation(path: string, options?: unknown): Promise<boolean>;
+  currentLocationAvailable(): Promise<boolean>;
+  jumpNavigationHistory(path: string): Promise<boolean>;
+  focusContent(): void;
+  focusLocation(): void;
+  focusFilter(): void;
+}
+
+export interface PaneSelection {
+  readonly selectedEntries: readonly FileInfo[];
+  readonly selectedPaths: ReadonlySet<string>;
+  readonly cursorPath: string | null;
+  readonly cursorEntry: FileInfo | null;
+  moveCursor(delta: number, extend?: boolean): void;
+  moveCursorHome(extend?: boolean): void;
+  moveCursorEnd(extend?: boolean): void;
+  moveCursorPage(direction: -1 | 1, extend?: boolean): void;
+  selectAll(): void;
+  clearSelection(): void;
+  toggleCurrentSelection(): void;
+  extendSelection(delta: number): void;
+  invertSelection(): void;
+  selectSameExtension(): void;
+  selectSameType(): void;
+  selectFiles(): void;
+  selectFolders(): void;
+  unselectFiles(): void;
+  unselectFolders(): void;
+  selectByMaskPrompt(): Promise<void>;
+  unselectByMaskPrompt(): Promise<void>;
+  selectPaths(paths: readonly string[]): void;
+  selectComparisonItem(path: string): void;
+  recoverVisibleCursor(): void;
+  calculateSelectedSize(): Promise<void>;
+  selectPeerByName(name: string): boolean;
+  reconcileAddedEntries?(entries: readonly FileInfo[], selectAdded?: boolean): void;
+  reconcileRemovedPaths?(paths: readonly string[]): void;
+}
+
+export interface PanePresentationPort {
+  panePresentation(): PanePresentation;
+  applyMirroredPresentation(presentation: PanePresentation, options?: unknown): void;
+}
+
+export interface PaneViewportPort {
+  viewportSnapshot(): PaneViewportSnapshot;
+  syncViewportToPeer(snapshot: PaneViewportSnapshot): void;
+}
+
+export interface PaneTabs {
+  closeActiveTab(): void;
+  newTab(): void;
+  nextTab(): void;
+  previousTab(): void;
+  jumpToTab(index: number): void;
+  closeOtherTabs(): void;
+  closeTabsToRight(): void;
+  toggleActiveTabPin(): void;
+  exportActiveTabId(): string | null;
+  exportTabCount(): number;
+  restoreWorkspaceState(): Promise<void>;
+  reloadWorkspaceTabs(preferredTabId?: string): Promise<void>;
 }
 
 export interface PaneViewerCommands {
-  openEntry(entry: FileInfo): void | Promise<void>;
+  openEntry(entry: FileInfo): Promise<void>;
   openViewer(entry: FileInfo, viewerId?: string | null, autoFollow?: boolean): any;
   openSelectedWithViewer(viewerId: string): Promise<void>;
-  openQuickView(entry: FileInfo, source?: QuickViewSource): void;
+  openQuickView(entry: FileInfo, options?: unknown): void;
   openActiveViewerExternally(): Promise<void>;
   returnToViewerSource(): Promise<void>;
-  openResultsPanel(
-    title: string,
-    entries: readonly FileInfo[],
-    metadata?: unknown,
-  ): Promise<any>;
+  openResultsPanel(title: string, entries: readonly FileInfo[], metadata?: unknown): Promise<void>;
   openRecentFilesPanel(): Promise<void>;
   openSurfaceTab(surfaceId: string, title?: string, location?: string): Promise<void>;
 }
@@ -61,10 +120,34 @@ export interface PaneCommands {
   createShortcutForSelected(): Promise<void>;
   createZipFromSelection(): Promise<void>;
   extractSelectedTo(destinationDir: string, flattenPaths?: boolean): Promise<boolean>;
-  transferArchiveSelectionTo(
-    destinationDir: string,
-    operation: 'copy' | 'move',
-  ): Promise<ArchiveTransferResult | null>;
+  transferArchiveSelectionTo(destinationDir: string, operation: 'copy' | 'move'): Promise<ArchiveTransferResult | null>;
   treeLeft(): void;
   treeRight(): void;
+}
+
+export interface PaneComponent
+  extends PaneState,
+    PaneNavigation,
+    PaneSelection,
+    PanePresentationPort,
+    PaneViewportPort,
+    PaneTabs,
+    PaneViewerCommands,
+    PaneCommands {}
+
+export interface PanePeerNavigation {
+  refresh(): Promise<void>;
+  canNavigateToLocation(path: string): boolean;
+  navigateLinkedLocation(path: string, options?: unknown): Promise<boolean>;
+}
+
+export interface PanePeerSelection {
+  selectPeerByName(name: string): boolean;
+  selectPaths(paths: readonly string[]): void;
+}
+
+export interface PanePeerPort {
+  readonly peerState: PanePeerState;
+  readonly peerNavigation: PanePeerNavigation;
+  readonly peerSelection: PanePeerSelection;
 }

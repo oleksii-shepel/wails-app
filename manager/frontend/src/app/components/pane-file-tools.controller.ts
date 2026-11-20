@@ -151,6 +151,7 @@ export class PaneFileToolsController {
       confirmText: 'Create',
       defaultValue: `${baseName}.zip`,
     });
+    if (requested == null) return;
     let cleanName = this.cleanLeafName(requested);
     if (!cleanName) { await this.confirm.alert({ title: 'Invalid Name', message: 'Choose a valid ZIP filename.' }); return; }
     if (!/\.zip$/i.test(cleanName)) cleanName += '.zip';

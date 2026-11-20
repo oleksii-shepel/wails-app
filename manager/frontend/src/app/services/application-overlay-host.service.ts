@@ -24,6 +24,7 @@ export interface ApplicationOverlayHost {
   showClosedTabs(): void;
   closeClosedTabs(): void;
   openDiskUsage(rootPath: string): void;
+  openAbout(): void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -54,4 +55,5 @@ export class ApplicationOverlayHostService {
   showClosedTabs(): void { this.host?.showClosedTabs(); }
   closeClosedTabs(): void { this.host?.closeClosedTabs(); }
   openDiskUsage(rootPath: string): void { this.host?.openDiskUsage(rootPath); }
+  openAbout(): void { this.host?.openAbout(); }
 }

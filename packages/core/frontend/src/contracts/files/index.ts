@@ -1,1 +1,2 @@
-export * from './file-info.js';
+export { FileType } from './file-info';
+export type { FileInfo } from './file-info';

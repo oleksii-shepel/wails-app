@@ -15,6 +15,7 @@ import { FILE_MANAGER_BINDINGS } from './command-registry';
 import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../services/input-system.types';
 import { PluginSettingsPanelComponent } from './plugin-settings-panel.component';
+import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
 
 interface SettingsDialogRequest {
   resolve: (value: boolean) => void;
@@ -930,21 +931,34 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
               <!-- About -->
               <section *ngIf="activeTab === 'about'" class="settings-section about-section">
                 <h3 class="section-title">About</h3>
-                <p class="section-desc">Application version and license information.</p>
+                <p class="section-desc">Reassembly Resource Commander overview, runtime details, and open-source notices.</p>
 
                 <div class="settings-group">
                   <h4 class="group-title">Application</h4>
+                  <div class="about-hero-banner" *ngIf="!aboutImageFailed">
+                    <img
+                      src="/assets/aistudio/photo_2026-09-05_17-23-23_cbdbac3a.jpg"
+                      alt="Reassembly Resource Commander"
+                      referrerpolicy="no-referrer"
+                      (error)="aboutImageFailed = true" />
+                  </div>
                   <div class="about-app-card">
-                    <div class="about-app-icon">
-                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <div class="about-app-icon" aria-hidden="true">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
                       </svg>
                     </div>
                     <div class="about-app-info">
-                      <span class="about-app-name">File Manager</span>
-                      <span class="about-app-version">Version 1.0.0</span>
-                      <span class="about-app-build">Built with Wails · Go · Angular</span>
+                      <span class="about-app-name">Reassembly — Resource Commander</span>
+                      <span class="about-app-version">Dual-pane file manager &amp; archive workbench</span>
+                      <span class="about-app-build">Angular 22 · TypeScript · Node.js Web Runtime</span>
                     </div>
+                  </div>
+                  <div class="about-action-row">
+                    <button type="button" class="btn btn-secondary" (click)="openFullAboutScreen()">Open About Screen</button>
+                    <button type="button" class="btn btn-secondary" (click)="copyAboutSystemInfo()">
+                      {{ aboutInfoCopied ? 'Copied to Clipboard' : 'Copy System Info' }}
+                    </button>
                   </div>
                 </div>
 
@@ -952,74 +966,51 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                   <h4 class="group-title">Platform</h4>
                   <div class="about-kv-list">
                     <div class="about-kv-row">
-                      <span class="about-kv-label">Runtime</span>
-                      <span class="about-kv-value">Wails v2</span>
-                    </div>
-                    <div class="about-kv-row">
-                      <span class="about-kv-label">WebView</span>
-                      <span class="about-kv-value">Microsoft WebView2</span>
+                      <span class="about-kv-label">Workspace</span>
+                      <span class="about-kv-value">Dual-Pane Commander</span>
                     </div>
                     <div class="about-kv-row">
                       <span class="about-kv-label">Frontend</span>
-                      <span class="about-kv-value">Angular 22.1</span>
+                      <span class="about-kv-value">Angular 22 (Zoneless)</span>
                     </div>
                     <div class="about-kv-row">
-                      <span class="about-kv-label">Backend</span>
-                      <span class="about-kv-value">Go 1.25</span>
+                      <span class="about-kv-label">Runtime</span>
+                      <span class="about-kv-value">Node.js · Express API</span>
                     </div>
-                  </div>
-                </div>
-
-                <div class="settings-group">
-                  <h4 class="group-title">Updates</h4>
-                  <div class="about-update-row">
-                    <div class="about-update-status">
-                      <span class="about-update-badge up-to-date">Up to date</span>
-                      <span class="about-update-desc">You are running the latest version.</span>
+                    <div class="about-kv-row">
+                      <span class="about-kv-label">Archive Engine</span>
+                      <span class="about-kv-value">ZIP · TAR · Nested Inspection</span>
                     </div>
-                    <button type="button" class="btn btn-secondary">Check for Updates</button>
                   </div>
                 </div>
 
                 <div class="settings-group">
                   <h4 class="group-title">Open Source</h4>
-                  <p class="about-oss-note">File Manager is built on top of open-source software. The following libraries and tools are used under their respective licenses.</p>
+                  <p class="about-oss-note">Reassembly builds on open-source libraries used under their respective licenses.</p>
                   <div class="about-oss-grid">
-                    <div class="about-oss-item">
-                      <span class="oss-name">Wails</span>
-                      <span class="oss-license">MIT</span>
-                    </div>
                     <div class="about-oss-item">
                       <span class="oss-name">Angular</span>
                       <span class="oss-license">MIT</span>
                     </div>
                     <div class="about-oss-item">
-                      <span class="oss-name">go-webview2</span>
+                      <span class="oss-name">CodeMirror 6</span>
                       <span class="oss-license">MIT</span>
                     </div>
                     <div class="about-oss-item">
-                      <span class="oss-name">MuPDF</span>
-                      <span class="oss-license">AGPL 3.0</span>
+                      <span class="oss-name">Streamix</span>
+                      <span class="oss-license">MIT</span>
                     </div>
                     <div class="about-oss-item">
-                      <span class="oss-name">ImageMagick</span>
-                      <span class="oss-license">ImageMagick</span>
+                      <span class="oss-name">Express</span>
+                      <span class="oss-license">MIT</span>
                     </div>
                     <div class="about-oss-item">
-                      <span class="oss-name">LibreOffice</span>
-                      <span class="oss-license">MPL 2.0</span>
+                      <span class="oss-name">Node.js</span>
+                      <span class="oss-license">MIT</span>
                     </div>
                     <div class="about-oss-item">
-                      <span class="oss-name">libvips</span>
-                      <span class="oss-license">LGPL 2.1</span>
-                    </div>
-                    <div class="about-oss-item">
-                      <span class="oss-name">DjVuLibre</span>
-                      <span class="oss-license">GPL 2.0</span>
-                    </div>
-                    <div class="about-oss-item">
-                      <span class="oss-name">Calibre</span>
-                      <span class="oss-license">GPL 3.0</span>
+                      <span class="oss-name">Reassembly Core</span>
+                      <span class="oss-license">Apache 2.0</span>
                     </div>
                   </div>
                 </div>
@@ -1062,6 +1053,8 @@ export class SettingsDialogComponent {
   recordingSteps: KeyStroke[] = [];
   private recordingTimeout: number | null = null;
   private conflicts = new Map<string, string[]>();
+  aboutImageFailed = false;
+  aboutInfoCopied = false;
 
   readonly tabs: { id: SettingsTab; label: string; icon: string; divider?: boolean }[] = [
     {
@@ -1132,6 +1125,7 @@ export class SettingsDialogComponent {
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
     private readonly keybindingStorage: KeybindingStorageService,
+    private readonly overlays: ApplicationOverlayHostService,
     private readonly ngZone: NgZone,
   ) {}
 
@@ -1614,6 +1608,29 @@ export class SettingsDialogComponent {
 
   get isClosing(): boolean {
     return !!this.settingsService.getClosingRequest();
+  }
+
+  openFullAboutScreen(): void {
+    this.onCancel();
+    queueMicrotask(() => this.overlays.openAbout());
+  }
+
+  async copyAboutSystemInfo(): Promise<void> {
+    const text = [
+      'Application: Reassembly — Resource Commander',
+      'Frontend: Angular 22 (Zoneless Dual-Pane)',
+      'Runtime: Node.js Web Workspace',
+      `Host: ${window.location.host}`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      this.aboutInfoCopied = true;
+      setTimeout(() => {
+        this.aboutInfoCopied = false;
+      }, 2000);
+    } catch {
+      // Ignore clipboard failure in restricted contexts
+    }
   }
 
   onAnimationEnd(event: AnimationEvent): void {

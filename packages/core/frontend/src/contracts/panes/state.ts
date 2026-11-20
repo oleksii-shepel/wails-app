@@ -1,32 +1,31 @@
-import type { FileInfo } from '../files/index.js';
-import type { SourceCapabilities } from '../sources/index.js';
+import type { FileInfo } from '../files';
+import type { SourceCapabilities } from '../sources';
 
-export interface PaneState {
-  readonly path: string;
-  readonly entries: FileInfo[];
-  readonly tabs: readonly unknown[];
-  readonly activeTab: any;
-  readonly activeViewerTab: any;
-  readonly activeSurfaceId: string;
-  readonly viewMode: string;
-  readonly visibleEntries: readonly FileInfo[];
-  readonly sourceCapabilities: SourceCapabilities;
-  readonly activePanelSource: any;
-  readonly mountedViewer: any;
-  readonly viewerArchiveContext: any;
-  readonly currentArchiveFrame: any;
-  readonly pinnableLocation: string;
-  readonly pinnableSurfaceId: string;
-  readonly pinnableTitle: string;
-  readonly hasSelection: boolean;
-  readonly canCreate: boolean;
-  readonly canRename: boolean;
-  readonly canDelete: boolean;
-  readonly canCut: boolean;
-  readonly canPaste: boolean;
-  readonly isInArchive: boolean;
-  readonly isDirectoryTab: boolean;
-  lastAction: string;
+export type DirectoryView = 'list' | 'grid' | 'details' | 'tree';
+export type SortField = 'name' | 'size' | 'modified' | 'type';
+export type SortDirection = 'asc' | 'desc';
+
+export interface PanePresentation {
+  readonly viewMode: DirectoryView;
+  readonly sortField: SortField;
+  readonly sortDirection: SortDirection;
+  readonly directoriesFirst: boolean;
+  readonly filterText: string;
+  readonly filterVisible: boolean;
+}
+
+export interface PaneViewportSnapshot {
+  readonly topName: string | null;
+  readonly ratio: number;
+}
+
+export interface QuickViewSource {
+  readonly paneId?: 'left' | 'right';
+  readonly sourcePane: 'left' | 'right';
+  readonly sourceTabId: string;
+  readonly sourceDir: string;
+  readonly entry?: FileInfo;
+  readonly fileList?: readonly { readonly path: string; readonly name: string }[];
 }
 
 export interface PaneContextState {
@@ -34,7 +33,7 @@ export interface PaneContextState {
   readonly entries: readonly FileInfo[];
   readonly visibleEntries: readonly FileInfo[];
   readonly activeSurfaceId: string;
-  readonly viewMode: string;
+  readonly viewMode: DirectoryView;
   readonly sourceCapabilities: SourceCapabilities;
   readonly activePanelSource: any;
   readonly currentArchiveFrame: any;
@@ -43,7 +42,7 @@ export interface PaneContextState {
 }
 
 export interface PaneTabState {
-  readonly tabs: readonly unknown[];
+  readonly tabs: readonly any[];
   readonly activeTab: any;
   readonly activeViewerTab: any;
 }
@@ -74,4 +73,24 @@ export interface PaneStatePort {
   readonly viewerState: PaneViewerState;
   readonly pinState: PanePinState;
   readonly mutationState: PaneMutationState;
+}
+
+export interface PaneState extends PaneContextState, PaneTabState, PaneViewerState, PaneMutationState {
+  readonly paneId: 'left' | 'right';
+  readonly cursorEntry: FileInfo | null;
+  readonly selectedPaths: ReadonlySet<string>;
+  readonly selectedEntries: readonly FileInfo[];
+  readonly pinnableLocation: string;
+  readonly pinnableSurfaceId: string;
+  readonly pinnableTitle: string;
+}
+
+export interface PanePeerState {
+  readonly path: string;
+  readonly entries: readonly FileInfo[];
+  readonly cursorEntry: FileInfo | null;
+  readonly selectedPaths: ReadonlySet<string>;
+  readonly sourceCapabilities: SourceCapabilities;
+  readonly isDirectoryTab: boolean;
+  readonly isInArchive: boolean;
 }

@@ -130,6 +130,24 @@ export class DirectoryPluginPackageLoaderService implements PluginPackageLoader 
             score: menuScore(placement),
           });
         }
+
+        for (const theme of module.themes ?? []) {
+          context.api.registerTheme({
+            id: theme.id,
+            label: theme.label,
+            kind: theme.kind === 'light' ? 'light' : 'dark',
+            variables: theme.variables ?? {},
+          });
+        }
+
+        for (const profile of module.columnProfiles ?? []) {
+          context.api.registerColumnProfile({
+            id: profile.id,
+            label: profile.label,
+            columnIds: [...(profile.columnIds ?? [])],
+            widths: profile.widths,
+          });
+        }
       },
     };
   }

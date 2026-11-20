@@ -10,8 +10,8 @@ import {
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 
+import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 
@@ -44,8 +44,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
 @Component({
   selector: 'app-command-palette',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop dialog-group" *ngIf="visible || isClosing" [class.backdrop-closing]="isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()"
@@ -63,11 +62,27 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
         <div class="query">
           <span aria-hidden="true">›</span>
-          <input #queryInput [(ngModel)]="query" (ngModelChange)="queryChanged()"
+          <input #queryInput [value]="query" (input)="onQueryInput($event)"
             autocomplete="off" spellcheck="false"
             placeholder="Type a command, category, shortcut, or id"
             aria-label="Command search" aria-controls="command-list" />
         </div>
+
+        <nav class="categories" *ngIf="categories.length > 1" aria-label="Command category filters">
+          <button
+            type="button"
+            [class.active]="selectedCategory === 'all'"
+            (click)="selectCategory('all')">
+            All
+          </button>
+          <button
+            *ngFor="let category of categories"
+            type="button"
+            [class.active]="selectedCategory === category"
+            (click)="selectCategory(category)">
+            {{ category }}
+          </button>
+        </nav>
 
         <div id="command-list" class="commands" role="listbox" aria-label="Commands">
           <button *ngFor="let command of filteredCommands; let i=index; trackBy:trackCommand"
@@ -82,7 +97,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             (click)="run(command)">
             <span class="main">
               <strong>{{ command.title }}</strong>
-              <small>{{ command.category }} · {{ command.id }}</small>
+              <small>{{ isRecent(command.id) ? 'Recent · ' : '' }}{{ command.category }} · {{ command.id }}</small>
             </span>
             <kbd *ngIf="command.shortcut">{{ command.shortcut }}</kbd>
             <span class="state" *ngIf="!enabled(command)">Unavailable</span>
@@ -102,21 +117,25 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     :host{position:fixed;inset:0;z-index:9520;pointer-events:none}
     .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
     .backdrop-closing{pointer-events:none}
-    .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 62px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
-    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
+    .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground);box-shadow:0 18px 62px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle)}
     header{justify-content:space-between}
-    .title-block{display:flex;align-items:baseline;gap:8px;min-width:0}
+    .title-block{display:flex;align-items:baseline;gap:8px;min-width:0;font-variant-numeric:tabular-nums}
     header span,footer,.command small,.state{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .query{font-size:18px}.query input{flex:1;height:34px;border:0;outline:0;background:transparent;color:inherit;font:13px var(--vsc-font-family,system-ui,sans-serif)}
+    .categories{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:6px 10px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .categories button{padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
+    .categories button:hover{color:var(--vsc-foreground);background:var(--vsc-list-hover-background)}
+    .categories button.active{color:var(--vsc-foreground);border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 14%,transparent)}
     .commands{flex:1;min-height:0;overflow:auto;padding:5px}
     .command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 9px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}
-    .command:hover,.command.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
-    .command.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}
+    .command:hover,.command.selected{background:var(--vsc-list-hover-background)}
+    .command.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,transparent)}
     .command.disabled{opacity:.48}.main{min-width:0;display:grid}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .main small{font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}
-    kbd{padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-neutral-overlay-subtle);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
+    kbd{padding:2px 6px;border:1px solid var(--vsc-border);border-radius:4px;background:var(--vsc-neutral-overlay-subtle);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
     .state{font-size:10px}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}
+    footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle);border-bottom:0}
     .dialog-close{margin-left:8px}
   `],
 })
@@ -127,38 +146,59 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   visible = false;
   isClosing = false;
   query = '';
+  selectedCategory = 'all';
   selectedIndex = 0;
 
   constructor(
+    private readonly history: CommandPaletteHistoryService,
     private readonly input: InputEngineService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
+  get categories(): string[] {
+    const unique = new Set<string>();
+    for (const command of this.commands) {
+      if (command.category) unique.add(command.category);
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }
+
   get filteredCommands(): PaletteCommand[] {
     const query = this.query.trim();
-    const commands = [...this.commands];
+    const recentIds = this.history.getHistory();
+    const recentRank = new Map<string, number>();
+    recentIds.forEach((id, idx) => recentRank.set(id, idx));
+
+    const scoped =
+      this.selectedCategory === 'all'
+        ? [...this.commands]
+        : this.commands.filter(command => command.category === this.selectedCategory);
 
     if (!query) {
-      return commands.sort(
-        (a,b) =>
-          a.category.localeCompare(b.category) ||
-          a.title.localeCompare(b.title),
-      );
+      return scoped.sort((a, b) => {
+        const ra = recentRank.get(a.id);
+        const rb = recentRank.get(b.id);
+        if (ra !== undefined && rb !== undefined) return ra - rb;
+        if (ra !== undefined) return -1;
+        if (rb !== undefined) return 1;
+        return a.category.localeCompare(b.category) || a.title.localeCompare(b.title);
+      });
     }
 
-    return commands
+    return scoped
       .map(command => ({
         command,
-        score: discoveryScore(query, [
-          { value: command.title, weight: 1.6 },
-          { value: command.category, weight: 1.1 },
-          { value: command.shortcut, weight: 1.25 },
-          { value: command.id, weight: .8 },
-        ]),
+        score:
+          discoveryScore(query, [
+            { value: command.title, weight: 1.6 },
+            { value: command.category, weight: 1.1 },
+            { value: command.shortcut, weight: 1.25 },
+            { value: command.id, weight: 0.8 },
+          ]) + (recentRank.has(command.id) ? 0.15 : 0),
       }))
       .filter(item => item.score >= 0)
       .sort(
-        (a,b) =>
+        (a, b) =>
           b.score - a.score ||
           Number(this.enabled(b.command)) - Number(this.enabled(a.command)) ||
           a.command.title.localeCompare(b.command.title),
@@ -168,6 +208,10 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   get selectedCommand(): PaletteCommand | null {
     return this.filteredCommands[this.selectedIndex] ?? null;
+  }
+
+  isRecent(commandId: string): boolean {
+    return this.history.getHistory().includes(commandId);
   }
 
   ngOnInit(): void {
@@ -195,17 +239,30 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   open(): void {
     this.query = '';
+    this.selectedCategory = 'all';
     this.selectedIndex = 0;
     this.isClosing = false;
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
     this.cdr.markForCheck();
+    requestAnimationFrame(() => this.queryInput?.nativeElement.focus({ preventScroll: true }));
   }
 
   close(): void {
     if (!this.visible || this.isClosing) return;
     this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
+    this.cdr.markForCheck();
+  }
+
+  onQueryInput(event: Event): void {
+    this.query = (event.target as HTMLInputElement).value;
+    this.queryChanged();
+  }
+
+  selectCategory(category: string): void {
+    this.selectedCategory = category;
+    this.selectedIndex = 0;
     this.cdr.markForCheck();
   }
 
@@ -221,6 +278,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   async run(command: PaletteCommand): Promise<void> {
     if (!this.enabled(command)) return;
+    this.history.recordCommand(command.id);
     this.close();
     await command.execute();
   }

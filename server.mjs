@@ -16,6 +16,8 @@ const STATE_FILE = path.join(os.tmpdir(), 'reassembly-web-state.json');
 const TRASH_ROOT = path.join(os.tmpdir(), 'reassembly-web-trash');
 const TRASH_FILES_DIR = path.join(TRASH_ROOT, 'files');
 const TRASH_MANIFEST = path.join(TRASH_ROOT, 'index.json');
+const PLUGINS_ROOT = path.join(os.tmpdir(), 'reassembly-web-plugins');
+const PLUGIN_STATE_FILE = path.join(os.tmpdir(), 'reassembly-web-plugin-states.json');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = '0.0.0.0';
 
@@ -780,7 +782,108 @@ def op_create_zip(req):
                 added += 1
     return {'success': True, 'affectedPaths': [dest], 'message': f'Archived {added} file(s)'}
 
+def atomic_write_zip_from_builder(fs_path: str, build_fn):
+    parent = os.path.dirname(os.path.abspath(fs_path))
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix='.archive-edit-', suffix='.zip', dir=parent)
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(tmp_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+            build_fn(zout)
+        os.replace(tmp_path, fs_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+def op_import_entries(req):
+    fs_path = req['fsPath']
+    dest_prefix = norm_inner(req.get('destinationPath') or '')
+    sources = req.get('sources') or []
+    if not fs_path.lower().endswith('.zip'):
+        raise ValueError('Only top-level .zip archives support importing entries.')
+    if not os.path.exists(fs_path):
+        raise FileNotFoundError(f'Archive not found: {fs_path}')
+
+    new_items = []
+    new_names = set()
+    for src in sources:
+        abs_src = os.path.abspath(src)
+        if not os.path.exists(abs_src):
+            raise FileNotFoundError(f'Source does not exist: {abs_src}')
+        base_name = os.path.basename(abs_src)
+        if os.path.isdir(abs_src):
+            root_rel = f'{dest_prefix}/{base_name}' if dest_prefix else base_name
+            root_rel = norm_inner(root_rel)
+            for root, dirs, files in os.walk(abs_src):
+                rel_dir = os.path.relpath(root, abs_src).replace(os.sep, '/')
+                arc_dir = root_rel if rel_dir == '.' else norm_inner(f'{root_rel}/{rel_dir}')
+                if arc_dir and arc_dir not in new_names:
+                    new_items.append(('dir', abs_src if rel_dir == '.' else root, arc_dir))
+                    new_names.add(arc_dir)
+                for fn in files:
+                    full_f = os.path.join(root, fn)
+                    arc_f = norm_inner(f'{arc_dir}/{fn}')
+                    new_items.append(('file', full_f, arc_f))
+                    new_names.add(arc_f)
+        else:
+            arc_f = norm_inner(f'{dest_prefix}/{base_name}' if dest_prefix else base_name)
+            new_items.append(('file', abs_src, arc_f))
+            new_names.add(arc_f)
+
+    def build(zout):
+        with zipfile.ZipFile(fs_path, 'r') as zin:
+            for info in zin.infolist():
+                key = norm_inner(info.filename)
+                if not key or key in new_names:
+                    continue
+                if info.is_dir():
+                    zout.writestr(info, b'')
+                else:
+                    zout.writestr(info, zin.read(info.filename))
+        for kind, disk_path, arc_path in new_items:
+            if kind == 'dir':
+                zout.write(disk_path, arc_path.rstrip('/') + '/')
+            else:
+                zout.write(disk_path, arc_path)
+
+    atomic_write_zip_from_builder(fs_path, build)
+    affected = [item[2] for item in new_items]
+    return {'success': True, 'affectedPaths': affected, 'message': f'Imported {len(new_items)} entry(s) into archive'}
+
+def op_delete_entries(req):
+    fs_path = req['fsPath']
+    targets = [norm_inner(e) for e in (req.get('entries') or []) if norm_inner(e)]
+    if not fs_path.lower().endswith('.zip'):
+        raise ValueError('Only top-level .zip archives support deleting entries.')
+    if not targets:
+        return {'success': True, 'affectedPaths': [], 'message': 'No archive entries selected'}
+
+    removed = []
+    def matches_target(entry_name: str) -> bool:
+        for t in targets:
+            if entry_name == t or entry_name.startswith(t + '/'):
+                return True
+        return False
+
+    def build(zout):
+        with zipfile.ZipFile(fs_path, 'r') as zin:
+            for info in zin.infolist():
+                key = norm_inner(info.filename)
+                if key and matches_target(key):
+                    removed.append(key)
+                    continue
+                if info.is_dir():
+                    zout.writestr(info, b'')
+                else:
+                    zout.writestr(info, zin.read(info.filename))
+
+    atomic_write_zip_from_builder(fs_path, build)
+    return {'success': True, 'affectedPaths': removed, 'message': f'Removed {len(removed)} entry(s) from archive'}
+
 def main():
+    import tempfile
+    globals()['tempfile'] = tempfile
     req = json.loads(sys.stdin.read())
     op = req['op']
     if op == 'browse':
@@ -795,6 +898,10 @@ def main():
         res = op_selective_extract(req)
     elif op == 'create_zip':
         res = op_create_zip(req)
+    elif op == 'import_entries':
+        res = op_import_entries(req)
+    elif op == 'delete_entries':
+        res = op_delete_entries(req)
     else:
         raise ValueError(f'Unknown op: {op}')
     sys.stdout.write(json.dumps(res))
@@ -841,35 +948,70 @@ app.get('/api/os-info', (_req, res) => {
   });
 });
 
-app.get('/api/drives', (_req, res) => {
-  res.json({
-    schemes: [
-      {
-        name: 'Workspace',
-        path: WORKSPACE_ROOT,
-        schemeType: 'fixed',
-        totalSpace: 50 * 1024 * 1024 * 1024,
-        freeSpace: 32 * 1024 * 1024 * 1024,
-        fileSystem: 'ext4',
-      },
-      {
-        name: 'Root (/)',
-        path: '/',
-        schemeType: 'fixed',
-        totalSpace: 50 * 1024 * 1024 * 1024,
-        freeSpace: 32 * 1024 * 1024 * 1024,
-        fileSystem: 'ext4',
-      },
-      {
-        name: 'Temp (/tmp)',
-        path: '/tmp',
-        schemeType: 'fixed',
-        totalSpace: 50 * 1024 * 1024 * 1024,
-        freeSpace: 32 * 1024 * 1024 * 1024,
-        fileSystem: 'tmpfs',
-      },
-    ],
-  });
+async function readPathCapacity(targetPath) {
+  const resolved = resolveRealPath(targetPath);
+  let probePath = resolved;
+  while (!fs.existsSync(probePath) && probePath !== path.dirname(probePath)) {
+    probePath = path.dirname(probePath);
+  }
+  const st = await fsp.statfs(probePath);
+  const totalSpace = Number(st.bsize) * Number(st.blocks);
+  const freeSpace = Number(st.bsize) * Number(st.bavail);
+  let fileSystem = 'ext4';
+  try {
+    const mounts = await fsp.readFile('/proc/mounts', 'utf8');
+    let bestLen = 0;
+    for (const line of mounts.split('\n')) {
+      const parts = line.split(' ');
+      if (parts.length >= 3) {
+        const mountPoint = parts[1];
+        if ((probePath === mountPoint || probePath.startsWith(mountPoint === '/' ? '/' : mountPoint + '/')) && mountPoint.length >= bestLen) {
+          bestLen = mountPoint.length;
+          fileSystem = parts[2];
+        }
+      }
+    }
+  } catch {}
+  return { totalSpace, freeSpace, fileSystem };
+}
+
+app.get('/api/drives', async (_req, res) => {
+  try {
+    const candidates = [
+      { name: 'Workspace', path: WORKSPACE_ROOT },
+      { name: 'Root (/)', path: '/' },
+      { name: 'Temp (/tmp)', path: '/tmp' },
+    ];
+    const schemes = await Promise.all(
+      candidates.map(async (item) => {
+        const cap = await readPathCapacity(item.path).catch(() => ({
+          totalSpace: 0,
+          freeSpace: 0,
+          fileSystem: 'ext4',
+        }));
+        return {
+          name: item.name,
+          path: item.path,
+          schemeType: 'fixed',
+          totalSpace: cap.totalSpace,
+          freeSpace: cap.freeSpace,
+          fileSystem: cap.fileSystem,
+        };
+      }),
+    );
+    res.json({ schemes });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/fs/capacity', async (req, res) => {
+  try {
+    const cap = await readPathCapacity(req.body?.path || WORKSPACE_ROOT);
+    res.json(cap);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 app.get('/api/special-folders', (_req, res) => {
@@ -1110,14 +1252,37 @@ app.post('/api/fs/copy', async (req, res) => {
 app.post('/api/fs/hash', async (req, res) => {
   try {
     const targetPath = resolveRealPath(req.body?.path);
-    const hash = crypto.createHash('sha256');
+    const stat = await fsp.stat(targetPath);
+    if (stat.isDirectory()) {
+      res.status(400).json({ error: 'Cannot compute file hash for a directory.' });
+      return;
+    }
+    const sha256 = crypto.createHash('sha256');
+    const sha512 = crypto.createHash('sha512');
+    const sha1 = crypto.createHash('sha1');
+    const md5 = crypto.createHash('md5');
     await new Promise((resolve, reject) => {
       const stream = fs.createReadStream(targetPath);
-      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('data', (chunk) => {
+        sha256.update(chunk);
+        sha512.update(chunk);
+        sha1.update(chunk);
+        md5.update(chunk);
+      });
       stream.on('end', resolve);
       stream.on('error', reject);
     });
-    res.json({ hash: hash.digest('hex') });
+    const sha256Hex = sha256.digest('hex');
+    res.json({
+      hash: sha256Hex,
+      size: stat.size,
+      algorithms: {
+        sha256: sha256Hex,
+        sha512: sha512.digest('hex'),
+        sha1: sha1.digest('hex'),
+        md5: md5.digest('hex'),
+      },
+    });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -1182,6 +1347,30 @@ app.post('/api/fs/link', async (req, res) => {
     res.json({ ok: true, linkPath });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/fs/resolve-link', async (req, res) => {
+  try {
+    const targetPath = resolveRealPath(req.body?.path);
+    const lstat = await fsp.lstat(targetPath);
+    let resolvedTarget = targetPath;
+    if (lstat.isSymbolicLink()) {
+      const rawTarget = await fsp.readlink(targetPath);
+      resolvedTarget = path.resolve(path.dirname(targetPath), rawTarget);
+    }
+    let isDir = false;
+    let exists = false;
+    try {
+      const st = await fsp.stat(resolvedTarget);
+      exists = true;
+      isDir = st.isDirectory();
+    } catch {
+      exists = false;
+    }
+    res.json({ target: resolvedTarget, isDir, exists });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -1569,6 +1758,101 @@ app.post('/api/archive/create-zip', async (req, res) => {
   }
 });
 
+app.post('/api/archive/import-entries', async (req, res) => {
+  try {
+    const result = await runArchivePython({
+      op: 'import_entries',
+      fsPath: resolveRealPath(req.body?.fsPath),
+      destinationPath: String(req.body?.destinationPath || ''),
+      sources: Array.isArray(req.body?.sources) ? req.body.sources.map(resolveRealPath) : [],
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/archive/delete-entries', async (req, res) => {
+  try {
+    const result = await runArchivePython({
+      op: 'delete_entries',
+      fsPath: resolveRealPath(req.body?.fsPath),
+      entries: Array.isArray(req.body?.entries) ? req.body.entries : [],
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/archive/copy-entries', async (req, res) => {
+  try {
+    const fsPath = resolveRealPath(req.body?.fsPath);
+    const destinationDir = resolveRealPath(req.body?.destinationDir);
+    const extractResult = await runArchivePython({
+      op: 'selective_extract',
+      destinationDir,
+      items: [{
+        archivePath: fsPath,
+        nestedChain: Array.isArray(req.body?.nestedChain) ? req.body.nestedChain : [],
+        entries: Array.isArray(req.body?.entries) ? req.body.entries : [],
+        stripPrefix: String(req.body?.stripPrefix || ''),
+        flattenPaths: !!req.body?.flattenPaths,
+        destinationDir,
+      }],
+    });
+    const ok = extractResult.failed === 0;
+    res.json({
+      success: ok,
+      affectedPaths: [destinationDir],
+      message: ok ? `Extracted ${extractResult.extractedFiles} file(s)` : (extractResult.errors?.[0]?.error || 'Archive copy failed'),
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/archive/move-entries', async (req, res) => {
+  try {
+    const fsPath = resolveRealPath(req.body?.fsPath);
+    const nestedChain = Array.isArray(req.body?.nestedChain) ? req.body.nestedChain : [];
+    if (nestedChain.length > 0) {
+      res.status(400).json({ success: false, message: 'Moving entries out of nested archives is not supported.' });
+      return;
+    }
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const destinationDir = resolveRealPath(req.body?.destinationDir);
+    const extractResult = await runArchivePython({
+      op: 'selective_extract',
+      destinationDir,
+      items: [{
+        archivePath: fsPath,
+        nestedChain: [],
+        entries,
+        stripPrefix: String(req.body?.stripPrefix || ''),
+        flattenPaths: !!req.body?.flattenPaths,
+        destinationDir,
+      }],
+    });
+    if (extractResult.failed > 0) {
+      res.status(400).json({ success: false, message: extractResult.errors?.[0]?.error || 'Extract phase failed' });
+      return;
+    }
+    const delResult = await runArchivePython({
+      op: 'delete_entries',
+      fsPath,
+      entries,
+    });
+    res.json({
+      success: !!delResult.success,
+      affectedPaths: [fsPath, destinationDir],
+      message: `Moved ${extractResult.extractedFiles} file(s) out of archive`,
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // ── Trash / Recycle Bin endpoints ────────────────────────────────────────────
 app.get('/api/trash', async (_req, res) => {
   const manifest = await readTrashManifest();
@@ -1745,6 +2029,606 @@ app.post('/api/preferences', async (req, res) => {
   preferences = { ...preferences, ...(req.body || {}) };
   await savePersistedState();
   res.json({ ok: true });
+});
+
+// ── System Surface Telemetry Providers (processes://, environment://, network://, services://)
+function execCmd(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const chunks = [];
+    child.stdout.on('data', (c) => chunks.push(c));
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(Buffer.concat(chunks).toString('utf8')));
+  });
+}
+
+function parseProcTcpAddr(hexAddrPort) {
+  const [hexIp, hexPort] = String(hexAddrPort || '').split(':');
+  if (!hexIp || hexIp.length !== 8 || !hexPort) return String(hexAddrPort || '');
+  const octets = [
+    parseInt(hexIp.slice(6, 8), 16),
+    parseInt(hexIp.slice(4, 6), 16),
+    parseInt(hexIp.slice(2, 4), 16),
+    parseInt(hexIp.slice(0, 2), 16),
+  ];
+  return `${octets.join('.')}:${parseInt(hexPort, 16)}`;
+}
+
+const TCP_STATES = {
+  '01': 'Established',
+  '02': 'SynSent',
+  '03': 'SynRecv',
+  '04': 'FinWait1',
+  '05': 'FinWait2',
+  '06': 'TimeWait',
+  '07': 'Close',
+  '08': 'CloseWait',
+  '09': 'LastAck',
+  '0A': 'Listen',
+  '0B': 'Closing',
+};
+
+app.post('/api/system-surface', async (req, res) => {
+  const kind = String(req.body?.kind || '').toLowerCase();
+  try {
+    if (kind === 'environment') {
+      const records = Object.entries(process.env)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, value]) => ({
+          id: `process:${name}`,
+          name,
+          fields: {
+            scope: 'Process',
+            value: String(value ?? ''),
+          },
+        }));
+      res.json(records);
+      return;
+    }
+
+    if (kind === 'processes') {
+      const raw = await execCmd('ps', ['-eo', 'pid=,pcpu=,rss=,comm=,args=']);
+      const records = [];
+      for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const m = /^(\d+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(trimmed);
+        if (!m) continue;
+        const pid = Number(m[1]);
+        const cpu = `${m[2]}%`;
+        const rssBytes = Number(m[3]) * 1024;
+        const name = m[4];
+        const cmdline = m[5];
+        records.push({
+          id: String(pid),
+          name,
+          fields: {
+            pid,
+            cpu,
+            workingSet: rssBytes,
+            path: cmdline,
+          },
+        });
+      }
+      res.json(records);
+      return;
+    }
+
+    if (kind === 'network') {
+      const records = [];
+      const ifaces = os.networkInterfaces();
+      for (const [iface, entries] of Object.entries(ifaces)) {
+        for (let idx = 0; idx < (entries?.length || 0); idx++) {
+          const info = entries[idx];
+          records.push({
+            id: `adapter:${iface}:${idx}`,
+            name: `${iface} (${info.family})`,
+            fields: {
+              kind: 'Adapter',
+              status: info.internal ? 'Loopback' : 'Up',
+              local: `${info.address}/${info.netmask}`,
+              remote: info.mac && info.mac !== '00:00:00:00:00:00' ? info.mac : info.cidr || '',
+            },
+          });
+        }
+      }
+      for (const [proto, procPath] of [['TCP', '/proc/net/tcp'], ['UDP', '/proc/net/udp']]) {
+        try {
+          const raw = await fsp.readFile(procPath, 'utf8');
+          const lines = raw.trim().split('\n').slice(1);
+          for (const line of lines) {
+            const cols = line.trim().split(/\s+/);
+            if (cols.length < 4) continue;
+            const slot = cols[0].replace(':', '');
+            const local = parseProcTcpAddr(cols[1]);
+            const remote = parseProcTcpAddr(cols[2]);
+            const status = proto === 'UDP' ? 'Open' : (TCP_STATES[cols[3]] || 'Active');
+            records.push({
+              id: `${proto.toLowerCase()}:${slot}:${local}`,
+              name: `${proto} ${local}`,
+              fields: {
+                kind: proto,
+                status,
+                local,
+                remote,
+              },
+            });
+          }
+        } catch {}
+      }
+      res.json(records);
+      return;
+    }
+
+    if (kind === 'services') {
+      const records = [
+        {
+          id: 'service:reassembly-web-host',
+          name: 'reassembly-web-host',
+          fields: {
+            status: 'Running',
+            startType: 'Automatic',
+            displayName: `Reassembly File Manager Web Host (PID ${process.pid})`,
+          },
+        },
+      ];
+      try {
+        const initFiles = await fsp.readdir('/etc/init.d');
+        for (const svc of initFiles.sort()) {
+          if (svc.startsWith('.') || svc === 'README') continue;
+          records.push({
+            id: `service:${svc}`,
+            name: svc,
+            fields: {
+              status: 'Installed',
+              startType: 'System V',
+              displayName: `/etc/init.d/${svc}`,
+            },
+          });
+        }
+      } catch {}
+      res.json(records);
+      return;
+    }
+
+    res.json([]);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── Declarative Directory Plugins Runtime & Storage ──────────────────────────
+const PLUGIN_ID_REGEX = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/;
+const SEMVER_REGEX = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?$/;
+const SEEDED_PLUGINS = [
+  {
+    dirName: 'workspace-quick-tools',
+    manifest: {
+      schemaVersion: 1,
+      id: 'reassembly.workspace-quick-tools',
+      name: 'Workspace Quick Tools',
+      version: '1.0.0',
+      apiVersion: '^1.0.0',
+      description: 'Adds quick workspace actions to the pane toolbar, context menu, and theme presets (Midnight Nord Slate).',
+      author: 'Reassembly Extensions',
+      permissions: ['commands', 'keybindings', 'toolbar', 'contextMenu', 'surfaces'],
+      activationEvents: ['onStartup'],
+      contributes: {
+        commands: ['comparePanes', 'diskUsage', 'refreshPane'],
+        surfaces: ['midnight-nord'],
+      },
+    },
+    frontend: {
+      schemaVersion: 1,
+      commands: [
+        {
+          id: 'comparePanes',
+          title: 'Plugin: Compare Dual Panes',
+          name: 'comparePanes',
+          targetCommandId: 'pane.compare.toggle',
+        },
+        {
+          id: 'diskUsage',
+          title: 'Plugin: Analyze Disk Usage',
+          name: 'diskUsage',
+          targetCommandId: 'pane.tools.diskUsage',
+        },
+        {
+          id: 'refreshPane',
+          title: 'Plugin: Quick Refresh',
+          name: 'refreshPane',
+          targetCommandId: 'pane.nav.refresh',
+        },
+      ],
+      toolbar: [
+        { id: 'compare-toolbar', commandId: 'comparePanes', when: 'always' },
+        { id: 'disk-usage-toolbar', commandId: 'diskUsage', when: 'always' },
+      ],
+      contextMenu: [
+        { id: 'compare-menu', commandId: 'comparePanes', when: 'selection' },
+      ],
+      themes: [
+        {
+          id: 'nordic-slate',
+          label: 'Nordic Slate (Plugin)',
+          kind: 'dark',
+          variables: {},
+        },
+      ],
+    },
+  },
+];
+
+async function ensurePluginsInitialized() {
+  const firstRun = !fs.existsSync(PLUGINS_ROOT);
+  await fsp.mkdir(PLUGINS_ROOT, { recursive: true });
+  if (firstRun) {
+    for (const seed of SEEDED_PLUGINS) {
+      const dir = path.join(PLUGINS_ROOT, seed.dirName);
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(path.join(dir, 'plugin.json'), JSON.stringify(seed.manifest, null, 2), 'utf8');
+      await fsp.writeFile(path.join(dir, 'frontend.json'), JSON.stringify(seed.frontend, null, 2), 'utf8');
+    }
+  }
+}
+
+async function readPluginStatesMap() {
+  try {
+    if (!fs.existsSync(PLUGIN_STATE_FILE)) return {};
+    const parsed = JSON.parse(await fsp.readFile(PLUGIN_STATE_FILE, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writePluginStatesMap(map) {
+  await fsp.writeFile(PLUGIN_STATE_FILE, JSON.stringify(map, null, 2), 'utf8');
+}
+
+function defaultPluginState(pluginId, version) {
+  return {
+    pluginId,
+    enabled: false,
+    trusted: false,
+    trustedVersion: undefined,
+    grantedPermissions: [],
+    quarantined: false,
+    quarantineReason: undefined,
+    lastActivationStatus: 'never',
+    lastActivationError: undefined,
+    lastActivatedAt: undefined,
+    consecutiveActivationFailures: 0,
+    lastSeenVersion: version,
+    updatedAt: Date.now(),
+  };
+}
+
+function validateDiscoveredPlugin(manifest, frontendText) {
+  const errors = [];
+  const warnings = [];
+  if (!manifest || typeof manifest !== 'object') {
+    errors.push('plugin.json must be a JSON object.');
+    return { valid: false, errors, warnings };
+  }
+  if (manifest.schemaVersion !== 1 && manifest.schemaVersion !== 2) {
+    errors.push(`Unsupported plugin manifest schema ${manifest.schemaVersion}.`);
+  }
+  if (!manifest.id || !PLUGIN_ID_REGEX.test(String(manifest.id))) {
+    errors.push('Plugin id must be a lowercase identifier containing letters, digits, dot, dash, or underscore.');
+  }
+  if (!String(manifest.name || '').trim()) {
+    errors.push('Plugin name is required.');
+  }
+  if (!manifest.version || !SEMVER_REGEX.test(String(manifest.version))) {
+    errors.push(`Plugin ${manifest.id || '<unknown>'} has an invalid semantic version.`);
+  }
+  if (manifest.schemaVersion === 1) {
+    try {
+      const mod = JSON.parse(frontendText);
+      if (mod?.schemaVersion !== 1) {
+        errors.push(`frontend.json must declare schemaVersion: 1.`);
+      }
+    } catch (err) {
+      errors.push(`Invalid frontend.json: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { valid: errors.length === 0, errors, warnings };
+}
+
+async function discoverPluginsFromDisk() {
+  await ensurePluginsInitialized();
+  const dirents = await fsp.readdir(PLUGINS_ROOT, { withFileTypes: true });
+  const results = [];
+  for (const d of dirents) {
+    if (!d.isDirectory()) continue;
+    const pkgDir = path.join(PLUGINS_ROOT, d.name);
+    const manifestPath = path.join(pkgDir, 'plugin.json');
+    if (!fs.existsSync(manifestPath)) continue;
+    const manifestText = await fsp.readFile(manifestPath, 'utf8').catch(() => '');
+    const frontendPath = path.join(pkgDir, 'frontend.json');
+    const frontendText = fs.existsSync(frontendPath)
+      ? await fsp.readFile(frontendPath, 'utf8').catch(() => '')
+      : '';
+    let manifest = {};
+    let parseErr = '';
+    try {
+      manifest = JSON.parse(manifestText);
+    } catch (err) {
+      parseErr = err instanceof Error ? err.message : String(err);
+    }
+    const validation = parseErr
+      ? { valid: false, errors: [`Invalid plugin.json: ${parseErr}`], warnings: [] }
+      : validateDiscoveredPlugin(manifest, frontendText);
+    const fingerprint = crypto
+      .createHash('sha256')
+      .update(manifestText)
+      .update('\n---\n')
+      .update(frontendText)
+      .digest('hex')
+      .slice(0, 16);
+
+    results.push({
+      manifest,
+      kind: 'directory',
+      path: pkgDir,
+      manifestPath,
+      fingerprint,
+      valid: validation.valid,
+      errors: validation.errors,
+      warnings: validation.warnings,
+    });
+  }
+  return results.sort((a, b) => String(a.manifest?.name || a.path).localeCompare(String(b.manifest?.name || b.path)));
+}
+
+app.get('/api/plugins/directory', async (_req, res) => {
+  await ensurePluginsInitialized();
+  res.json({ directory: PLUGINS_ROOT });
+});
+
+app.get('/api/plugins', async (_req, res) => {
+  try {
+    const discovered = await discoverPluginsFromDisk();
+    res.json(discovered);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get('/api/plugins/states', async (_req, res) => {
+  const discovered = await discoverPluginsFromDisk();
+  const map = await readPluginStatesMap();
+  const list = discovered.map((pkg) => {
+    const id = String(pkg.manifest?.id || '');
+    return map[id] || defaultPluginState(id, pkg.manifest?.version);
+  });
+  res.json(list);
+});
+
+app.get('/api/plugins/:id/state', async (req, res) => {
+  const id = req.params.id;
+  const map = await readPluginStatesMap();
+  res.json(map[id] || defaultPluginState(id));
+});
+
+app.patch('/api/plugins/:id/state', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const discovered = await discoverPluginsFromDisk();
+    const pkg = discovered.find((p) => p.manifest?.id === id);
+    const map = await readPluginStatesMap();
+    const current = map[id] || defaultPluginState(id, pkg?.manifest?.version);
+    const patch = req.body || {};
+
+    const next = {
+      ...current,
+      pluginId: id,
+      lastSeenVersion: pkg?.manifest?.version || current.lastSeenVersion,
+      updatedAt: Date.now(),
+    };
+    if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled;
+    if (typeof patch.trusted === 'boolean') {
+      next.trusted = patch.trusted;
+      next.trustedVersion = patch.trusted ? pkg?.manifest?.version : undefined;
+    }
+    if (Array.isArray(patch.grantedPermissions)) {
+      next.grantedPermissions = [...new Set(patch.grantedPermissions.filter((p) => typeof p === 'string'))];
+    }
+    if (patch.clearQuarantine === true) {
+      next.quarantined = false;
+      next.quarantineReason = undefined;
+      next.consecutiveActivationFailures = 0;
+    }
+
+    map[id] = next;
+    await writePluginStatesMap(map);
+    res.json(next);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/plugins/:id/quarantine', async (req, res) => {
+  const id = req.params.id;
+  const map = await readPluginStatesMap();
+  const current = map[id] || defaultPluginState(id);
+  const next = {
+    ...current,
+    quarantined: true,
+    quarantineReason: String(req.body?.reason || 'Quarantined due to activation error.'),
+    enabled: false,
+    updatedAt: Date.now(),
+  };
+  map[id] = next;
+  await writePluginStatesMap(map);
+  res.json(next);
+});
+
+app.post('/api/plugins/:id/activation', async (req, res) => {
+  const id = req.params.id;
+  const success = req.body?.success === true;
+  const activationError = String(req.body?.activationError || '');
+  const map = await readPluginStatesMap();
+  const current = map[id] || defaultPluginState(id);
+  const consecutiveFailures = success ? 0 : (current.consecutiveActivationFailures || 0) + 1;
+  const quarantined = !success && consecutiveFailures >= 3;
+  const next = {
+    ...current,
+    lastActivationStatus: success ? 'success' : 'failed',
+    lastActivationError: success ? undefined : activationError,
+    lastActivatedAt: Date.now(),
+    consecutiveActivationFailures: consecutiveFailures,
+    quarantined: current.quarantined || quarantined,
+    quarantineReason: quarantined ? `Auto-quarantined after ${consecutiveFailures} consecutive activation failures.` : current.quarantineReason,
+    updatedAt: Date.now(),
+  };
+  map[id] = next;
+  await writePluginStatesMap(map);
+  res.json(next);
+});
+
+app.get('/api/plugins/:id/frontend-module', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const discovered = await discoverPluginsFromDisk();
+    const pkg = discovered.find((p) => p.manifest?.id === id);
+    if (!pkg) {
+      res.status(404).json({ error: `Plugin ${id} not found.` });
+      return;
+    }
+    const frontendPath = path.join(pkg.path, 'frontend.json');
+    if (!fs.existsSync(frontendPath)) {
+      res.json({ schemaVersion: 1, commands: [], bindings: [], toolbar: [], contextMenu: [] });
+      return;
+    }
+    const parsed = JSON.parse(await fsp.readFile(frontendPath, 'utf8'));
+    res.json(parsed);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post('/api/plugins/create', async (req, res) => {
+  try {
+    await ensurePluginsInitialized();
+    const rawId = String(req.body?.id || '').trim().toLowerCase();
+    const name = String(req.body?.name || '').trim();
+    const description = String(req.body?.description || '').trim();
+    const commandsInput = Array.isArray(req.body?.commands) ? req.body.commands : [];
+    if (!PLUGIN_ID_REGEX.test(rawId)) {
+      res.status(400).json({ error: 'Invalid plugin ID. Use lowercase letters, numbers, dots, or hyphens (e.g. custom.quick-actions).' });
+      return;
+    }
+    if (!name) {
+      res.status(400).json({ error: 'Plugin name is required.' });
+      return;
+    }
+    const safeDir = rawId.replace(/[^a-z0-9._-]/g, '-');
+    const pkgDir = path.join(PLUGINS_ROOT, safeDir);
+    if (fs.existsSync(pkgDir)) {
+      res.status(409).json({ error: `A plugin directory already exists for "${rawId}".` });
+      return;
+    }
+
+    const permissions = new Set(['commands']);
+    const commands = [];
+    const toolbar = [];
+    const contextMenu = [];
+    const bindings = [];
+
+    for (let i = 0; i < commandsInput.length; i++) {
+      const cmd = commandsInput[i];
+      const cmdId = String(cmd?.id || `action-${i + 1}`).trim().replace(/[^a-z0-9._-]/gi, '-');
+      const title = String(cmd?.title || cmdId).trim();
+      const targetCommandId = String(cmd?.targetCommandId || 'pane.nav.refresh').trim();
+      commands.push({ id: cmdId, title, name: cmdId, targetCommandId });
+      if (cmd?.addToToolbar) {
+        permissions.add('toolbar');
+        toolbar.push({ id: `${cmdId}-toolbar`, commandId: cmdId, when: cmd?.when || 'always' });
+      }
+      if (cmd?.addToContextMenu) {
+        permissions.add('contextMenu');
+        contextMenu.push({ id: `${cmdId}-menu`, commandId: cmdId, when: cmd?.when || 'selection' });
+      }
+      if (cmd?.shortcutKey) {
+        permissions.add('keybindings');
+        bindings.push({
+          id: `${cmdId}-key`,
+          commandId: cmdId,
+          trigger: {
+            device: 'keyboard',
+            chord: {
+              steps: [{
+                key: String(cmd.shortcutKey).toLowerCase(),
+                modifiers: Array.isArray(cmd.shortcutModifiers) ? cmd.shortcutModifiers : ['ctrl', 'alt'],
+              }],
+            },
+          },
+        });
+      }
+    }
+
+    const manifest = {
+      schemaVersion: 1,
+      id: rawId,
+      name,
+      version: '1.0.0',
+      apiVersion: '^1.0.0',
+      description: description || `Custom declarative extension: ${name}`,
+      author: 'Workspace Extension Studio',
+      permissions: [...permissions],
+      activationEvents: ['onStartup'],
+      contributes: {
+        commands: commands.map((c) => c.id),
+      },
+    };
+    const frontend = {
+      schemaVersion: 1,
+      commands,
+      ...(bindings.length ? { bindings } : {}),
+      ...(toolbar.length ? { toolbar } : {}),
+      ...(contextMenu.length ? { contextMenu } : {}),
+    };
+
+    await fsp.mkdir(pkgDir, { recursive: true });
+    await fsp.writeFile(path.join(pkgDir, 'plugin.json'), JSON.stringify(manifest, null, 2), 'utf8');
+    await fsp.writeFile(path.join(pkgDir, 'frontend.json'), JSON.stringify(frontend, null, 2), 'utf8');
+
+    const map = await readPluginStatesMap();
+    map[rawId] = {
+      ...defaultPluginState(rawId, manifest.version),
+      enabled: req.body?.autoEnable === true,
+      trusted: req.body?.autoTrust === true,
+      trustedVersion: req.body?.autoTrust === true ? manifest.version : undefined,
+      grantedPermissions: req.body?.autoTrust === true ? [...permissions] : [],
+      updatedAt: Date.now(),
+    };
+    await writePluginStatesMap(map);
+
+    res.status(201).json({ ok: true, id: rawId, path: pkgDir });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.delete('/api/plugins/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const discovered = await discoverPluginsFromDisk();
+    const pkg = discovered.find((p) => p.manifest?.id === id);
+    if (pkg && pkg.path.startsWith(PLUGINS_ROOT + path.sep)) {
+      await fsp.rm(pkg.path, { recursive: true, force: true });
+    }
+    const map = await readPluginStatesMap();
+    if (map[id]) {
+      delete map[id];
+      await writePluginStatesMap(map);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 if (fs.existsSync(PUBLIC_DIR)) {

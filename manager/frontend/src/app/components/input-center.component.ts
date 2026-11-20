@@ -107,6 +107,7 @@ import type {
                   {{ binding.category || 'General' }} · {{ binding.contextId }}
                   <span *ngIf="binding.source === 'plugin'"> · Plugin</span>
                   <span *ngIf="binding.source === 'user'"> · User override</span>
+                  <span *ngIf="isOverridden(binding.id)"> · Customized</span>
                 </small>
               </div>
 
@@ -175,7 +176,7 @@ import type {
     .dialog-close{margin-left:8px}
     .toolbar{border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));flex-wrap:wrap}
     .search{flex:1;min-width:240px;height:26px;padding:3px 7px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:3px;background:var(--vsc-input-background);color:var(--vsc-input-foreground)}
-    .check{display:flex;align-items:center;gap:4px}.summary{margin-left:auto;color:var(--vsc-description-foreground)}
+    .check{display:flex;align-items:center;gap:4px}.summary{margin-left:auto;color:var(--vsc-description-foreground);font-variant-numeric:tabular-nums}
     .capture-banner{border-bottom:1px solid var(--vsc-border);background:color-mix(in srgb,var(--vsc-accent-blue) 8%,var(--vsc-panel-background));flex-wrap:wrap}
     .capture-banner strong{color:var(--vsc-foreground)}.capture-banner span{color:var(--vsc-description-foreground)}.capture-banner .captured{padding:2px 6px;border:1px solid var(--vsc-focus-border);border-radius:3px;color:var(--vsc-foreground)}
     header,.toolbar,.capture-banner,footer{flex:0 0 auto}
@@ -187,7 +188,7 @@ import type {
     footer{position:relative;z-index:1;justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-dialog-background,var(--vsc-panel-background))}
     .binding-list{display:grid}
     .binding{display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,260px) 32px 56px;align-items:center;gap:7px;min-height:44px;padding:5px 9px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
-    .binding:hover{background:var(--vsc-list-hover-background)}.binding.disabled{opacity:.58}.binding.overridden{box-shadow:inset 2px 0 0 var(--vsc-accent-blue)}.binding.conflict{background:color-mix(in srgb,var(--vsc-warning) 6%,transparent)}
+    .binding:hover{background:var(--vsc-list-hover-background)}.binding.disabled{opacity:.58}.binding.overridden{background:color-mix(in srgb,var(--vsc-accent-blue) 6%,transparent)}.binding.conflict{background:color-mix(in srgb,var(--vsc-warning) 6%,transparent)}
     .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small{color:var(--vsc-description-foreground)}
     .trigger{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:var(--vsc-input-background)}
     .enabled{display:grid;place-items:center}.reset{padding-inline:5px}

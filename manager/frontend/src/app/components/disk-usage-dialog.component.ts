@@ -49,7 +49,7 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
       align-items: center;
       justify-content: center;
       padding: 28px;
-      background: var(--vsc-scrim, rgba(0, 0, 0, .48));
+      background: var(--vsc-scrim-soft, var(--vsc-scrim));
     }
 
     .du-dialog {
@@ -64,7 +64,7 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
       background: var(--vsc-editor-background);
       border: 1px solid var(--vsc-border);
       border-radius: 6px;
-      box-shadow: 0 16px 48px rgba(0, 0, 0, .38);
+      box-shadow: 0 16px 48px var(--vsc-scrim);
     }
 
     app-size-manager-surface {

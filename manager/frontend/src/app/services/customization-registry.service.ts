@@ -100,15 +100,35 @@ export class CustomizationRegistryService {
   getLayoutPreset(id: string): LayoutPresetContribution | undefined { return this.active(this.layouts.get(id))?.value; }
   getWorkspaceTemplate(id: string): WorkspaceTemplateContribution | undefined { return this.active(this.templates.get(id))?.value; }
 
+  private appliedVariables = new WeakMap<HTMLElement, string[]>();
+
   applyTheme(id: string, target: HTMLElement = document.documentElement): boolean {
     const theme = this.getTheme(id);
-    if (!theme) return false;
-    target.dataset['themeId'] = theme.id;
-    target.dataset['themeKind'] = theme.kind;
-    for (const [name, value] of Object.entries(theme.variables)) {
-      target.style.setProperty(name.startsWith('--') ? name : `--${name}`, value);
+    this.clearAppliedVariables(target);
+    if (!theme) {
+      delete target.dataset['themePreset'];
+      return false;
     }
+    target.dataset['themeId'] = theme.id;
+    target.dataset['themePreset'] = theme.id;
+    target.dataset['themeKind'] = theme.kind;
+    const names: string[] = [];
+    for (const [name, value] of Object.entries(theme.variables)) {
+      const prop = name.startsWith('--') ? name : `--${name}`;
+      target.style.setProperty(prop, value);
+      names.push(prop);
+    }
+    this.appliedVariables.set(target, names);
     return true;
+  }
+
+  private clearAppliedVariables(target: HTMLElement): void {
+    const previous = this.appliedVariables.get(target);
+    if (!previous?.length) return;
+    for (const prop of previous) {
+      target.style.removeProperty(prop);
+    }
+    this.appliedVariables.delete(target);
   }
 
   unregisterOwner(ownerId: string): void {

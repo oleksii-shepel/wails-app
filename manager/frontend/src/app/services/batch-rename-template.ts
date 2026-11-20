@@ -46,6 +46,29 @@ function applyToken(token: string, context: BatchRenameTemplateContext): string 
 
   if (normalized === 'upper:name') return stem.toLocaleUpperCase();
   if (normalized === 'lower:name') return stem.toLocaleLowerCase();
+  if (normalized === 'kebab:name') {
+    return stem
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLocaleLowerCase();
+  }
+  if (normalized === 'snake:name') {
+    return stem
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLocaleLowerCase();
+  }
+  if (normalized === 'title:name') {
+    return stem
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (ch) => ch.toLocaleUpperCase());
+  }
 
   const counter = /^n(?::(\d+))?$/.exec(normalized);
   if (counter) {

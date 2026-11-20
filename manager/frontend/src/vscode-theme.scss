@@ -576,3 +576,102 @@
   --vsc-titlebar-height: 30px;
   --vsc-statusbar-height: 20px;
 }
+
+/* === Extensible Theme Presets (CustomizationRegistryService) === */
+:root[data-theme-preset='nordic-slate'] {
+  --vsc-editor-background: #1a212b;
+  --vsc-sidebar-background: #202936;
+  --vsc-panel-background: #1f2733;
+  --vsc-activitybar-background: #263140;
+  --vsc-titlebar-background: #232d3b;
+  --vsc-toolbar-background: #222b38;
+  --vsc-dialog-background: #1f2835;
+  --vsc-menu-background: #212a38;
+  --vsc-popover-background: #212a38;
+  --vsc-statusbar-background: #3b7ea1;
+  --vsc-button-background: #3b7ea1;
+  --vsc-button-hover: #4992b8;
+  --vsc-focus-ring: #6fb3d2;
+  --vsc-accent-blue: #6fb3d2;
+  --vsc-text-link: #7ec4e3;
+  --vsc-border: #334154;
+  --vsc-border-subtle: #2b3748;
+  --vsc-border-bright: #465973;
+  --vsc-list-hover-background: #273342;
+  --vsc-list-active-background: #2f3e50;
+  --vsc-list-selected-emphasis: #244b66;
+}
+
+:root[data-theme-preset='obsidian-emerald'] {
+  --vsc-editor-background: #141917;
+  --vsc-sidebar-background: #19201d;
+  --vsc-panel-background: #181e1c;
+  --vsc-activitybar-background: #1f2824;
+  --vsc-titlebar-background: #1d2522;
+  --vsc-toolbar-background: #1c2421;
+  --vsc-dialog-background: #19201d;
+  --vsc-menu-background: #1b221f;
+  --vsc-popover-background: #1b221f;
+  --vsc-statusbar-background: #1e7a56;
+  --vsc-button-background: #1e7a56;
+  --vsc-button-hover: #259168;
+  --vsc-focus-ring: #3fcf8e;
+  --vsc-accent-blue: #3fcf8e;
+  --vsc-text-link: #56dba0;
+  --vsc-border: #2c3a34;
+  --vsc-border-subtle: #24302b;
+  --vsc-border-bright: #3c4f47;
+  --vsc-list-hover-background: #212b27;
+  --vsc-list-active-background: #283630;
+  --vsc-list-selected-emphasis: #174b38;
+}
+
+:root[data-theme-preset='graphite-amber'] {
+  --vsc-editor-background: #181716;
+  --vsc-sidebar-background: #211f1d;
+  --vsc-panel-background: #1f1d1b;
+  --vsc-activitybar-background: #292623;
+  --vsc-titlebar-background: #262421;
+  --vsc-toolbar-background: #24211f;
+  --vsc-dialog-background: #211f1d;
+  --vsc-menu-background: #23211e;
+  --vsc-popover-background: #23211e;
+  --vsc-statusbar-background: #9f6019;
+  --vsc-button-background: #b56c1a;
+  --vsc-button-hover: #cc7b22;
+  --vsc-focus-ring: #e89b3c;
+  --vsc-accent-blue: #e89b3c;
+  --vsc-text-link: #f0ae54;
+  --vsc-border: #3d3833;
+  --vsc-border-subtle: #322e2a;
+  --vsc-border-bright: #524b44;
+  --vsc-list-hover-background: #2a2724;
+  --vsc-list-active-background: #36312d;
+  --vsc-list-selected-emphasis: #543718;
+}
+
+:root.vscode-light[data-theme-preset='warm-paper'],
+:root[data-theme-preset='warm-paper'] {
+  --vsc-editor-background: #faf8f4;
+  --vsc-sidebar-background: #f2efe9;
+  --vsc-panel-background: #f2efe9;
+  --vsc-activitybar-background: #e6e2da;
+  --vsc-titlebar-background: #ebe7df;
+  --vsc-toolbar-background: #efece4;
+  --vsc-dialog-background: #faf8f4;
+  --vsc-menu-background: #faf8f4;
+  --vsc-popover-background: #faf8f4;
+  --vsc-foreground: #2f2c27;
+  --vsc-foreground-dim: #6e685f;
+  --vsc-foreground-bright: #1b1916;
+  --vsc-statusbar-background: #2d6694;
+  --vsc-button-background: #2d6694;
+  --vsc-button-hover: #3678ad;
+  --vsc-focus-ring: #2d6694;
+  --vsc-border: #d8d2c7;
+  --vsc-border-subtle: #e5dfd5;
+  --vsc-border-bright: #c2bbb0;
+  --vsc-list-hover-background: #ebe6dc;
+  --vsc-list-active-background: #e1dbd0;
+  --vsc-list-active-foreground: #1b1916;
+}

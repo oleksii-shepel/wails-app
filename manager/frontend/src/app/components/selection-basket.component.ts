@@ -23,9 +23,9 @@ import type {
 
 @Component({
   selector: 'app-selection-basket',
-  standalone: true,
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   template: `
     <div
       *ngIf="visible || isClosing"
@@ -42,7 +42,7 @@ import type {
         <header class="basket-header palette-dialog-header">
           <div class="basket-title palette-dialog-title">
             <strong>Selection Basket</strong>
-            <span class="palette-dialog-subtitle">{{ entries.length }} items</span>
+            <span class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</span>
           </div>
           <span
             class="dialog-close"
@@ -61,6 +61,27 @@ import type {
           <div><strong>{{ sourceCount }}</strong><span>Sources</span></div>
         </div>
 
+        <div class="basket-toolbar">
+          <input
+            type="search"
+            class="basket-search"
+            [value]="searchText"
+            (input)="onSearchInput($event)"
+            placeholder="Filter basket items or paths…"
+            aria-label="Filter basket items" />
+          <div class="type-filter" role="group" aria-label="Entry type filter">
+            <button type="button" [class.active]="typeFilter === 'all'" (click)="setTypeFilter('all')">All</button>
+            <button type="button" [class.active]="typeFilter === 'files'" (click)="setTypeFilter('files')">Files</button>
+            <button type="button" [class.active]="typeFilter === 'folders'" (click)="setTypeFilter('folders')">Folders</button>
+          </div>
+          <button type="button" class="tool-utility-btn" [disabled]="!entries.length" (click)="copyPaths()">
+            {{ copiedFeedback ? 'Copied Paths' : 'Copy Paths' }}
+          </button>
+          <button type="button" class="tool-utility-btn" [disabled]="folderCount === 0" (click)="removeFolders()">
+            Remove Folders ({{ folderCount }})
+          </button>
+        </div>
+
         <div class="basket-workspace">
           <section class="basket-list palette-dialog-body" aria-label="Basket contents">
             <div *ngIf="entries.length === 0" class="empty-state palette-dialog-empty">
@@ -69,7 +90,12 @@ import type {
               <code>basket.add</code>
             </div>
 
-            <article *ngFor="let entry of entries; trackBy: trackEntry" class="basket-row">
+            <div *ngIf="entries.length > 0 && filteredEntries.length === 0" class="empty-state palette-dialog-empty">
+              <strong>No matching basket items</strong>
+              <span>Clear the search or switch type filter to view all {{ entries.length }} items.</span>
+            </div>
+
+            <article *ngFor="let entry of filteredEntries; trackBy: trackEntry" class="basket-row">
               <div class="entry-icon" aria-hidden="true">{{ iconFor(entry) }}</div>
               <div class="entry-main">
                 <strong [title]="entry.label">{{ entry.label }}</strong>
@@ -142,7 +168,7 @@ import type {
         <footer class="basket-footer">
           <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="clear()">Clear Basket</button>
           <span class="footer-spacer"></span>
-          <span class="footer-status">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</span>
+          <span class="footer-status">{{ filteredEntries.length }} of {{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</span>
           <button
             type="button"
             class="palette-dialog-button execute-button"
@@ -158,67 +184,74 @@ import type {
   styles: [`
     :host { position: fixed; inset: 0; z-index: 9460; pointer-events: none; }
 
-    .basket-panel {
+    .basket-panel.basket-panel {
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
       width: min(940px, calc(100vw - 24px));
       height: min(700px, calc(100vh - 40px));
       overflow: hidden;
-      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border: 1px solid var(--vsc-border);
       border-radius: 8px;
       background: var(--vsc-menu-background, var(--vsc-panel-background));
-      color: var(--vsc-foreground, var(--vsc-foreground));
+      color: var(--vsc-foreground);
       box-shadow: 0 18px 60px var(--vsc-scrim);
       font: 12px/1.4 var(--vsc-font-family, system-ui, sans-serif);
     }
 
     .basket-header,.basket-footer { display:flex; align-items:center; gap:9px; padding:9px 10px; }
-    .basket-header { justify-content:space-between; border-bottom:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
+    .basket-header { justify-content:space-between; border-bottom:1px solid var(--vsc-border-subtle); }
     .basket-title { display:flex; gap:8px; align-items:baseline; min-width:0; }
     .basket-title strong { font-weight:600; }
     .basket-title span,.basket-footer>span,.entry-path,.entry-meta,.basket-summary span,.section-note,.batch-preview span,.footer-status { color:var(--vsc-description-foreground, var(--vsc-foreground-dim)); }
 
-    button,select { font:inherit; }
+    button,select,input { font:inherit; }
     button { color:inherit; }
     button:disabled,select:disabled { opacity:.35; cursor:default; }
 
-    .basket-summary { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
-    .basket-summary>div { display:flex; align-items:baseline; gap:6px; min-width:0; padding:6px 10px; }
-    .basket-summary>div+div { border-left:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
-    .basket-summary strong { font-size:12px; font-weight:600; }
+    .basket-summary { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid var(--vsc-border-subtle); background:transparent; }
+    .basket-summary>div { display:flex; align-items:baseline; gap:6px; min-width:0; padding:6px 10px; background:var(--vsc-menu-background, var(--vsc-panel-background)); }
+    .basket-summary>div+div { border-left:1px solid var(--vsc-border-subtle); }
+    .basket-summary strong { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
     .basket-summary span { font-size:10px; }
 
+    .basket-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:7px 10px; border-bottom:1px solid var(--vsc-border-subtle); }
+    .basket-search { flex:1; min-width:180px; height:26px; padding:0 8px; border:1px solid var(--vsc-input-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-input-background); color:var(--vsc-input-foreground, var(--vsc-foreground)); font-size:12px; }
+    .type-filter { display:inline-flex; gap:3px; }
+    .type-filter button, .tool-utility-btn { min-height:26px; padding:2px 8px; border:1px solid var(--vsc-border-subtle, var(--vsc-border)); border-radius:4px; background:transparent; font-size:11px; cursor:pointer; font-variant-numeric:tabular-nums; }
+    .type-filter button.active { border-color:color-mix(in srgb, var(--vsc-accent-blue) 55%, var(--vsc-border)); background:color-mix(in srgb, var(--vsc-accent-blue) 14%, transparent); color:var(--vsc-foreground); }
+    .tool-utility-btn:hover:not(:disabled), .type-filter button:hover:not(:disabled) { border-color:var(--vsc-border); background:var(--vsc-list-hover-background); }
+
     .basket-workspace { display:grid; grid-template-columns:minmax(0,1fr) 300px; flex:1; min-height:0; }
-    .basket-list { min-height:0; overflow:auto; padding:5px; border-right:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
+    .basket-list { min-height:0; overflow:auto; padding:5px; border-right:1px solid var(--vsc-border-subtle); }
     .basket-row { display:grid; grid-template-columns:30px minmax(0,1fr) 27px; gap:8px; align-items:center; min-height:52px; padding:5px 8px; border:1px solid transparent; border-radius:4px; }
-    .basket-row:hover { background:var(--vsc-list-hover-background, var(--vsc-list-hover-background)); }
+    .basket-row:hover { background:var(--vsc-list-hover-background); }
     .entry-icon { display:flex; align-items:center; justify-content:center; font-size:16px; }
     .entry-main { min-width:0; display:grid; }
     .entry-main strong,.entry-path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .entry-path { font-family:var(--vsc-font-family-mono, ui-monospace, monospace); font-size:10px; }
-    .entry-meta { display:flex; gap:4px 10px; margin-top:2px; font-size:10px; }
+    .entry-meta { display:flex; gap:4px 10px; margin-top:2px; font-size:10px; font-variant-numeric:tabular-nums; }
 
     .remove-button,.basket-footer button,.operation-tabs button {
       min-height:27px; padding:3px 8px; border:1px solid transparent; border-radius:4px; background:transparent; cursor:pointer;
     }
     .remove-button { width:27px; padding:0; font-size:16px; opacity:.7; }
-    .remove-button:hover,.basket-footer button:hover:not(:disabled),.operation-tabs button:hover:not(:disabled) { border-color:var(--vsc-border, var(--vsc-border)); background:var(--vsc-list-hover-background, var(--vsc-list-hover-background)); opacity:1; }
+    .remove-button:hover,.basket-footer button:hover:not(:disabled),.operation-tabs button:hover:not(:disabled) { border-color:var(--vsc-border); background:var(--vsc-list-hover-background); opacity:1; }
 
     .batch-panel { min-width:0; overflow:auto; background:var(--vsc-editor-background, var(--vsc-panel-background)); }
-    .batch-section { display:grid; gap:7px; padding:12px; border-bottom:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
+    .batch-section { display:grid; gap:7px; padding:12px; border-bottom:1px solid var(--vsc-border-subtle); }
     .section-label { color:var(--vsc-description-foreground, var(--vsc-foreground-dim)); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
     .section-note { font-size:10px; }
     .operation-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
     .destination-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px; align-items:center; }
-    .browse-button { min-height:28px; padding:3px 9px; border:1px solid var(--vsc-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-button-secondary-background, transparent); color:inherit; cursor:pointer; white-space:nowrap; }
-    .browse-button:hover:not(:disabled) { background:var(--vsc-list-hover-background, var(--vsc-list-hover-background)); }
+    .browse-button { min-height:28px; padding:3px 9px; border:1px solid var(--vsc-border); border-radius:4px; background:var(--vsc-button-secondary-background, transparent); color:inherit; cursor:pointer; white-space:nowrap; }
+    .browse-button:hover:not(:disabled) { background:var(--vsc-list-hover-background); }
     .destination-path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--vsc-font-family-mono, ui-monospace, monospace); font-size:10px; color:var(--vsc-description-foreground, var(--vsc-foreground-dim)); }
     .operation-tabs button { border-color:var(--vsc-border-subtle, var(--vsc-border)); }
     .operation-tabs button.active { border-color:var(--vsc-focus-border, var(--vsc-accent-blue)); background:var(--vsc-list-active-background, var(--vsc-list-hover-background)); }
     .operation-tabs .danger-tab.active,.execute-button.danger { color:var(--vsc-error-foreground, var(--vsc-error)); }
 
-    select { width:100%; min-width:0; height:28px; padding:2px 6px; border:1px solid var(--vsc-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-input-background, var(--vsc-editor-background)); color:var(--vsc-input-foreground, var(--vsc-foreground)); }
+    select { width:100%; min-width:0; height:28px; padding:2px 6px; border:1px solid var(--vsc-border); border-radius:4px; background:var(--vsc-input-background, var(--vsc-editor-background)); color:var(--vsc-input-foreground, var(--vsc-foreground)); }
     .check-row { display:flex; align-items:center; gap:7px; min-height:24px; }
     .check-row input { margin:0; }
     .batch-preview strong { font-weight:600; }
@@ -229,17 +262,17 @@ import type {
     .empty-state span { margin-top:4px; }
     .empty-state code { margin-top:8px; color:var(--vsc-accent-blue); }
 
-    .basket-footer { border-top:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); font-size:10px; }
+    .basket-footer { border-top:1px solid var(--vsc-border-subtle); font-size:10px; font-variant-numeric:tabular-nums; }
     .footer-spacer { flex:1; }
-    .execute-button { min-width:82px; border-color:var(--vsc-border, var(--vsc-border))!important; }
+    .execute-button { min-width:82px; border-color:var(--vsc-border)!important; }
 
     @media (max-width:760px),(max-height:560px) {
-      .basket-panel { width:calc(100vw - 16px); height:calc(100vh - 16px); }
+      .basket-panel.basket-panel { width:calc(100vw - 16px); height:calc(100vh - 16px); }
       .basket-workspace { grid-template-columns:1fr; }
-      .basket-list { border-right:0; border-bottom:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
+      .basket-list { border-right:0; border-bottom:1px solid var(--vsc-border-subtle); }
       .batch-panel { max-height:250px; }
       .basket-summary { grid-template-columns:1fr; }
-      .basket-summary>div+div { border-left:0; border-top:1px solid var(--vsc-border-subtle, var(--vsc-border-subtle)); }
+      .basket-summary>div+div { border-left:0; border-top:1px solid var(--vsc-border-subtle); }
     }
   `],
 })
@@ -258,6 +291,9 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   visible = false;
   isClosing = false;
   entries: SelectionBasketEntry[] = [];
+  searchText = '';
+  typeFilter: 'all' | 'files' | 'folders' = 'all';
+  copiedFeedback = false;
   operation: SelectionBasketOperation = 'copy';
   destinationSide: SelectionBasketDestination = 'right';
   destinationMode: SelectionBasketDestination | 'custom' = 'right';
@@ -267,6 +303,7 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   useTrash = true;
 
   private readonly destroy$ = createSubject<void>();
+  private copiedTimer: number | null = null;
 
   constructor(
     public readonly basket: SelectionBasketService,
@@ -282,8 +319,63 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.copiedTimer !== null) {
+      window.clearTimeout(this.copiedTimer);
+      this.copiedTimer = null;
+    }
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  get filteredEntries(): SelectionBasketEntry[] {
+    const query = this.searchText.trim().toLowerCase();
+    return this.entries.filter(entry => {
+      if (this.typeFilter === 'folders' && entry.type !== FileType.DIRECTORY) return false;
+      if (this.typeFilter === 'files' && entry.type === FileType.DIRECTORY) return false;
+      if (!query) return true;
+      return entry.label.toLowerCase().includes(query) || entry.path.toLowerCase().includes(query);
+    });
+  }
+
+  get folderCount(): number {
+    return this.entries.filter(entry => entry.type === FileType.DIRECTORY).length;
+  }
+
+  onSearchInput(event: Event): void {
+    this.searchText = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  setTypeFilter(filter: 'all' | 'files' | 'folders'): void {
+    this.typeFilter = filter;
+    this.cdr.markForCheck();
+  }
+
+  async copyPaths(): Promise<void> {
+    if (!this.entries.length) return;
+    const text = this.filteredEntries.map(entry => entry.path).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      this.copiedFeedback = true;
+      if (this.copiedTimer !== null) window.clearTimeout(this.copiedTimer);
+      this.copiedTimer = window.setTimeout(() => {
+        this.copiedFeedback = false;
+        this.copiedTimer = null;
+        this.cdr.markForCheck();
+      }, 1800);
+      this.cdr.markForCheck();
+    } catch {
+      // Clipboard may be unavailable in restricted contexts
+    }
+  }
+
+  removeFolders(): void {
+    const folderPaths = this.entries
+      .filter(entry => entry.type === FileType.DIRECTORY)
+      .map(entry => entry.path);
+    if (folderPaths.length > 0) {
+      this.basket.removePaths(folderPaths);
+    }
   }
 
   show(): void {

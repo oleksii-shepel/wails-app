@@ -8,7 +8,6 @@ import {
   Output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 import { ApiService } from '../services/api.service';
@@ -27,15 +26,23 @@ import { SelectionBasketService } from '../services/selection-basket.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { FileType, type FileInfo } from '../shared/protocol';
 import type {
   DiskUsageEntry,
   DiskUsageProgress,
   DiskUsageResult,
 } from '../shared/protocol-enhanced';
-type ToolPage = 'operations' | 'disk' | 'duplicates';
+
+type ToolPage = 'operations' | 'disk' | 'duplicates' | 'checksums';
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
 type DiskSort = 'size' | 'files' | 'name';
 type DuplicateSort = 'reclaimable' | 'size' | 'copies';
+
+interface ChecksumAlgorithmRow {
+  id: 'sha256' | 'sha512' | 'sha1' | 'md5';
+  label: string;
+  value: string;
+}
 
 const CONTEXT_ID = 'overlay.Tools';
 const OWNER_ID = 'overlay.Tools';
@@ -45,6 +52,7 @@ const COMMAND = {
   operations: 'reassembly.toolsCenter.operations',
   disk: 'reassembly.toolsCenter.disk',
   duplicates: 'reassembly.toolsCenter.duplicates',
+  checksums: 'reassembly.toolsCenter.checksums',
   rescan: 'reassembly.toolsCenter.rescan',
   selectAllDuplicates: 'reassembly.toolsCenter.selectAllDuplicates',
   clearDuplicateSelection: 'reassembly.toolsCenter.clearDuplicateSelection',
@@ -57,17 +65,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.toolsCenter.page1', commandId:COMMAND.operations, contextId:CONTEXT_ID, source:'default', description:'Operations page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'1'}]}}},
   { id:'reassembly.toolsCenter.page2', commandId:COMMAND.disk, contextId:CONTEXT_ID, source:'default', description:'Disk Usage page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
   { id:'reassembly.toolsCenter.page3', commandId:COMMAND.duplicates, contextId:CONTEXT_ID, source:'default', description:'Duplicates page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
-  { id:'reassembly.toolsCenter.rescan', commandId:COMMAND.rescan, contextId:CONTEXT_ID, source:'default', description:'Rescan current tool', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'r'}]}}},
-  { id:'reassembly.toolsCenter.selectAllDuplicates', commandId:COMMAND.selectAllDuplicates, contextId:CONTEXT_ID, source:'default', description:'Select reclaimable duplicates', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'a'}]}}},
-  { id:'reassembly.toolsCenter.clearDuplicateSelection', commandId:COMMAND.clearDuplicateSelection, contextId:CONTEXT_ID, source:'default', description:'Clear duplicate selection', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'u'}]}}},
-  { id:'reassembly.toolsCenter.addDuplicatesToBasket', commandId:COMMAND.addDuplicatesToBasket, contextId:CONTEXT_ID, source:'default', description:'Add duplicate selection to basket', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'b'}]}}},
+  { id:'reassembly.toolsCenter.page4', commandId:COMMAND.checksums, contextId:CONTEXT_ID, source:'default', description:'Checksums page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'4'}]}}},
+  { id:'reassembly.toolsCenter.rescan', commandId:COMMAND.rescan, contextId:CONTEXT_ID, source:'default', description:'Rescan current tool', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'r'}]}}},
+  { id:'reassembly.toolsCenter.selectAllDuplicates', commandId:COMMAND.selectAllDuplicates, contextId:CONTEXT_ID, source:'default', description:'Select reclaimable duplicates', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'a'}]}}},
+  { id:'reassembly.toolsCenter.clearDuplicateSelection', commandId:COMMAND.clearDuplicateSelection, contextId:CONTEXT_ID, source:'default', description:'Clear duplicate selection', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'u'}]}}},
+  { id:'reassembly.toolsCenter.addDuplicatesToBasket', commandId:COMMAND.addDuplicatesToBasket, contextId:CONTEXT_ID, source:'default', description:'Add duplicate selection to basket', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b'}]}}},
   { id:'reassembly.toolsCenter.deleteDuplicates', commandId:COMMAND.deleteDuplicates, contextId:CONTEXT_ID, source:'default', description:'Delete selected duplicates', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
 ];
 
 @Component({
   selector: 'app-tools-center',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
@@ -83,18 +91,19 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </header>
 
         <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages">
-          <button type="button" role="tab" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="page='operations'">
+          <button type="button" role="tab" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="setPage('operations')">
             Operations <span>{{ activeOperations.length }}</span>
           </button>
-          <button type="button" role="tab" [attr.aria-selected]="page === 'disk'" [attr.tabindex]="page === 'disk' ? 0 : -1" [class.active]="page === 'disk'" (click)="page='disk'">Disk Usage</button>
-          <button type="button" role="tab" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="page='duplicates'">Duplicates</button>
+          <button type="button" role="tab" [attr.aria-selected]="page === 'disk'" [attr.tabindex]="page === 'disk' ? 0 : -1" [class.active]="page === 'disk'" (click)="setPage('disk')">Disk Usage</button>
+          <button type="button" role="tab" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="setPage('duplicates')">Duplicates</button>
+          <button type="button" role="tab" [attr.aria-selected]="page === 'checksums'" [attr.tabindex]="page === 'checksums' ? 0 : -1" [class.active]="page === 'checksums'" (click)="setPage('checksums')">Checksums</button>
         </nav>
 
         <div class="body" role="tabpanel" aria-label="Operations" *ngIf="page === 'operations'">
           <div class="tool-actions operation-filters palette-dialog-toolbar">
             <label>
               Show
-              <select [(ngModel)]="operationFilter">
+              <select [value]="operationFilter" (change)="onOperationFilterChange($event)">
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="completed">Completed</option>
@@ -166,9 +175,16 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               {{ diskScanning ? 'Scanning…' : 'Scan current directory' }}
             </button>
             <button type="button" *ngIf="diskScanning" (click)="cancelDisk()">Cancel</button>
+            <input
+              type="search"
+              class="tool-filter-input"
+              [value]="diskFilter"
+              (input)="onDiskFilterInput($event)"
+              placeholder="Filter entries…"
+              aria-label="Filter disk usage entries" />
             <label>
               Sort
-              <select [(ngModel)]="diskSort">
+              <select [value]="diskSort" (change)="onDiskSortChange($event)">
                 <option value="size">Size</option>
                 <option value="files">Files</option>
                 <option value="name">Name</option>
@@ -182,7 +198,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <span>{{ diskProgress.totalDirs || 0 }} dirs</span>
           </div>
 
-          <div class="disk-list" *ngIf="diskEntries.length">
+          <div class="disk-list" *ngIf="sortedDiskEntries.length">
             <button
               type="button"
               class="disk-row disk-row-button"
@@ -191,14 +207,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               [disabled]="!entry.isDir"
               (click)="openDiskEntry(entry)">
               <span class="name" [title]="entry.path">{{ entry.name }}</span>
-              <span>{{ formatBytes(entry.size) }}</span>
-              <span>{{ entry.files }} files</span>
+              <span class="num">{{ formatBytes(entry.size) }}</span>
+              <span class="num">{{ entry.files }} files</span>
               <div class="bar"><i [style.width.%]="diskPercent(entry)"></i></div>
             </button>
           </div>
 
           <div class="empty" *ngIf="!diskScanning && diskEntries.length === 0">
             Scan the active directory to see where space is used.
+          </div>
+          <div class="empty" *ngIf="!diskScanning && diskEntries.length > 0 && sortedDiskEntries.length === 0">
+            No entries match "{{ diskFilter }}".
           </div>
           <div class="error" *ngIf="diskError">{{ diskError }}</div>
         </div>
@@ -207,20 +226,27 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="tool-actions palette-dialog-toolbar">
             <label>
               Min size
-              <input type="number" min="0" [(ngModel)]="duplicateMinSize" [disabled]="duplicateScanning">
+              <input type="number" min="0" [value]="duplicateMinSize" (input)="onDuplicateMinSizeInput($event)" [disabled]="duplicateScanning">
             </label>
             <label>
-              <input type="checkbox" [(ngModel)]="duplicateIncludeHidden" [disabled]="duplicateScanning">
+              <input type="checkbox" [checked]="duplicateIncludeHidden" (change)="onDuplicateHiddenChange($event)" [disabled]="duplicateScanning">
               Hidden
             </label>
             <label>
               Sort
-              <select [(ngModel)]="duplicateSort" [disabled]="duplicateScanning">
+              <select [value]="duplicateSort" (change)="onDuplicateSortChange($event)" [disabled]="duplicateScanning">
                 <option value="reclaimable">Reclaimable</option>
                 <option value="size">File size</option>
                 <option value="copies">Copies</option>
               </select>
             </label>
+            <input
+              type="search"
+              class="tool-filter-input"
+              [value]="duplicateFilter"
+              (input)="onDuplicateFilterInput($event)"
+              placeholder="Filter path…"
+              aria-label="Filter duplicate paths" />
             <button type="button" (click)="scanDuplicates()" [disabled]="duplicateScanning || !rootPath">
               {{ duplicateScanning ? 'Scanning…' : 'Scan' }}
             </button>
@@ -253,11 +279,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <section class="duplicate-group" *ngFor="let group of duplicateGroups; trackBy:trackGroup">
             <header>
               <strong>{{ group.files.length }} copies</strong>
-              <span>{{ formatBytes(group.size) }} each</span>
-              <span>{{ formatBytes(group.reclaimableBytes) }} reclaimable</span>
+              <span> · {{ formatBytes(group.size) }} each</span>
+              <span> · {{ formatBytes(group.reclaimableBytes) }} reclaimable</span>
             </header>
 
-            <label class="duplicate-file" *ngFor="let file of group.files">
+            <div class="duplicate-file" *ngFor="let file of group.files">
               <input
                 type="checkbox"
                 [checked]="duplicateSelected.has(file.path)"
@@ -270,8 +296,16 @@ const BINDINGS: readonly InputBindingDefinition[] = [
                 (click)="openContainingFolder(file.path); $event.preventDefault()">
                 {{ file.path }}
               </button>
-              <small *ngIf="file.path === group.suggestedKeeperPath">keeper</small>
-            </label>
+              <div class="duplicate-file-actions">
+                <small *ngIf="file.path === group.suggestedKeeperPath">keeper</small>
+                <button
+                  type="button"
+                  class="copy-mini-btn"
+                  (click)="copyPath(file.path)">
+                  {{ copiedValue === file.path ? 'Copied' : 'Copy Path' }}
+                </button>
+              </div>
+            </div>
           </section>
 
           <div class="empty" *ngIf="!duplicateScanning && duplicateGroups.length === 0">
@@ -284,8 +318,78 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="error" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>
 
+        <div class="body" role="tabpanel" aria-label="Checksums" *ngIf="page === 'checksums'">
+          <div class="tool-actions palette-dialog-toolbar">
+            <select
+              *ngIf="checksumCandidates.length > 0"
+              class="checksum-select"
+              [value]="checksumTargetPath"
+              (change)="onChecksumCandidateSelect($event)"
+              aria-label="Files in active directory">
+              <option value="">Select file from active directory…</option>
+              <option *ngFor="let file of checksumCandidates" [value]="file.path">
+                {{ file.name }} ({{ formatBytes(file.size) }})
+              </option>
+            </select>
+            <input
+              type="text"
+              class="checksum-path-input"
+              [value]="checksumTargetPath"
+              (input)="onChecksumPathInput($event)"
+              (keydown.enter)="computeChecksums()"
+              placeholder="Enter or choose file path…"
+              aria-label="Target file path" />
+            <button
+              type="button"
+              [disabled]="checksumComputing || !checksumTargetPath.trim()"
+              (click)="computeChecksums()">
+              {{ checksumComputing ? 'Hashing…' : 'Compute' }}
+            </button>
+          </div>
+
+          <div class="summary" *ngIf="checksumResults.length > 0">
+            <span>{{ checksumTargetPath }}</span>
+            <span *ngIf="checksumFileSize !== null">{{ formatBytes(checksumFileSize) }}</span>
+          </div>
+
+          <div class="checksum-grid" *ngIf="checksumResults.length > 0">
+            <div class="checksum-row" *ngFor="let item of checksumResults">
+              <span class="checksum-algo">{{ item.label }}</span>
+              <code class="checksum-digest" [title]="item.value">{{ item.value }}</code>
+              <button type="button" class="copy-mini-btn" (click)="copyDigest(item.value)">
+                {{ copiedValue === item.value ? 'Copied' : 'Copy' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="checksum-verify" *ngIf="checksumResults.length > 0">
+            <label for="checksum-expected">Verify expected digest (SHA-256 / SHA-512 / SHA-1 / MD5)</label>
+            <div class="checksum-verify-row">
+              <input
+                id="checksum-expected"
+                type="text"
+                class="checksum-path-input"
+                [value]="expectedDigest"
+                (input)="onExpectedDigestInput($event)"
+                placeholder="Paste expected hex digest to verify…" />
+              <span
+                *ngIf="expectedDigest.trim()"
+                class="verify-status"
+                [class.match]="!!matchedAlgorithm"
+                [class.mismatch]="!matchedAlgorithm">
+                {{ matchedAlgorithm ? 'Match (' + matchedAlgorithm + ')' : 'Does not match any digest' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="empty" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
+            Choose a file or enter a path to compute SHA-256, SHA-512, SHA-1, and MD5 digests in one pass.
+          </div>
+          <div class="error" *ngIf="checksumError">{{ checksumError }}</div>
+        </div>
+
         <footer class="tool-keys palette-dialog-footer">
-          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · R rescan</span>
+          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · R rescan</span>
           <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete remove</span>
         </footer>
       </section>
@@ -294,23 +398,40 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host{position:fixed;inset:0;z-index:9490;pointer-events:none}
-    .tools{width:min(900px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column}
+    .tools{width:min(920px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column}
     .root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     button,input,select{font:inherit}
     .tool-actions button{border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer}
-    .tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));border-color:var(--vsc-border,var(--vsc-border))}
-    nav span{opacity:.6;margin-left:4px}.body{flex:1;min-height:0;overflow:auto}.summary,.tool-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
-    .tool-actions label{display:flex;align-items:center;gap:5px}.tool-actions input[type=number]{width:90px;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;border:1px solid var(--vsc-border,var(--vsc-border));padding:3px 5px}
-    .danger{color:var(--vsc-error-foreground,var(--vsc-error))!important}.operation{padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}.row{display:flex;justify-content:space-between;gap:10px}.operation small{display:block;margin-top:4px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .progress,.bar{height:4px;margin-top:6px;background:var(--vsc-neutral-overlay-soft);overflow:hidden;border-radius:99px}.progress i,.bar i{display:block;height:100%;background:var(--vsc-accent-blue,var(--vsc-accent-blue))}
+    .tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
+    nav span{opacity:.6;margin-left:4px}.body{flex:1;min-height:0;overflow:auto}.summary,.tool-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--vsc-border-subtle);font-variant-numeric:tabular-nums}
+    .tool-actions label{display:flex;align-items:center;gap:5px}.tool-actions input[type=number]{width:82px;background:var(--vsc-input-background);color:inherit;border:1px solid var(--vsc-border);padding:3px 5px}
+    .tool-filter-input{min-width:150px;height:26px;padding:0 8px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background);color:inherit}
+    .danger{color:var(--vsc-error-foreground,var(--vsc-error))!important}.operation{padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}.row{display:flex;justify-content:space-between;gap:10px}.operation small{display:block;margin-top:4px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .progress,.bar{height:4px;margin-top:6px;background:var(--vsc-neutral-overlay-soft);overflow:hidden;border-radius:99px}.progress i,.bar i{display:block;height:100%;background:var(--vsc-accent-blue)}
     .history-title{padding:8px 12px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.operation.history{opacity:.8}
-    .disk-row{display:grid;grid-template-columns:minmax(140px,1fr) 100px 80px minmax(100px,220px);gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}.disk-row .name,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .duplicate-group{margin:8px 12px;border:1px solid var(--vsc-border,var(--vsc-list-active-background));border-radius:5px;overflow:hidden}.duplicate-group>header{padding:7px 9px;background:var(--vsc-neutral-overlay-subtle);font-size:11px}.duplicate-file{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 9px;border-top:1px solid var(--vsc-neutral-overlay-soft)}.duplicate-file small{color:var(--vsc-accent-green,var(--vsc-success))}
-    .empty{padding:48px 20px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.error,.warnings{margin:8px 12px;padding:8px;border-radius:4px}.error{color:var(--vsc-error-foreground,var(--vsc-error));background:var(--vsc-error-surface)}.warnings{color: var(--vsc-accent-yellow);background:var(--vsc-warning-surface)}
+    .disk-row{display:grid;grid-template-columns:minmax(140px,1fr) 100px 80px minmax(100px,220px);gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--vsc-border-subtle)}.disk-row .name,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.num{font-variant-numeric:tabular-nums}
+    .duplicate-group{margin:8px 12px;border:1px solid var(--vsc-border,var(--vsc-list-active-background));border-radius:5px;overflow:hidden}.duplicate-group>header{padding:7px 9px;background:var(--vsc-neutral-overlay-subtle);font-size:11px;font-variant-numeric:tabular-nums}.duplicate-file{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 9px;border-top:1px solid var(--vsc-neutral-overlay-soft)}.duplicate-file small{color:var(--vsc-accent-green,var(--vsc-success))}
+    .duplicate-file-actions{display:flex;align-items:center;gap:8px}
+    .copy-mini-btn{padding:2px 7px;border:1px solid var(--vsc-border-subtle,var(--vsc-border));border-radius:3px;font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .copy-mini-btn:hover{color:var(--vsc-foreground);background:var(--vsc-list-hover-background)}
+    .checksum-select{max-width:260px;height:26px;padding:0 6px}
+    .checksum-path-input{flex:1;min-width:200px;height:26px;padding:0 8px;font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px}
+    .checksum-grid{display:grid;gap:1px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .checksum-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .checksum-row:last-child{border-bottom:0}
+    .checksum-algo{font-size:11px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .checksum-digest{font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+    .checksum-verify{display:grid;gap:6px;padding:12px}
+    .checksum-verify label{font-size:11px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .checksum-verify-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+    .verify-status{font-size:11px;font-weight:600}
+    .verify-status.match{color:var(--vsc-accent-green,var(--vsc-success))}
+    .verify-status.mismatch{color:var(--vsc-error-foreground,var(--vsc-error))}
+    .empty{padding:48px 20px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.error,.warnings{margin:8px 12px;padding:8px;border-radius:4px}.error{color:var(--vsc-error-foreground,var(--vsc-error));background:var(--vsc-error-surface)}.warnings{color:var(--vsc-accent-yellow);background:var(--vsc-warning-surface)}
     button:disabled{opacity:.4;cursor:default}
     .disk-row-button{border-left:0;border-right:0;background:transparent;color:inherit;text-align:left;width:100%}
-    .disk-row-button.navigable{cursor:pointer}.disk-row-button.navigable:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.disk-row-button:disabled{opacity:1}
-    .path-button{border:0;background:transparent;color:inherit;text-align:left;padding:2px 4px;border-radius:3px;cursor:pointer}.path-button:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
+    .disk-row-button.navigable{cursor:pointer}.disk-row-button.navigable:hover{background:var(--vsc-list-hover-background)}.disk-row-button:disabled{opacity:1}
+    .path-button{border:0;background:transparent;color:inherit;text-align:left;padding:2px 4px;border-radius:3px;cursor:pointer}.path-button:hover{background:var(--vsc-list-hover-background)}
     .tool-keys{display:flex;justify-content:space-between;gap:12px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
     .operation-filters{justify-content:flex-end}
   `],
@@ -332,6 +453,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   diskScanning = false;
   diskSort: DiskSort = 'size';
+  diskFilter = '';
   diskProgress: DiskUsageProgress | DiskUsageResult | null = null;
   diskEntries: DiskUsageEntry[] = [];
   diskError = '';
@@ -339,6 +461,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   duplicateMinSize = 1;
   duplicateSort: DuplicateSort = 'reclaimable';
+  duplicateFilter = '';
   duplicateIncludeHidden = false;
   duplicateScanning = false;
   duplicateProgress: DuplicateScanProgress | null = null;
@@ -346,7 +469,17 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   duplicateSelected = new Set<string>();
   duplicateError = '';
 
+  checksumCandidates: FileInfo[] = [];
+  checksumTargetPath = '';
+  checksumComputing = false;
+  checksumFileSize: number | null = null;
+  checksumResults: ChecksumAlgorithmRow[] = [];
+  checksumError = '';
+  expectedDigest = '';
+  copiedValue = '';
+
   private readonly destroy$ = createSubject<void>();
+  private copiedTimer: number | null = null;
 
   constructor(
     private readonly api: ApiService,
@@ -389,7 +522,14 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   get sortedDiskEntries(): DiskUsageEntry[] {
-    const entries = [...this.diskEntries];
+    const query = this.diskFilter.trim().toLowerCase();
+    const entries = query
+      ? this.diskEntries.filter(
+          entry =>
+            (entry.name ?? '').toLowerCase().includes(query) ||
+            (entry.path ?? '').toLowerCase().includes(query),
+        )
+      : [...this.diskEntries];
     if (this.diskSort === 'files') {
       return entries.sort((a,b) => (b.files ?? 0) - (a.files ?? 0));
     }
@@ -400,7 +540,11 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   get duplicateGroups(): DuplicateGroup[] {
-    const groups = [...(this.duplicateResult?.groups ?? [])];
+    const query = this.duplicateFilter.trim().toLowerCase();
+    const groups = [...(this.duplicateResult?.groups ?? [])].filter(group => {
+      if (!query) return true;
+      return group.files.some(file => file.path.toLowerCase().includes(query));
+    });
     if (this.duplicateSort === 'size') {
       return groups.sort((a,b) => b.size - a.size);
     }
@@ -408,6 +552,13 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       return groups.sort((a,b) => b.files.length - a.files.length);
     }
     return groups.sort((a,b) => b.reclaimableBytes - a.reclaimableBytes);
+  }
+
+  get matchedAlgorithm(): string | null {
+    const normalized = this.expectedDigest.trim().toLowerCase();
+    if (!normalized || this.checksumResults.length === 0) return null;
+    const match = this.checksumResults.find(row => row.value.toLowerCase() === normalized);
+    return match ? match.label : null;
   }
 
   ngOnInit(): void {
@@ -437,7 +588,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.operations,title:'Tools: Operations',category:'Tools',execute:()=>this.setPage('operations')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.disk,title:'Tools: Disk Usage',category:'Tools',execute:()=>this.setPage('disk')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.duplicates,title:'Tools: Duplicates',category:'Tools',execute:()=>this.setPage('duplicates')},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page!=='operations'&&!!this.rootPath},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.checksums,title:'Tools: Checksums',category:'Tools',execute:()=>this.setPage('checksums')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page!=='operations'&&(!!this.rootPath||this.page==='checksums')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.addDuplicatesToBasket,title:'Add Duplicates to Basket',category:'Tools',execute:()=>this.collectDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
@@ -448,6 +600,10 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.cancelDisk();
+    if (this.copiedTimer !== null) {
+      window.clearTimeout(this.copiedTimer);
+      this.copiedTimer = null;
+    }
     this.input.deactivateContext(CONTEXT_ID);
     for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
     for (const id of Object.values(COMMAND)) {
@@ -458,7 +614,6 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   open(page: ToolPage, rootPath: string): void {
-    
     const rootChanged = this.rootPath !== rootPath;
     this.page = page;
     this.rootPath = rootPath;
@@ -470,10 +625,17 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       this.diskEntries = [];
       this.diskProgress = null;
       this.diskError = '';
+      this.diskFilter = '';
       this.duplicateResult = null;
       this.duplicateProgress = null;
       this.duplicateSelected = new Set();
       this.duplicateError = '';
+      this.duplicateFilter = '';
+      this.checksumCandidates = [];
+      this.checksumTargetPath = '';
+      this.checksumResults = [];
+      this.checksumFileSize = null;
+      this.checksumError = '';
     }
 
     this.input.activateContext(CONTEXT_ID);
@@ -481,6 +643,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
     if (page === 'disk' && this.diskEntries.length === 0) {
       void this.scanDisk();
+    } else if (page === 'checksums' && this.checksumCandidates.length === 0 && rootPath) {
+      void this.loadChecksumCandidates();
     }
   }
 
@@ -496,8 +660,6 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.visible = false;
     this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
-    
-    
     this.cdr.markForCheck();
   }
 
@@ -507,6 +669,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
     if (page === 'disk' && this.diskEntries.length === 0 && this.rootPath) {
       void this.scanDisk();
+    } else if (page === 'checksums' && this.checksumCandidates.length === 0 && this.rootPath) {
+      void this.loadChecksumCandidates();
     }
   }
 
@@ -515,6 +679,159 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       void this.scanDisk();
     } else if (this.page === 'duplicates') {
       void this.scanDuplicates();
+    } else if (this.page === 'checksums') {
+      void this.computeChecksums();
+    }
+  }
+
+  onOperationFilterChange(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value as OperationFilter;
+    this.operationFilter = val;
+    this.cdr.markForCheck();
+  }
+
+  onDiskFilterInput(event: Event): void {
+    this.diskFilter = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  onDiskSortChange(event: Event): void {
+    this.diskSort = (event.target as HTMLSelectElement).value as DiskSort;
+    this.cdr.markForCheck();
+  }
+
+  onDuplicateMinSizeInput(event: Event): void {
+    this.duplicateMinSize = Number((event.target as HTMLInputElement).value);
+    this.cdr.markForCheck();
+  }
+
+  onDuplicateHiddenChange(event: Event): void {
+    this.duplicateIncludeHidden = (event.target as HTMLInputElement).checked;
+    this.cdr.markForCheck();
+  }
+
+  onDuplicateSortChange(event: Event): void {
+    this.duplicateSort = (event.target as HTMLSelectElement).value as DuplicateSort;
+    this.cdr.markForCheck();
+  }
+
+  onDuplicateFilterInput(event: Event): void {
+    this.duplicateFilter = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  onChecksumCandidateSelect(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value;
+    this.checksumTargetPath = val;
+    if (val) {
+      void this.computeChecksums();
+    }
+    this.cdr.markForCheck();
+  }
+
+  onChecksumPathInput(event: Event): void {
+    this.checksumTargetPath = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  onExpectedDigestInput(event: Event): void {
+    this.expectedDigest = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  async loadChecksumCandidates(): Promise<void> {
+    if (!this.rootPath) return;
+    try {
+      const listing = await this.api.listDirectory(this.rootPath, false);
+      this.checksumCandidates = (listing.entries ?? [])
+        .filter(entry => entry.type !== FileType.DIRECTORY)
+        .slice(0, 200);
+      if (!this.checksumTargetPath && this.checksumCandidates.length > 0) {
+        this.checksumTargetPath = this.checksumCandidates[0].path;
+      }
+      this.cdr.markForCheck();
+    } catch {
+      // Directory listing may fail for virtual schemes; user can still paste a path.
+    }
+  }
+
+  async computeChecksums(): Promise<void> {
+    const target = this.checksumTargetPath.trim();
+    if (!target || this.checksumComputing) return;
+
+    this.checksumComputing = true;
+    this.checksumError = '';
+    this.checksumResults = [];
+    this.checksumFileSize = null;
+    this.cdr.markForCheck();
+
+    try {
+      const res = await fetch('/api/fs/hash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: target }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as {
+          hash?: string;
+          size?: number;
+          algorithms?: Partial<Record<'sha256' | 'sha512' | 'sha1' | 'md5', string>>;
+        };
+        if (typeof data.size === 'number') {
+          this.checksumFileSize = data.size;
+        }
+        const rows: ChecksumAlgorithmRow[] = [];
+        if (data.algorithms?.sha256 || data.hash) {
+          rows.push({ id: 'sha256', label: 'SHA-256', value: data.algorithms?.sha256 || data.hash || '' });
+        }
+        if (data.algorithms?.sha512) {
+          rows.push({ id: 'sha512', label: 'SHA-512', value: data.algorithms.sha512 });
+        }
+        if (data.algorithms?.sha1) {
+          rows.push({ id: 'sha1', label: 'SHA-1', value: data.algorithms.sha1 });
+        }
+        if (data.algorithms?.md5) {
+          rows.push({ id: 'md5', label: 'MD5', value: data.algorithms.md5 });
+        }
+        this.checksumResults = rows;
+      } else {
+        const payload = await res.json().catch(() => ({} as { error?: string }));
+        if (res.status === 400 && payload.error) {
+          throw new Error(payload.error);
+        }
+        const sha256 = await this.api.hashFile(target);
+        this.checksumResults = [{ id: 'sha256', label: 'SHA-256', value: sha256 }];
+      }
+    } catch (error) {
+      this.checksumError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.checksumComputing = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  async copyPath(path: string): Promise<void> {
+    await this.copyText(path);
+  }
+
+  async copyDigest(value: string): Promise<void> {
+    await this.copyText(value);
+  }
+
+  private async copyText(value: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      this.copiedValue = value;
+      if (this.copiedTimer !== null) window.clearTimeout(this.copiedTimer);
+      this.copiedTimer = window.setTimeout(() => {
+        this.copiedValue = '';
+        this.copiedTimer = null;
+        this.cdr.markForCheck();
+      }, 1800);
+      this.cdr.markForCheck();
+    } catch {
+      // Clipboard may be unavailable
     }
   }
 
@@ -598,7 +915,6 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
         },
       );
 
-      // Preselect every duplicate except the service's suggested keeper.
       const selected = new Set<string>();
       for (const group of this.duplicateResult.groups) {
         for (const file of group.files) {

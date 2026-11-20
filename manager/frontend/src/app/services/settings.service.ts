@@ -1,12 +1,14 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { GetPreferences, SavePreferences } from 'wailsjs/go/app/App';
 import { QueuedDialogGate } from './dialog-gate';
+import { ThemeService } from './theme.service';
 
 export type SettingsTab = 'general' | 'files' | 'editor' | 'view' | 'advanced' | 'plugins' | 'shortcuts' | 'about';
 
 export interface GeneralSettings {
   theme: 'dark' | 'light' | 'system';
+  themePreset?: string;
   language: string;
   startupBehavior: 'welcome' | 'lastSession' | 'specificFolder';
   startupFolder: string;
@@ -115,6 +117,7 @@ export interface ProjectSettings {
 const DEFAULT_SETTINGS: ProjectSettings = {
   general: {
     theme: 'system',
+    themePreset: 'midnight-default',
     language: 'en',
     startupBehavior: 'lastSession',
     startupFolder: '',
@@ -218,6 +221,7 @@ interface SettingsDialogRequest {
 
 interface BackendUserPreferences {
   theme?: string;
+  themePreset?: string;
   accentColor?: string;
   uiZoom?: number;
   compactMode?: boolean;
@@ -231,6 +235,7 @@ const APPEARANCE_CACHE_KEY = 'app-appearance-v1';
 
 interface CachedAppearance {
   theme?: GeneralSettings['theme'];
+  themePreset?: string;
   accentColor?: string;
   uiZoom?: number;
   compactMode?: boolean;
@@ -258,11 +263,13 @@ function writeAppearanceCache(value: CachedAppearance): void {
 
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
+  private readonly themeService = inject(ThemeService, { optional: true });
   private settings$ = createBehaviorSubject<ProjectSettings>(this.loadSettings());
   private readonly dialogGate = new QueuedDialogGate<SettingsDialogRequest, boolean>();
   private backendPreferences: BackendUserPreferences | null = null;
 
   constructor() {
+    this.applyAppearance(this.settings$.value);
     void this.loadBackendPreferences();
   }
 
@@ -287,7 +294,14 @@ export class SettingsService {
       advanced: { ...current.advanced, ...settings.advanced },
     };
     this.settings$.next(merged);
+    this.applyAppearance(merged);
     this.saveSettings(merged);
+  }
+
+  private applyAppearance(settings: ProjectSettings): void {
+    this.themeService?.setThemePreference(settings.general.theme);
+    this.themeService?.setThemePreset(settings.general.themePreset || 'midnight-default');
+    this.themeService?.setCompact(settings.view.compactMode);
   }
 
   updateGeneralSettings(settings: Partial<GeneralSettings>): void {
@@ -394,6 +408,9 @@ export class SettingsService {
 
       const current = this.settings$.value;
       const themeValue = this.coerceTheme(preferences.theme, current.general.theme);
+      const themePreset = typeof preferences.themePreset === 'string' && preferences.themePreset.trim()
+        ? preferences.themePreset.trim()
+        : (current.general.themePreset || 'midnight-default');
       const accentColor = typeof preferences.accentColor === 'string'
         ? preferences.accentColor
         : current.general.accentColor;
@@ -412,6 +429,7 @@ export class SettingsService {
         general: {
           ...current.general,
           theme: themeValue,
+          themePreset,
           accentColor,
           uiZoom,
           confirmOnClose: typeof preferences.confirmOnClose === 'boolean'
@@ -429,8 +447,10 @@ export class SettingsService {
       };
 
       this.settings$.next(merged);
+      this.applyAppearance(merged);
       writeAppearanceCache({
         theme: merged.general.theme,
+        themePreset: merged.general.themePreset,
         accentColor: merged.general.accentColor,
         uiZoom: merged.general.uiZoom,
         compactMode: merged.view.compactMode,
@@ -449,6 +469,7 @@ export class SettingsService {
   private async syncBackendPreferences(settings: ProjectSettings): Promise<void> {
     writeAppearanceCache({
       theme: settings.general.theme,
+      themePreset: settings.general.themePreset,
       accentColor: settings.general.accentColor,
       uiZoom: settings.general.uiZoom,
       compactMode: settings.view.compactMode,
@@ -462,6 +483,7 @@ export class SettingsService {
       await SavePreferences({
         ...current,
         theme: settings.general.theme,
+        themePreset: settings.general.themePreset || 'midnight-default',
         accentColor: settings.general.accentColor,
         uiZoom: settings.general.uiZoom,
         compactMode: settings.view.compactMode,

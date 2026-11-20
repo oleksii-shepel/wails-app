@@ -44,7 +44,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <h2>Trash / Recycle Bin</h2>
-            <p class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</p>
+            <p class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }} · {{ selectedIds.size }} selected</p>
           </div>
           <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
@@ -64,7 +64,25 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
             (click)="deleteSelected()">
             Delete permanently
           </button>
-          <span class="spacer"></span>
+          <button
+            type="button"
+            class="palette-dialog-button"
+            [disabled]="loading || filteredEntries.length === 0"
+            (click)="toggleSelectAll()">
+            {{ allFilteredSelected ? 'Clear selection' : 'Select all' }}
+          </button>
+          <input
+            type="search"
+            class="trash-search"
+            [value]="searchText"
+            (input)="onSearchInput($event)"
+            placeholder="Filter by name or original path…"
+            aria-label="Filter trash items" />
+          <select class="trash-sort" [value]="sortBy" (change)="onSortChange($event)" aria-label="Sort trash items">
+            <option value="deleted">Newest deleted</option>
+            <option value="name">Name</option>
+            <option value="path">Original location</option>
+          </select>
           <button type="button" class="palette-dialog-button" [disabled]="loading" (click)="reload()">
             Refresh
           </button>
@@ -83,7 +101,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
           role="listbox"
           aria-label="Trash contents">
           <button
-            *ngFor="let entry of entries; trackBy: trackById"
+            *ngFor="let entry of filteredEntries; trackBy: trackById"
             type="button"
             class="trash-row palette-dialog-item"
             [class.selected]="selectedIds.has(entry.id)"
@@ -96,11 +114,18 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
               <strong>{{ entry.name }}</strong>
               <span>{{ entry.originalPath || 'Original location unavailable' }}</span>
             </span>
-            <span class="date">{{ formatDeleted(entry.deletedAt) }}</span>
+            <span class="row-right">
+              <span *ngIf="!entry.canRestore" class="restore-note">Restore unavailable</span>
+              <span class="date">{{ formatDeleted(entry.deletedAt) }}</span>
+            </span>
           </button>
 
           <div *ngIf="!loading && entries.length === 0" class="empty palette-dialog-empty">
             Trash is empty.
+          </div>
+
+          <div *ngIf="!loading && entries.length > 0 && filteredEntries.length === 0" class="empty palette-dialog-empty">
+            No items match "{{ searchText }}".
           </div>
 
           <div *ngIf="loading" class="empty palette-dialog-empty">
@@ -135,8 +160,9 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       flex: 0 0 auto;
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 9px 12px;
       border-bottom: 1px solid var(--vsc-panel-border, var(--vsc-control-background));
     }
 
@@ -150,18 +176,37 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
 
     header h2 {
       margin: 0;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
     }
 
     header p {
       margin: 2px 0 0;
-      opacity: .68;
-      font-size: 12px;
+      opacity: .72;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
     }
 
-    .spacer {
+    .trash-search {
       flex: 1;
+      min-width: 170px;
+      height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--vsc-input-border, var(--vsc-border));
+      border-radius: 4px;
+      background: var(--vsc-input-background);
+      color: var(--vsc-input-foreground, var(--vsc-foreground));
+      font: inherit;
+    }
+
+    .trash-sort {
+      height: 26px;
+      padding: 0 6px;
+      border: 1px solid var(--vsc-border);
+      border-radius: 4px;
+      background: var(--vsc-input-background);
+      color: var(--vsc-input-foreground, var(--vsc-foreground));
+      font: inherit;
     }
 
     .trash-list {
@@ -204,10 +249,23 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
       white-space: nowrap;
     }
 
+    .row-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
+    .restore-note {
+      font-size: 10px;
+      color: var(--vsc-warning, var(--vsc-accent-yellow));
+    }
+
     .main span,
     .date {
-      opacity: .7;
+      opacity: .72;
       font-size: 11px;
+      font-variant-numeric: tabular-nums;
     }
 
     .empty {
@@ -232,6 +290,8 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   error = '';
   entries: TrashEntry[] = [];
   selectedIds = new Set<string>();
+  searchText = '';
+  sortBy: 'deleted' | 'name' | 'path' = 'deleted';
 
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
@@ -256,6 +316,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       .subscribe(request => {
         if (request) {
           this.selectedIds = new Set();
+          this.searchText = '';
           this.error = '';
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.trash');
           this.focusInitialControl();
@@ -284,6 +345,34 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
+  get filteredEntries(): TrashEntry[] {
+    const query = this.searchText.trim().toLowerCase();
+    const filtered = query
+      ? this.entries.filter(
+          entry =>
+            entry.name.toLowerCase().includes(query) ||
+            (entry.originalPath ?? '').toLowerCase().includes(query),
+        )
+      : [...this.entries];
+
+    if (this.sortBy === 'name') {
+      return filtered.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    if (this.sortBy === 'path') {
+      return filtered.sort((a, b) => (a.originalPath ?? '').localeCompare(b.originalPath ?? ''));
+    }
+    return filtered.sort((a, b) => {
+      const ta = Date.parse(a.deletedAt || '') || 0;
+      const tb = Date.parse(b.deletedAt || '') || 0;
+      return tb - ta;
+    });
+  }
+
+  get allFilteredSelected(): boolean {
+    const visible = this.filteredEntries;
+    return visible.length > 0 && visible.every(entry => this.selectedIds.has(entry.id));
+  }
+
   get selectedEntries(): TrashEntry[] {
     return this.entries.filter(entry => this.selectedIds.has(entry.id));
   }
@@ -291,6 +380,34 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   get canRestoreSelection(): boolean {
     const selected = this.selectedEntries;
     return selected.length > 0 && selected.every(entry => entry.canRestore);
+  }
+
+  onSearchInput(event: Event): void {
+    this.searchText = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  onSortChange(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value;
+    if (val === 'deleted' || val === 'name' || val === 'path') {
+      this.sortBy = val;
+      this.cdr.markForCheck();
+    }
+  }
+
+  toggleSelectAll(): void {
+    const visible = this.filteredEntries;
+    if (!visible.length) return;
+    if (this.allFilteredSelected) {
+      const next = new Set(this.selectedIds);
+      for (const entry of visible) next.delete(entry.id);
+      this.selectedIds = next;
+    } else {
+      const next = new Set(this.selectedIds);
+      for (const entry of visible) next.add(entry.id);
+      this.selectedIds = next;
+    }
+    this.cdr.markForCheck();
   }
 
   trackById(_: number, entry: TrashEntry): string {

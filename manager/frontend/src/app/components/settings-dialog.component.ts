@@ -16,6 +16,7 @@ import { KeybindingStorageService } from '../services/keybinding-storage.service
 import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../services/input-system.types';
 import { PluginSettingsPanelComponent } from './plugin-settings-panel.component';
 import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
+import { CustomizationRegistryService, type ThemeContribution } from '../services/customization-registry.service';
 
 interface SettingsDialogRequest {
   resolve: (value: boolean) => void;
@@ -122,15 +123,24 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Appearance</h4>
                   <div class="field-row">
-                    <label class="field">
-                      <span>Theme</span>
-                      <select [(ngModel)]="draft.general.theme" (ngModelChange)="onSettingChanged()">
-                        <option value="dark">Dark</option>
-                        <option value="light">Light</option>
-                        <option value="system">System Preference</option>
-                      </select>
-                      <small>Controls the color scheme. "System Preference" follows your OS setting.</small>
-                    </label>
+                      <label class="field">
+                        <span>Theme Mode</span>
+                        <select [(ngModel)]="draft.general.theme" (ngModelChange)="onSettingChanged()">
+                          <option value="dark">Dark</option>
+                          <option value="light">Light</option>
+                          <option value="system">System Preference</option>
+                        </select>
+                        <small>Base dark/light mode. "System Preference" follows your OS setting.</small>
+                      </label>
+                      <label class="field">
+                        <span>Theme Preset</span>
+                        <select [(ngModel)]="draft.general.themePreset" (ngModelChange)="onSettingChanged()">
+                          @for (preset of themePresets; track preset.id) {
+                            <option [value]="preset.id">{{ preset.label }}</option>
+                          }
+                        </select>
+                        <small>Extensible palette preset (built-in and plugin-contributed themes).</small>
+                      </label>
                     <label class="field">
                       <span>UI Zoom</span>
                       <select [(ngModel)]="draft.general.uiZoom" (ngModelChange)="onSettingChanged()">
@@ -1040,6 +1050,7 @@ export class SettingsDialogComponent {
   @ViewChild(PluginSettingsPanelComponent) private pluginSettingsPanel?: PluginSettingsPanelComponent;
 
   readonly request$: Stream<SettingsDialogRequest | null> = this.settingsService.getMountedRequest$();
+  themePresets: ThemeContribution[] = this.customizations.themes$.value;
 
   activeTab: SettingsTab = 'general';
   hasChanges = false;
@@ -1126,6 +1137,7 @@ export class SettingsDialogComponent {
     private readonly inputEngine: InputEngineService,
     private readonly keybindingStorage: KeybindingStorageService,
     private readonly overlays: ApplicationOverlayHostService,
+    private readonly customizations: CustomizationRegistryService,
     private readonly ngZone: NgZone,
   ) {}
 
@@ -1150,6 +1162,12 @@ export class SettingsDialogComponent {
     for (const binding of SETTINGS_DIALOG_BINDINGS) {
       this.inputEngine.registerBinding(binding, SETTINGS_DIALOG_OWNER);
     }
+
+    this.customizations.themes$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((presets) => {
+        this.themePresets = presets;
+      });
 
     this.settingsService
       .getMountedRequest$()

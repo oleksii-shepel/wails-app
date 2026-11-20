@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, EventEmitter, OnInit, Output } from '@angular/core';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../services/api.service';
 import { PluginDiscoveryService } from '../services/plugin-discovery.service';
 import {
@@ -13,10 +14,26 @@ interface PluginPolicyDraft {
   grantedPermissions: PluginPermission[];
 }
 
+interface HostCommandOption {
+  readonly id: string;
+  readonly label: string;
+}
+
+const HOST_COMMAND_OPTIONS: readonly HostCommandOption[] = [
+  { id: 'pane.nav.refresh', label: 'Refresh Active Pane (pane.nav.refresh)' },
+  { id: 'pane.compare.toggle', label: 'Compare Panes (pane.compare.toggle)' },
+  { id: 'pane.tools.diskUsage', label: 'Analyze Disk Usage (pane.tools.diskUsage)' },
+  { id: 'pane.tools.findDuplicates', label: 'Find Duplicates (pane.tools.findDuplicates)' },
+  { id: 'pane.files.batchRename', label: 'Batch Rename (pane.files.batchRename)' },
+  { id: 'pane.files.createArchive', label: 'Create ZIP Archive (pane.files.createArchive)' },
+  { id: 'pane.nav.openCommandPalette', label: 'Open Command Palette (pane.nav.openCommandPalette)' },
+  { id: 'reassembly.navigation.trash', label: 'Open Recycle Bin (reassembly.navigation.trash)' },
+];
+
 @Component({
   selector: 'app-plugin-settings-panel',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, ReactiveFormsModule],
   template: `
     <section class="plugins-settings" aria-label="Plugins">
       <div class="plugins-header">
@@ -25,6 +42,16 @@ interface PluginPolicyDraft {
           <p class="section-desc">Manage discovered plugin packages, trust, availability, permissions and runtime health.</p>
         </div>
         <div class="plugins-header-actions">
+          <button type="button" class="btn btn-primary btn-small" (click)="toggleStudio()">
+            <svg class="btn-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              @if (studioOpen) {
+                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+              } @else {
+                <path d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2z"/>
+              }
+            </svg>
+            {{ studioOpen ? 'Close Builder' : 'New Plugin' }}
+          </button>
           <button type="button" class="btn btn-secondary btn-small" [disabled]="refreshing" (click)="refresh()">
             {{ refreshing ? 'Refreshing…' : 'Refresh' }}
           </button>
@@ -33,6 +60,73 @@ interface PluginPolicyDraft {
           </button>
         </div>
       </div>
+
+      @if (studioOpen) {
+        <form class="plugin-studio" [formGroup]="studioForm" (ngSubmit)="createCustomPlugin()" aria-label="Create declarative plugin">
+          <div class="plugin-studio-header">
+            <div>
+              <strong>New Declarative Extension</strong>
+              <p>Generates a sandboxed data-only package (<code>plugin.json</code> + <code>frontend.json</code>) stored in the plugin directory.</p>
+            </div>
+          </div>
+
+          <div class="plugin-studio-grid">
+            <label class="studio-field">
+              <span>Plugin ID</span>
+              <input type="text" formControlName="id" placeholder="custom.workspace-shortcuts" />
+            </label>
+            <label class="studio-field">
+              <span>Display Name</span>
+              <input type="text" formControlName="name" placeholder="Workspace Shortcuts" />
+            </label>
+            <label class="studio-field studio-span-2">
+              <span>Description</span>
+              <input type="text" formControlName="description" placeholder="Adds custom command palette, toolbar, and context menu actions" />
+            </label>
+            <label class="studio-field">
+              <span>Command Title</span>
+              <input type="text" formControlName="commandTitle" placeholder="Quick Compare Panes" />
+            </label>
+            <label class="studio-field">
+              <span>Target Host Command</span>
+              <select formControlName="targetCommandId">
+                @for (opt of hostCommandOptions; track opt.id) {
+                  <option [value]="opt.id">{{ opt.label }}</option>
+                }
+              </select>
+            </label>
+            <label class="studio-field">
+              <span>Optional Shortcut (Ctrl+Alt+Key)</span>
+              <input type="text" formControlName="shortcutKey" maxlength="1" placeholder="k" />
+            </label>
+            <div class="studio-checks">
+              <label class="permission-row">
+                <input type="checkbox" formControlName="addToToolbar" />
+                <span>Expose in Pane Toolbar</span>
+              </label>
+              <label class="permission-row">
+                <input type="checkbox" formControlName="addToContextMenu" />
+                <span>Expose in File Context Menu</span>
+              </label>
+              <label class="permission-row">
+                <input type="checkbox" formControlName="activateNow" />
+                <span>Trust &amp; Activate Immediately</span>
+              </label>
+            </div>
+          </div>
+
+          @if (studioError) {
+            <div class="plugins-banner error" role="alert">{{ studioError }}</div>
+          }
+
+          <div class="plugin-studio-actions">
+            <button type="button" class="btn btn-secondary btn-small" (click)="toggleStudio()">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-small" [disabled]="creatingPlugin || studioForm.invalid">
+              {{ creatingPlugin ? 'Creating…' : 'Create Extension' }}
+            </button>
+          </div>
+        </form>
+      }
 
       <div *ngIf="error" class="plugins-banner error" role="alert">{{ error }}</div>
       <div *ngIf="pluginDirectory" class="plugins-directory" title="Plugin directory">{{ pluginDirectory }}</div>
@@ -56,17 +150,28 @@ interface PluginPolicyDraft {
             </p>
           </div>
 
-          <button
-            *ngIf="isTrustedForCurrentVersion(snapshot)"
-            type="button"
-            class="btn btn-small plugin-availability-action"
-            [class.btn-primary]="!availabilityEnabled(snapshot)"
-            [class.btn-secondary]="availabilityEnabled(snapshot)"
-            [disabled]="isBusy(snapshot)"
-            (click)="setEnabled(snapshot, !availabilityEnabled(snapshot))"
-          >
-            {{ availabilityEnabled(snapshot) ? 'Disable' : 'Enable' }}
-          </button>
+          <div class="plugin-card-header-actions">
+            <button
+              *ngIf="isTrustedForCurrentVersion(snapshot)"
+              type="button"
+              class="btn btn-small plugin-availability-action"
+              [class.btn-primary]="!availabilityEnabled(snapshot)"
+              [class.btn-secondary]="availabilityEnabled(snapshot)"
+              [disabled]="isBusy(snapshot)"
+              (click)="setEnabled(snapshot, !availabilityEnabled(snapshot))"
+            >
+              {{ availabilityEnabled(snapshot) ? 'Disable' : 'Enable' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-small"
+              [disabled]="isBusy(snapshot)"
+              (click)="removePlugin(snapshot)"
+              title="Delete plugin package"
+            >
+              Remove
+            </button>
+          </div>
         </header>
 
         <div *ngIf="snapshot.reason" class="plugin-reason">{{ snapshot.reason }}</div>
@@ -190,8 +295,19 @@ interface PluginPolicyDraft {
     .error-text { color: var(--vsc-error); }
     .quarantine-box { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border-color, var(--vsc-neutral-overlay-soft)); font-size: 11px; }
     .plugin-card-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+    .plugin-card-header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
     .plugin-working { font-size: 11px; opacity: .6; }
-    @media (max-width: 900px) { .plugin-grid { grid-template-columns: 1fr; } .plugins-header { flex-direction: column; } }
+    .btn-icon { font-size: 15px; width: 15px; height: 15px; line-height: 15px; margin-right: 4px; vertical-align: text-bottom; }
+    .plugin-studio { border: 1px solid color-mix(in srgb, var(--vsc-accent-blue) 42%, var(--vsc-border-subtle)); border-radius: 10px; padding: 14px; background: color-mix(in srgb, var(--vsc-foreground) 3%, var(--vsc-editor-background)); display: flex; flex-direction: column; gap: 12px; }
+    .plugin-studio-header p { margin: 4px 0 0; font-size: 11px; opacity: .75; }
+    .plugin-studio-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .studio-span-2 { grid-column: span 2; }
+    .studio-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; }
+    .studio-field span { opacity: .8; font-weight: 500; }
+    .studio-field input, .studio-field select { background: var(--vsc-input-background); color: var(--vsc-input-foreground); border: 1px solid var(--vsc-border); border-radius: 4px; padding: 6px 8px; font: inherit; }
+    .studio-checks { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+    .plugin-studio-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    @media (max-width: 900px) { .plugin-grid, .plugin-studio-grid { grid-template-columns: 1fr; } .studio-span-2 { grid-column: span 1; } .plugins-header { flex-direction: column; } }
   `],
 })
 export class PluginSettingsPanelComponent implements OnInit {
@@ -203,6 +319,21 @@ export class PluginSettingsPanelComponent implements OnInit {
   error = '';
   refreshing = false;
   openingDirectory = false;
+  studioOpen = false;
+  creatingPlugin = false;
+  studioError = '';
+  readonly hostCommandOptions = HOST_COMMAND_OPTIONS;
+  readonly studioForm = new FormGroup({
+    id: new FormControl('custom.quick-actions', { nonNullable: true, validators: [Validators.required] }),
+    name: new FormControl('Custom Quick Actions', { nonNullable: true, validators: [Validators.required] }),
+    description: new FormControl('Adds quick pane actions via declarative plugin contributions.', { nonNullable: true }),
+    commandTitle: new FormControl('Quick Compare Panes', { nonNullable: true, validators: [Validators.required] }),
+    targetCommandId: new FormControl('pane.compare.toggle', { nonNullable: true, validators: [Validators.required] }),
+    shortcutKey: new FormControl('', { nonNullable: true }),
+    addToToolbar: new FormControl(true, { nonNullable: true }),
+    addToContextMenu: new FormControl(true, { nonNullable: true }),
+    activateNow: new FormControl(true, { nonNullable: true }),
+  });
   private readonly busyIds = new Set<string>();
   private readonly baselinePolicy = new Map<string, PluginPolicyDraft>();
   private readonly draftPolicy = new Map<string, PluginPolicyDraft>();
@@ -301,9 +432,88 @@ export class PluginSettingsPanelComponent implements OnInit {
     }
   }
 
+  toggleStudio(): void {
+    this.studioOpen = !this.studioOpen;
+    this.studioError = '';
+    this.renderNow();
+  }
+
+  async createCustomPlugin(): Promise<void> {
+    if (this.creatingPlugin || this.studioForm.invalid) return;
+    this.creatingPlugin = true;
+    this.studioError = '';
+    this.renderNow();
+    try {
+      const value = this.studioForm.getRawValue();
+      const commandId = value.commandTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'custom-action';
+
+      const res = await fetch('/api/plugins/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: value.id.trim().toLowerCase(),
+          name: value.name.trim(),
+          description: value.description.trim(),
+          autoTrust: value.activateNow,
+          autoEnable: value.activateNow,
+          commands: [{
+            id: commandId,
+            title: value.commandTitle.trim(),
+            targetCommandId: value.targetCommandId,
+            shortcutKey: value.shortcutKey.trim(),
+            addToToolbar: value.addToToolbar,
+            addToContextMenu: value.addToContextMenu,
+          }],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to create plugin (HTTP ${res.status})`);
+      }
+
+      if (value.activateNow) {
+        await this.coordinator.activate(value.id.trim().toLowerCase());
+      } else {
+        await this.coordinator.sync();
+      }
+      this.studioOpen = false;
+      await this.refresh();
+    } catch (error) {
+      this.studioError = errorMessage(error);
+    } finally {
+      this.creatingPlugin = false;
+      this.renderNow();
+    }
+  }
+
+  async removePlugin(snapshot: ManagedPluginRuntimeSnapshot): Promise<void> {
+    const id = snapshot.plugin.discovered.manifest.id;
+    if (!id) return;
+    await this.runFor(snapshot, async () => {
+      await this.coordinator.deactivate(id).catch(() => undefined);
+      const res = await fetch(`/api/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Failed to remove plugin (HTTP ${res.status})`);
+      }
+    });
+    this.capturePolicy(this.snapshots);
+  }
+
   async setEnabled(snapshot: ManagedPluginRuntimeSnapshot, enabled: boolean): Promise<void> {
     const id = snapshot.plugin.discovered.manifest.id;
-    await this.runFor(snapshot, () => this.coordinator.setEnabled(id, enabled));
+    await this.runFor(snapshot, async () => {
+      if (!enabled) {
+        await this.coordinator.deactivate(id).catch(() => undefined);
+        await this.coordinator.setEnabled(id, false);
+        return;
+      }
+      await this.coordinator.setEnabled(id, true);
+      await this.coordinator.activate(id);
+    });
     this.capturePolicy(this.snapshots);
   }
 

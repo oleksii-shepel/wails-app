@@ -14,7 +14,6 @@ import {
 } from '../services/workspace.service';
 @Component({
   selector: 'app-closed-tabs',
-  standalone: true,
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -33,9 +32,19 @@ import {
           <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
         </header>
 
+        <div class="tabs-toolbar palette-dialog-toolbar">
+          <input
+            type="search"
+            class="tabs-search"
+            [value]="searchText"
+            (input)="onSearchInput($event)"
+            placeholder="Filter closed tabs by title or path…"
+            aria-label="Filter recently closed tabs" />
+        </div>
+
         <div class="tabs palette-dialog-body palette-dialog-list">
           <button
-            *ngFor="let entry of entries; trackBy: trackEntry"
+            *ngFor="let entry of filteredEntries; trackBy: trackEntry"
             type="button"
             class="closed-tab palette-dialog-item"
             (click)="reopen(entry)">
@@ -52,6 +61,10 @@ import {
           <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">
             No recently closed tabs in this workspace.
           </div>
+
+          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0">
+            No closed tabs match "{{ searchText }}".
+          </div>
         </div>
 
         <footer class="palette-dialog-footer">
@@ -61,6 +74,9 @@ import {
             </button>
           </div>
           <div class="palette-dialog-footer-actions">
+            <button type="button" class="palette-dialog-button" [disabled]="entries.length === 0" (click)="reopenLatest()">
+              Reopen Latest
+            </button>
             <button type="button" class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button>
           </div>
         </footer>
@@ -69,18 +85,21 @@ import {
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:8750;pointer-events:none}
-    .panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;width:min(720px,calc(100vw - 40px));height:min(600px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-foreground);box-shadow:0 14px 48px var(--vsc-scrim);font:11px/1.35 var(--vsc-font-family,system-ui,sans-serif)}
-    .panel{width:min(720px,calc(100vw - 24px));height:min(600px,calc(100vh - 40px));font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    .panel{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;width:min(720px,calc(100vw - 24px));height:min(600px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-foreground);box-shadow:0 14px 48px var(--vsc-scrim);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    .tabs-toolbar{display:flex;padding:7px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
+    .tabs-search{flex:1;height:26px;padding:0 8px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background);color:var(--vsc-input-foreground,var(--vsc-foreground));font:inherit}
     .tabs{min-height:0;overflow:auto}
     .closed-tab{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;text-align:left;cursor:pointer}
     .closed-tab:hover,.closed-tab:focus-visible{background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
-    .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small,.meta{color:var(--vsc-description-foreground)}.meta{font-size:10px}
+    .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small,.meta{color:var(--vsc-description-foreground)}.meta{font-size:10px;font-variant-numeric:tabular-nums}
   `],
 })
 export class ClosedTabsComponent {
   @Input() visible = false;
   @Output() closed = new EventEmitter<void>();
   @Output() reopenRequested = new EventEmitter<RecentlyClosedTab>();
+
+  searchText = '';
 
   constructor(
     readonly workspaces: WorkspaceService,
@@ -91,12 +110,35 @@ export class ClosedTabsComponent {
     return this.workspaces.getRecentlyClosedTabs();
   }
 
+  get filteredEntries(): readonly RecentlyClosedTab[] {
+    const query = this.searchText.trim().toLowerCase();
+    if (!query) return this.entries;
+    return this.entries.filter(entry =>
+      (entry.tab.title ?? '').toLowerCase().includes(query) ||
+      (entry.tab.path ?? '').toLowerCase().includes(query) ||
+      this.viewerPath(entry).toLowerCase().includes(query) ||
+      (entry.paneId ?? '').toLowerCase().includes(query),
+    );
+  }
+
+  onSearchInput(event: Event): void {
+    this.searchText = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
   close(): void {
     this.closed.emit();
   }
 
   reopen(entry: RecentlyClosedTab): void {
     this.reopenRequested.emit(entry);
+  }
+
+  reopenLatest(): void {
+    const latest = this.entries[0];
+    if (latest) {
+      this.reopenRequested.emit(latest);
+    }
   }
 
   clear(): void {

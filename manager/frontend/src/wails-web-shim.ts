@@ -217,11 +217,8 @@ function installGoAppBridge() {
     GetDrives: () => apiJson('/api/drives'),
     ListDrives: () => apiJson('/api/drives'),
     GetSpecialFolders: () => apiJson('/api/special-folders'),
-    GetPathCapacity: async () => ({
-      totalSpace: 50 * 1024 * 1024 * 1024,
-      freeSpace: 32 * 1024 * 1024 * 1024,
-      fileSystem: 'ext4',
-    }),
+    GetPathCapacity: (p: string) =>
+      apiJson('/api/fs/capacity', { method: 'POST', body: JSON.stringify({ path: p || '/' }) }),
 
     ListDir: (p: string, showHidden = false) =>
       apiJson('/api/fs/list', { method: 'POST', body: JSON.stringify({ path: p, showHidden }) }),
@@ -531,27 +528,35 @@ function installGoAppBridge() {
     DismissOperation: async () => {},
     ResolveConflict: async () => false,
 
-    ListPlugins: async () => [],
-    DiscoverPluginPackages: async () => [],
-    GetPluginPackageStates: async () => [],
-    GetPluginPackageState: async (id: string) => ({
-      pluginId: id,
-      enabled: false,
-      trusted: false,
-      grantedPermissions: [],
-      quarantined: false,
-      lastActivationStatus: 'never',
-      consecutiveActivationFailures: 0,
-      updatedAt: Date.now(),
-    }),
-    UpdatePluginPackageState: async (id: string) => App['GetPluginPackageState'](id),
+    ListPlugins: () => apiJson('/api/plugins'),
+    DiscoverPluginPackages: () => apiJson('/api/plugins'),
+    GetPluginPackageStates: () => apiJson('/api/plugins/states'),
+    GetPluginPackageState: (id: string) =>
+      apiJson(`/api/plugins/${encodeURIComponent(id)}/state`),
+    UpdatePluginPackageState: (id: string, patch: any) =>
+      apiJson(`/api/plugins/${encodeURIComponent(id)}/state`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch || {}),
+      }),
     EnsureStartupPluginHostPrivilege: async () => false,
-    EnsureUniversalPluginHostPrivilege: async () => false,
-    QuarantinePluginPackage: async (id: string) => App['GetPluginPackageState'](id),
-    RecordPluginActivation: async (id: string) => App['GetPluginPackageState'](id),
+    EnsureUniversalPluginHostPrivilege: async () => true,
+    QuarantinePluginPackage: (id: string, reason: string) =>
+      apiJson(`/api/plugins/${encodeURIComponent(id)}/quarantine`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    RecordPluginActivation: (id: string, success: boolean, activationError = '') =>
+      apiJson(`/api/plugins/${encodeURIComponent(id)}/activation`, {
+        method: 'POST',
+        body: JSON.stringify({ success, activationError }),
+      }),
     InvokePluginCommand: async () => {},
-    GetPluginDirectory: async () => '/tmp/plugins',
-    ReadPluginFrontendModule: async () => ({}),
+    GetPluginDirectory: async () => {
+      const res = await apiJson<{ directory: string }>('/api/plugins/directory');
+      return res.directory;
+    },
+    ReadPluginFrontendModule: (id: string) =>
+      apiJson(`/api/plugins/${encodeURIComponent(id)}/frontend-module`),
     ReadUniversalPluginFrontendEntry: async () => '',
     CallUniversalPluginBackend: async () => null,
     StopUniversalPluginBackend: async () => {},
@@ -598,7 +603,8 @@ function installGoAppBridge() {
     AutorunList: async () => [],
     AutorunSetEnabled: async () => {},
     AutorunDelete: async () => {},
-    SystemSurfaceList: async () => [],
+    SystemSurfaceList: (kind: string) =>
+      apiJson('/api/system-surface', { method: 'POST', body: JSON.stringify({ kind }) }),
     NetworkListComputers: async () => [],
     NetworkListShares: async () => [],
     NetworkAdapterSetEnabled: async () => {},
@@ -618,10 +624,14 @@ function installGoAppBridge() {
       }),
     ArchiveReadStream: async () => '',
     CancelArchiveReadStream: async () => {},
-    ArchiveCopyEntries: async () => ({ success: false, message: 'Use Extract Selected to extract entries.' }),
-    ArchiveDeleteEntries: async () => ({ success: false, message: 'Modifying existing archives in place is not supported.' }),
-    ArchiveImportEntries: async () => ({ success: false, message: 'Create a new ZIP archive to package files.' }),
-    ArchiveMoveEntries: async () => ({ success: false, message: 'Use Extract Selected to extract entries.' }),
+    ArchiveCopyEntries: (request: any) =>
+      apiJson('/api/archive/copy-entries', { method: 'POST', body: JSON.stringify(request) }),
+    ArchiveDeleteEntries: (request: any) =>
+      apiJson('/api/archive/delete-entries', { method: 'POST', body: JSON.stringify(request) }),
+    ArchiveImportEntries: (request: any) =>
+      apiJson('/api/archive/import-entries', { method: 'POST', body: JSON.stringify(request) }),
+    ArchiveMoveEntries: (request: any) =>
+      apiJson('/api/archive/move-entries', { method: 'POST', body: JSON.stringify(request) }),
     BatchExtract: (request: any) =>
       apiJson('/api/archive/extract', { method: 'POST', body: JSON.stringify(request) }),
     BatchSelectiveExtract: (request: any) =>
@@ -668,7 +678,8 @@ function installGoAppBridge() {
       apiJson('/api/fs/attributes', { method: 'POST', body: JSON.stringify({ path: p, update }) }),
     SetModifiedTime: (p: string, unixMilliseconds: number) =>
       apiJson('/api/fs/mtime', { method: 'POST', body: JSON.stringify({ path: p, unixMilliseconds }) }),
-    ResolveLink: async (p: string) => ({ target: p, exists: true }),
+    ResolveLink: (p: string) =>
+      apiJson('/api/fs/resolve-link', { method: 'POST', body: JSON.stringify({ path: p }) }),
     CreateHardLink: (target: string, linkPath: string) =>
       apiJson('/api/fs/link', { method: 'POST', body: JSON.stringify({ kind: 'hard', target, linkPath }) }),
     CreateSymbolicLink: (target: string, linkPath: string) =>

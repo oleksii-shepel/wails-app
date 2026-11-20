@@ -27,12 +27,21 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
         </div>
 
         <nav class="filters" aria-label="Operation filters">
-          <button *ngFor="let item of filterItems"
-                  type="button"
-                  [class.active]="filter === item.id"
-                  (click)="filter = item.id">
-            {{ item.label }}
-          </button>
+          <div class="filter-buttons">
+            <button *ngFor="let item of filterItems"
+                    type="button"
+                    [class.active]="filter === item.id"
+                    (click)="filter = item.id">
+              {{ item.label }}
+            </button>
+          </div>
+          <input
+            type="search"
+            class="filter-search"
+            [value]="searchText"
+            (input)="onSearchInput($event)"
+            placeholder="Filter operations or paths…"
+            aria-label="Filter operations" />
         </nav>
 
         <div class="operation-list">
@@ -93,10 +102,12 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     .center-header { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 14px; border-bottom:1px solid var(--vsc-border); }
     .center-header h2 { margin:2px 0 0; font-size:20px; font-weight:600; }
     .eyebrow { color:var(--vsc-foreground-dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
-    .summary { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--vsc-border); border-bottom:1px solid var(--vsc-border); }
+    .summary { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--vsc-border); border-bottom:1px solid var(--vsc-border); font-variant-numeric:tabular-nums; }
     .summary div { display:flex; flex-direction:column; padding:12px 16px; background:var(--vsc-editor-background); }
     .summary strong { font-size:18px; } .summary span { color:var(--vsc-foreground-dim); font-size:11px; }
-    .filters { display:flex; gap:4px; padding:10px 14px; border-bottom:1px solid var(--vsc-border); }
+    .filters { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 14px; border-bottom:1px solid var(--vsc-border); }
+    .filter-buttons { display:flex; gap:4px; }
+    .filter-search { flex:1; min-width:170px; height:26px; padding:0 8px; border:1px solid var(--vsc-input-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-input-background); color:var(--vsc-input-foreground, var(--vsc-foreground)); font:inherit; font-size:12px; }
     .filters button, .operation-actions button, .center-footer button {
       border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-button-secondary-foreground);
       padding:4px 9px; font:inherit; font-size:12px; cursor:pointer;
@@ -106,18 +117,18 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     .operation-list { flex:1; min-height:0; overflow:auto; }
     .operation-row { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:10px; padding:13px 16px; border-bottom:1px solid var(--vsc-border); }
     .operation-row:hover { background:var(--vsc-list-hover-background); }
-    .operation-row.failed { border-left:2px solid var(--vsc-error); padding-left:14px; }
+    .operation-row.failed { background:var(--vsc-error-surface); }
     .operation-icon { font-size:16px; padding-top:1px; opacity:.9; }
     .operation-main { min-width:0; }
     .operation-title-line { display:flex; gap:8px; align-items:center; min-width:0; }
     .operation-title-line strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .status { margin-left:auto; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--vsc-foreground-dim); }
-    .status[data-status='error'] { color:var(--vsc-error); }
+    .status[data-status='error'] { color:var(--vsc-error); font-weight:600; }
     .status[data-status='running'], .status[data-status='paused'] { color:var(--vsc-accent-blue); }
     .operation-path { margin-top:3px; color:var(--vsc-foreground-dim); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .progress-track { height:3px; margin-top:8px; overflow:hidden; background:var(--vsc-border); border-radius:2px; }
     .progress-track span { display:block; height:100%; min-width:2px; background:var(--vsc-accent-blue); }
-    .operation-meta { display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:6px; color:var(--vsc-foreground-dim); font-size:10px; }
+    .operation-meta { display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:6px; color:var(--vsc-foreground-dim); font-size:10px; font-variant-numeric:tabular-nums; }
     .operation-error { margin-top:6px; color:var(--vsc-error); font-size:11px; white-space:pre-wrap; }
     .operation-actions { display:flex; align-items:flex-start; }
     .empty-state { height:100%; min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; color:var(--vsc-foreground-dim); text-align:center; padding:24px; }
@@ -131,6 +142,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   renderVisible = false;
   isClosing = false;
   filter: OperationCenterFilter = 'all';
+  searchText = '';
   active: OperationState[] = [];
   history: OperationHistoryEntry[] = [];
   private readonly destroy$ = createSubject<void>();
@@ -162,6 +174,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   show(): void { this.isClosing=false; this.renderVisible=true; this.visible=true; }
   hide(): void { if(!this.renderVisible||this.isClosing)return; this.visible=false; this.isClosing=true; }
   toggle(): void { this.visible ? this.hide() : this.show(); }
+  onSearchInput(event: Event): void { this.searchText = (event.target as HTMLInputElement).value; }
   onAnimationEnd(event: AnimationEvent): void {
     if(event.target!==event.currentTarget||!this.isClosing)return;
     this.renderVisible=false;
@@ -180,10 +193,22 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     const activeIds = new Set(this.active.map(op => op.id));
     const historical = this.history.filter(op => !activeIds.has(op.id));
     const all = [...this.active, ...historical];
-    if (this.filter === 'active') return this.active;
-    if (this.filter === 'history') return historical;
-    if (this.filter === 'failed') return all.filter(op => op.status === 'error');
-    return all;
+    const byTab =
+      this.filter === 'active'
+        ? this.active
+        : this.filter === 'history'
+          ? historical
+          : this.filter === 'failed'
+            ? all.filter(op => op.status === 'error')
+            : all;
+
+    const query = this.searchText.trim().toLowerCase();
+    if (!query) return byTab;
+    return byTab.filter(op =>
+      op.config.title.toLowerCase().includes(query) ||
+      this.operationPath(op).toLowerCase().includes(query) ||
+      (op.error ?? '').toLowerCase().includes(query),
+    );
   }
 
   get failedCount(): number { return this.history.filter(op => op.status === 'error').length; }

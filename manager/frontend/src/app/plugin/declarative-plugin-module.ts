@@ -27,10 +27,26 @@ export interface DeclarativePluginBinding {
   category?: string;
 }
 
+export interface DeclarativePluginTheme {
+  id: string;
+  label: string;
+  kind: 'light' | 'dark';
+  variables: Record<string, string>;
+}
+
+export interface DeclarativePluginColumnProfile {
+  id: string;
+  label: string;
+  columnIds: string[];
+  widths?: Record<string, string>;
+}
+
 export interface DeclarativePluginModule {
   schemaVersion: 1;
   commands?: DeclarativePluginCommand[];
   bindings?: DeclarativePluginBinding[];
   toolbar?: DeclarativePluginPlacement[];
   contextMenu?: DeclarativePluginPlacement[];
+  themes?: DeclarativePluginTheme[];
+  columnProfiles?: DeclarativePluginColumnProfile[];
 }

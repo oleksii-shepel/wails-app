@@ -202,7 +202,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
               <span class="palette-dialog-subtitle">{{ selectedProtocol.label }}</span>
             </div>
             <div class="remote-connect-header-actions">
-                            <span class="dialog-close" aria-label="Close tab" (click)="onCancel()" title="Close" role="button" tabindex="0" (keydown.enter)="onCancel()" (keydown.space)="onCancel(); $event.preventDefault()"> × </span>
+                            <button type="button" class="dialog-close" aria-label="Close dialog" (click)="onCancel()" title="Close"> × </button>
             </div>
           </header>
           <p class="remote-connect-intro palette-dialog-footnote">

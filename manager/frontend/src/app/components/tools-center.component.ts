@@ -1103,18 +1103,19 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     });
     if (!confirmed) return;
 
+    const root = this.rootPath;
     try {
       const result = await this.api.batchDelete(paths, true, true);
 
-      if (result.failed === 0) {
+      if (this.rootPath === root) {
         this.duplicateSelected = new Set();
         await this.scanDuplicates();
-      } else {
+      }
+      if (result.failed > 0) {
         await this.confirm.alert({
           title: 'Duplicate Delete Completed with Errors',
           message:
-            `${result.failed} file${result.failed === 1 ? '' : 's'} could not be deleted. ` +
-            'The result list has been left intact for review.',
+            `${result.failed} file${result.failed === 1 ? '' : 's'} could not be deleted.`,
         });
       }
 

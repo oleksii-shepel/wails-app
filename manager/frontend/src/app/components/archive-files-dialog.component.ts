@@ -48,7 +48,6 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
             <div class="preset-row" role="group" aria-label="Archive format presets">
               <span class="preset-label">Presets:</span>
               <button type="button" class="preset-btn" [class.active]="hasExtension('.zip')" [attr.aria-pressed]="hasExtension('.zip')" (click)="applyExtension('.zip')">.zip</button>
-              <button type="button" class="preset-btn" [class.active]="hasExtension('.tar.gz')" [attr.aria-pressed]="hasExtension('.tar.gz')" (click)="applyExtension('.tar.gz')">.tar.gz</button>
               <button type="button" class="preset-btn" (click)="applyDatedPreset()">+ Date stamp</button>
             </div>
 
@@ -212,7 +211,10 @@ export class ArchiveFilesDialogComponent implements OnInit, OnDestroy {
 
   get validationError(): string {
     const trimmed = this.draftValue.trim();
-    return filenameProblem(trimmed, true) ?? '';
+    const problem = filenameProblem(trimmed, true);
+    if (problem) return problem;
+    if (ARCHIVE_EXTENSION_PATTERN.test(trimmed) && !this.hasExtension('.zip')) return 'Choose a ZIP filename.';
+    return '';
   }
 
   get isClosing(): boolean {

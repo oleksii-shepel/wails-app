@@ -46,8 +46,8 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
 
             <div class="preset-row" role="group" aria-label="Archive format presets">
               <span class="preset-label">Presets:</span>
-              <button type="button" class="preset-btn" [class.active]="hasExtension('.zip')" (click)="applyExtension('.zip')">.zip</button>
-              <button type="button" class="preset-btn" [class.active]="hasExtension('.tar.gz')" (click)="applyExtension('.tar.gz')">.tar.gz</button>
+              <button type="button" class="preset-btn" [class.active]="hasExtension('.zip')" [attr.aria-pressed]="hasExtension('.zip')" (click)="applyExtension('.zip')">.zip</button>
+              <button type="button" class="preset-btn" [class.active]="hasExtension('.tar.gz')" [attr.aria-pressed]="hasExtension('.tar.gz')" (click)="applyExtension('.tar.gz')">.tar.gz</button>
               <button type="button" class="preset-btn" (click)="applyDatedPreset()">+ Date stamp</button>
             </div>
 

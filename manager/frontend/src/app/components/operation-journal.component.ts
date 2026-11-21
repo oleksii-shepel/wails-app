@@ -33,9 +33,9 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
         </div>
         <div class="entries palette-dialog-body">
           <article *ngFor="let entry of filteredEntries; trackBy: trackEntry" [class.failed]="entry.state === 'failed' || entry.state === 'partial'">
-            <span class="state">{{ stateIcon(entry) }}</span>
+            <span class="state" aria-hidden="true">{{ stateIcon(entry) }}</span>
             <div class="main"><strong>{{ entry.label }}</strong>
-              <small>{{ entry.kind }} · {{ entry.completedAt | date:'short' }} · {{ entry.reversible ? 'undoable' : 'not undoable' }}</small>
+              <small>{{ stateLabel(entry.state) }} · {{ entry.kind }} · {{ entry.completedAt | date:'short' }} · {{ entry.reversible ? 'undoable' : 'not undoable' }}</small>
               <span *ngIf="entry.summary">{{ entry.summary }}</span>
               <span class="error" *ngIf="entry.error">{{ entry.error }}</span>
               <details *ngIf="entry.affectedPaths.length"><summary>{{ entry.affectedPaths.length }} affected paths</summary>
@@ -160,6 +160,9 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async clear():Promise<void>{const ok=await this.dialogs.confirm({title:'Clear Operation History',message:'Clear the visible operation journal? Undo/redo stacks are left unchanged.',confirmText:'Clear',danger:true});if(!ok)return;this.history.clearJournal();this.cdr.markForCheck();}
+  stateLabel(state: OperationJournalEntry['state']): string {
+    return { completed: 'Completed', partial: 'Partial success', failed: 'Failed', undone: 'Undone', redone: 'Redone' }[state];
+  }
   stateIcon(entry:OperationJournalEntry):string{if(entry.state==='failed')return '×';if(entry.state==='partial')return '!';if(entry.state==='undone')return '↶';if(entry.state==='redone')return '↷';return '✓';}
   trackEntry(_index:number,entry:OperationJournalEntry):string{return entry.id;}
 }

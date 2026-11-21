@@ -160,7 +160,7 @@ import { ModalStackService } from '../services/modal-stack.service';
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
       width: min(760px, calc(100vw - 32px));
-      max-height: min(760px, calc(100vh - 36px));
+      max-height: min(760px, calc(100vh - 96px));
       overflow: hidden;
       border: 1px solid var(--vsc-border-bright, var(--vsc-border));
       border-radius: 8px;

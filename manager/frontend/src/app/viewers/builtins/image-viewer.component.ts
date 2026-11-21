@@ -78,29 +78,29 @@ interface CarouselVirtualFrame {
           </div>
 
           <div *ngIf="kind === 'empty'" class="state-container">
-            <div class="state-icon">&#x1F50D;</div>
+            <div class="state-icon" aria-hidden="true">&#x1F50D;</div>
             <div class="state-label">Select a file to preview</div>
           </div>
 
           <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
-            <div class="state-icon">&#x26A0;</div>
+            <div class="state-icon" aria-hidden="true">&#x26A0;</div>
             <div class="state-label">Preview failed</div>
             <div class="error-detail">{{ error }}</div>
           </div>
 
           <div *ngIf="kind === 'directory'" class="state-container">
-            <div class="state-icon">&#x1F4C1;</div>
+            <div class="state-icon" aria-hidden="true">&#x1F4C1;</div>
             <div class="state-label">Directory - no preview available</div>
           </div>
 
           <div *ngIf="kind === 'toobig'" class="state-container">
-            <div class="state-icon">&#x1F4E6;</div>
+            <div class="state-icon" aria-hidden="true">&#x1F4E6;</div>
             <div class="state-label">Image too large to preview</div>
             <div class="state-sub">{{ formatSize(info?.size ?? 0) }}</div>
           </div>
 
           <div *ngIf="kind === 'unsupported'" class="state-container">
-            <div class="state-icon">&#x1F6AB;</div>
+            <div class="state-icon" aria-hidden="true">&#x1F6AB;</div>
             <div class="state-label">No image preview for this file type</div>
             <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
           </div>

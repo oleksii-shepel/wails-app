@@ -261,7 +261,9 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     const delta = Math.max(0, Date.now() - when);
     if (delta < 60_000) return 'just now';
     if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
-    return new Date(when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const date = new Date(when);
+    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString()} ${time}`;
   }
   async cancel(id: string): Promise<void> { await this.operationService.cancel(id); }
   async clearHistory(): Promise<void> {

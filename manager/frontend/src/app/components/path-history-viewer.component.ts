@@ -85,7 +85,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <button
               (click)="removePath(entry, $event)"
               class="btn-remove"
-              title="Remove from history"
+              aria-label="Remove location from history" title="Remove from history"
             >
               ✕
             </button>

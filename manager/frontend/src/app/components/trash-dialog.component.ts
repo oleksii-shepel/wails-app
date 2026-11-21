@@ -125,8 +125,8 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             Trash is empty.
           </div>
 
-          <div *ngIf="!loading && entries.length > 0 && filteredEntries.length === 0" class="empty palette-dialog-empty">
-            No items match "{{ searchText }}".
+          <div *ngIf="!loading && entries.length > 0 && filteredEntries.length === 0" class="empty palette-dialog-empty" role="status">
+            No matching items. Clear the search to see everything in the Trash.
           </div>
 
           <div *ngIf="loading" class="empty palette-dialog-empty" role="status">

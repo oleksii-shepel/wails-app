@@ -339,6 +339,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           (click)="refreshResultsCollection()">&#x21BB;</button>
         <button type="button"
           [class.active]="panel.pinned"
+          [attr.aria-pressed]="panel.pinned"
+          aria-label="Pin collection"
           [title]="panel.pinned ? 'Unpin collection' : 'Pin collection'"
           (click)="toggleResultsCollectionPin()">{{ panel.pinned ? '\u2605' : '\u2606' }}</button>
         <button type="button"

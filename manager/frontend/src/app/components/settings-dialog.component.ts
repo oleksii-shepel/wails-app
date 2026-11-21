@@ -554,13 +554,13 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       </select>
                     </label>
                     <label class="field">
-                      <span>Match Brackets</span>
-                      <select [(ngModel)]="draft.editor.matchBrackets" (ngModelChange)="onSettingChanged()">
+                      <span id="settings-match-brackets-label">Match Brackets</span>
+                      <select aria-labelledby="settings-match-brackets-label" aria-describedby="settings-match-brackets-help" [(ngModel)]="draft.editor.matchBrackets" (ngModelChange)="onSettingChanged()">
                         <option value="never">Never</option>
                         <option value="near">Near cursor</option>
                         <option value="always">Always</option>
                       </select>
-                      <small>Controls when matching bracket pairs are highlighted.</small>
+                      <small id="settings-match-brackets-help">Controls when matching bracket pairs are highlighted.</small>
                     </label>
                   </div>
                   <label class="field">

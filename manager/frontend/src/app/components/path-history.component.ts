@@ -89,9 +89,11 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
         <footer class="palette-dialog-footer">
           <div class="palette-dialog-footer-actions">
             <button type="button" class="palette-dialog-button" [disabled]="!selectedEntry" (click)="removeSelected()">Remove</button>
+            <button type="button" class="palette-dialog-button" [disabled]="!selectedEntry" (click)="copySelectedLocation()">Copy Location</button>
             <button type="button" class="palette-dialog-button" [disabled]="entries.length===0" (click)="copyJson()">Copy JSON</button>
             <button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="entries.length===0" (click)="clearAll()">Clear all</button>
           </div>
+          <span class="palette-dialog-meta" role="status">{{ copyNotice }}</span>
           <span class="keys palette-dialog-footnote">Ctrl+PgUp/PgDn views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete</span>
         </footer>
       </section>
@@ -114,6 +116,7 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
   @Output() navigate=new EventEmitter<string>();
 
   visible=false;
+  copyNotice = '';
   isClosing=false;
   filterText='';
   entries:LocationHistoryEntry[]=[];
@@ -197,6 +200,7 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     this.entries=this.historyService.getAllHistory();
     this.mode=mode;
     this.filterText='';
+    this.copyNotice = '';
     this.selectedIndex=0;
     this.isClosing=false;
     this.visible=true;
@@ -258,6 +262,18 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     if(!ok)return;
     this.historyService.clearHistory();
     this.reload();
+  }
+
+  async copySelectedLocation(): Promise<void> {
+    const entry = this.selectedEntry;
+    if (!entry) return;
+    try {
+      await writeClipboardText(entry.location);
+      this.copyNotice = 'Location copied.';
+    } catch {
+      this.copyNotice = 'Clipboard unavailable.';
+    }
+    this.cdr.markForCheck();
   }
 
   async copyJson():Promise<void>{

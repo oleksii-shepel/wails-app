@@ -106,7 +106,7 @@ type RecursiveCompareFilter = 'different' | 'only-left' | 'only-right' | 'modifi
                     <span class="entry-meta num" [title]="sideTooltip(item.right)">{{ sideLabel(item.right) }}</span>
                   </div>
                 } @empty {
-                  <div class="diff-empty">
+                  <div class="diff-empty" role="status">
                     {{ scanning ? 'Walking directory trees…' : summary.different === 0 && filter === 'different' ? 'No recursive differences found under this policy.' : 'No entries match the current filter.' }}
                   </div>
                 }

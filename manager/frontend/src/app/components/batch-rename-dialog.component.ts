@@ -144,6 +144,8 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
                   <label for="br-find">Find</label>
                   <input
                     id="br-find"
+                    [attr.aria-invalid]="!!regexError"
+                    [attr.aria-describedby]="regexError ? 'br-regex-error' : null"
                     class="br-input"
                     type="text"
                     [value]="findText"
@@ -173,7 +175,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
                   <input type="checkbox" [checked]="matchCase" (change)="onMatchCaseToggle($event)" />
                   <span>Match Case</span>
                 </label>
-                <span class="br-regex-error" *ngIf="regexError">{{ regexError }}</span>
+                <span id="br-regex-error" class="br-regex-error" *ngIf="regexError" role="alert">{{ regexError }}</span>
               </div>
             </div>
 

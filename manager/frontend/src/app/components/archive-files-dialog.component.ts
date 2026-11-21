@@ -27,7 +27,7 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
               <h2>{{ request.title }}</h2>
               <p>{{ request.message }}</p>
             </div>
-            <span class="dialog-close" aria-label="Close tab" title="Close (Esc)" (click)="dialogs.close()" role="button" tabindex="0" (keydown.enter)="dialogs.close()" (keydown.space)="dialogs.close(); $event.preventDefault()"> × </span>
+            <button type="button" class="dialog-close" aria-label="Close dialog" title="Close (Esc)" (click)="dialogs.close()"> × </button>
           </header>
 
           <div class="dialog-body">

@@ -53,7 +53,7 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
               <button type="button" class="preset-btn" (click)="applyDatedPreset()">+ Date stamp</button>
             </div>
 
-            <small id="archive-name-hint">A .zip extension is added if needed.</small>
+            <small *ngIf="!validationError" id="archive-name-hint">A .zip extension is added if needed.</small>
             <div *ngIf="validationError" id="archive-name-error" class="validation-note" role="alert">
               {{ validationError }}
             </div>

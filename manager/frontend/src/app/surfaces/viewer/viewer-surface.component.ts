@@ -266,7 +266,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
         <div *ngIf="kind === 'audio'" class="audio-host">
           <div class="audio-icon">&#x1F3B5;</div>
           <div class="state-label">{{ info?.name }}</div>
-          <audio class="preview-audio" controls preload="auto" autoplay
+          <audio class="preview-audio" controls preload="metadata"
                  [src]="mediaSrc!"
                  (loadedmetadata)="onMediaMetadata('audio', $event)"
                  (canplay)="onMediaCanPlay('audio', $event)"

@@ -87,7 +87,7 @@ import {
             {{ job.result.succeeded }}/{{ job.result.total }} succeeded
           </span>
         </div>
-        <div class="error-message" *ngIf="job.error">{{ job.error }}</div>
+        <div class="error-message" *ngIf="job.error" role="alert">{{ job.error }}</div>
         <div class="operation-actions">
           <button *ngIf="job.status === 'queued'" (click)="cancelQueued(job)">Remove</button>
           <button *ngIf="job.status === 'failed' || job.status === 'cancelled'" (click)="retryQueued(job)">Retry</button>

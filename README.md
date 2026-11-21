@@ -44,7 +44,8 @@ wails build
 ```
 
 The executable is written to `manager/build/bin/`. Run it on Windows before
-publishing a release.
+publishing a release. Follow the [Windows release checklist](docs/WINDOWS_RELEASE_CHECKLIST.md)
+to verify the CI artifact and packaged file operations.
 
 ## Running the local browser preview
 

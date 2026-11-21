@@ -4,6 +4,13 @@ Build with `npm run build:app` from a clean checkout after `npm ci`, or download
 the Windows artifact produced by the build workflow for the same commit.
 Record the commit ID, Windows version, and result of each check.
 
+For an artifact downloaded from CI, compare the executable's SHA-256 digest
+with the first field in `wails-app.exe.sha256` before launching it:
+
+```powershell
+Get-FileHash -LiteralPath .\wails-app.exe -Algorithm SHA256
+```
+
 ## Packaged application
 
 - Launch the executable as a standard user. Confirm the main window opens,

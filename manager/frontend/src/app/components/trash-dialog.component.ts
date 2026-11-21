@@ -518,21 +518,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     const selected = this.selectedEntries;
     if (selected.length === 0 || !this.canRestoreSelection) return;
 
-    this.loading = true;
-    this.error = '';
-    this.cdr.markForCheck();
-    try {
-      for (const entry of selected) {
-        await this.api.restoreTrashEntry(entry.id);
-      }
-      this.selectedIds = new Set();
-      await this.reload();
-      this.dialog.notifyMutated();
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-      this.loading = false;
-      this.cdr.markForCheck();
-    }
+    await this.mutateSelected(selected, 'restore', entry => this.api.restoreTrashEntry(entry.id));
   }
 
   async deleteSelected(): Promise<void> {
@@ -598,6 +584,33 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       this.loading = false;
       this.cdr.markForCheck();
     }
+  }
+
+  private async mutateSelected(
+    selected: readonly TrashEntry[], action: 'restore' | 'delete', mutate: (entry: TrashEntry) => Promise<unknown>,
+  ): Promise<void> {
+    const request = this.dialog.activeRequest$.value;
+    if (!request) return;
+    this.loading = true;
+    this.error = '';
+    this.cdr.markForCheck();
+    const failed: Array<{ entry: TrashEntry; message: string }> = [];
+    for (const entry of selected) {
+      try {
+        await mutate(entry);
+      } catch (error) {
+        failed.push({ entry, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    if (failed.length < selected.length) this.dialog.notifyMutated();
+    if (this.dialog.activeRequest$.value !== request) return;
+    this.selectedIds = new Set(failed.map(item => item.entry.id));
+    await this.reload();
+    if (this.dialog.activeRequest$.value !== request || !failed.length) return;
+    const first = failed[0];
+    this.error = [`Could not ${action} ${failed.length} of ${selected.length} Trash items.`,
+      `${first.entry.name}: ${first.message}`, this.error].filter(Boolean).join(' ');
+    this.cdr.markForCheck();
   }
 
   private async confirmTrashChange(options: Parameters<ConfirmDialogService['confirm']>[0]): Promise<boolean> {

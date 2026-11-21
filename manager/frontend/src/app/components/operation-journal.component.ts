@@ -51,11 +51,11 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
         </div>
         <footer class="palette-dialog-footer">
           <span class="palette-dialog-meta" role="status">{{ notice || (matching.length + ' of ' + entries.length + ' shown') }}</span>
-          <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
-          <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
-          <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="history.isBusy || entries.length === 0" (click)="clear()">Clear Journal</button>
-          <button class="palette-dialog-button" [disabled]="matching.length === 0" (click)="download()">Export Results</button>
-          <button class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button></div></footer>
+          <div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
+          <div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button" [disabled]="history.isBusy || entries.length === 0" (click)="clear()">Clear Journal</button>
+          <button type="button" class="palette-dialog-button" [disabled]="matching.length === 0" (click)="download()">Export Results</button>
+          <button type="button" class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button></div></footer>
       </section>
     </div>`,
   styleUrls: ['./tools-dialog-remote-theme.scss'],

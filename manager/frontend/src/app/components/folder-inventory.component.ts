@@ -70,7 +70,9 @@ import { FileType, type FileInfo } from '../shared/protocol';
               </td>
               <td>{{ entry.type.toLowerCase() }}</td>
               <td>{{ entry.type === directoryType ? '—' : entry.size }}</td>
-              <td>{{ entry.modified > 0 ? (entry.modified * 1000 | date:'short') : '—' }}</td>
+              <td [title]="entry.modified > 0 ? (entry.modified * 1000 | date:'medium') : null">
+                {{ entry.modified > 0 ? (entry.modified * 1000 | date:'short') : '—' }}
+              </td>
             </tr>
           }
         </tbody>

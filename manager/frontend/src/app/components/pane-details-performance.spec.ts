@@ -52,6 +52,7 @@ describe('PaneDetailsComponent performance model', () => {
       'created',
       'accessed',
       'owner',
+      'attributes',
       'permissions',
       'isHidden',
       'isSymlink',

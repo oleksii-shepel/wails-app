@@ -66,7 +66,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
     .entries{overflow-wrap:anywhere}
     .entries{min-height:0;overflow:auto;font-variant-numeric:tabular-nums}.entries article{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;padding:8px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     .entries article.failed{background:var(--vsc-error-surface)}
-    .state{font-size:14px;text-align:center}.main{display:grid;min-width:0;gap:2px}.main small,.main>span{color:var(--vsc-description-foreground)}.main .error{color:var(--vsc-error)}details code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground)}
+    .state{font-size:14px;text-align:center}.main{display:grid;min-width:0;gap:2px}.main small,.main>span{color:var(--vsc-description-foreground)}.main .error{color:var(--vsc-error)}details code{display:block;overflow-wrap:anywhere;white-space:pre-wrap;font:inherit;font-family:var(--vsc-font-family-mono,ui-monospace,monospace);user-select:text}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground)}
   `]
 })
 export class OperationJournalComponent implements OnChanges, OnDestroy {

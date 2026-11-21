@@ -79,7 +79,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
               <span>{{ formatTime(entry.timestamp) }}</span>
             </span>
           </button>
-          <div class="empty palette-dialog-empty" *ngIf="filteredEntries.length===0">
+          <div class="empty palette-dialog-empty" *ngIf="filteredEntries.length===0" role="status">
             {{ entries.length===0 ? 'No path history yet.' : 'No matching locations.' }}
           </div>
         </div>

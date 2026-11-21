@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnDestroy, OnInit, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../services/api.service';
@@ -94,7 +95,8 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
         </div>
 
         <footer>
-          <span>{{ activeSection?.title || '' }}</span>
+          <span role="status">{{ notice || activeSection?.title || '' }}</span>
+          <button type="button" class="palette-dialog-button" [disabled]="!selectedItem" (click)="copySelectedLocation()">Copy Location</button>
           <button type="button" [disabled]="selectedItem?.kind !== 'pin'" (click)="removeSelectedPin()">Unpin</button>
           <span class="keys">1–9 · Ctrl+PgUp/PgDn sections · ↑ ↓ · Enter · Delete · Esc</span>
         </footer>
@@ -135,6 +137,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   renderVisible = false;
   isClosing = false;
   filterText = '';
+  notice = '';
   sections: QuickSection[] = [];
   sectionIndex = 0;
   itemIndex = 0;
@@ -275,6 +278,19 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   selectSection(index:number):void{this.sectionIndex=Math.max(0,Math.min(index,this.filteredSections.length-1));this.itemIndex=0;this.cdr.markForCheck()}
   resetSelection():void{this.sectionIndex=0;this.itemIndex=0;this.cdr.markForCheck()}
   trackItem(_index:number,item:QuickItem):string{return item.id}
+
+  async copySelectedLocation(): Promise<void> {
+    const item = this.selectedItem;
+    if (!item) return;
+    const revision = this.loadRevision;
+    try {
+      await writeClipboardText(item.path);
+      if (revision === this.loadRevision) this.notice = 'Location copied.';
+    } catch {
+      if (revision === this.loadRevision) this.notice = 'Clipboard unavailable.';
+    }
+    this.cdr.markForCheck();
+  }
 
   removeSelectedPin(): void {
     const item=this.selectedItem; if(!item||item.kind!=='pin')return;

@@ -58,6 +58,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             (click)="restoreSelected()">
             Restore
           </button>
+          <span *ngIf="selectedIds.size && !canRestoreSelection" class="palette-dialog-meta" role="status">Some selected items cannot be restored.</span>
           <button
             type="button"
             class="palette-dialog-button"

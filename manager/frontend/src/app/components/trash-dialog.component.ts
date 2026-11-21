@@ -47,7 +47,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <h2>Trash / Recycle Bin</h2>
             <p class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }} · {{ selectedIds.size }} selected</p>
           </div>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
         </header>
 
         <div class="toolbar palette-dialog-toolbar">

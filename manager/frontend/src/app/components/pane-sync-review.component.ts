@@ -38,7 +38,7 @@ type Filter = 'different' | PaneComparisonStatus;
           <button type="button" [class.active]="preset === 'left-to-right'" [attr.aria-pressed]="preset === 'left-to-right'" (click)="applyPreset('left-to-right')">Left → Right</button>
           <button type="button" [class.active]="preset === 'right-to-left'" [attr.aria-pressed]="preset === 'right-to-left'" (click)="applyPreset('right-to-left')">Right → Left</button>
           <button type="button" [class.active]="preset === 'bidirectional'" [attr.aria-pressed]="preset === 'bidirectional'" (click)="applyPreset('bidirectional')">Bidirectional</button>
-          <button type="button" (click)="skipConflicts()" [disabled]="conflictCount === 0" title="Set all conflicting items to Skip">Skip Conflicts</button>
+          <button type="button" (click)="skipConflicts()" [disabled]="conflictCount === 0" aria-label="Set all conflicting items to Skip" title="Set all conflicting items to Skip">Skip Conflicts</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="dialogs.close()"> × </button>
         </div>

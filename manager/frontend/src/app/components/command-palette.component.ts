@@ -72,14 +72,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <nav class="categories" *ngIf="categories.length > 1" aria-label="Command category filters">
           <button
             type="button"
-            [class.active]="selectedCategory === 'all'"
+            [class.active]="selectedCategory === 'all'" [attr.aria-pressed]="selectedCategory === 'all'"
             (click)="selectCategory('all')">
             All
           </button>
           <button
             *ngFor="let category of categories"
             type="button"
-            [class.active]="selectedCategory === category"
+            [class.active]="selectedCategory === category" [attr.aria-pressed]="selectedCategory === category"
             (click)="selectCategory(category)">
             {{ category }}
           </button>

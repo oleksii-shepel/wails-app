@@ -73,7 +73,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
       </table>
       @if (visible.length > limit) {
         <div class="palette-dialog-toolbar">
-          <button type="button" class="palette-dialog-button" (click)="limit = limit + 250">Show more rows</button>
+          <button type="button" class="palette-dialog-button" (click)="limit = limit + 250">Show more ({{ visible.length - limit }} remaining)</button>
         </div>
       }
     }

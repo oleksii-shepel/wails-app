@@ -6,7 +6,11 @@ const root = fileURLToPath(new URL('../src/', import.meta.url));
 const themeFile = join(root, 'vscode-theme.scss');
 const extensions = new Set(['.ts', '.scss', '.css', '.html']);
 // Spec files assert on styles; they are test fixtures, not presentation code.
-const excluded = /(^|[\\/])[^\\/]*\.spec\.ts$/;
+// The web shim mocks the backend for browser runs and the viewer frame
+// generator inlines fallback values into documents rendered inside external
+// iframes, where theme-scoped custom properties cannot resolve; both mirror
+// values already owned by vscode-theme.scss.
+const excluded = /(^|[\\/])([^\\/]*\.spec\.ts|wails-web-shim\.ts|viewer-frame-scrollbars\.ts)$/;
 const rawColor = /(?<![\w-])(#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\))/g;
 const namedColor = /(?:color|background|border(?:-color)?|fill|stroke|shadow)[^;\n]*:\s*(white|black|red|green|blue|yellow|orange|purple|gray|grey)(?=[; ,}\)])/gi;
 const variableRef = /var\((--[\w-]+)/g;

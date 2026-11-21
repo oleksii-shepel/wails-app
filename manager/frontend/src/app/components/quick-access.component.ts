@@ -313,14 +313,15 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
         )
       : [];
 
-    const seen = new Set<string>();
-    const unique = (items: QuickItem[]): QuickItem[] =>
-      items.filter(item => {
+    const unique = (items: QuickItem[]): QuickItem[] => {
+      const seen = new Set<string>();
+      return items.filter(item => {
         const key = this.locationKey(item.path);
         if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
       });
+    };
 
     const system: QuickItem[] = specialFolders.map(folder => ({
       id: `system:${folder.path}`,

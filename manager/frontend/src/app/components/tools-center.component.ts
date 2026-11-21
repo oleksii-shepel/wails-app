@@ -229,8 +229,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </button>
           </div>
 
-          <div class="empty" *ngIf="!diskScanning && diskEntries.length === 0">
-            Scan the active directory to see where space is used.
+          <div class="empty" *ngIf="!diskScanning && !diskError && diskEntries.length === 0">
+            {{ diskCompleted ? 'No entries were found in this directory.' : diskCancelled ? 'No entries were collected before cancellation.' : 'Scan the active directory to see where space is used.' }}
           </div>
           <div class="empty" *ngIf="!diskScanning && diskEntries.length > 0 && sortedDiskEntries.length === 0">
             No entries match "{{ diskFilter }}".
@@ -490,6 +490,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   diskScanning = false;
   diskCancelled = false;
+  diskCompleted = false;
   diskSort: DiskSort = 'size';
   diskFilter = '';
   diskProgress: DiskUsageProgress | DiskUsageResult | null = null;
@@ -691,6 +692,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     if (rootChanged) {
       this.cancelDisk();
       this.diskCancelled = false;
+      this.diskCompleted = false;
       this.cancelDuplicates();
       this.diskEntries = [];
       this.diskProgress = null;
@@ -941,6 +943,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.diskAbort = controller;
     this.diskScanning = true;
     this.diskCancelled = false;
+    this.diskCompleted = false;
     this.diskError = '';
     this.diskEntries = [];
     this.diskProgress = null;
@@ -971,6 +974,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
         }
         this.cdr.markForCheck();
       }
+      if (!controller.signal.aborted) this.diskCompleted = true;
     } catch (error) {
       if (!controller.signal.aborted) {
         this.diskError = error instanceof Error ? error.message : String(error);

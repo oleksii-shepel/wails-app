@@ -31,6 +31,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
     </div>
     <div class="palette-dialog-toolbar inventory-toolbar">
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="copyPaths()">Copy visible paths</button>
+      <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="copyPaths(true)">Copy selected paths</button>
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="download()">Export CSV</button>
       <button type="button" class="palette-dialog-button palette-dialog-button--primary"
         [disabled]="!selected.size" (click)="addToBasket()">Add selected to Basket</button>
@@ -208,8 +209,8 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     this.notice.set('');
   }
 
-  async copyPaths(): Promise<void> {
-    const paths = this.visible.map(entry => entry.path);
+  async copyPaths(selectedOnly = false): Promise<void> {
+    const paths = selectedOnly ? [...this.selected] : this.visible.map(entry => entry.path);
     try {
       await navigator.clipboard.writeText(paths.join('\n'));
       this.notice.set(`Copied ${paths.length} paths.`);

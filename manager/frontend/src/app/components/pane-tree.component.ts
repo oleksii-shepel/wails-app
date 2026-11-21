@@ -158,7 +158,7 @@ export interface DropTarget {
         {{ emptyMessage }}
       </div>
 
-      <div *ngIf="loading" class="tree-loading">
+      <div *ngIf="loading" class="tree-loading" role="status">
         <span class="spinner"></span>
         Loading...
       </div>

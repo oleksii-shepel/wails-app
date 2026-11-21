@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import { Injectable } from '@angular/core';
 
 import { ApiService } from './api.service';
@@ -121,7 +122,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
     if (!path) return;
 
     try {
-      await navigator.clipboard.writeText(path);
+      await writeClipboardText(path);
     } catch (error) {
       await this.showError(error);
     }
@@ -169,7 +170,7 @@ export class BuiltinWorkspaceSurfaceActionsService {
     if (!entry?.path) return;
 
     try {
-      await navigator.clipboard.writeText(entry.path);
+      await writeClipboardText(entry.path);
     } catch (error) {
       await this.showError(error);
     }

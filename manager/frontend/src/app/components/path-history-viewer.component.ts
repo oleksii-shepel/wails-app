@@ -48,7 +48,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             type="text"
             [(ngModel)]="filterText"
             (ngModelChange)="applyFilter()"
-            placeholder="Filter locations..."
+            placeholder="Filter locations..." aria-label="Filter location history"
             class="filter-input"
           />
         </div>

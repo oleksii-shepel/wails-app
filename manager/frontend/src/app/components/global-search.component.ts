@@ -187,7 +187,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               <span class="kind">{{ kind(entry) }}</span>
             </button>
 
-            <div class="empty palette-dialog-empty" *ngIf="!searching && resultCount === 0">
+            <div class="empty palette-dialog-empty" *ngIf="!searching && resultCount === 0" role="status">
               {{ mode === 'recent'
                 ? 'No recent files match.'
                 : queryText.trim()

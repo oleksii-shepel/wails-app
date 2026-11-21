@@ -9,26 +9,18 @@ import {
   OnInit,
   Output,
 } from '@angular/core';
-import { writeClipboardText } from '../utils/clipboard-text';
 import { CommonModule } from '@angular/common';
-import { writeClipboardText } from '../utils/clipboard-text';
 import { FormsModule } from '@angular/forms';
 
-import { writeClipboardText } from '../utils/clipboard-text';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
-import { writeClipboardText } from '../utils/clipboard-text';
 import { InputEngineService } from '../services/input-engine.service';
-import { writeClipboardText } from '../utils/clipboard-text';
 import { PATH_HISTORY_INPUT, PATH_HISTORY_INPUT_COMMANDS } from '../services/dialog-input-catalog';
-import { writeClipboardText } from '../utils/clipboard-text';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
-import { writeClipboardText } from '../utils/clipboard-text';
 import {
   PathHistoryService,
   type LocationHistoryEntry,
 } from '../services/path-history.service';
 
-import { writeClipboardText } from '../utils/clipboard-text';
 import { discoveryScore } from './discovery';
 type HistoryMode = 'pane' | 'all' | 'frequent';
 

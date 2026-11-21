@@ -286,7 +286,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     <span>Prefix <small>(Optional subfolder)</small></span>
                     <input
                       type="text"
-                      name="remote-prefix"
+                      name="remote-prefix" autocapitalize="none" spellcheck="false"
                       [(ngModel)]="form.prefix"
                       (ngModelChange)="clearError()"
                       placeholder="photos/2025"

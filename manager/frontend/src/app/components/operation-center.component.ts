@@ -49,8 +49,8 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
 
         <div class="operation-list">
           <div *ngIf="entries.length === 0" class="empty-state" role="status">
-            <strong>No operations here</strong>
-            <span>File operations and long-running tasks will appear here.</span>
+            <strong>{{ active.length || history.length ? 'No matching operations' : 'No operations yet' }}</strong>
+            <span *ngIf="!active.length && !history.length">File operations and long-running tasks will appear here.</span>
           </div>
 
           <article *ngFor="let op of entries; trackBy: trackOperation" class="operation-row" [class.failed]="op.status === 'error'">

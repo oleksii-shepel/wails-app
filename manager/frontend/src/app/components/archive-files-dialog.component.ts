@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { filenameProblem } from '../utils/filename-validation';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import {
   ArchiveFilesDialogService,
@@ -211,13 +212,7 @@ export class ArchiveFilesDialogComponent implements OnInit, OnDestroy {
 
   get validationError(): string {
     const trimmed = this.draftValue.trim();
-    if (!trimmed) {
-      return 'Enter a non-empty archive filename.';
-    }
-    if (trimmed.includes('/') || trimmed.includes('\\') || trimmed === '.' || trimmed === '..') {
-      return 'Archive name cannot contain path separators.';
-    }
-    return '';
+    return filenameProblem(trimmed, true) ?? '';
   }
 
   get isClosing(): boolean {

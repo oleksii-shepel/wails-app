@@ -167,7 +167,7 @@ const HOST_COMMAND_OPTIONS: readonly HostCommandOption[] = [
               class="btn btn-secondary btn-small"
               [disabled]="isBusy(snapshot)"
               (click)="removePlugin(snapshot)"
-              title="Delete plugin package"
+              aria-label="Delete plugin package" title="Delete plugin package"
             >
               Remove
             </button>

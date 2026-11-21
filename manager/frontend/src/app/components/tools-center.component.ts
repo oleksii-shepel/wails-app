@@ -597,7 +597,10 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   get matchedAlgorithm(): string | null {
-    const normalized = this.expectedDigest.trim().toLowerCase();
+    const input = this.expectedDigest.trim().toLowerCase();
+    const normalized = /^(?:sha-?(?:256|512|1)|md5)\s*:\s*([a-f0-9]+)$/.exec(input)?.[1]
+      ?? /^([a-f0-9]+)\s+.+$/.exec(input)?.[1]
+      ?? input;
     if (!normalized || this.checksumResults.length === 0) return null;
     const match = this.checksumResults.find(row => row.value.toLowerCase() === normalized);
     return match ? match.label : null;

@@ -178,6 +178,7 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
     link.href = url;
     link.download = 'operation-history.json';
     link.click();
+    this.notice = `Requested JSON download for ${entries.length} ${entries.length === 1 ? 'operation' : 'operations'}.`;
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async clear():Promise<void>{const ok=await this.dialogs.confirm({title:'Clear Operation Journal',message:'Clear all recorded journal entries, including entries outside the active filter? Undo and redo actions will remain available.',confirmText:'Clear',danger:true});if(!ok)return;this.history.clearJournal();this.cdr.markForCheck();}

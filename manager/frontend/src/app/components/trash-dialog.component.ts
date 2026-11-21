@@ -77,6 +77,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <input
             type="search"
             class="trash-search palette-dialog-field"
+            data-dialog-initial-focus
             [value]="searchText"
             (input)="onSearchInput($event)"
             placeholder="Filter by name or original path…"
@@ -621,7 +622,8 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const firstFocusable = panel.querySelector<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      const firstFocusable = panel.querySelector<HTMLElement>('[data-dialog-initial-focus]')
+        ?? panel.querySelector<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])');
       if (firstFocusable) {
         firstFocusable.focus({ preventScroll: true });
         return;

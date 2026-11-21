@@ -246,7 +246,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
           <div class="state-label">Directory — no preview available</div>
         </div>
 
-        <div *ngIf="kind === 'unsupported'" class="state-container state-error">
+        <div *ngIf="kind === 'unsupported'" class="state-container state-error" role="status">
           <div class="state-icon" aria-hidden="true">&#x26A0;</div>
           <div class="state-label">Text preview is unavailable</div>
           <div class="state-sub">The file could not be decoded as UTF-8 text.</div>

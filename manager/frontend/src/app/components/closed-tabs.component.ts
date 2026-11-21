@@ -55,9 +55,10 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <button type="button" class="palette-dialog-button" [disabled]="!searchText && paneFilter === 'all'" (click)="resetFilters()">Reset filters</button>
         </div>
 
+        @let matching = filteredEntries;
         <div class="tabs palette-dialog-body palette-dialog-list">
           <button
-            *ngFor="let entry of filteredEntries; trackBy: trackEntry"
+            *ngFor="let entry of matching; trackBy: trackEntry"
             type="button"
             class="closed-tab palette-dialog-item"
             (click)="reopen(entry)">
@@ -75,19 +76,20 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             No recently closed tabs in this workspace.
           </div>
 
-          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0" role="status">
+          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && matching.length === 0" role="status">
             No closed tabs match the current filters.
           </div>
         </div>
 
         <footer class="palette-dialog-footer">
+          <span class="palette-dialog-meta" role="status">{{ matching.length }} of {{ entries.length }} shown</span>
           <div class="palette-dialog-footer-actions">
             <button type="button" class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">
               Clear Recovery List
             </button>
           </div>
           <div class="palette-dialog-footer-actions">
-            <button type="button" class="palette-dialog-button" [disabled]="filteredEntries.length === 0" (click)="reopenLatest()">
+            <button type="button" class="palette-dialog-button" [disabled]="matching.length === 0" (click)="reopenLatest()">
               Reopen Latest Match
             </button>
             <button type="button" class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button>
@@ -102,6 +104,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
     .tabs-toolbar{display:flex;padding:7px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     .tabs-search{flex:1;min-width:min(180px,100%)}
     .tabs{min-height:0;overflow:auto}
+    .palette-dialog-footer{flex-wrap:wrap}
     .closed-tab{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;text-align:left;cursor:pointer}
     .closed-tab:hover,.closed-tab:focus-visible{background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
     .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small,.meta{color:var(--vsc-description-foreground)}.meta{font-size:10px;font-variant-numeric:tabular-nums}

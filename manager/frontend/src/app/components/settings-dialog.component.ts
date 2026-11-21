@@ -320,8 +320,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-confirm-before-delete-label">Confirm before deleting files</span><small id="settings-confirm-before-delete-help">Shows a confirmation prompt before any delete operation.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.deleteToTrash" (ngModelChange)="onSettingChanged()" />
-                    <span>Send to Recycle Bin<small>Moves deleted files to the system trash instead of permanently erasing them.</small></span>
+                    <input aria-labelledby="settings-delete-to-trash-label" aria-describedby="settings-delete-to-trash-help" type="checkbox" [(ngModel)]="draft.files.deleteToTrash" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-delete-to-trash-label">Send to Recycle Bin</span><small id="settings-delete-to-trash-help">Moves deleted files to the system trash instead of permanently erasing them.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.confirmBeforeMove" (ngModelChange)="onSettingChanged()" />

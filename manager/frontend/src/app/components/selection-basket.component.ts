@@ -75,8 +75,8 @@ import type {
             <button type="button" [class.active]="typeFilter === 'files'" [attr.aria-pressed]="typeFilter === 'files'" (click)="setTypeFilter('files')">Files</button>
             <button type="button" [class.active]="typeFilter === 'folders'" [attr.aria-pressed]="typeFilter === 'folders'" (click)="setTypeFilter('folders')">Folders</button>
           </div>
-          <button type="button" class="tool-utility-btn" [disabled]="!entries.length" (click)="copyPaths()">
-            {{ copiedFeedback ? 'Copied Paths' : 'Copy Paths' }}
+          <button type="button" class="tool-utility-btn" [disabled]="!filteredEntries.length" (click)="copyPaths()">
+            {{ copiedFeedback ? 'Copied Paths' : 'Copy Matching Paths' }}
           </button>
           <button type="button" class="tool-utility-btn" [disabled]="folderCount === 0" (click)="removeFolders()">
             Remove Folders ({{ folderCount }})

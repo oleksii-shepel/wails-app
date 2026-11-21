@@ -308,8 +308,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-single-click-to-open-label">Single-click to open</span><small id="settings-single-click-to-open-help">Opens files and navigates into folders with a single click instead of a double-click.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.calculateFolderSizes" (ngModelChange)="onSettingChanged()" />
-                    <span>Calculate folder sizes<small>Recursively sums directory contents to show sizes. May impact performance on large trees.</small></span>
+                    <input aria-labelledby="settings-calculate-folder-sizes-label" aria-describedby="settings-calculate-folder-sizes-help" type="checkbox" [(ngModel)]="draft.files.calculateFolderSizes" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-calculate-folder-sizes-label">Calculate folder sizes</span><small id="settings-calculate-folder-sizes-help">Recursively sums directory contents to show sizes. May impact performance on large trees.</small></span>
                   </label>
                 </div>
 

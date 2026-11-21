@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { ConfirmDialogService } from '../../services/confirm-dialog.service';
@@ -26,6 +26,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
           <label>Min size <input type="number" min="0" [(ngModel)]="minSize" [disabled]="scanning"></label>
           <label><input type="checkbox" [(ngModel)]="includeHidden" [disabled]="scanning"> Hidden</label>
           <button (click)="scan()" [disabled]="scanning || !rootPath">{{ scanning ? 'Scanning…' : 'Scan' }}</button>
+          <button type="button" *ngIf="scanning" (click)="cancelScan()">Cancel scan</button>
           <label>Keep
             <select [(ngModel)]="keeperPolicy" [disabled]="scanning" (ngModelChange)="onKeeperPolicyChange()">
               <option value="oldest">Oldest</option>
@@ -86,7 +87,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
     button{background:var(--vsc-button-bg,var(--vsc-toolbar-background));color:inherit;border:1px solid var(--vsc-border,var(--vsc-border));padding:4px 8px;border-radius:3px}button:disabled{opacity:.45}.summary{display:flex;gap:14px;padding:7px 12px;border-bottom:1px solid var(--vsc-border,var(--vsc-activitybar-background));font-size:12px}.warning{color: var(--vsc-accent-yellow)}.group{margin:8px 12px;border:1px solid var(--vsc-border,var(--vsc-list-active-background));border-radius:4px;overflow:hidden}.group-head{display:flex;gap:12px;align-items:center;padding:7px 9px;background:var(--vsc-neutral-overlay-subtle);font-size:12px}.group-head code{margin-left:auto;opacity:.65}.file{display:grid;grid-template-columns:22px 45px minmax(120px,1fr) 150px auto;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid var(--vsc-neutral-overlay-soft);font-size:12px}.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.keeper{font-size:10px;color:var(--vsc-success)}.mtime{opacity:.65}.empty,.warnings{padding:14px}.warnings{color: var(--vsc-accent-yellow);font-size:12px;overflow:auto}
   `],
 })
-export class DuplicateFinderSurfaceTabComponent implements OnChanges {
+export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) ctx!: SurfaceContext;
   @Input() active = false;
   rootPath = '';
@@ -100,6 +101,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
   sortMode: 'wasted' | 'copies' | 'size' | 'path' = 'wasted';
   filterText = '';
   private loadKey = '';
+  private scanController: AbortController | null = null;
 
   constructor(
     private readonly finder: DuplicateFinderService,
@@ -114,6 +116,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
   ngOnChanges(): void {
     const key = this.ctx?.tab?.path ?? '';
     if (key === this.loadKey) return;
+    this.cancelScan();
     this.loadKey = key;
     this.rootPath = this.parseRoot(key);
     this.result = null;
@@ -121,17 +124,46 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
     if (this.rootPath) void this.scan();
   }
 
+  ngOnDestroy(): void { this.cancelScan(); }
+
+  cancelScan(): void {
+    this.scanController?.abort();
+    this.scanController = null;
+    this.scanning = false;
+    this.progress = null;
+  }
+
   async scan(): Promise<void> {
     if (!this.rootPath || this.scanning) return;
-    this.scanning = true; this.progress = null; this.selected.clear(); this.cdr.markForCheck();
+    const controller = new AbortController();
+    this.scanController = controller;
+    this.scanning = true;
+    this.progress = null;
+    this.result = null;
+    this.selected.clear();
+    this.cdr.markForCheck();
     try {
-      this.result = await this.finder.scan(this.rootPath, { includeHidden: this.includeHidden, minSize: this.minSize }, p => {
-        this.progress = p; this.cdr.markForCheck();
+      const result = await this.finder.scan(this.rootPath, {
+        includeHidden: this.includeHidden,
+        minSize: this.minSize,
+        signal: controller.signal,
+      }, progress => {
+        if (controller.signal.aborted) return;
+        this.progress = progress;
+        this.cdr.markForCheck();
       });
+      if (!controller.signal.aborted) this.result = result;
     } catch (error) {
-      await this.confirm.alert(`Duplicate Scan Failed\n${error instanceof Error ? error.message : String(error)}`);
+      if (!controller.signal.aborted) {
+        await this.confirm.alert(`Duplicate Scan Failed\n${error instanceof Error ? error.message : String(error)}`);
+      }
     } finally {
-      this.scanning = false; this.progress = null; this.cdr.markForCheck();
+      if (this.scanController === controller) {
+        this.scanController = null;
+        this.scanning = false;
+        this.progress = null;
+        this.cdr.markForCheck();
+      }
     }
   }
 

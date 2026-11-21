@@ -79,7 +79,7 @@ const PIE_PREFETCH_LIMIT = 5;
             <button
               type="button"
               class="sm-path-crumb"
-              [class.sm-path-crumb--active]="last"
+              [class.sm-path-crumb--active]="last" [attr.aria-current]="last ? 'location' : null"
               [disabled]="last"
               [title]="segment.path"
               (click)="navigateBreadcrumb(segment.path)">{{ segment.label }}</button>

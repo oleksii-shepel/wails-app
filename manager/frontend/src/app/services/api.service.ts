@@ -657,10 +657,12 @@ export class ApiService {
       );
     }
 
-    return await app.CreateZipArchive(
+    const result = await app.CreateZipArchive(
       this.normalizeCanonicalPathList(paths),
       this.normalizeCanonicalPath(destination),
     );
+    if (!result?.success) throw new Error(result?.message || 'Archive creation failed.');
+    return result;
   }
 
   async openFile(path: string): Promise<void> {

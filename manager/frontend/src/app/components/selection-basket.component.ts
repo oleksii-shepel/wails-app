@@ -71,9 +71,9 @@ import type {
             placeholder="Filter basket items or paths…"
             aria-label="Filter basket items" />
           <div class="type-filter" role="group" aria-label="Entry type filter">
-            <button type="button" [class.active]="typeFilter === 'all'" (click)="setTypeFilter('all')">All</button>
-            <button type="button" [class.active]="typeFilter === 'files'" (click)="setTypeFilter('files')">Files</button>
-            <button type="button" [class.active]="typeFilter === 'folders'" (click)="setTypeFilter('folders')">Folders</button>
+            <button type="button" [class.active]="typeFilter === 'all'" [attr.aria-pressed]="typeFilter === 'all'" (click)="setTypeFilter('all')">All</button>
+            <button type="button" [class.active]="typeFilter === 'files'" [attr.aria-pressed]="typeFilter === 'files'" (click)="setTypeFilter('files')">Files</button>
+            <button type="button" [class.active]="typeFilter === 'folders'" [attr.aria-pressed]="typeFilter === 'folders'" (click)="setTypeFilter('folders')">Folders</button>
           </div>
           <button type="button" class="tool-utility-btn" [disabled]="!entries.length" (click)="copyPaths()">
             {{ copiedFeedback ? 'Copied Paths' : 'Copy Paths' }}
@@ -115,9 +115,9 @@ import type {
             <div class="batch-section">
               <div class="section-label">Operation</div>
               <div class="operation-tabs" role="group" aria-label="Batch operation">
-                <button type="button" [class.active]="operation === 'copy'" (click)="selectOperation('copy')">Copy</button>
-                <button type="button" [class.active]="operation === 'move'" (click)="selectOperation('move')">Move</button>
-                <button type="button" class="danger-tab" [class.active]="operation === 'delete'" (click)="selectOperation('delete')">Delete</button>
+                <button type="button" [class.active]="operation === 'copy'" [attr.aria-pressed]="operation === 'copy'" (click)="selectOperation('copy')">Copy</button>
+                <button type="button" [class.active]="operation === 'move'" [attr.aria-pressed]="operation === 'move'" (click)="selectOperation('move')">Move</button>
+                <button type="button" class="danger-tab" [class.active]="operation === 'delete'" [attr.aria-pressed]="operation === 'delete'" (click)="selectOperation('delete')">Delete</button>
               </div>
             </div>
 

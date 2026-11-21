@@ -46,7 +46,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
           <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Matching Copies</button>
           <button (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
           <button (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
-          <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning">Delete {{ selected.size }}</button>
+          <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning || deleting">Trash {{ selected.size }}</button>
         </div>
       </header>
 
@@ -94,6 +94,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
   minSize = 1;
   includeHidden = false;
   scanning = false;
+  deleting = false;
   progress: DuplicateScanProgress | null = null;
   result: DuplicateScanResult | null = null;
   selected = new Set<string>();
@@ -235,17 +236,33 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
   }
 
   async deleteSelected(): Promise<void> {
-    const paths = Array.from(this.selected);
+    const scan = this.result;
+    if (this.deleting || this.scanning || !scan) return;
+    this.deleting = true;
+    this.cdr.markForCheck();
+    try {
+      await this.confirmAndDelete(scan);
+    } catch (error) {
+      await this.confirm.alert(`Duplicate Cleanup Failed\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.deleting = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async confirmAndDelete(scan: DuplicateScanResult): Promise<void> {
+    const policy = this.keeperPolicy;
+    const paths = this.finder.redundantPaths(scan.groups, policy).filter(path => this.selected.has(path));
     if (!paths.length) return;
     const bytes = this.selectedBytes();
     const visiblePaths = new Set(this.visibleGroups.flatMap(group => group.files.map(file => file.path)));
     const hidden = paths.filter(path => !visiblePaths.has(path)).length;
     const hiddenMessage = hidden ? `\n${hidden} selected item(s) are outside the current filter.` : '';
     const ok = await this.confirm.confirm({ title: 'Remove Duplicate Files', message: `Move ${paths.length} selected duplicate file(s) to Trash?\nPotentially reclaim ${this.formatSize(bytes)}.${hiddenMessage}`, confirmText: 'Move to Trash', danger: true });
-    if (!ok) return;
+    if (!ok || this.result !== scan || this.keeperPolicy !== policy) return;
     const result = await this.api.batchDelete(paths, false, true);
     if (result.failed > 0) await this.confirm.alert(`Duplicate Cleanup Completed With Errors\n${result.failed} item(s) could not be removed.`);
-    await this.scan();
+    if (this.result === scan) await this.scan();
   }
 
   preview(path: string, name: string): void {

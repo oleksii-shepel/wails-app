@@ -420,7 +420,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                 </label>
               </div>
 
-              <p *ngIf="errorMessage" class="error-banner">{{ errorMessage }}</p>
+              <p *ngIf="errorMessage" class="error-banner" role="alert">{{ errorMessage }}</p>
 
               <div class="actions palette-dialog-actions">
                 <button type="button" class="palette-dialog-button" (click)="onCancel()">Cancel</button>

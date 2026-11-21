@@ -70,7 +70,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             class="palette-dialog-button"
             [disabled]="loading || filteredEntries.length === 0"
             (click)="toggleSelectAll()">
-            {{ allFilteredSelected ? 'Clear selection' : 'Select all' }}
+            {{ allFilteredSelected ? 'Deselect matches' : 'Select matches' }}
           </button>
           <input
             type="search"

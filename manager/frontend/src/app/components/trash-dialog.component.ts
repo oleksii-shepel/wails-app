@@ -385,7 +385,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       : [...this.entries];
 
     if (this.sortBy === 'name') {
-      return filtered.sort((a, b) => a.name.localeCompare(b.name));
+      return filtered.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     }
     if (this.sortBy === 'path') {
       return filtered.sort((a, b) => (a.originalPath ?? '').localeCompare(b.originalPath ?? ''));

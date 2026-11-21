@@ -35,7 +35,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="viewer-toolbar" *ngIf="kind === 'grid'">
+      <div class="viewer-toolbar" role="group" aria-label="Binary preview controls" *ngIf="kind === 'grid'">
         <button class="tool-btn" type="button" (click)="copyPath()" [class.active]="copiedPath">
           {{ copiedPath ? 'Copied' : 'Copy path' }}
         </button>

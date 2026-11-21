@@ -61,7 +61,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <button
             type="button"
             class="palette-dialog-button"
-            [disabled]="loading || selectedIds.size === 0"
+            [disabled]="loading || confirmationPending || selectedIds.size === 0"
             (click)="deleteSelected()">
             Delete permanently
           </button>
@@ -91,7 +91,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <button
             type="button"
             class="palette-dialog-button palette-dialog-button--danger"
-            [disabled]="loading || entries.length === 0"
+            [disabled]="loading || confirmationPending || entries.length === 0"
             (click)="emptyTrash()">
             Empty Trash
           </button>
@@ -293,6 +293,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   readonly request$: Stream<TrashDialogRequest | null> = this.dialog.mountedRequest$;
   loading = false;
   private listingRevision = 0;
+  confirmationPending = false;
   error = '';
   entries: TrashEntry[] = [];
   selectedIds = new Set<string>();
@@ -510,7 +511,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async restoreSelected(): Promise<void> {
-    if (this.loading) return;
+    if (this.loading || this.confirmationPending) return;
     const selected = this.selectedEntries;
     if (selected.length === 0 || !this.canRestoreSelection) return;
 
@@ -532,7 +533,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async deleteSelected(): Promise<void> {
-    if (this.loading) return;
+    if (this.loading || this.confirmationPending) return;
     const selected = this.selectedEntries;
     if (selected.length === 0) return;
 
@@ -540,7 +541,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     if (!request) return;
     const hidden = this.hiddenSelectionCount;
     const hiddenMessage = hidden ? ` ${hidden} selected ${hidden === 1 ? 'item is' : 'items are'} outside the filter.` : '';
-    const confirmed = await this.confirmDialog.confirm({
+    const confirmed = await this.confirmTrashChange({
       title: 'Delete Permanently',
       message:
         selected.length === 1
@@ -569,11 +570,11 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async emptyTrash(): Promise<void> {
-    if (this.loading || this.entries.length === 0) return;
+    if (this.loading || this.confirmationPending || this.entries.length === 0) return;
 
     const request = this.dialog.activeRequest$.value;
     if (!request) return;
-    const confirmed = await this.confirmDialog.confirm({
+    const confirmed = await this.confirmTrashChange({
       title: 'Empty Trash',
       message: 'Permanently delete every item in Trash / Recycle Bin?',
       confirmText: 'Empty Trash',
@@ -592,6 +593,17 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
       this.loading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async confirmTrashChange(options: Parameters<ConfirmDialogService['confirm']>[0]): Promise<boolean> {
+    this.confirmationPending = true;
+    this.cdr.markForCheck();
+    try {
+      return await this.confirmDialog.confirm(options);
+    } finally {
+      this.confirmationPending = false;
       this.cdr.markForCheck();
     }
   }

@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"fmt"
 	"io"
 	"os"
 	pathpkg "path"
@@ -212,6 +213,9 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 					})
 					continue
 				}
+				if elevErr != nil {
+					copyErr = fmt.Errorf("%w (elevated copy failed: %v)", copyErr, elevErr)
+				}
 			}
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, publicDst, copyErr))
@@ -318,6 +322,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 					})
 					continue
 				}
+				if elevErr != nil {
+					err = fmt.Errorf("%w (elevated move failed: %v)", err, elevErr)
+				}
 			}
 			if err2 := fileOps.CopyPath(resolvedSource, finalDst, true); err2 != nil {
 				if r.callbacks.IsPermissionDenied(err2) {
@@ -328,6 +335,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 							Source: item.Source, Destination: publicDst,
 						})
 						continue
+					}
+					if elevErr != nil {
+						err2 = fmt.Errorf("%w (elevated move failed: %v)", err2, elevErr)
 					}
 				}
 				result.Failed++
@@ -344,6 +354,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 							Source: item.Source, Destination: publicDst,
 						})
 						continue
+					}
+					if elevErr != nil {
+						err2 = fmt.Errorf("%w (elevated delete failed: %v)", err2, elevErr)
 					}
 				}
 				result.Failed++

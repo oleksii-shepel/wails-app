@@ -152,7 +152,7 @@ const PIE_PREFETCH_LIMIT = 5;
             [attr.aria-current]="last ? 'page' : null"
             [attr.tabindex]="last ? -1 : 0"
             (click)="pieGoTo(i)">{{ frame.label }}</button>
-          <span class="sm-pie-loading" *ngIf="pieDistributionLoadingPath">
+          <span class="sm-pie-loading" role="status" *ngIf="pieDistributionLoadingPath">
             <span class="sm-pie-loading-dot"></span>
             <span class="sm-pie-loading-copy">Loading children for {{ pieDistributionLoadingLabel }}</span>
           </span>
@@ -174,7 +174,7 @@ const PIE_PREFETCH_LIMIT = 5;
         </ng-container>
 
         <ng-template #emptyFootprintState>
-          <div class="sm-pie-empty" [class.sm-pie-empty--loading]="isTraversing">
+          <div class="sm-pie-empty" role="status" [class.sm-pie-empty--loading]="isTraversing">
             <div class="sm-pie-empty-icon" aria-hidden="true">{{ isTraversing ? '◌' : '○' }}</div>
             <div class="sm-pie-empty-copy">
               <div class="sm-pie-empty-title">{{ pieEmptyStateTitle }}</div>
@@ -217,7 +217,7 @@ const PIE_PREFETCH_LIMIT = 5;
         </div>
 
         <ng-template #emptyFileTypes>
-          <div class="sm-empty">{{ fileTypeEmptyLabel }}</div>
+          <div class="sm-empty" role="status">{{ fileTypeEmptyLabel }}</div>
         </ng-template>
       </div>
 
@@ -260,7 +260,7 @@ const PIE_PREFETCH_LIMIT = 5;
         </div>
 
         <ng-template #emptyBreakdown>
-          <div class="sm-empty">{{ breakdownEmptyLabel }}</div>
+          <div class="sm-empty" role="status">{{ breakdownEmptyLabel }}</div>
         </ng-template>
       </div>
     </div>

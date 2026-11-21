@@ -18,7 +18,7 @@ describe('global button style contract', () => {
   });
 
   it('treats dialog close controls as neutral chrome', () => {
-    expect(styles).toContain('span.dialog-close');
+    expect(styles).toContain('button.dialog-close');
     expect(styles).toContain('appearance: none;');
     expect(styles).toContain('background: transparent;');
     expect(styles).toContain('transform: none;');

@@ -33,7 +33,17 @@ func (s *Store) ReadState() ([]byte, error) {
 }
 
 func (s *Store) WriteState(data []byte) error {
-	return os.WriteFile(s.statePath, data, 0644)
+	// Write through a temp file so a crash mid-write cannot corrupt the
+	// persisted state; a direct os.WriteFile would truncate first.
+	tmp := s.statePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.statePath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func (s *Store) StatePath() string {

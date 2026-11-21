@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../../utils/clipboard-text';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -608,7 +609,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     const path = this.displayPath?.trim();
     if (!path) return;
 
-    await navigator.clipboard.writeText(path).catch(() => {});
+    const copied = await writeClipboardText(path).then(() => true, () => false);
+    if (!copied) return;
     this.copiedPath = true;
     if (this.copyResetTimer !== null) {
       window.clearTimeout(this.copyResetTimer);

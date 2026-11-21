@@ -160,7 +160,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span>Accent Color</span>
                     <div class="color-input-row">
                       <input
-                        type="color"
+                        type="color" aria-label="Pick accent color"
                         [(ngModel)]="draft.general.accentColor"
                         (ngModelChange)="onSettingChanged()"
                         class="color-swatch"

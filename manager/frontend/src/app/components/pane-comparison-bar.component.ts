@@ -36,13 +36,13 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
             <option value="content">Content</option>
           </select>
         </label>
-        <button type="button" class="btn" (click)="toggleRecursive.emit()" [disabled]="scanning" [class.active]="recursive" [attr.aria-pressed]="recursive" title="Compare complete directory trees">Recursive</button>
-        <button type="button" class="btn" *ngIf="recursive" (click)="refreshRecursive.emit()" [disabled]="scanning" title="Rescan both directory trees">Refresh</button>
-        <button type="button" class="btn" (click)="selectLeft.emit()" [disabled]="leftDifferenceCount === 0" title="Select differing items in the left pane">Select Left</button>
-        <button type="button" class="btn" (click)="selectRight.emit()" [disabled]="rightDifferenceCount === 0" title="Select differing items in the right pane">Select Right</button>
-        <button type="button" class="btn" (click)="copyMissingLeftToRight.emit()" [disabled]="result.summary.onlyLeft === 0" title="Copy items that exist only on the left to the right pane">Missing →</button>
-        <button type="button" class="btn" (click)="copyMissingRightToLeft.emit()" [disabled]="result.summary.onlyRight === 0" title="Copy items that exist only on the right to the left pane">← Missing</button>
-        <button type="button" class="btn" (click)="review.emit()" [disabled]="result.summary.different === 0" title="Review and approve a synchronization plan">Review…</button>
+        <button type="button" class="btn" (click)="toggleRecursive.emit()" [disabled]="scanning" [class.active]="recursive" [attr.aria-pressed]="recursive" aria-label="Compare complete directory trees" title="Compare complete directory trees">Recursive</button>
+        <button type="button" class="btn" *ngIf="recursive" (click)="refreshRecursive.emit()" [disabled]="scanning" aria-label="Rescan both directory trees" title="Rescan both directory trees">Refresh</button>
+        <button type="button" class="btn" (click)="selectLeft.emit()" [disabled]="leftDifferenceCount === 0" aria-label="Select differing items in the left pane" title="Select differing items in the left pane">Select Left</button>
+        <button type="button" class="btn" (click)="selectRight.emit()" [disabled]="rightDifferenceCount === 0" aria-label="Select differing items in the right pane" title="Select differing items in the right pane">Select Right</button>
+        <button type="button" class="btn" (click)="copyMissingLeftToRight.emit()" [disabled]="result.summary.onlyLeft === 0" aria-label="Copy items that exist only on the left to the right pane" title="Copy items that exist only on the left to the right pane">Missing →</button>
+        <button type="button" class="btn" (click)="copyMissingRightToLeft.emit()" [disabled]="result.summary.onlyRight === 0" aria-label="Copy items that exist only on the right to the left pane" title="Copy items that exist only on the right to the left pane">← Missing</button>
+        <button type="button" class="btn" (click)="review.emit()" [disabled]="result.summary.different === 0" aria-label="Review and approve a synchronization plan" title="Review and approve a synchronization plan">Review…</button>
         <button type="button" class="close" (click)="close.emit()" aria-label="Close pane comparison" title="Close comparison">×</button>
       </div>
     </div>

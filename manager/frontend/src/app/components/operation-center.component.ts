@@ -45,6 +45,8 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
             (input)="onSearchInput($event)"
             placeholder="Filter operations or paths…"
             aria-label="Filter operations" />
+          <button type="button" class="palette-dialog-button" [disabled]="!searchText && filter === 'all'"
+            (click)="searchText = ''; filter = 'all'">Reset filters</button>
         </nav>
 
         <div class="operation-list">

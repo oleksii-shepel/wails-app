@@ -837,8 +837,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-use-native-file-picker-label">Use native file picker</span><small id="settings-use-native-file-picker-help">Opens the OS file chooser dialog for save/open prompts instead of the built-in browser.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.advanced.hardReloadOnExternalChange" (ngModelChange)="onSettingChanged()" />
-                    <span>Hard reload on external change<small>Fully refreshes the pane when files are modified externally instead of merging changes incrementally.</small></span>
+                    <input aria-labelledby="settings-hard-reload-on-external-change-label" aria-describedby="settings-hard-reload-on-external-change-help" type="checkbox" [(ngModel)]="draft.advanced.hardReloadOnExternalChange" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-hard-reload-on-external-change-label">Hard reload on external change</span><small id="settings-hard-reload-on-external-change-help">Fully refreshes the pane when files are modified externally instead of merging changes incrementally.</small></span>
                   </label>
                 </div>
               </section>

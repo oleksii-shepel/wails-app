@@ -45,7 +45,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
       <div class="tab-active-indicator"></div>
       <div class="tab-actions">
         <!-- Pin/unpin is always mouse-accessible; pinned tabs keep their title. -->
-        <button class="tab-action pin" (click)="onPin($event)"
+        <button type="button" class="tab-action pin" (click)="onPin($event)"
                 [class.pinned-state]="tab.isPinned"
                 [class.active-action]="isActive"
                 [title]="tab.isPinned ? 'Unpin tab (Ctrl+Alt+P)' : 'Pin tab (Ctrl+Alt+P)'"
@@ -54,7 +54,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
           <span class="pin-icon">📌</span>
         </button>
         <!-- Pinned tabs are protected from accidental close. -->
-        <button *ngIf="isClosable && !tab.isPinned" class="tab-action close" (click)="onClose($event)"
+        <button type="button" *ngIf="isClosable && !tab.isPinned" class="tab-action close" (click)="onClose($event)"
                 [class.active-action]="isActive" title="Close (Ctrl+W)"
                 [attr.aria-label]="'Close tab ' + tab.title" draggable="false"></button>
       </div>

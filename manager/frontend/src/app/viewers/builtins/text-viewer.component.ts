@@ -592,7 +592,14 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   async openExternally(): Promise<void> {
     if (!this.targetPath || this.archiveContext) return;
-    await this.api.openFile(this.targetPath);
+    const load = this.loadId;
+    try {
+      await this.api.openFile(this.targetPath);
+      if (load === this.loadId) this.actionNotice = '';
+    } catch {
+      if (load === this.loadId) this.actionNotice = 'Could not open the file in an external application.';
+    }
+    this.cdr.markForCheck();
   }
 
   openSearch(): void {

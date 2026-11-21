@@ -145,6 +145,7 @@ export interface DirectoryListSurfaceHost {
             <input
               class="rename-input"
               [class.rename-input--invalid]="!!renameError"
+              aria-label="New name"
               [value]="renameValue"
               [disabled]="renameBusy"
               [attr.data-rename-input]="entry.path"

@@ -473,7 +473,7 @@ export class BatchRenameDialogComponent {
     const req = this.service.activeRequest$.value;
     if (!req || this.conflictCount > 0 || this.regexError || this.changedCount === 0) return;
 
-    const result: BatchRenameItem[] = this.preview.map((row) => ({
+    const result: BatchRenameItem[] = this.preview.filter(row => row.changed).map((row) => ({
       entry: row.entry,
       newName: row.newName,
     }));

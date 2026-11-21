@@ -28,7 +28,7 @@ import { shortenPath } from './address-bar.utils';
           <span class="ab-pin-icon">{{ p.icon }}</span>
           <span class="ab-pin-label" [title]="p.location">{{ p.label }}</span>
           <span class="ab-pin-sub">{{ shorten(p.location) }}</span>
-          <button
+          <button type="button"
             class="ab-pin-remove"
             (click)="remove.emit({ pin: p, event: $event })"
             title="Remove"

@@ -203,7 +203,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       <button
         *ngFor="let e of displayEntries; let i = index; trackBy: trackLegendEntry"
         class="pie-legend-item"
-        [class.pie-legend-item--active]="selectedIndex === i"
+        [class.pie-legend-item--active]="selectedIndex === i" [attr.aria-pressed]="selectedIndex === i"
         [class.pie-legend-item--hovered]="hoveredIndex === i"
         (click)="onLegendClick(e, i)"
         (mouseenter)="hoveredIndex = i; cdr.markForCheck()"
@@ -217,7 +217,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       <button
       *ngIf="otherEntries.length > 0"
       class="pie-legend-item pie-legend-item--other"
-      [class.pie-legend-item--active]="selectedIndex === -1"
+      [class.pie-legend-item--active]="selectedIndex === -1" [attr.aria-pressed]="selectedIndex === -1"
       [class.pie-legend-item--hovered]="hoveredIndex === -1"
       (click)="onOtherClick()"
       (mouseenter)="hoveredIndex = -1; cdr.markForCheck()"

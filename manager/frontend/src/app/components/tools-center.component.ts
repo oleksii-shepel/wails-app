@@ -1023,14 +1023,6 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       );
       if (controller.signal.aborted) return;
       this.duplicateResult = result;
-
-      const selected = new Set<string>();
-      for (const group of this.duplicateResult.groups) {
-        for (const file of group.files) {
-          if (file.path !== group.suggestedKeeperPath) selected.add(file.path);
-        }
-      }
-      this.duplicateSelected = selected;
     } catch (error) {
       if (!controller.signal.aborted) this.duplicateError = error instanceof Error ? error.message : String(error);
     } finally {

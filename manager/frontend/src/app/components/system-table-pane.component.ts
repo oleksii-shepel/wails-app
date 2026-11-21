@@ -52,7 +52,7 @@ import { schemeOf } from './pane-renderer-registry.service';
           </span>
         </div>
 
-        <div class="empty" *ngIf="!session.loading && session.entries.length === 0">
+        <div class="empty" *ngIf="!session.loading && session.entries.length === 0" role="status">
           No items.
         </div>
       </div>

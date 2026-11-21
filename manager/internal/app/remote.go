@@ -80,6 +80,9 @@ func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.
 // RemoteDisconnect unmounts the remote filesystem at mountPoint and closes
 // the underlying connection.
 func (s *State) RemoteDisconnect(mountPoint string) error {
+	if s.vfs == nil {
+		return fmt.Errorf("virtual filesystem is not initialized")
+	}
 	if err := s.vfs.Unmount(mountPoint); err != nil {
 		return err
 	}

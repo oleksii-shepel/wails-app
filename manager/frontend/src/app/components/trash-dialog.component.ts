@@ -100,11 +100,13 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           class="trash-list palette-dialog-body palette-dialog-list"
           tabindex="0"
           role="listbox"
+          aria-multiselectable="true"
           aria-label="Trash contents">
           <button
             *ngFor="let entry of filteredEntries; trackBy: trackById"
             type="button"
             class="trash-row palette-dialog-item"
+            role="option"
             [class.selected]="selectedIds.has(entry.id)"
             [class.is-selected]="selectedIds.has(entry.id)"
             [attr.aria-selected]="selectedIds.has(entry.id)"

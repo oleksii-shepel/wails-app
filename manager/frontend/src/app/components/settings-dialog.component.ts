@@ -274,8 +274,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-check-updates-on-startup-label">Check for updates on startup</span><small id="settings-check-updates-on-startup-help">Automatically checks for a newer version each time the application launches.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.general.analyticsEnabled" (ngModelChange)="onSettingChanged()" />
-                    <span>Enable anonymous analytics<small>Sends non-identifiable usage data to help improve the product.</small></span>
+                    <input aria-labelledby="settings-analytics-enabled-label" aria-describedby="settings-analytics-enabled-help" type="checkbox" [(ngModel)]="draft.general.analyticsEnabled" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-analytics-enabled-label">Enable anonymous analytics</span><small id="settings-analytics-enabled-help">Sends non-identifiable usage data to help improve the product.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.general.crashReportsEnabled" (ngModelChange)="onSettingChanged()" />

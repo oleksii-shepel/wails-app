@@ -58,7 +58,7 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
           </app-pdf-viewer>
         </div>
 
-        <div *ngIf="kind === 'unsupported'" class="state-container state-error">
+        <div *ngIf="kind === 'unsupported'" class="state-container state-error" role="status">
           <div class="state-icon" aria-hidden="true">⛔</div>
           <div class="state-label">Unsupported document format</div>
           <div class="error-detail" *ngIf="fileExt">.{{ fileExt }}</div>

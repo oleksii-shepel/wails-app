@@ -562,10 +562,12 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
     try {
       await this.api.emptyTrash();
+      this.dialog.notifyMutated();
+      if (this.dialog.activeRequest$.value !== request) return;
       this.selectedIds = new Set();
       await this.reload();
-      this.dialog.notifyMutated();
     } catch (error) {
+      if (this.dialog.activeRequest$.value !== request) return;
       this.error = error instanceof Error ? error.message : String(error);
       this.loading = false;
       this.cdr.markForCheck();

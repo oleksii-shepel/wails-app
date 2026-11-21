@@ -47,7 +47,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
 
-        <span class="label">{{ label() }}</span>
+        <span class="label" aria-live="polite">{{ label() }}</span>
 
         <!-- Op-count badge, visible only when active -->
         <span class="badge" *ngIf="pillState() === 'active' && opCount() > 0">

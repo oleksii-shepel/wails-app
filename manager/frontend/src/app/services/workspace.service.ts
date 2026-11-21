@@ -1,4 +1,4 @@
-import { Injectable, NgZone } from '@angular/core';
+import { Injectable, NgZone, signal } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import {
   WorkspaceConfig,
@@ -91,6 +91,7 @@ export class WorkspaceService {
   /** Store archive states per pane per tab */
   private archiveStates = new Map<string, Map<string, ArchiveTabState>>();
   private recentlyClosedTabs = this.loadRecentlyClosedTabs();
+  private readonly closedTabsRevision = signal(0);
 
   constructor(
     private api: ApiService,
@@ -773,6 +774,7 @@ export class WorkspaceService {
     workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
     limit = 20,
   ): RecentlyClosedTab[] {
+    this.closedTabsRevision();
     return this.recentlyClosedTabs
       .filter(entry => entry.workspaceId === workspaceId)
       .slice(0, Math.max(0, limit))
@@ -1246,6 +1248,7 @@ export class WorkspaceService {
   }
 
   private persistRecentlyClosedTabs(): void {
+    this.closedTabsRevision.update(value => value + 1);
     try {
       const envelope: RecentlyClosedTabEnvelope = {
         version: 1,

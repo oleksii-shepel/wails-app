@@ -576,6 +576,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.loadId++;
     this.destroyed = true;
     this.themeSubscription.unsubscribe();
     this.settingsSubscription.unsubscribe();

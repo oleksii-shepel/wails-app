@@ -1,6 +1,7 @@
 // operation-status-bar.component.ts - Updated with stack toggle
 import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { operationProgress } from '../utils/operation-progress';
 import { 
   createSubject,
   takeUntil 
@@ -189,12 +190,8 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
       const activeOps = this.operations.filter(op => op.status === 'running');
       this.hasActive = activeOps.length > 0;
       
-      if (activeOps.length > 0) {
-        const sum = activeOps.reduce((acc, op) => acc + op.percentComplete, 0);
-        this.overallProgress = sum / activeOps.length;
-      } else {
-        this.overallProgress = 0;
-      }
+      const known = activeOps.map(op => operationProgress(op.metrics)).filter(value => value !== null);
+      this.overallProgress = known.length ? known.reduce((sum, value) => sum + value, 0) / known.length : 0;
 
       const conflictOp = this.operations.find(
         op => op.status === 'paused' && !!op.conflictData

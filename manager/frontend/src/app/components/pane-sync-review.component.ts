@@ -40,7 +40,7 @@ type Filter = 'different' | PaneComparisonStatus;
           <button type="button" [class.active]="preset === 'bidirectional'" [attr.aria-pressed]="preset === 'bidirectional'" (click)="applyPreset('bidirectional')">Bidirectional</button>
           <button type="button" (click)="skipConflicts()" [disabled]="conflictCount === 0" title="Set all conflicting items to Skip">Skip Conflicts</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="dialogs.close()" role="button" tabindex="0" (keydown.enter)="dialogs.close()" (keydown.space)="dialogs.close(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="dialogs.close()"> × </button>
         </div>
       </div>
 

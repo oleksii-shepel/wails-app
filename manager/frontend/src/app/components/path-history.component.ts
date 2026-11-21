@@ -44,7 +44,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
             <span class="palette-dialog-subtitle">{{ filteredEntries.length }} / {{ modeEntries.length }}</span>
           </div>
           <div class="header-actions">
-            <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
+            <input type="search" class="palette-dialog-field" [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
               placeholder="Filter history" autocomplete="off" spellcheck="false"
               aria-label="Filter location history" aria-controls="history-list" />
             <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
@@ -101,7 +101,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
     .history{box-sizing:border-box;display:flex;flex-direction:column;width:min(780px,calc(100vw - 24px));max-height:min(700px,calc(100vh - 40px))}
     .header-actions{display:flex;align-items:center;gap:8px}
     .meta,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}
+    input{box-sizing:border-box;width:min(300px,42vw)}
     .list{min-height:0;overflow:auto}.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:45px;padding:5px 8px}.entry:hover,.entry.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.entry.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 52%,transparent)}
     .main{min-width:0;display:grid}.main strong,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.path{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{display:flex;gap:8px;align-items:center;font-size:10px}.empty{padding:34px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));text-align:center}
     .keys{margin-left:auto;font-size:10px}

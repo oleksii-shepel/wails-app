@@ -17,6 +17,8 @@ import { FileType, type FileInfo } from '../shared/protocol';
         <option value="name">Name</option>
         <option value="size">Largest first</option>
         <option value="modified">Newest first</option>
+        <option value="size-asc">Smallest first</option>
+        <option value="modified-asc">Oldest first</option>
       </select>
       <select class="palette-dialog-field" aria-label="Entry type" [value]="kind" (change)="changeKind($event)">
         <option value="all">All entries</option>
@@ -237,7 +239,9 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
       return entry.name.toLowerCase().includes(query) || entry.path.toLowerCase().includes(query);
     }).sort((a, b) => {
       const order = this.sort === 'size' ? b.size - a.size
-        : this.sort === 'modified' ? b.modified - a.modified : 0;
+        : this.sort === 'size-asc' ? a.size - b.size
+        : this.sort === 'modified' ? b.modified - a.modified
+        : this.sort === 'modified-asc' ? a.modified - b.modified : 0;
       return order || a.name.localeCompare(b.name, undefined, { numeric: true });
     });
   }

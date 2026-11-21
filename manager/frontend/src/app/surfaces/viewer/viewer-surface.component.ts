@@ -85,7 +85,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       <!-- Body -->
       <div class="viewer-body" [class.viewer-body--json]="kind === 'json'">
 
-        <div *ngIf="kind === 'loading'" class="state-container">
+        <div *ngIf="kind === 'loading'" class="state-container" role="status">
           <div class="spinner"></div>
           <div class="state-label">Loading preview&#x2026;</div>
         </div>

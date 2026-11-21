@@ -694,8 +694,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <small id="settings-gpu-acceleration-help">Hardware-accelerated rendering. Disable if you encounter graphical artifacts or driver crashes.</small>
                   </label>
                   <label class="field">
-                    <span>Memory Cache Size (MB)</span>
-                    <input
+                    <span id="settings-memory-cache-size-label">Memory Cache Size (MB)</span>
+                    <input aria-labelledby="settings-memory-cache-size-label" aria-describedby="settings-memory-cache-size-help"
                       type="number"
                       [(ngModel)]="draft.advanced.memoryCacheSize"
                       (ngModelChange)="onSettingChanged()"
@@ -703,7 +703,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       max="4096"
                       step="64"
                     />
-                    <small>In-memory buffer for file metadata and preview data. Higher values improve responsiveness at the cost of RAM.</small>
+                    <small id="settings-memory-cache-size-help">In-memory buffer for file metadata and preview data. Higher values improve responsiveness at the cost of RAM.</small>
                   </label>
                   <label class="field">
                     <span>Max Concurrent Operations</span>

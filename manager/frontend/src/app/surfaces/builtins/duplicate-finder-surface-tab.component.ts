@@ -64,7 +64,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
           <code>{{ group.hash.slice(0, 12) }}…</code>
         </div>
         <div class="file" *ngFor="let file of group.files">
-          <input type="checkbox" [checked]="selected.has(file.path)" [disabled]="file.path === keeperPath(group)" (change)="toggle(file.path)">
+          <input type="checkbox" [attr.aria-label]="'Select duplicate: ' + file.path" [checked]="selected.has(file.path)" [disabled]="file.path === keeperPath(group)" (change)="toggle(file.path)">
           <span class="keeper" *ngIf="file.path === keeperPath(group)">KEEP</span>
           <span class="path" [title]="file.path">{{ file.path }}</span>
           <span class="mtime">{{ file.modified | localDateTime }}</span>

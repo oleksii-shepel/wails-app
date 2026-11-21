@@ -46,7 +46,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
             <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
               placeholder="Filter history" autocomplete="off" spellcheck="false"
               aria-label="Filter location history" aria-controls="history-list" />
-            <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+            <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
           </div>
         </header>
 

@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -407,7 +408,7 @@ export class AboutDialogComponent implements OnChanges, OnDestroy {
     ].join('\n');
 
     try {
-      await navigator.clipboard.writeText(info);
+      await writeClipboardText(info);
       this.copied = true;
       if (this.copiedTimer) clearTimeout(this.copiedTimer);
       this.copiedTimer = setTimeout(() => {

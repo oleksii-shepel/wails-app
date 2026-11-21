@@ -180,7 +180,7 @@ import {
       <!-- Search chip -->
       <div *ngIf="searchText" class="fb-chip fb-chip--search" (click)="clearSearch()">
         <span class="fb-chip-label">"{{ searchText }}"</span>
-        <button class="fb-chip-close" (click)="$event.stopPropagation(); clearSearch()">×</button>
+        <button type="button" class="fb-chip-close" aria-label="Remove search filter" (click)="$event.stopPropagation(); clearSearch()">×</button>
       </div>
     </div>
     

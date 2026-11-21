@@ -244,7 +244,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
           </ng-container>
         </div>
 
-        <div class="error" *ngIf="provider.error">
+        <div class="error" *ngIf="provider.error" role="alert">
           <strong>Location could not be loaded.</strong>
           <span>{{ provider.error }}</span>
           <button type="button" (click)="provider.refresh()">Retry</button>

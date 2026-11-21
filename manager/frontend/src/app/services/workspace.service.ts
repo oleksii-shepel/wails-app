@@ -1233,10 +1233,11 @@ export class WorkspaceService {
 
       return envelope.entries
         .filter(entry =>
-          !!entry?.id &&
-          !!entry.workspaceId &&
+          typeof entry?.id === 'string' && entry.id.length > 0 &&
+          typeof entry.workspaceId === 'string' && entry.workspaceId.length > 0 &&
+          Number.isFinite(entry.closedAt) && entry.closedAt >= 0 &&
           (entry.paneId === 'left' || entry.paneId === 'right') &&
-          !!entry.tab?.id
+          typeof entry.tab?.id === 'string' && entry.tab.id.length > 0
         )
         .slice(0, RECENTLY_CLOSED_TABS_LIMIT)
         .map(entry => ({

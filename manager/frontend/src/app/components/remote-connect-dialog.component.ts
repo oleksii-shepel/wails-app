@@ -298,7 +298,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     <span>Access Key ID</span>
                     <input
                       type="text"
-                      name="remote-access-key-id"
+                      name="remote-access-key-id" autocapitalize="none" spellcheck="false"
                       [(ngModel)]="form.accessKeyId"
                       (ngModelChange)="clearError()"
                       placeholder="minioadmin"

@@ -393,8 +393,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Font</h4>
                   <label class="field">
-                    <span>Font Family</span>
-                    <input
+                    <span id="settings-font-family-label">Font Family</span>
+                    <input aria-labelledby="settings-font-family-label" aria-describedby="settings-font-family-help"
                       type="text"
                       name="settings-font-family"
                       [(ngModel)]="draft.editor.fontFamily"
@@ -402,7 +402,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       placeholder="Consolas, 'Courier New', monospace"
                       [appInputHistory]="'settings.fontFamily'"
                     />
-                    <small>Comma-separated list of font names. The first available font on your system is used.</small>
+                    <small id="settings-font-family-help">Comma-separated list of font names. The first available font on your system is used.</small>
                   </label>
                   <div class="field-row">
                     <label class="field">

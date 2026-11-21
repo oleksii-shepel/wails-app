@@ -158,15 +158,16 @@ export class PathHistoryService {
       const lastSlash = normalizedQuery.lastIndexOf('/');
       if (lastSlash < 0) return [];
 
-      const dirPath = normalizedQuery.substring(0, lastSlash + 1) || '/';
-      const prefix = normalizedQuery.substring(lastSlash + 1);
+      const directoryInput = /[\\/]$/.test(query.replace(/\\/g, '/'));
+      const dirPath = directoryInput ? normalizedQuery : normalizedQuery.substring(0, lastSlash + 1) || '/';
+      const prefix = directoryInput ? '' : normalizedQuery.substring(lastSlash + 1);
       const listing = await this.apiService.listDirectory(dirPath, false);
       const suggestions: PathSuggestion[] = [];
 
       for (const entry of listing.entries) {
         if (entry.type !== FileType.DIRECTORY) continue;
         if (!entry.name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
-        const fullPath = canonicalizeLocation(entry.path || `${dirPath}${entry.name}`);
+        const fullPath = canonicalizeLocation(entry.path || `${dirPath.replace(/\/+$/, '')}/${entry.name}`);
         suggestions.push({
           path: fullPath,
           displayName: entry.name,

@@ -18,7 +18,8 @@ import { FilterPreset } from './filter-bar.types';
       <button
         class="fb-chip-close"
         (click)="$event.stopPropagation(); remove.emit(preset)"
-        title="Remove"
+        [title]="'Remove ' + preset.name"
+        [attr.aria-label]="'Remove filter ' + preset.name"
       >×</button>
     </div>
   `,

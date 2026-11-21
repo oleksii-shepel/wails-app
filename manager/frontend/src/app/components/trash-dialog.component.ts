@@ -54,7 +54,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <button
             type="button"
             class="palette-dialog-button"
-            [disabled]="loading || !canRestoreSelection"
+            [disabled]="loading || confirmationPending || !canRestoreSelection"
             (click)="restoreSelected()">
             Restore
           </button>
@@ -68,7 +68,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <button
             type="button"
             class="palette-dialog-button"
-            [disabled]="loading || filteredEntries.length === 0"
+            [disabled]="loading || confirmationPending || filteredEntries.length === 0"
             (click)="toggleSelectAll()">
             {{ allFilteredSelected ? 'Deselect matches' : 'Select matches' }}
           </button>
@@ -112,6 +112,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             [class.selected]="selectedIds.has(entry.id)"
             [class.is-selected]="selectedIds.has(entry.id)"
             [attr.aria-selected]="selectedIds.has(entry.id)"
+            [disabled]="loading || confirmationPending"
             (click)="toggle(entry, $event)"
             (dblclick)="openSelection()">
             <span class="icon" aria-hidden="true">{{ entry.isDir ? '📁' : '📄' }}</span>
@@ -439,6 +440,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   toggleSelectAll(): void {
+    if (this.loading || this.confirmationPending) return;
     const visible = this.filteredEntries;
     if (!visible.length) return;
     if (this.allFilteredSelected) {
@@ -458,6 +460,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   toggle(entry: TrashEntry, event: MouseEvent): void {
+    if (this.loading || this.confirmationPending) return;
     const next = new Set(this.selectedIds);
     if (event.ctrlKey || event.metaKey) {
       next.has(entry.id) ? next.delete(entry.id) : next.add(entry.id);

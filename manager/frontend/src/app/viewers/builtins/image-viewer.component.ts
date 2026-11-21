@@ -134,7 +134,7 @@ interface CarouselVirtualFrame {
                 *ngFor="let frame of visibleCarouselItems; trackBy: trackCarouselItem"
                 class="carousel-item"
                 type="button"
-                [class.active]="frame.index === previewCenterIndex"
+                [class.active]="frame.index === previewCenterIndex" [attr.aria-current]="frame.index === previewCenterIndex ? 'true' : null"
                 [title]="frame.item.name"
                 [attr.data-index]="frame.index"
                 (click)="selectCarouselIndex(frame.index)">

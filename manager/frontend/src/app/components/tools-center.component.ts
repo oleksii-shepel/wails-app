@@ -372,6 +372,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="summary" *ngIf="checksumResults.length > 0">
             <span>{{ checksumTargetPath }}</span>
             <span *ngIf="checksumFileSize !== null">{{ formatBytes(checksumFileSize) }}</span>
+            <button type="button" class="palette-dialog-button" (click)="copyChecksumReport()">{{ copiedValue === checksumReport ? 'Copied' : 'Copy all checksums' }}</button>
           </div>
 
           <div class="checksum-grid" *ngIf="checksumResults.length > 0">
@@ -881,6 +882,14 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   async copyPath(path: string): Promise<void> {
     await this.copyText(path);
+  }
+
+  get checksumReport(): string {
+    return this.checksumResults.map(({label, value}) => label + ': ' + value).join('\n');
+  }
+
+  copyChecksumReport(): Promise<void> {
+    return this.copyText(this.checksumReport);
   }
 
   async copyDigest(value: string): Promise<void> {

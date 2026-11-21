@@ -92,7 +92,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
               >
                 Reset All
               </button>
-              <span class="dialog-close" aria-label="Close tab" (click)="onCancel()" title="Close (Esc)" role="button" tabindex="0" (keydown.enter)="onCancel()" (keydown.space)="onCancel(); $event.preventDefault()"> × </span>
+              <button type="button" class="dialog-close" aria-label="Close dialog" (click)="onCancel()" title="Close (Esc)"> × </button>
             </div>
           </header>
 

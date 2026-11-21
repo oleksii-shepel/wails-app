@@ -278,8 +278,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-analytics-enabled-label">Enable anonymous analytics</span><small id="settings-analytics-enabled-help">Sends non-identifiable usage data to help improve the product.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.general.crashReportsEnabled" (ngModelChange)="onSettingChanged()" />
-                    <span>Send crash reports automatically<small>Uploads anonymized crash diagnostics to help identify and fix bugs.</small></span>
+                    <input aria-labelledby="settings-crash-reports-enabled-label" aria-describedby="settings-crash-reports-enabled-help" type="checkbox" [(ngModel)]="draft.general.crashReportsEnabled" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-crash-reports-enabled-label">Send crash reports automatically</span><small id="settings-crash-reports-enabled-help">Uploads anonymized crash diagnostics to help identify and fix bugs.</small></span>
                   </label>
                 </div>
               </section>

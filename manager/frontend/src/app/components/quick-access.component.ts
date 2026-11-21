@@ -270,7 +270,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
 
   removeSelectedPin(): void {
     const item=this.selectedItem; if(!item||item.kind!=='pin')return;
-    this.pins=this.pinnedLocations.remove(this.pins,item.path,'dir');
+    this.pins = this.pinnedLocations.remove(this.pins, item.path, item.surfaceId);
     this.pinnedLocations.save(this.pins);
     void this.reload();
   }

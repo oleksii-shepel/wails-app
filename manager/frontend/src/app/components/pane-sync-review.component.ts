@@ -34,10 +34,10 @@ type Filter = 'different' | PaneComparisonStatus;
           </span>
         </div>
         <div class="header-actions">
-          <button type="button" [class.active]="preset === 'safe'" (click)="applyPreset('safe')">Safe</button>
-          <button type="button" [class.active]="preset === 'left-to-right'" (click)="applyPreset('left-to-right')">Left → Right</button>
-          <button type="button" [class.active]="preset === 'right-to-left'" (click)="applyPreset('right-to-left')">Right → Left</button>
-          <button type="button" [class.active]="preset === 'bidirectional'" (click)="applyPreset('bidirectional')">Bidirectional</button>
+          <button type="button" [class.active]="preset === 'safe'" [attr.aria-pressed]="preset === 'safe'" (click)="applyPreset('safe')">Safe</button>
+          <button type="button" [class.active]="preset === 'left-to-right'" [attr.aria-pressed]="preset === 'left-to-right'" (click)="applyPreset('left-to-right')">Left → Right</button>
+          <button type="button" [class.active]="preset === 'right-to-left'" [attr.aria-pressed]="preset === 'right-to-left'" (click)="applyPreset('right-to-left')">Right → Left</button>
+          <button type="button" [class.active]="preset === 'bidirectional'" [attr.aria-pressed]="preset === 'bidirectional'" (click)="applyPreset('bidirectional')">Bidirectional</button>
           <button type="button" (click)="skipConflicts()" [disabled]="conflictCount === 0" title="Set all conflicting items to Skip">Skip Conflicts</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
           <span class="dialog-close" aria-label="Close tab" title="Close" (click)="dialogs.close()" role="button" tabindex="0" (keydown.enter)="dialogs.close()" (keydown.space)="dialogs.close(); $event.preventDefault()"> × </span>
@@ -46,8 +46,8 @@ type Filter = 'different' | PaneComparisonStatus;
 
       <div class="filters">
         <div class="filter-buttons">
-          <button type="button" [class.active]="filter === 'different'" (click)="filter = 'different'">All differences</button>
-          <button type="button" *ngFor="let option of filterOptions" [class.active]="filter === option.status" (click)="filter = option.status">
+          <button type="button" [class.active]="filter === 'different'" [attr.aria-pressed]="filter === 'different'" (click)="filter = 'different'">All differences</button>
+          <button type="button" *ngFor="let option of filterOptions" [class.active]="filter === option.status" [attr.aria-pressed]="filter === option.status" (click)="filter = option.status">
             {{ option.label }} <span>{{ option.count }}</span>
           </button>
         </div>
@@ -79,9 +79,9 @@ type Filter = 'different' | PaneComparisonStatus;
           </div>
           <div class="status" [attr.data-status]="item.status">{{ statusLabel(item.status) }}</div>
           <div class="decision">
-            <button type="button" [class.active]="item.direction === 'left-to-right'" [disabled]="!item.leftPath" (click)="setDirection(item, 'left-to-right')">Left → Right</button>
-            <button type="button" [class.active]="item.direction === 'right-to-left'" [disabled]="!item.rightPath" (click)="setDirection(item, 'right-to-left')">Right → Left</button>
-            <button type="button" [class.active]="item.direction === 'skip'" (click)="setDirection(item, 'skip')">Skip</button>
+            <button type="button" [class.active]="item.direction === 'left-to-right'" [attr.aria-pressed]="item.direction === 'left-to-right'" [disabled]="!item.leftPath" (click)="setDirection(item, 'left-to-right')">Left → Right</button>
+            <button type="button" [class.active]="item.direction === 'right-to-left'" [attr.aria-pressed]="item.direction === 'right-to-left'" [disabled]="!item.rightPath" (click)="setDirection(item, 'right-to-left')">Right → Left</button>
+            <button type="button" [class.active]="item.direction === 'skip'" [attr.aria-pressed]="item.direction === 'skip'" (click)="setDirection(item, 'skip')">Skip</button>
           </div>
         </div>
         <div class="empty" *ngIf="visibleItems.length === 0">No items match this filter.</div>

@@ -46,7 +46,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
                 <code *ngFor="let path of entry.affectedPaths">{{ path }}</code></details>
             </div>
           </article>
-          <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">No file operations recorded in this session.</div>
+          <div class="empty palette-dialog-empty" *ngIf="entries.length === 0" role="status">No file operations recorded in this session.</div>
           <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && matching.length === 0" role="status">No operations match the active filter.</div>
         </div>
         <footer class="palette-dialog-footer">

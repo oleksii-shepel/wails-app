@@ -112,6 +112,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <div class="body" role="tabpanel" id="tool-panel-operations" aria-labelledby="tool-tab-operations" tabindex="0" *ngIf="page === 'operations'">
           <div class="tool-actions operation-filters palette-dialog-toolbar">
             <button type="button" (click)="close(); openJournalRequested.emit()">Operation History…</button>
+            <input type="search" class="tool-filter-input palette-dialog-field" placeholder="Filter operations…"
+              aria-label="Filter operations" (input)="onOperationQueryInput($event)" [value]="operationQuery" />
             <label>
               Show
               <select class="palette-dialog-field" [value]="operationFilter" (change)="onOperationFilterChange($event)">
@@ -484,6 +486,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   activeOperations: OperationState[] = [];
   history: OperationHistoryEntry[] = [];
   operationFilter: OperationFilter = 'all';
+  operationQuery = '';
 
   diskScanning = false;
   diskCancelled = false;
@@ -539,20 +542,30 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     if (this.operationFilter === 'completed' || this.operationFilter === 'failed') {
       return [];
     }
-    return this.activeOperations;
+    return this.activeOperations.filter(item => this.operationMatches(item.config.title, item.metrics.currentFile));
   }
 
   get filteredHistory(): OperationHistoryEntry[] {
     if (this.operationFilter === 'active') return [];
+    const matching = this.history.filter(item => this.operationMatches(item.config.title, item.destination, item.error));
     if (this.operationFilter === 'failed') {
-      return this.history.filter(
+      return matching.filter(
         item => item.status === 'error' || item.status === 'cancelled',
       );
     }
     if (this.operationFilter === 'completed') {
-      return this.history.filter(item => item.status === 'completed');
+      return matching.filter(item => item.status === 'completed');
     }
-    return this.history;
+    return matching;
+  }
+
+  private operationMatches(...parts: (string | null | undefined)[]): boolean {
+    const query = this.operationQuery.trim().toLowerCase();
+    return !query || parts.some(part => part?.toLowerCase().includes(query));
+  }
+
+  onOperationQueryInput(event: Event): void {
+    this.operationQuery = (event.target as HTMLInputElement).value;
   }
 
   get completedOperationCount(): number {

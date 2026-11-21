@@ -80,7 +80,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
 
       <!-- в”Ђв”Ђ body в”Ђв”Ђ -->
       <div class="viewer-body">
-        <div *ngIf="kind === 'loading'" class="state-container">
+        <div *ngIf="kind === 'loading'" class="state-container" role="status">
           <div class="spinner"></div>
           <div class="state-label">Loading binary preview…</div>
         </div>

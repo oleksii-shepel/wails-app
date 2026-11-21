@@ -270,8 +270,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <small id="settings-update-channel-help">Stable is recommended for most users. Beta and Dev channels receive updates earlier but may be less stable.</small>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.general.checkUpdatesOnStartup" (ngModelChange)="onSettingChanged()" />
-                    <span>Check for updates on startup<small>Automatically checks for a newer version each time the application launches.</small></span>
+                    <input aria-labelledby="settings-check-updates-on-startup-label" aria-describedby="settings-check-updates-on-startup-help" type="checkbox" [(ngModel)]="draft.general.checkUpdatesOnStartup" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-check-updates-on-startup-label">Check for updates on startup</span><small id="settings-check-updates-on-startup-help">Automatically checks for a newer version each time the application launches.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.general.analyticsEnabled" (ngModelChange)="onSettingChanged()" />

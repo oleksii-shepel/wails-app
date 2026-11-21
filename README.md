@@ -51,3 +51,7 @@ publishing a release.
 From the repository root, run `npm ci`, `npm run build`, then `npm run dev`.
 Open [127.0.0.1:3000](http://127.0.0.1:3000). The preview can modify local files
 and listens only on the local machine.
+
+For frontend development, run `npm run dev:watch` in a second terminal.
+The preview serves the latest files from `manager/frontend/dist/`; reload the
+page after the watcher finishes rebuilding.

@@ -20,15 +20,6 @@ func NewFileOperator(isCancelled func() bool, progress *ProgressTracker) *FileOp
 	return &FileOperator{isCancelled: isCancelled, progress: progress}
 }
 
-func SameDir(a, b string) bool {
-	cleanA := filepath.Clean(a)
-	cleanB := filepath.Clean(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(cleanA, cleanB)
-	}
-	return cleanA == cleanB
-}
-
 func SamePath(a, b string) bool {
 	cleanA := filepath.Clean(a)
 	cleanB := filepath.Clean(b)

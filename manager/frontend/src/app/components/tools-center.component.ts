@@ -202,7 +202,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </label>
           </div>
 
-          <div class="summary" *ngIf="diskProgress || diskCancelled">
+          <div class="summary" *ngIf="diskProgress || diskCancelled || diskScanning">
+            <span *ngIf="diskScanning" role="status">Scanning folder…</span>
             <span *ngIf="diskCancelled" role="status">Scan cancelled. Results may be incomplete.</span>
             <ng-container *ngIf="diskProgress">
             <span>{{ formatBytes(diskProgress.totalSize || 0) }}</span>

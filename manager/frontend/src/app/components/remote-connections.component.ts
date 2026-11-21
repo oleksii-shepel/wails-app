@@ -51,7 +51,13 @@ ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priorit
     )=>this.input.registerCommandDescriptor(
       {id,title,category:'Remote',execute,isEnabled},
       OWNER_ID,
-    );d(COMMAND.close,'Close Remote Connections',()=>this.close());d(COMMAND.previous,'Previous Remote Connection',()=>this.move(-1));d(COMMAND.next,'Next Remote Connection',()=>this.move(1));d(COMMAND.open,'Open Remote Connection',()=>{const m=this.selectedMount;if(m)this.openMount(m)},()=>!!this.selectedMount);d(COMMAND.connect,'Connect Remote',()=>this.connect());d(COMMAND.disconnect,'Disconnect Remote',()=>this.disconnectSelected(),()=>!!this.selectedMount);d(COMMAND.refresh,'Refresh Remote Connections',()=>this.refresh());for(const b of BINDINGS)this.input.registerBinding(b);this.connections.state$.pipe(takeUntil(this.destroy$)).subscribe(state=>{this.state=state;this.selectedIndex=Math.min(this.selectedIndex,Math.max(0,state.mounts.length-1));this.cdr.markForCheck()})}
+    );d(COMMAND.close,'Close Remote Connections',()=>this.close());d(COMMAND.previous,'Previous Remote Connection',()=>this.move(-1));d(COMMAND.next,'Next Remote Connection',()=>this.move(1));d(COMMAND.open,'Open Remote Connection',()=>{const m=this.selectedMount;if(m)this.openMount(m)},()=>!!this.selectedMount);d(COMMAND.connect,'Connect Remote',()=>this.connect());d(COMMAND.disconnect,'Disconnect Remote',()=>this.disconnectSelected(),()=>!!this.selectedMount);d(COMMAND.refresh,'Refresh Remote Connections',()=>this.refresh());for(const b of BINDINGS)this.input.registerBinding(b);this.connections.state$.pipe(takeUntil(this.destroy$)).subscribe(state => {
+      const selected = this.selectedMount;
+      this.state = state;
+      const index = selected ? state.mounts.findIndex(mount => this.trackMount(0, mount) === this.trackMount(0, selected)) : -1;
+      this.selectedIndex = index >= 0 ? index : Math.min(this.selectedIndex, Math.max(0, state.mounts.length - 1));
+      this.cdr.markForCheck();
+    })}
 ngOnDestroy():void{this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);for(const b of BINDINGS)this.input.unregisterBinding(b.id);for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);this.destroy$.next();this.destroy$.complete()}
 open():void{this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);if(this.modalStack&&this.hostElement&&!this.unregisterModal){this.unregisterModal=this.modalStack.register({id:'remote-connections',element:this.hostElement.nativeElement,contextId:CONTEXT_ID,dismiss:()=>this.close(),dismissible:()=>this.renderVisible&&!this.isClosing});}this.cdr.markForCheck();void this.refresh()}
 close():void{if(!this.renderVisible||this.isClosing)return;this.visible=false;this.isClosing=true;this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);this.cdr.markForCheck()}

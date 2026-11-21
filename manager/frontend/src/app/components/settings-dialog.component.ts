@@ -1031,7 +1031,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
           </div>
 
           <footer class="settings-footer">
-            <div class="settings-status">
+            <div class="settings-status" role="status">
               <span *ngIf="hasChanges" class="unsaved-indicator">Unsaved changes</span>
               <span *ngIf="!hasChanges" class="saved-indicator">All changes saved</span>
             </div>

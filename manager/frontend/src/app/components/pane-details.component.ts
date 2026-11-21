@@ -180,6 +180,7 @@ interface DetailsRowVm {
                 <input
                   *ngIf="row.renaming; else detailsNameDisplay"
                   class="details-rename-input"
+                  aria-label="New name"
                   [value]="row.editingName"
                   (click)="$event.stopPropagation()"
                   (dblclick)="$event.stopPropagation()"

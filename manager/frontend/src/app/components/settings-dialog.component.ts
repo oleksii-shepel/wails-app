@@ -292,8 +292,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Display</h4>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.showHiddenFiles" (ngModelChange)="onSettingChanged()" />
-                    <span>Show hidden files<small>Displays files and folders whose names start with a dot or have the hidden attribute set.</small></span>
+                    <input aria-labelledby="settings-show-hidden-files-label" aria-describedby="settings-show-hidden-files-help" type="checkbox" [(ngModel)]="draft.files.showHiddenFiles" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-show-hidden-files-label">Show hidden files</span><small id="settings-show-hidden-files-help">Displays files and folders whose names start with a dot or have the hidden attribute set.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.showFileExtensions" (ngModelChange)="onSettingChanged()" />

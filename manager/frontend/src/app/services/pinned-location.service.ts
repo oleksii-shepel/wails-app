@@ -60,8 +60,8 @@ export class PinnedLocationService {
       scheme,
       kind: kindOfLocation(scheme),
       surfaceId: resolvedSurfaceId,
-      label: label?.trim() || locationLabel(canonical),
-      icon: icon?.trim() || locationIcon(scheme),
+      label: (typeof label === 'string' && label.trim()) || locationLabel(canonical),
+      icon: (typeof icon === 'string' && icon.trim()) || locationIcon(scheme),
       addedAt,
     };
   }

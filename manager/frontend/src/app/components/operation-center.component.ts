@@ -46,7 +46,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
         </nav>
 
         <div class="operation-list">
-          <div *ngIf="entries.length === 0" class="empty-state">
+          <div *ngIf="entries.length === 0" class="empty-state" role="status">
             <strong>No operations here</strong>
             <span>File operations and long-running tasks will appear here.</span>
           </div>

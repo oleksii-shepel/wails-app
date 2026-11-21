@@ -44,6 +44,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             (input)="onSearchInput($event)"
             placeholder="Filter closed tabs by title or path…"
             aria-label="Filter recently closed tabs" />
+          <button type="button" class="palette-dialog-button" [disabled]="!searchText" (click)="searchText = ''">Clear filter</button>
         </div>
 
         <div class="tabs palette-dialog-body palette-dialog-list">

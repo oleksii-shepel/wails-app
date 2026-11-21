@@ -188,7 +188,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
               </div>
               <div class="br-preview-list">
                 <div
-                  *ngFor="let row of preview; let i = index"
+                  *ngFor="let row of preview; let i = index; trackBy: trackPreview"
                   class="br-preview-row"
                   [class.br-preview-row--conflict]="row.conflict"
                   [class.br-preview-row--changed]="row.changed && !row.conflict"
@@ -466,6 +466,8 @@ export class BatchRenameDialogComponent {
     this.preview = rows;
     this.conflictCount = rows.filter((r) => r.conflict).length;
   }
+
+  trackPreview(_index: number, row: PreviewRow): string { return row.entry.path; }
 
   onCancel(): void {
     this.service.resolveActive(null);

@@ -106,7 +106,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <button type="button" role="tab" id="tool-tab-inventory" aria-controls="tool-panel-inventory" [attr.aria-selected]="page === 'inventory'" [attr.tabindex]="page === 'inventory' ? 0 : -1" [class.active]="page === 'inventory'" (click)="setPage('inventory')">Folder Inventory</button>
         </nav>
 
-        <div class="body" role="tabpanel" id="tool-panel-inventory" aria-labelledby="tool-tab-inventory" tabindex="0" *ngIf="page === 'inventory'">
+        <div class="body" role="tabpanel" id="tool-panel-inventory" aria-labelledby="tool-tab-inventory" tabindex="0"
+          *ngIf="inventoryOpened" [hidden]="page !== 'inventory'">
           <app-folder-inventory [rootPath]="rootPath" (navigateTo)="navigateTo.emit($event); close()"
             (previewRequested)="previewRequested.emit($event); close()" />
         </div>
@@ -484,6 +485,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   renderVisible = false;
   isClosing = false;
   page: AppOverlayToolsPage = 'operations';
+  inventoryOpened = false;
   rootPath = '';
 
   activeOperations: OperationState[] = [];
@@ -686,6 +688,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   open(page: AppOverlayToolsPage, rootPath: string): void {
     const rootChanged = this.rootPath !== rootPath;
+    this.inventoryOpened = page === 'inventory' || (this.visible && !rootChanged && this.inventoryOpened);
     this.page = page;
     this.clipboardError = '';
     this.rootPath = rootPath;
@@ -768,6 +771,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   setPage(page: AppOverlayToolsPage): void {
+    if (page === 'inventory') this.inventoryOpened = true;
     this.page = page;
     this.clipboardError = '';
     this.cdr.markForCheck();

@@ -76,6 +76,19 @@ Finder. Expand the warning summary in Tools Center to see skipped paths.
 The Checksums page can copy the full set of digests and accepts a raw checksum or
 a checksum line with a filename.
 
+Trash can filter by location and search by name or path. Sort by deletion time
+to find recent or older items. After a partially successful operation, the
+list refreshes and keeps failed items selected for retry.
+
+Batch Rename checks destination names before applying changes and flags
+conflicting names in the same destination folder. The ZIP creation dialog
+checks the filename and destination, and ZIP creation also refuses to replace
+an existing destination if another process creates it after the check.
+
+The Text Viewer can copy the selection or the full document. The Binary
+Viewer accepts decimal offsets and hexadecimal offsets with a `0x` prefix,
+and reports invalid or out-of-range offsets.
+
 ## Contextual-only dialogs
 
 These are deliberately NOT directly openable from the application menu:

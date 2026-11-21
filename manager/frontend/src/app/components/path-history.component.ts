@@ -77,7 +77,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
               <span>{{ entry.scheme || 'filesystem' }}</span>
               <span>{{ entry.paneId || '—' }}</span>
               <span *ngIf="entry.accessCount">×{{ entry.accessCount }}</span>
-              <span>{{ formatTime(entry.timestamp) }}</span>
+              <span [title]="entry.timestamp | date:'medium'">{{ formatTime(entry.timestamp) }}</span>
             </span>
           </button>
           <div class="empty palette-dialog-empty" *ngIf="filteredEntries.length===0" role="status">

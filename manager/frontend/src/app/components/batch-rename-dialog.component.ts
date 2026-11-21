@@ -11,11 +11,14 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { moveFocusWithin } from '../utils/focus-navigation.utils';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
+import { filenameProblem } from '../utils/filename-validation';
+import { isWindowsPath } from './address-bar.utils';
 
 interface PreviewRow {
   entry: BatchRenameItem['entry'];
   newName: string;
   conflict: boolean;
+  problem?: string;
   changed: boolean;
 }
 
@@ -197,7 +200,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
                   </span>
                   <span class="br-preview-new" [title]="row.newName">{{ row.newName || '(empty)' }}</span>
                   <span class="br-preview-status" [class.conflict]="row.conflict" [class.changed]="row.changed && !row.conflict">
-                    {{ row.conflict ? 'Collision' : row.changed ? 'Renamed' : 'Unchanged' }}
+                    {{ row.problem || (row.conflict ? 'Collision' : row.changed ? 'Will rename' : 'Unchanged') }}
                   </span>
                 </div>
               </div>
@@ -442,12 +445,14 @@ export class BatchRenameDialogComponent {
       if (replacer) {
         newName = replacer(newName);
       }
-      const conflict = seen.has(newName) || newName.trim() === '';
+      const problem = filenameProblem(newName, isWindowsPath(item.entry.path)) ?? undefined;
+      const conflict = seen.has(newName) || !!problem;
       seen.add(newName);
       rows.push({
         entry: item.entry,
         newName,
         conflict,
+        problem,
         changed: newName !== item.entry.name,
       });
       counter += step;

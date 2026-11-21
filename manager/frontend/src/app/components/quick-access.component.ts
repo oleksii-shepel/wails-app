@@ -276,9 +276,10 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   }
 
   private async reload(): Promise<void> {
-    const [specialFolders, drivesResponse] = await Promise.all([
+    const [specialFolders, drivesResponse, remoteMounts] = await Promise.all([
       this.api.getSpecialFolders().catch(() => [] as SpecialFolder[]),
       this.api.getDrives().catch(() => ({ schemes: [] })),
+      this.connections.refresh().catch(() => this.connections.mounts),
     ]);
     this.pins = this.pinnedLocations.load();
 
@@ -398,7 +399,6 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
       kind: 'recent',
     }));
 
-    const remoteMounts = await this.connections.refresh();
     const remoteItems: QuickItem[] = remoteMounts
       .map(mount => ({
         id: `remote:${this.connections.mountPoint(mount) || this.connections.rootUri(mount)}`,

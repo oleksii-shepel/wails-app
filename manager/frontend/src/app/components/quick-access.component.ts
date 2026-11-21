@@ -87,7 +87,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
             <span class="details"><strong>{{ item.label }}</strong><small>{{ item.path }}</small></span>
             <span class="meta">{{ item.meta || item.kind }}</span>
           </button>
-          <div class="empty" *ngIf="activeItems.length === 0">No matching locations.</div>
+          <div class="empty" *ngIf="activeItems.length === 0" role="status">No matching locations.</div>
         </div>
 
         <footer>

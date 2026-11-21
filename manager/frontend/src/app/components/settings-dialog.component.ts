@@ -371,8 +371,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span>Cache thumbnail previews</span>
                   </label>
                   <label class="field">
-                    <span>Thumbnail Cache Size (MB)</span>
-                    <input
+                    <span id="settings-thumbnail-cache-size-label">Thumbnail Cache Size (MB)</span>
+                    <input aria-labelledby="settings-thumbnail-cache-size-label" aria-describedby="settings-thumbnail-cache-size-help"
                       type="number"
                       [(ngModel)]="draft.files.thumbnailCacheSize"
                       (ngModelChange)="onSettingChanged()"
@@ -380,7 +380,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       max="1000"
                       step="10"
                     />
-                    <small>Maximum disk space reserved for cached image and video thumbnails.</small>
+                    <small id="settings-thumbnail-cache-size-help">Maximum disk space reserved for cached image and video thumbnails.</small>
                   </label>
                 </div>
               </section>

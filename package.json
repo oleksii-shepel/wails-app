@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node server.mjs",
     "dev:app": "node scripts/run-wails-dev.mjs",
+    "dev:watch": "npm --workspace file-manager-client run watch",
     "start": "node server.mjs",
     "build": "npm --prefix manager/frontend run build",
     "build:app": "cd manager && wails build",

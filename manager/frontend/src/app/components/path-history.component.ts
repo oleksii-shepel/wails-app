@@ -22,6 +22,7 @@ import {
 } from '../services/path-history.service';
 
 import { discoveryScore } from './discovery';
+import { locationLabel } from '../services/location-reference';
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
 const CONTEXT_ID = PATH_HISTORY_INPUT.context.id;
@@ -282,9 +283,7 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
   }
 
   labelFor(location:string):string{
-    const normalized=(location??'').replace(/\\/g,'/').replace(/\/+$/,'');
-    const parts=normalized.split('/').filter(Boolean);
-    return parts[parts.length-1]||normalized||location;
+    return locationLabel(location) || location;
   }
 
   formatTime(timestamp:number):string{

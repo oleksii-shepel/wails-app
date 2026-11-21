@@ -251,6 +251,19 @@ func (s *DirStreamService) StartWithOptions(paneID, path string, showHidden bool
 	s.nextGeneration++
 	generation := s.nextGeneration
 	s.paneGeneration[paneID] = generation
+	// Retire the pane's previous streams: superseded prepared listings can
+	// never be read again and would otherwise stay resident until an
+	// explicit cancel.
+	var staleCancels []context.CancelFunc
+	for staleID, stale := range s.prepared {
+		if stale.paneID == paneID && stale.generation != generation {
+			if staleCancel, ok := s.streams[staleID]; ok {
+				staleCancels = append(staleCancels, staleCancel)
+			}
+			delete(s.streams, staleID)
+			delete(s.prepared, staleID)
+		}
+	}
 	s.streams[streamID] = cancel
 	s.prepared[streamID] = preparedDirStream{
 		paneID:     paneID,
@@ -261,6 +274,9 @@ func (s *DirStreamService) StartWithOptions(paneID, path string, showHidden bool
 		entries:    []contracts.FileInfo{},
 	}
 	s.mu.Unlock()
+	for _, staleCancel := range staleCancels {
+		staleCancel()
+	}
 
 	work.Default.Submit(ctx, work.Task{
 		Key:      "directory-stream:" + streamID,

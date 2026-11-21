@@ -459,7 +459,7 @@ func (s *remoteOAuthSession) exchange(ctx context.Context, values url.Values) (*
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := remoteStreamClient.Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +557,7 @@ func (s *remoteOAuthSession) getJSON(ctx context.Context, endpoint string, targe
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := remoteStreamClient.Do(request)
 	if err != nil {
 		return err
 	}
@@ -581,7 +581,7 @@ func (s *remoteOAuthSession) postJSON(ctx context.Context, endpoint string, body
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := remoteStreamClient.Do(request)
 	if err != nil {
 		return err
 	}

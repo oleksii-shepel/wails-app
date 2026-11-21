@@ -8,6 +8,7 @@ import (
 	htmlpkg "html"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,7 +32,17 @@ const defaultVideoFramePreviewSeconds = 1.0
 
 const remoteHTMLRewriteLimit = 8 * 1024 * 1024
 
-var remoteStreamClient = &http.Client{}
+// httpClient couples conservative connect/handshake/header timeouts with no
+// overall deadline: media streams and large downloads run long, and request
+// contexts govern cancellation.
+var remoteStreamClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	},
+}
 
 // NewUnifiedHandler creates a server that handles:
 // - Video streaming via /wails-stream (legacy)

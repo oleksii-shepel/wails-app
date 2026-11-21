@@ -153,7 +153,7 @@ func openBatchWebReader(ctx context.Context, source string) (io.ReadCloser, erro
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", "WailsFileManager/1.0")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := remoteStreamClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

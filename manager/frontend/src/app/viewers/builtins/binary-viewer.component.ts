@@ -85,15 +85,15 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
           <div class="state-label">Loading binary preview…</div>
         </div>
         <div *ngIf="kind === 'empty'" class="state-container">
-          <div class="state-icon">&#x1F50D;</div>
+          <div class="state-icon" aria-hidden="true">&#x1F50D;</div>
           <div class="state-label">Select a file to preview</div>
         </div>
         <div *ngIf="kind === 'directory'" class="state-container">
-          <div class="state-icon">&#x1F4C1;</div>
+          <div class="state-icon" aria-hidden="true">&#x1F4C1;</div>
           <div class="state-label">Directory — no preview available</div>
         </div>
         <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
-          <div class="state-icon">&#x26A0;</div>
+          <div class="state-icon" aria-hidden="true">&#x26A0;</div>
           <div class="state-label">Failed to load binary preview</div>
           <div class="error-detail">{{ error }}</div>
         </div>

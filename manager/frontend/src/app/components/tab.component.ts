@@ -55,7 +55,8 @@ import { TabInfo } from "../shared/protocol-enhanced";
         </button>
         <!-- Pinned tabs are protected from accidental close. -->
         <button *ngIf="isClosable && !tab.isPinned" class="tab-action close" (click)="onClose($event)"
-                [class.active-action]="isActive" title="Close (Ctrl+W)" draggable="false"></button>
+                [class.active-action]="isActive" title="Close (Ctrl+W)"
+                [attr.aria-label]="'Close tab ' + tab.title" draggable="false"></button>
       </div>
     </div>
   `,

@@ -526,12 +526,14 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     const selected = this.selectedEntries;
     if (selected.length === 0) return;
 
+    const hidden = this.hiddenSelectionCount;
+    const hiddenMessage = hidden ? ` ${hidden} selected ${hidden === 1 ? 'item is' : 'items are'} outside the filter.` : '';
     const confirmed = await this.confirmDialog.confirm({
       title: 'Delete Permanently',
       message:
         selected.length === 1
-          ? `Delete "${selected[0].name}" permanently?`
-          : `Delete ${selected.length} Trash items permanently?`,
+          ? `Delete "${selected[0].name}" permanently?${hiddenMessage}`
+          : `Delete ${selected.length} Trash items permanently?${hiddenMessage}`,
       confirmText: 'Delete',
       danger: true,
     });

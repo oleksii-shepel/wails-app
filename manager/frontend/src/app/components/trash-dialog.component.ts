@@ -74,12 +74,12 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           </button>
           <input
             type="search"
-            class="trash-search"
+            class="trash-search palette-dialog-field"
             [value]="searchText"
             (input)="onSearchInput($event)"
             placeholder="Filter by name or original path…"
             aria-label="Filter trash items" />
-          <select class="trash-sort" [value]="sortBy" (change)="onSortChange($event)" aria-label="Sort trash items">
+          <select class="trash-sort palette-dialog-field" [value]="sortBy" (change)="onSortChange($event)" aria-label="Sort trash items">
             <option value="deleted">Newest deleted</option>
             <option value="name">Name</option>
             <option value="path">Original location</option>

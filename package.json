@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "node server.mjs",
+    "dev:app": "node scripts/run-wails-dev.mjs",
     "start": "node server.mjs",
     "build": "npm --prefix manager/frontend run build",
     "build:dev": "npm --prefix manager/frontend run ng -- build --configuration development",

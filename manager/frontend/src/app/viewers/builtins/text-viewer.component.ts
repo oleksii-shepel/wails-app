@@ -221,6 +221,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
         <button class="tool-btn" type="button" (click)="openGoToLine()">
           Go to line
         </button>
+        <button class="tool-btn" type="button" (click)="copyText()" title="Copy selected text or the full preview">Copy text</button>
         <span class="toolbar-divider"></span>
         <button class="tool-btn" type="button" (click)="copyPath()" [class.active]="copiedPath">
           {{ copiedPath ? 'Copied' : 'Copy path' }}
@@ -612,6 +613,20 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     if (!this.editorView) return;
     this.editorView.focus();
     gotoLine(this.editorView);
+  }
+
+  async copyText(): Promise<void> {
+    const state = this.editorView?.state;
+    if (!state) return;
+    const { from, to, empty } = state.selection.main;
+    const scope = empty ? 'Preview text' : 'Selected text';
+    const text = empty ? state.doc.toString() : state.sliceDoc(from, to);
+    if (!text) return;
+    const load = this.loadId;
+    const copied = await writeClipboardText(text).then(() => true, () => false);
+    if (load !== this.loadId) return;
+    this.actionNotice = copied ? scope + ' copied.' : 'Clipboard unavailable.';
+    this.cdr.markForCheck();
   }
 
   async copyPath(): Promise<void> {

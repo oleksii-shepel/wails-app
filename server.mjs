@@ -769,12 +769,36 @@ def op_selective_extract(req):
 
 def op_create_zip(req):
     sources = req.get('paths') or []
-    dest = req['destination']
+    if not sources:
+        raise ValueError('No archive sources were provided')
+    dest = os.path.abspath(req['destination'])
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    if os.path.lexists(dest):
+        raise FileExistsError(f'Destination already exists: {dest}')
+    fd, staging = tempfile.mkstemp(prefix='.archive-create-', suffix='.zip', dir=os.path.dirname(dest))
+    os.close(fd)
+    created = False
+    try:
+        added = build_new_zip(sources, dest, staging)
+        with open(staging, 'rb') as source, open(dest, 'xb') as output:
+            created = True
+            shutil.copyfileobj(source, output)
+        return {'success': True, 'affectedPaths': [dest], 'message': f'Archived {added} file(s)'}
+    except Exception:
+        if created:
+            os.remove(dest)
+        raise
+    finally:
+        os.remove(staging)
+
+def build_new_zip(sources, dest, staging):
     added = 0
-    with zipfile.ZipFile(dest, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+    excluded = {os.path.normcase(dest), os.path.normcase(staging)}
+    with zipfile.ZipFile(staging, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
         for src in sources:
             src = os.path.abspath(src)
+            if os.path.normcase(src) in excluded:
+                raise ValueError('Destination cannot also be a source')
             if not os.path.exists(src):
                 raise FileNotFoundError(f'Source does not exist: {src}')
             base_parent = os.path.dirname(src)
@@ -788,13 +812,15 @@ def op_create_zip(req):
                         zf.write(full_d, arc_d)
                     for fn in files:
                         full_f = os.path.join(root, fn)
+                        if os.path.normcase(full_f) in excluded:
+                            continue
                         arc_f = os.path.relpath(full_f, base_parent).replace(os.sep, '/')
                         zf.write(full_f, arc_f)
                         added += 1
             else:
                 zf.write(src, os.path.basename(src))
                 added += 1
-    return {'success': True, 'affectedPaths': [dest], 'message': f'Archived {added} file(s)'}
+    return added
 
 def atomic_write_zip_from_builder(fs_path: str, build_fn):
     parent = os.path.dirname(os.path.abspath(fs_path))

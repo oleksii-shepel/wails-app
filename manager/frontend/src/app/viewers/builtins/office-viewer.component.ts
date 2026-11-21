@@ -86,7 +86,7 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
           <div class="state-sub">Enable the Office Document Renderer plugin in Settings, then reopen this document.</div>
         </div>
 
-        <div *ngIf="kind === 'error'" class="state-container state-error">
+        <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
           <div class="state-icon">❌</div>
           <div class="state-label">Failed to convert document</div>
           <div class="error-detail">{{ error }}</div>

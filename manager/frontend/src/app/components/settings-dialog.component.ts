@@ -261,13 +261,13 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Updates & Privacy</h4>
                   <label class="field">
-                    <span>Update Channel</span>
-                    <select [(ngModel)]="draft.general.updateChannel" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-update-channel-label">Update Channel</span>
+                    <select aria-labelledby="settings-update-channel-label" aria-describedby="settings-update-channel-help" [(ngModel)]="draft.general.updateChannel" (ngModelChange)="onSettingChanged()">
                       <option value="stable">Stable</option>
                       <option value="beta">Beta</option>
                       <option value="dev">Development</option>
                     </select>
-                    <small>Stable is recommended for most users. Beta and Dev channels receive updates earlier but may be less stable.</small>
+                    <small id="settings-update-channel-help">Stable is recommended for most users. Beta and Dev channels receive updates earlier but may be less stable.</small>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.general.checkUpdatesOnStartup" (ngModelChange)="onSettingChanged()" />

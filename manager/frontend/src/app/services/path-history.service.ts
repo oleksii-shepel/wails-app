@@ -252,9 +252,11 @@ export class PathHistoryService {
         const descriptor = describeLocation(rawLocation);
         if (!descriptor) continue;
         const id = locationIdentity(descriptor.location);
-        const timestamp = Number(storedEntry.timestamp) || Date.now();
-        const accessCount = Math.max(1, Number(storedEntry.accessCount) || 1);
-        const paneId = storedEntry.paneId || 'left';
+        const recordedAt = Number(storedEntry.timestamp);
+        const timestamp = Number.isFinite(recordedAt) && recordedAt > 0 ? recordedAt : Date.now();
+        const count = Number(storedEntry.accessCount);
+        const accessCount = Number.isSafeInteger(count) && count > 0 ? count : 1;
+        const paneId = typeof storedEntry.paneId === 'string' && storedEntry.paneId ? storedEntry.paneId : 'left';
         const existing = this.history.get(id);
 
         if (existing) {

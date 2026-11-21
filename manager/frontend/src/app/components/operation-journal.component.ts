@@ -33,7 +33,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
           <button type="button" class="palette-dialog-button" [disabled]="filter === 'all' && !searchText" (click)="resetFilters()">Reset filters</button>
         </div>
         @let matching = filteredEntries;
-        <div class="entries palette-dialog-body">
+        <div class="entries palette-dialog-body" aria-label="Matching operations">
           <article *ngFor="let entry of matching; trackBy: trackEntry" [class.failed]="entry.state === 'failed' || entry.state === 'partial'">
             <span class="state" aria-hidden="true">{{ stateIcon(entry) }}</span>
             <div class="main"><strong>{{ entry.label }}</strong>
@@ -47,7 +47,9 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
           <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">No file operations recorded in this session.</div>
           <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && matching.length === 0" role="status">No operations match the active filter.</div>
         </div>
-        <footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
+        <footer class="palette-dialog-footer">
+          <span class="palette-dialog-meta" role="status">{{ matching.length }} of {{ entries.length }} shown</span>
+          <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
           <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
           <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">Clear History</button>
           <button class="palette-dialog-button" [disabled]="matching.length === 0" (click)="download()">Export Results</button>
@@ -60,6 +62,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
     .journal{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;width:min(780px,calc(100vw - 24px));height:min(680px,calc(100vh - 40px))}
     .journal-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:7px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     .journal-search{flex:1;min-width:min(170px,100%)}
+    .palette-dialog-footer{flex-wrap:wrap}
     .entries{overflow-wrap:anywhere}
     .entries{min-height:0;overflow:auto;font-variant-numeric:tabular-nums}.entries article{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;padding:8px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     .entries article.failed{background:var(--vsc-error-surface)}

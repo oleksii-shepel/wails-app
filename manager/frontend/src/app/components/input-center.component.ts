@@ -18,6 +18,7 @@ import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import type {
   InputBindingConflict,
   InputBindingDefinition,
@@ -39,7 +40,7 @@ import type {
         role="dialog"
         aria-modal="true"
         aria-label="Keyboard and Mouse Bindings"
-        (mousedown)="$event.stopPropagation()" (keydown.escape)="requestClose(); $event.preventDefault(); $event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()" (keydown.escape)="onPanelEscape($event)">
         <header>
           <div class="title-block">
             <h2>Input & Shortcuts</h2>
@@ -217,6 +218,9 @@ export class InputCenterComponent implements OnChanges, OnDestroy {
   private readonly triggerLabels = new Map<string, string>();
   private readonly overriddenIds = new Set<string>();
   private modelDirty = true;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   private readonly bindingSubscription: { unsubscribe?: () => void } | (() => void) | void;
 
   constructor(
@@ -236,12 +240,29 @@ export class InputCenterComponent implements OnChanges, OnDestroy {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['visible']?.currentValue && this.modelDirty) {
-      this.refreshPresentationModel();
+    if (changes['visible']) {
+      if (this.visible) {
+        if (this.modelDirty) {
+          this.refreshPresentationModel();
+        }
+        if (this.modalStack && this.hostElement && !this.unregisterModal) {
+          this.unregisterModal = this.modalStack.register({
+            id: 'input-center',
+            element: this.hostElement.nativeElement,
+            dismiss: () => this.onPanelEscape(),
+            dismissible: () => this.visible,
+          });
+        }
+      } else {
+        this.unregisterModal?.();
+        this.unregisterModal = null;
+      }
     }
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (typeof this.bindingSubscription === 'function') {
       this.bindingSubscription();
     } else {
@@ -286,8 +307,20 @@ export class InputCenterComponent implements OnChanges, OnDestroy {
     });
   }
 
+  onPanelEscape(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.editingBinding) {
+      this.cancelCapture();
+      return;
+    }
+    this.requestClose();
+  }
+
   requestClose(): void {
     this.cancelCapture();
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.closed.emit();
   }
 
@@ -314,23 +347,27 @@ export class InputCenterComponent implements OnChanges, OnDestroy {
   captureKeyboard(event: KeyboardEvent): void {
     const binding = this.editingBinding;
     if (!this.visible) return;
+    if (this.modalStack && !this.modalStack.isTopmost('input-center')) return;
     if (!binding) {
       if (event.key === 'Escape') {
+        if (this.modalStack) return;
         event.preventDefault();
         event.stopPropagation();
         this.requestClose();
       }
       return;
     }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      this.cancelCapture();
+      return;
+    }
     if (binding.trigger.device !== 'keyboard') return;
 
     event.preventDefault();
     event.stopPropagation();
-
-    if (event.key === 'Escape') {
-      this.cancelCapture();
-      return;
-    }
 
     const step = this.keyStroke(event);
     if (!step.key || ['control', 'shift', 'alt', 'meta'].includes(step.key)) return;

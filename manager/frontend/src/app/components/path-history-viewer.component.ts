@@ -7,6 +7,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { locationIcon, locationLabel } from '../services/location-reference';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 @Component({
   selector: 'app-path-history-viewer',
@@ -469,6 +470,9 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
 
   private destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private pathHistoryService: PathHistoryService,
@@ -494,6 +498,8 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.unregisterInputCommands();
@@ -506,6 +512,15 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.renderVisible = true;
     this.isClosing = false;
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.pathHistory');
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'path-history-viewer',
+        contextId: 'dialog.pathHistory',
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.hide(),
+        dismissible: () => this.isVisible && !this.isClosing,
+      });
+    }
     this.filterText = '';
     this.historyEntries = this.pathHistoryService.getAllHistory();
     this.applyFilter();
@@ -514,6 +529,8 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   }
 
   hide(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (!this.renderVisible || this.isClosing) return;
     this.isVisible = false;
     this.isClosing = true;

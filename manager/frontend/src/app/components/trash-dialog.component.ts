@@ -19,6 +19,7 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TrashDialogService, type TrashDialogRequest } from '../services/trash-dialog.service';
 import { moveFocusWithin } from '../utils/focus-navigation.utils';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 @Component({
   selector: 'app-trash-dialog',
   standalone: true,
@@ -295,6 +296,9 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
 
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly api: ApiService,
@@ -310,6 +314,25 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     this.inputEngine.registerCommand('dialog.trash.focusNext', () => this.moveDialogFocus(1));
     this.inputEngine.registerCommand('dialog.trash.focusPrev', () => this.moveDialogFocus(-1));
     this.inputEngine.registerCommand('dialog.trash.openSelection', () => this.openSelection());
+
+    this.dialog.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(request => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'trash-dialog',
+              contextId: 'dialog.trash',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.close(),
+              dismissible: () => !this.isClosing,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
+      });
 
     this.dialog.mountedRequest$
       .pipe(takeUntil(this.destroy$))
@@ -335,6 +358,8 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.trash.close');

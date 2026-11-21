@@ -27,6 +27,7 @@ import {
 } from '../services/results-panel.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import {
   SearchResultIndex,
@@ -610,6 +611,9 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   private searchGeneration = 0;
   private searchAbort: AbortController | null = null;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly searchService: DiscoverySearchService,
@@ -730,6 +734,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (this.searchTimer) clearTimeout(this.searchTimer);
     this.input.deactivateContext(CONTEXT_ID);
     for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
@@ -753,6 +759,15 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.isClosing = false;
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
+    if (this.modalStack && this.hostElement) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'global-search',
+        element: this.hostElement.nativeElement,
+        contextId: CONTEXT_ID,
+        dismiss: () => this.close(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
     
     this.cdr.markForCheck();
   }
@@ -760,6 +775,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   close(): void {
     if (!this.visible || this.isClosing) return;
     this.isClosing = true;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
     this.searchGeneration += 1;
     this.searchAbort?.abort();

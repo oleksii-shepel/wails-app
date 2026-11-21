@@ -10,6 +10,7 @@ import { applyBatchRenameTemplate } from '../services/batch-rename-template';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { moveFocusWithin } from '../utils/focus-navigation.utils';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 interface PreviewRow {
   entry: BatchRenameItem['entry'];
@@ -246,6 +247,9 @@ export class BatchRenameDialogComponent {
 
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly service: BatchRenameDialogService,
@@ -256,6 +260,23 @@ export class BatchRenameDialogComponent {
     this.inputEngine.registerCommand('dialog.batchRename.close', () => this.onCancel());
     this.inputEngine.registerCommand('dialog.batchRename.focusNext', () => this.moveDialogFocus(1));
     this.inputEngine.registerCommand('dialog.batchRename.focusPrev', () => this.moveDialogFocus(-1));
+
+    this.service.activeRequest$.pipe(takeUntil(this.destroy$)).subscribe((req) => {
+      if (req) {
+        if (this.modalStack && this.hostElement && !this.unregisterModal) {
+          this.unregisterModal = this.modalStack.register({
+            id: 'batch-rename-dialog',
+            contextId: 'dialog.batchRename',
+            element: this.hostElement.nativeElement,
+            dismiss: () => this.onCancel(),
+            dismissible: () => !this.isClosing,
+          });
+        }
+      } else {
+        this.unregisterModal?.();
+        this.unregisterModal = null;
+      }
+    });
 
     this.service.mountedRequest$.pipe(takeUntil(this.destroy$)).subscribe((req) => {
       if (req) {
@@ -278,6 +299,8 @@ export class BatchRenameDialogComponent {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.batchRename.apply');

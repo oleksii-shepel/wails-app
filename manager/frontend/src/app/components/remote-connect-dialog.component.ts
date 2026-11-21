@@ -10,6 +10,7 @@ import { ApiService } from '../services/api.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 interface RemoteConnectDialogRequest {
   resolve: (value: contracts.RemoteMount | null) => void;
@@ -503,6 +504,9 @@ export class RemoteConnectDialogComponent {
   private readonly destroy$ = createSubject<void>();
   private isOpen = false;
   private releaseDialogContext: (() => void) | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   private oauthPollTimer: number | null = null;
   private oauthSessionConnected = false;
   private connectAttemptGeneration = 0;
@@ -510,8 +514,13 @@ export class RemoteConnectDialogComponent {
     if (!this.isOpen || event.key !== 'Escape') {
       return;
     }
+    if (this.modalStack && !this.modalStack.isTopmost('remote-connect-dialog')) {
+      return;
+    }
 
     event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
     this.ngZone.run(() => this.onCancel());
   };
 
@@ -531,6 +540,25 @@ export class RemoteConnectDialogComponent {
     this.inputEngine.registerCommand('dialog.remoteConnect.close', () => this.onCancel());
     this.inputEngine.registerCommand('dialog.remoteConnect.focusNext', () => this.moveDialogFocus(1));
     this.inputEngine.registerCommand('dialog.remoteConnect.focusPrev', () => this.moveDialogFocus(-1));
+
+    this.remoteConnectDialog.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((request) => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'remote-connect-dialog',
+              contextId: 'dialog.remoteConnect',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.onCancel(),
+              dismissible: () => this.isOpen,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
+      });
 
     this.remoteConnectDialog.mountedRequest$
       .pipe(takeUntil(this.destroy$))
@@ -574,6 +602,8 @@ export class RemoteConnectDialogComponent {
 
   ngOnDestroy(): void {
     window.removeEventListener('keydown', this.captureEscapeListener, { capture: true });
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.remoteConnect.submit');

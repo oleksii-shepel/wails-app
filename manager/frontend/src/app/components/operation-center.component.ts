@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { OperationHistoryEntry, OperationService, OperationState } from '../services/operation.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
 
@@ -146,6 +147,9 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   active: OperationState[] = [];
   history: OperationHistoryEntry[] = [];
   private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   readonly filterItems: Array<{ id: OperationCenterFilter; label: string }> = [
     { id: 'all', label: 'All' },
     { id: 'active', label: 'Active' },
@@ -167,12 +171,32 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.destroy$.next();
     this.destroy$.complete();
   }
 
-  show(): void { this.isClosing=false; this.renderVisible=true; this.visible=true; }
-  hide(): void { if(!this.renderVisible||this.isClosing)return; this.visible=false; this.isClosing=true; }
+  show(): void {
+    this.isClosing = false;
+    this.renderVisible = true;
+    this.visible = true;
+    if (this.modalStack && this.hostElement) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'operation-center',
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.hide(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
+  }
+  hide(): void {
+    if (!this.renderVisible || this.isClosing) return;
+    this.visible = false;
+    this.isClosing = true;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+  }
   toggle(): void { this.visible ? this.hide() : this.show(); }
   onSearchInput(event: Event): void { this.searchText = (event.target as HTMLInputElement).value; }
   onAnimationEnd(event: AnimationEvent): void {
@@ -184,6 +208,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
   @HostListener('document:keydown.escape', ['$event'])
   onEscape(event: KeyboardEvent): void {
     if (!this.visible || this.isClosing) return;
+    if (this.modalStack && !this.modalStack.isTopmost('operation-center')) return;
     event.preventDefault();
     event.stopPropagation();
     this.hide();

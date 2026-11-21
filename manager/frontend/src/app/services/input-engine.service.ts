@@ -1,5 +1,6 @@
 import { Injectable, NgZone } from '@angular/core';
 import { CommandRegistryService } from './command-registry.service';
+import { tryInjectModalStack } from './modal-stack.service';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { BUILTIN_INPUT_CATALOG } from './dialog-input-catalog';
 import { compareStableBindingIdentity, whenClausesCanOverlap } from './input-conflict-policy';
@@ -136,6 +137,7 @@ export class InputEngineService {
   readonly shortcutDebug$ = createBehaviorSubject<ShortcutDebugTrace | null>(null);
 
   private keyboardEnabled = true;
+  private readonly modalStack = tryInjectModalStack();
   private readonly handledNativeKeyboardEvents = new WeakSet<KeyboardEvent>();
   readonly showShortcutDebug = typeof window !== 'undefined'
     && ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -730,6 +732,18 @@ export class InputEngineService {
           commandId: resolution.binding.commandId,
         });
         return;
+      }
+
+      // If another modal/menu/dropdown sits on top of the active InputContext,
+      // yield plain Escape so ModalStackService dismisses only the topmost layer.
+      if (
+        stroke.key === 'escape' &&
+        (!stroke.modifiers || stroke.modifiers.length === 0)
+      ) {
+        const topmostModal = this.modalStack?.topmost() ?? null;
+        if (topmostModal && topmostModal.contextId !== resolution.binding.contextId) {
+          return;
+        }
       }
 
       this.emitShortcutDebug({

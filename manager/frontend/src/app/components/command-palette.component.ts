@@ -14,6 +14,7 @@ import { CommonModule } from '@angular/common';
 import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 export interface PaletteCommand {
   id: string;
@@ -148,6 +149,9 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   query = '';
   selectedCategory = 'all';
   selectedIndex = 0;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly history: CommandPaletteHistoryService,
@@ -232,6 +236,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
     for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
     for (const id of Object.values(COMMAND)) this.input.unregisterCommandDescriptor(id, OWNER_ID);
@@ -244,11 +250,22 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     this.isClosing = false;
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'command-palette',
+        contextId: CONTEXT_ID,
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.close(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
     this.cdr.markForCheck();
     requestAnimationFrame(() => this.queryInput?.nativeElement.focus({ preventScroll: true }));
   }
 
   close(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (!this.visible || this.isClosing) return;
     this.isClosing = true;
     this.input.deactivateContext(CONTEXT_ID);
@@ -303,6 +320,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
     if (!this.visible || this.isClosing || event.key !== 'Escape') return;
+    if (this.modalStack && !this.modalStack.isTopmost('command-palette')) return;
     event.preventDefault();
     event.stopPropagation();
     this.close();

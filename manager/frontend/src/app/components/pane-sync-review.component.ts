@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, DoCheck } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DoCheck, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import type { PaneComparisonItem, PaneComparisonResult, PaneComparisonStatus } from '../services/pane-comparison.service';
 import type { SyncHistoryEntry } from '../services/operation-history.service';
 import {
@@ -9,6 +10,7 @@ import {
   type PaneSyncPreset,
   type PaneSyncReviewDialogRequest,
 } from '../services/pane-sync-review-dialog.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 type Filter = 'different' | PaneComparisonStatus;
 
@@ -148,17 +150,48 @@ type Filter = 'different' | PaneComparisonStatus;
     .empty { padding: 28px 10px; text-align: center; opacity: .65; }
   `],
 })
-export class PaneSyncReviewComponent implements DoCheck {
+export class PaneSyncReviewComponent implements OnInit, OnDestroy, DoCheck {
   filter: Filter = 'different';
   searchQuery = '';
   items: PaneSyncPlanItem[] = [];
   preset: PaneSyncPreset | 'custom' = 'safe';
+  private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   readonly statuses: PaneComparisonStatus[] = [
     'only-left', 'only-right', 'left-newer', 'right-newer', 'size-different', 'hash-different', 'content-different', 'type-different',
   ];
 
   constructor(readonly dialogs: PaneSyncReviewDialogService) {}
+
+  ngOnInit(): void {
+    this.dialogs.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((request) => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'pane-sync-review',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.dialogs.close(),
+              dismissible: () => !this.isClosing,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 
   get activeRequest(): PaneSyncReviewDialogRequest | null {
     return this.dialogs.mountedRequest$.value;

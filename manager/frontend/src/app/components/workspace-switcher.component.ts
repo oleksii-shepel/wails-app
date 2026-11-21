@@ -19,6 +19,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { WorkspaceSurfaceService } from '../services/workspace-surface.service';
 import type { WorkspacePresentation } from '../services/workspace-surface.model';
 import type { WorkspaceConfig } from '../shared/protocol-enhanced';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 type WorkspaceEdit =
   | { kind: 'create'; draft: string }
   | { kind: 'rename'; workspaceId: string; draft: string }
@@ -221,7 +222,7 @@ interface WorkspaceSwitcherItem {
         aria-modal="true"
         aria-label="Workspace switcher"
         (mousedown)="$event.stopPropagation()"
-        tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
+        tabindex="-1" (keydown.escape)="onEscapeAction($event)">
 
         <header>
           <div>
@@ -619,6 +620,9 @@ export class WorkspaceSwitcherComponent
   selectedIndex = 0;
   edit: WorkspaceEdit = null;
   private editGeneration = 0;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly workspacesService: WorkspaceService,
@@ -724,7 +728,7 @@ export class WorkspaceSwitcherComponent
       id: COMMAND.close,
       title: 'Close Workspace Switcher',
       category: 'Workspace',
-      execute: () => this.close(),
+      execute: () => this.onEscapeAction(),
     }, OWNER_ID);
 
     this.input.registerCommandDescriptor({
@@ -853,6 +857,8 @@ export class WorkspaceSwitcherComponent
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
 
     for (const binding of BINDINGS) {
@@ -865,8 +871,6 @@ export class WorkspaceSwitcherComponent
   }
 
   open(): void {
-    
-
     const activeIndex = this.workspaces.findIndex(
       workspace => workspace.id === this.activeWorkspaceId,
     );
@@ -876,12 +880,33 @@ export class WorkspaceSwitcherComponent
     this.renderVisible = true;
     this.isClosing = false;
     this.input.activateContext(CONTEXT_ID);
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'workspace-switcher',
+        contextId: CONTEXT_ID,
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.onEscapeAction(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
     this.cdr.markForCheck();
+  }
+
+  onEscapeAction(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.edit) {
+      this.cancelEdit();
+      return;
+    }
+    this.close();
   }
 
   close(): void {
     if (!this.renderVisible || this.isClosing) return;
 
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.cancelEdit(false);
     this.visible = false;
     this.isClosing = true;

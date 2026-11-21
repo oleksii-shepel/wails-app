@@ -6,11 +6,13 @@ import {
   EventEmitter,
   Input,
   OnChanges,
+  OnDestroy,
   Output,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 export interface ContextMenuItem {
   commandId?: string;
@@ -180,7 +182,7 @@ export interface ContextMenuState {
     }
   `],
 })
-export class ContextMenuComponent implements OnChanges {
+export class ContextMenuComponent implements OnChanges, OnDestroy {
   @Input() state: ContextMenuState | null = null;
   @Output() command = new EventEmitter<string>();
   @Output() closed = new EventEmitter<void>();
@@ -194,6 +196,9 @@ export class ContextMenuComponent implements OnChanges {
 
   private typeahead = '';
   private typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   private readonly viewportMargin = 8;
   private readonly columnWidth = 230;
@@ -210,7 +215,22 @@ export class ContextMenuComponent implements OnChanges {
 
     this.clearTypeahead();
 
-    if (!this.state) return;
+    if (!this.state) {
+      this.unregisterModal?.();
+      this.unregisterModal = null;
+      return;
+    }
+
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'context-menu',
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.closed.emit(),
+        dismissible: () => !!this.state,
+      });
+    } else if (this.modalStack && this.unregisterModal) {
+      this.modalStack.bringToFront('context-menu');
+    }
 
     this.menuLeft = Math.max(this.viewportMargin, this.state.x);
     this.menuTop = Math.max(this.viewportMargin, this.state.y);
@@ -224,24 +244,31 @@ export class ContextMenuComponent implements OnChanges {
     });
   }
 
+  ngOnDestroy(): void {
+    this.clearTypeahead();
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+  }
+
   choose(item: ContextMenuItem): void {
     if (!item.commandId || item.enabled === false) return;
     this.command.emit(item.commandId);
   }
 
   onMenuKeyDown(event: KeyboardEvent): void {
-    const items = this.items();
-    if (!items.length) return;
-
-    const active = document.activeElement as HTMLButtonElement | null;
-    const current = Math.max(0, items.indexOf(active as HTMLButtonElement));
-
     if (event.key === 'Escape') {
+      if (this.modalStack && !this.modalStack.isTopmost('context-menu')) return;
       event.preventDefault();
       event.stopPropagation();
       this.closed.emit();
       return;
     }
+
+    const items = this.items();
+    if (!items.length) return;
+
+    const active = document.activeElement as HTMLButtonElement | null;
+    const current = Math.max(0, items.indexOf(active as HTMLButtonElement));
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();

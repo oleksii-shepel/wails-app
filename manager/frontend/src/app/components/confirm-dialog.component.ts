@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService, type ConfirmDialogDetailRow } from '../services/confirm-dialog.service';
 import { InputHistoryService } from '../services/input-history.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
@@ -529,11 +530,14 @@ interface ConfirmDialogRequest {
     }
   `]
 })
-export class ConfirmDialogComponent {
+export class ConfirmDialogComponent implements OnInit, OnDestroy {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
   @ViewChild('promptInput') private promptInput?: ElementRef<HTMLInputElement>;
 
   private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   draftValue = '';
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.mountedRequest$;
 
@@ -543,6 +547,25 @@ export class ConfirmDialogComponent {
   ) {}
 
   ngOnInit(): void {
+    this.confirmDialogService.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(request => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'confirm-dialog',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.onCancel(),
+              dismissible: () => !this.isClosing,
+            });
+          }
+          return;
+        }
+
+        this.unregisterModal?.();
+        this.unregisterModal = null;
+      });
+
     this.confirmDialogService.mountedRequest$
       .pipe(takeUntil(this.destroy$))
       .subscribe(request => {
@@ -557,6 +580,8 @@ export class ConfirmDialogComponent {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.destroy$.next();
     this.destroy$.complete();
   }

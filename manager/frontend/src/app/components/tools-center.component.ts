@@ -26,6 +26,7 @@ import { SelectionBasketService } from '../services/selection-basket.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { FileType, type FileInfo } from '../shared/protocol';
 import type {
   DiskUsageEntry,
@@ -479,6 +480,9 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   copiedValue = '';
 
   private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   private copiedTimer: number | null = null;
 
   constructor(
@@ -599,6 +603,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.cancelDisk();
     if (this.copiedTimer !== null) {
       window.clearTimeout(this.copiedTimer);
@@ -639,6 +645,15 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     }
 
     this.input.activateContext(CONTEXT_ID);
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'tools-center',
+        contextId: CONTEXT_ID,
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.close(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
     this.cdr.markForCheck();
 
     if (page === 'disk' && this.diskEntries.length === 0) {
@@ -656,6 +671,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   close(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (!this.renderVisible || this.isClosing) return;
     this.visible = false;
     this.isClosing = true;

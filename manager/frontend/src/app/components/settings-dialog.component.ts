@@ -17,6 +17,7 @@ import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../service
 import { PluginSettingsPanelComponent } from './plugin-settings-panel.component';
 import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
 import { CustomizationRegistryService, type ThemeContribution } from '../services/customization-registry.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 interface SettingsDialogRequest {
   resolve: (value: boolean) => void;
@@ -63,7 +64,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
           aria-label="Project Settings"
           tabindex="-1"
           (click)="$event.stopPropagation()"
-         (keydown.escape)="onCancel(); $event.preventDefault(); $event.stopPropagation()">
+         (keydown.escape)="onEscapeKey($event)">
           <header class="settings-header">
             <div class="settings-header-title">
               <h2>Settings</h2>
@@ -1115,19 +1116,23 @@ export class SettingsDialogComponent {
   private pluginHasChanges = false;
   private isOpen = false;
   private releaseDialogContext: (() => void) | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   private readonly destroy$ = createSubject<void>();
   private readonly captureEscapeListener = (event: KeyboardEvent) => {
     if (!this.isOpen || event.key !== 'Escape') {
       return;
     }
+    if (this.modalStack && !this.modalStack.isTopmost('settings-dialog')) {
+      return;
+    }
 
     event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
     this.ngZone.run(() => {
-      if (this.recordingBindingId) {
-        this.cancelRecording();
-        return;
-      }
-      this.onCancel();
+      this.onEscapeKey();
     });
   };
 
@@ -1156,7 +1161,7 @@ export class SettingsDialogComponent {
         void this.onSave();
       }
     }, SETTINGS_DIALOG_OWNER);
-    this.inputEngine.registerCommand('dialog.settings.close', () => this.onCancel(), SETTINGS_DIALOG_OWNER);
+    this.inputEngine.registerCommand('dialog.settings.close', () => this.onEscapeKey(), SETTINGS_DIALOG_OWNER);
     this.inputEngine.registerCommand('dialog.settings.focusNext', () => this.moveDialogFocus(1), SETTINGS_DIALOG_OWNER);
     this.inputEngine.registerCommand('dialog.settings.focusPrev', () => this.moveDialogFocus(-1), SETTINGS_DIALOG_OWNER);
     for (const binding of SETTINGS_DIALOG_BINDINGS) {
@@ -1167,6 +1172,26 @@ export class SettingsDialogComponent {
       .pipe(takeUntil(this.destroy$))
       .subscribe((presets) => {
         this.themePresets = presets;
+      });
+
+    this.settingsService
+      .getActiveRequest$()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((request) => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'settings-dialog',
+              contextId: SETTINGS_DIALOG_CONTEXT,
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.onEscapeKey(),
+              dismissible: () => this.isOpen && !this.isClosing,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
       });
 
     this.settingsService
@@ -1192,6 +1217,8 @@ export class SettingsDialogComponent {
 
   ngOnDestroy(): void {
     window.removeEventListener('keydown', this.captureEscapeListener, { capture: true });
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     for (const binding of SETTINGS_DIALOG_BINDINGS) {
@@ -1533,10 +1560,22 @@ export class SettingsDialogComponent {
     this.recomputeHasChanges();
   }
 
+  onEscapeKey(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.recordingBindingId) {
+      this.cancelRecording();
+      return;
+    }
+    this.onCancel();
+  }
+
   onCancel(): void {
     if (this.saving) return;
 
     this.isOpen = false;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.pluginSettingsPanel?.discard();
     this.pluginHasChanges = false;
     this.recomputeHasChanges();
@@ -1564,6 +1603,8 @@ export class SettingsDialogComponent {
       this.originalSettings = JSON.parse(JSON.stringify(this.draft));
       this.recomputeHasChanges();
       this.isOpen = false;
+      this.unregisterModal?.();
+      this.unregisterModal = null;
       this.settingsService.closeSettings(true);
     } finally {
       this.saving = false;

@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import {
   ArchiveFilesDialogService,
   type ArchiveFilesDialogRequest,
 } from '../services/archive-files-dialog.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
 
@@ -155,13 +157,44 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
     }
   `],
 })
-export class ArchiveFilesDialogComponent {
+export class ArchiveFilesDialogComponent implements OnInit, OnDestroy {
   @ViewChild('nameInput') private nameInput?: ElementRef<HTMLInputElement>;
 
   draftValue = '';
   private seededRequest: ArchiveFilesDialogRequest | null = null;
+  private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(readonly dialogs: ArchiveFilesDialogService) {}
+
+  ngOnInit(): void {
+    this.dialogs.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((request) => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'archive-files-dialog',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.dialogs.close(),
+              dismissible: () => !this.isClosing,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 
   get activeRequest(): ArchiveFilesDialogRequest | null {
     const request = this.dialogs.mountedRequest$.value;

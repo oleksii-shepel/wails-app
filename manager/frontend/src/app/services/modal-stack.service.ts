@@ -1,10 +1,11 @@
-import { Injectable } from '@angular/core';
+import { ElementRef, Injectable, inject } from '@angular/core';
 
 export interface ModalRegistration {
   readonly id: string;
   readonly element: HTMLElement;
   readonly dismiss: () => void;
   readonly dismissible: () => boolean;
+  readonly contextId?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -44,6 +45,10 @@ export class ModalStackService {
     return this.stack[this.stack.length - 1] ?? null;
   }
 
+  isTopmost(id: string): boolean {
+    return this.topmost()?.id === id;
+  }
+
   private unregister(id: string): void {
     const index = this.stack.findIndex(item => item.id === id);
     if (index >= 0) this.stack.splice(index, 1);
@@ -55,5 +60,21 @@ export class ModalStackService {
         this.stack.splice(index, 1);
       }
     }
+  }
+}
+
+export function tryInjectModalStack(): ModalStackService | null {
+  try {
+    return inject(ModalStackService, { optional: true });
+  } catch {
+    return null;
+  }
+}
+
+export function tryInjectElementRef(): ElementRef<HTMLElement> | null {
+  try {
+    return inject(ElementRef<HTMLElement>, { optional: true });
+  } catch {
+    return null;
   }
 }

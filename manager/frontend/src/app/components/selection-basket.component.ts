@@ -15,6 +15,7 @@ import { CommonModule } from '@angular/common';
 import { FileType } from '../shared/protocol';
 import { SelectionBasketService, type SelectionBasketEntry } from '../services/selection-basket.service';
 import { ApiService } from '../services/api.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import type {
   SelectionBasketDestination,
   SelectionBasketOperation,
@@ -311,6 +312,10 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
+
   ngOnInit(): void {
     this.basket.entries$.pipe(takeUntil(this.destroy$)).subscribe(entries => {
       this.entries = entries;
@@ -319,6 +324,8 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (this.copiedTimer !== null) {
       window.clearTimeout(this.copiedTimer);
       this.copiedTimer = null;
@@ -383,11 +390,21 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
     this.isClosing = false;
     this.visible = true;
     this.normalizeDestination();
+    if (this.modalStack && this.hostElement) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'selection-basket',
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.hide(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
     this.cdr.markForCheck();
   }
 
   hide(): void {
     if (!this.visible || this.isClosing) return;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.isClosing = true;
     this.cdr.markForCheck();
   }
@@ -525,7 +542,8 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeydown(event: KeyboardEvent): void {
-    if (!this.visible || event.key !== 'Escape') return;
+    if (!this.visible || this.isClosing || event.key !== 'Escape') return;
+    if (this.modalStack && !this.modalStack.isTopmost('selection-basket')) return;
     event.preventDefault();
     event.stopPropagation();
     this.hide();

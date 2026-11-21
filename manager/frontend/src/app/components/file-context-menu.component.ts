@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, ViewChild } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild } from '@angular/core';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import type { PresentedCommand } from './presented-command';
 
 export interface FileContextMenuState {
@@ -114,22 +115,48 @@ export interface FileContextMenuState {
     }
   `],
 })
-export class FileContextMenuComponent {
+export class FileContextMenuComponent implements OnChanges, OnDestroy {
   @Input() state: FileContextMenuState | null = null;
   @Output() closed = new EventEmitter<void>();
   @ViewChild('menu') menu?: ElementRef<HTMLElement>;
 
   private typeahead = '';
   private typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (!changes['state'] || !this.state) return;
+    if (!changes['state']) return;
 
     this.clearTypeahead();
+    if (!this.state) {
+      this.unregisterModal?.();
+      this.unregisterModal = null;
+      return;
+    }
+
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'file-context-menu',
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.closed.emit(),
+        dismissible: () => !!this.state,
+      });
+    } else if (this.modalStack && this.unregisterModal) {
+      this.modalStack.bringToFront('file-context-menu');
+    }
+
     queueMicrotask(() => {
       this.menu?.nativeElement.focus({ preventScroll: true });
       this.focusItem(0, 1);
     });
+  }
+
+  ngOnDestroy(): void {
+    this.clearTypeahead();
+    this.unregisterModal?.();
+    this.unregisterModal = null;
   }
 
   trackItem(_index: number, item: PresentedCommand): string {
@@ -145,18 +172,19 @@ export class FileContextMenuComponent {
   }
 
   onMenuKeyDown(event: KeyboardEvent): void {
-    const items = this.items();
-    if (!items.length) return;
-
-    const active = document.activeElement as HTMLButtonElement | null;
-    const current = Math.max(0, items.indexOf(active as HTMLButtonElement));
-
     if (event.key === 'Escape') {
+      if (this.modalStack && !this.modalStack.isTopmost('file-context-menu')) return;
       event.preventDefault();
       event.stopPropagation();
       this.closed.emit();
       return;
     }
+
+    const items = this.items();
+    if (!items.length) return;
+
+    const active = document.activeElement as HTMLButtonElement | null;
+    const current = Math.max(0, items.indexOf(active as HTMLButtonElement));
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -213,9 +241,13 @@ export class FileContextMenuComponent {
     if (this.state) this.closed.emit();
   }
 
-  @HostListener('document:keydown.escape')
-  onEscape(): void {
-    if (this.state) this.closed.emit();
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(event?: Event): void {
+    if (!this.state) return;
+    if (this.modalStack && !this.modalStack.isTopmost('file-context-menu')) return;
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.closed.emit();
   }
 
   @HostListener('window:blur')

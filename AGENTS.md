@@ -31,9 +31,11 @@ go.work                   Joins ./manager and ./packages/core/go only
 
 Run npm commands from the repo root.
 
+To start the app: run `npm install` once from the repo root, then `wails dev` from `manager/`.
+
 | Task | Command |
 |---|---|
-| Live dev (Windows) | `npm run dev:app` — wraps `wails dev` with `-ldflags=-H=windowsgui` so elevated restarts stay GUI |
+| Live dev (Windows) | `npm install` at the repo root, then `wails dev` from `manager/` (add `-ldflags=-H=windowsgui` so elevated restarts stay GUI) |
 | Full app build | `npm run build` (ends in `wails build`) |
 | Full workspace check | `npm run check` (builds core → plugins → frontend → Go) |
 | Full test suite | `npm run test` |

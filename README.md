@@ -21,4 +21,14 @@ This repository is organized as a workspace with the host application and plugin
 
 The Registry frontend plugin now lives in `plugins/registry`. Registry presentation, editors, panel-source behavior, commands, and context-menu contributions are owned there. The Registry backend remains in `manager/vfs/registry` until a backend plugin ABI exists.
 
-For Windows live development, use `npm run dev:app`. That wrapper runs `wails dev` from `manager/` and adds `-ldflags "-H windowsgui"` so `wails-app` stays a GUI binary during elevated restarts.
+## Starting the app
+
+Install the JavaScript dependencies once from the repository root, then run Wails from `manager/`:
+
+```bash
+npm install          # repo root
+cd manager
+wails dev            # starts the host; Angular dev server runs on :3000
+```
+
+On Windows, add `wails dev -ldflags=-H=windowsgui` so elevated restarts keep the app as a GUI binary (`scripts/run-wails-dev.mjs` does the same).

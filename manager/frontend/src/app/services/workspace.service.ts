@@ -1203,21 +1203,12 @@ export class WorkspaceService {
         !(
           entry.workspaceId === workspaceId &&
           entry.paneId === paneId &&
-          this.sameClosedTabIdentity(entry.tab, tab)
+          entry.tab.id === tab.id
         )
       ),
     ].slice(0, RECENTLY_CLOSED_TABS_LIMIT);
 
     this.persistRecentlyClosedTabs();
-  }
-
-  private sameClosedTabIdentity(left: TabInfo, right: TabInfo): boolean {
-    return (
-      (left.kind ?? 'dir') === (right.kind ?? 'dir') &&
-      (left.path ?? '') === (right.path ?? '') &&
-      (left.surfaceId ?? '') === (right.surfaceId ?? '') &&
-      (left.viewer?.targetPath ?? '') === (right.viewer?.targetPath ?? '')
-    );
   }
 
   private cloneTab(tab: TabInfo): TabInfo {

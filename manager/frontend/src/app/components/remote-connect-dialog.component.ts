@@ -354,7 +354,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       <span>Tenant <small>(Optional)</small></span>
                       <input
                         type="text"
-                        name="remote-tenant"
+                        name="remote-tenant" autocapitalize="none" spellcheck="false"
                         [(ngModel)]="form.tenant"
                         (ngModelChange)="onOAuthInputChange()"
                         placeholder="common"

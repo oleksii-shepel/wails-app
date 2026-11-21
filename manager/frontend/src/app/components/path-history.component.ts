@@ -281,6 +281,8 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     const content=JSON.stringify(this.entries,null,2);
     try{
       await writeClipboardText(content);
+      this.copyNotice = 'Location history copied.';
+      this.cdr.markForCheck();
     }catch{
       await this.confirmDialog.alert({
         title:'Location History JSON',

@@ -717,8 +717,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <small id="settings-max-concurrent-operations-help">Number of file copy, move, and delete tasks that can run in parallel.</small>
                   </label>
                   <label class="field">
-                    <span>Network Timeout (ms)</span>
-                    <input
+                    <span id="settings-network-timeout-label">Network Timeout (ms)</span>
+                    <input aria-labelledby="settings-network-timeout-label" aria-describedby="settings-network-timeout-help"
                       type="number"
                       [(ngModel)]="draft.advanced.networkTimeout"
                       (ngModelChange)="onSettingChanged()"
@@ -726,7 +726,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       max="120000"
                       step="5000"
                     />
-                    <small>Maximum time to wait for a remote network call before treating it as failed.</small>
+                    <small id="settings-network-timeout-help">Maximum time to wait for a remote network call before treating it as failed.</small>
                   </label>
                 </div>
 

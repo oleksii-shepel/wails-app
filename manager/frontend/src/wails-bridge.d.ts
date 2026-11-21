@@ -4,7 +4,7 @@ type WailsAppBindings = WailsGeneratedAppBindings & {
 };
 type WailsRuntimeBindings = Pick<
   typeof import('../wailsjs/runtime/runtime'),
-  'EventsOn' | 'EventsOff' | 'EventsEmit'
+  'EventsOn' | 'EventsOff' | 'EventsEmit' | 'ClipboardSetText'
 >;
 
 declare global {

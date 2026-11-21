@@ -128,7 +128,7 @@ export interface PaneSortChange {
       padding: 6px;
       background: var(--vsc-menu-background, var(--vsc-panel-background));
       color: var(--vsc-menu-foreground, var(--vsc-foreground));
-      border: 1px solid var(--vsc-menu-border, var(--vsc-border));
+      border: 1px solid var(--vsc-border);
       border-radius: 6px;
       box-shadow: var(--vsc-widget-shadow);
     }

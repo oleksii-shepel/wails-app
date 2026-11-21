@@ -102,7 +102,7 @@ type BinFileInfo = FileInfo & {
     .entry.revision .name { padding-left:14px; }
     .leading { display:flex; align-items:center; justify-content:flex-start; gap:2px; padding-left:2px !important; }
     .disclosure { width:16px; height:20px; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; }
-    .disclosure:hover, .disclosure:active { background:var(--vsc-toolbar-hover-background); }
+    .disclosure:hover, .disclosure:active { background:var(--vsc-toolbar-hover); }
     .revision-indent { width:16px; flex:0 0 16px; }
     .icon { padding:0 !important; overflow:visible !important; }
     .path, .deleted, .size, .revision-label { color:var(--vsc-description-foreground); }

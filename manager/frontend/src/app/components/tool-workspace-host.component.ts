@@ -494,10 +494,10 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
       height: 24px;
       min-width: 104px;
       padding: 0 24px 0 7px;
-      border: 1px solid var(--vsc-dropdown-border, var(--vsc-border));
+      border: 1px solid var(--vsc-border);
       border-radius: 3px;
-      background: var(--vsc-dropdown-background, var(--vsc-menu-background, var(--vsc-panel-background)));
-      color: var(--vsc-dropdown-foreground, var(--vsc-foreground));
+      background: var(--vsc-menu-background);
+      color: var(--vsc-foreground);
       font: inherit;
       font-size: 11px;
       cursor: pointer;

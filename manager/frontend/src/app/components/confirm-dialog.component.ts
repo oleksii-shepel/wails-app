@@ -290,7 +290,7 @@ interface ConfirmDialogRequest {
     }
 
     .property-value--mono {
-      font-family: var(--vsc-editor-font-family, Consolas, monospace);
+      font-family: var(--vsc-font-family-mono);
       font-size: 10.5px;
     }
 

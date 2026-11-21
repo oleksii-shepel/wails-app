@@ -704,12 +704,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       padding:2px 6px;
       grid-row:2;
       border-top:1px solid var(--vsc-border-subtle,var(--vsc-border));
-      background:var(--vsc-sideBar-background,var(--vsc-panel-background));
+      background:var(--vsc-sidebar-background);
       color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
       font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif);
     }
     .pane-intelligence.linked{
-      background:color-mix(in srgb,var(--vsc-accent-blue) 5%,var(--vsc-sideBar-background,var(--vsc-panel-background)));
+      background:color-mix(in srgb,var(--vsc-accent-blue) 5%,var(--vsc-sidebar-background));
     }
     .pane-intelligence.same .relation{color:var(--vsc-success)}
     .pane-intelligence .relation{

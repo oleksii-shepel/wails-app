@@ -893,7 +893,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-height:25px;
       padding:2px 6px;
       border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));
-      background:var(--vsc-sideBar-background,var(--vsc-panel-background));
+      background:var(--vsc-sidebar-background);
       color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
       font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif);
     }
@@ -1249,7 +1249,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       outline-color:var(--vsc-success,var(--vsc-accent-green));
     }
     .entry.drop-invalid,.tree-row.drop-invalid,.list.drop-invalid{
-      outline-color:var(--vsc-error,var(--vsc-danger));
+      outline-color:var(--vsc-error);
       cursor:not-allowed;
     }
     .drop-intent{
@@ -1271,8 +1271,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       text-overflow:ellipsis;
     }
     .drop-intent.invalid{
-      border-color:var(--vsc-error,var(--vsc-danger));
-      color:var(--vsc-error,var(--vsc-danger));
+      border-color:var(--vsc-error);
+      color:var(--vsc-error);
     }
 
     .entry.cursor.selected {
@@ -1502,7 +1502,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       box-shadow:0 0 0 1px color-mix(in srgb,var(--vsc-focus-border,var(--vsc-accent-blue)) 45%,transparent);
     }
     .rename-input--invalid{
-      border-color:var(--vsc-error,var(--vsc-danger));
+      border-color:var(--vsc-error);
     }
     .rename-error{
       position:absolute;
@@ -1511,10 +1511,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       left:0;
       max-width:min(360px,70vw);
       padding:4px 7px;
-      border:1px solid var(--vsc-error,var(--vsc-danger));
+      border:1px solid var(--vsc-error);
       border-radius:3px;
       background:var(--vsc-menu-background,var(--vsc-panel-background));
-      color:var(--vsc-error,var(--vsc-danger));
+      color:var(--vsc-error);
       box-shadow:0 4px 12px var(--vsc-scrim);
       font-size:10px;
       line-height:1.35;

@@ -297,7 +297,7 @@ const MENUS: readonly ApplicationMenu[] = [
       padding: 0 7px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       background: var(--vsc-titlebar-background, var(--vsc-editor-background));
-      color: var(--vsc-titlebar-foreground, var(--vsc-foreground));
+      color: var(--vsc-foreground);
       font: 12px/1.35 var(--vsc-font-family, system-ui, sans-serif);
       user-select: none;
       box-sizing: border-box;

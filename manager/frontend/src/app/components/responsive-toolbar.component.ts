@@ -237,7 +237,7 @@ export type ResponsiveToolbarCommand = PresentedCommand & {
       border: 1px solid var(--vsc-border);
       border-radius: 5px;
       background: var(--vsc-menu-background, var(--vsc-popover-background));
-      box-shadow: var(--vsc-shadow-medium);
+      box-shadow: var(--vsc-shadow);
       color: var(--vsc-menu-foreground, var(--vsc-foreground));
     }
 

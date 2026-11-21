@@ -627,8 +627,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     </select>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.thumbnailsEnabled" (ngModelChange)="onSettingChanged()" />
-                    <span>Show image thumbnails<small>Renders previews for image files. May slow down folder loading for large directories.</small></span>
+                    <input aria-labelledby="settings-thumbnails-enabled-label" aria-describedby="settings-thumbnails-enabled-help" type="checkbox" [(ngModel)]="draft.view.thumbnailsEnabled" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-thumbnails-enabled-label">Show image thumbnails</span><small id="settings-thumbnails-enabled-help">Renders previews for image files. May slow down folder loading for large directories.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.view.foldersFirst" (ngModelChange)="onSettingChanged()" />

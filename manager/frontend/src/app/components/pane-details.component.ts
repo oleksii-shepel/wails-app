@@ -112,7 +112,7 @@ interface DetailsRowVm {
             <span class="sort-indicator" *ngIf="sortField === col.column.field"
                   [class.sort-asc]="sortDirection === 'asc'"
                   [class.sort-desc]="sortDirection === 'desc'">
-              <svg viewBox="0 0 16 16">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/>
               </svg>
             </span>

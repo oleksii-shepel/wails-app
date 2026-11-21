@@ -685,13 +685,13 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Performance</h4>
                   <label class="field">
-                    <span>GPU Acceleration</span>
-                    <select [(ngModel)]="draft.advanced.gpuAcceleration" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-gpu-acceleration-label">GPU Acceleration</span>
+                    <select aria-labelledby="settings-gpu-acceleration-label" aria-describedby="settings-gpu-acceleration-help" [(ngModel)]="draft.advanced.gpuAcceleration" (ngModelChange)="onSettingChanged()">
                       <option value="auto">Automatic</option>
                       <option value="on">Enabled</option>
                       <option value="off">Disabled</option>
                     </select>
-                    <small>Hardware-accelerated rendering. Disable if you encounter graphical artifacts or driver crashes.</small>
+                    <small id="settings-gpu-acceleration-help">Hardware-accelerated rendering. Disable if you encounter graphical artifacts or driver crashes.</small>
                   </label>
                   <label class="field">
                     <span>Memory Cache Size (MB)</span>

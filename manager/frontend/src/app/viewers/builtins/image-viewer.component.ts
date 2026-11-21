@@ -50,7 +50,7 @@ interface CarouselVirtualFrame {
          #viewerSurface
          tabindex="0"
          (pointerdown)="focusViewerSurface()">
-      <div class="viewer-toolbar" *ngIf="kind === 'image' || kind === 'svg' || hasCarousel">
+      <div class="viewer-toolbar" role="group" aria-label="Image preview controls" *ngIf="kind === 'image' || kind === 'svg' || hasCarousel">
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
           <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out" aria-label="Zoom out">&#x2212;</button>
           <span class="zoom-label">{{ zoomLabel }}</span>

@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { ApiService } from './api.service';
 import { FileType } from '../shared/protocol';
+import { isWindowsPath, parentPath } from '../components/address-bar.utils';
 import {
   canonicalizeLocation,
   describeLocation,
@@ -111,8 +112,9 @@ export class PathHistoryService {
     const suggestions: PathSuggestion[] = [];
     suggestions.push(...this.getHistoryMatches(query));
 
-    if (this.canUseDirectoryAutocomplete(query)) {
-      suggestions.push(...await this.getDirectorySuggestions(query));
+    const directoryQuery = this.resolveDirectoryQuery(query, currentPath);
+    if (directoryQuery && this.canUseDirectoryAutocomplete(directoryQuery)) {
+      suggestions.push(...await this.getDirectorySuggestions(directoryQuery));
     }
 
     suggestions.push(...this.getFuzzyMatches(query));
@@ -158,7 +160,7 @@ export class PathHistoryService {
       const lastSlash = normalizedQuery.lastIndexOf('/');
       if (lastSlash < 0) return [];
 
-      const directoryInput = /[\\/]$/.test(query.replace(/\\/g, '/'));
+      const directoryInput = query.endsWith('/') || query.endsWith('\\');
       const dirPath = directoryInput ? normalizedQuery : normalizedQuery.substring(0, lastSlash + 1) || '/';
       const prefix = directoryInput ? '' : normalizedQuery.substring(lastSlash + 1);
       const listing = await this.apiService.listDirectory(dirPath, false);
@@ -183,12 +185,23 @@ export class PathHistoryService {
     }
   }
 
+  private resolveDirectoryQuery(query: string, currentPath: string): string | null {
+    const relative = query.replace(/\\/g, '/');
+    if (!relative.startsWith('./') && !relative.startsWith('../')) return query;
+
+    let path = canonicalizeLocation(currentPath);
+    if (!path.startsWith('/') && !isWindowsPath(path)) return null;
+    for (const segment of relative.split('/')) {
+      if (!segment || segment === '.') continue;
+      path = segment === '..' ? parentPath(path) : path.replace(/\/+$/, '') + '/' + segment;
+    }
+    return relative.endsWith('/') && !path.endsWith('/') ? path + '/' : path;
+  }
+
   private canUseDirectoryAutocomplete(query: string): boolean {
     const normalized = canonicalizeLocation(query);
     return (
       normalized.startsWith('/') ||
-      normalized.startsWith('./') ||
-      normalized.startsWith('../') ||
       /^filesystem:\/\/[a-z](?:\/.*)?$/i.test(normalized) ||
       normalized.startsWith('//')
     );

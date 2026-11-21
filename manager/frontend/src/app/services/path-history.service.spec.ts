@@ -1,6 +1,7 @@
 import '@angular/compiler';
 import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { PathHistoryService } from './path-history.service';
+import { FileType } from '../shared/protocol';
 
 class StorageStub {
   private values = new Map<string, string>();
@@ -70,5 +71,26 @@ describe('PathHistoryService location history', () => {
     service.addLocation('/original', 'left');
     service.getAllHistory()[0].location = '/changed';
     expect(service.getAllHistory()[0].location).toBe('/original');
+  });
+
+  it('resolves relative directory suggestions against the current pane', async () => {
+    const listDirectory = jasmine.createSpy('listDirectory').and.resolveTo({
+      entries: [{ type: FileType.DIRECTORY, name: 'reports', path: '/workspace/reports' }],
+    });
+    const service = new PathHistoryService({ listDirectory } as any);
+
+    const suggestions = await service.getSuggestions('../', '/workspace/current');
+
+    expect(listDirectory).toHaveBeenCalledOnceWith('/workspace', false);
+    expect(suggestions[0].path).toBe('/workspace/reports');
+  });
+
+  it('does not resolve local relative paths against opaque providers', async () => {
+    const listDirectory = jasmine.createSpy('listDirectory');
+    const service = new PathHistoryService({ listDirectory } as any);
+
+    await service.getSuggestions('./repo', 's3://archive');
+
+    expect(listDirectory).not.toHaveBeenCalled();
   });
 });

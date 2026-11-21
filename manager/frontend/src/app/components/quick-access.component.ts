@@ -72,7 +72,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
 
         <nav class="sections" *ngIf="filteredSections.length > 1" aria-label="Quick Access sections">
           <button *ngFor="let section of filteredSections; let i=index" type="button"
-            [class.active]="i === sectionIndex" (click)="selectSection(i)">
+            [class.active]="i === sectionIndex" [attr.aria-pressed]="i === sectionIndex" (click)="selectSection(i)">
             {{ section.title }} <span>{{ section.items.length }}</span>
           </button>
         </nav>

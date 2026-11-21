@@ -74,8 +74,8 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             No recently closed tabs in this workspace.
           </div>
 
-          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0">
-            No closed tabs match "{{ searchText }}".
+          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0" role="status">
+            No closed tabs match the current filters.
           </div>
         </div>
 

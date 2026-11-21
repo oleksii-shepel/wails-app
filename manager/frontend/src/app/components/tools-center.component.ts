@@ -1167,7 +1167,14 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  clearOperationHistory(): void {
+  async clearOperationHistory(): Promise<void> {
+    if (!this.history.length) return;
+    const confirmed = await this.confirm.confirm({
+      title: 'Clear Recent Operations',
+      message: 'Clear the recent activity list? Active operations will continue.',
+      confirmText: 'Clear',
+    });
+    if (!confirmed) return;
     this.operations.clearHistory();
     this.cdr.markForCheck();
   }

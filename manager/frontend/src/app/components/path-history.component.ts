@@ -51,13 +51,13 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
         </header>
 
         <nav class="modes palette-dialog-tabbar" aria-label="History views">
-          <button type="button" [class.active]="mode==='pane'" (click)="setMode('pane')">
+          <button type="button" [class.active]="mode==='pane'" [attr.aria-pressed]="mode==='pane'" (click)="setMode('pane')">
             This Pane
           </button>
-          <button type="button" [class.active]="mode==='all'" (click)="setMode('all')">
+          <button type="button" [class.active]="mode==='all'" [attr.aria-pressed]="mode==='all'" (click)="setMode('all')">
             All
           </button>
-          <button type="button" [class.active]="mode==='frequent'" (click)="setMode('frequent')">
+          <button type="button" [class.active]="mode==='frequent'" [attr.aria-pressed]="mode==='frequent'" (click)="setMode('frequent')">
             Frequent
           </button>
         </nav>

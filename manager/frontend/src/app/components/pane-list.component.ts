@@ -55,7 +55,7 @@ type VisibleRowVm = {
       (dragleave)="onBackgroundDragLeave($event)"
       (drop)="onBackgroundDrop($event)">
       
-      <div *ngIf="loading" class="loading">
+      <div *ngIf="loading" class="loading" role="status">
         <div class="spinner"></div>
         <p>Loading...</p>
       </div>

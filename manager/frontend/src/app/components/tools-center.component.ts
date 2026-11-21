@@ -1089,12 +1089,15 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     const paths = Array.from(this.duplicateSelected);
     if (paths.length === 0) return;
 
+    const visiblePaths = new Set(this.duplicateGroups.flatMap(group => group.files.map(file => file.path)));
+    const hidden = paths.filter(path => !visiblePaths.has(path)).length;
+    const hiddenMessage = hidden ? ` ${hidden} selected ${hidden === 1 ? 'file is' : 'files are'} outside the current filter.` : '';
     const confirmed = await this.confirm.confirm({
       title: 'Delete Duplicate Files',
       message:
         `Delete ${paths.length} selected duplicate file${
           paths.length === 1 ? '' : 's'
-        }? The suggested keeper in each group is protected from selection.`,
+        }? The suggested keeper in each group is protected from selection.${hiddenMessage}`,
       confirmText: 'Delete',
       danger: true,
     });

@@ -125,7 +125,10 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
     if (this.rootPath) void this.scan();
   }
 
-  ngOnDestroy(): void { this.cancelScan(); }
+  ngOnDestroy(): void {
+    this.cancelScan();
+    this.result = null;
+  }
 
   cancelScan(): void {
     this.scanController?.abort();

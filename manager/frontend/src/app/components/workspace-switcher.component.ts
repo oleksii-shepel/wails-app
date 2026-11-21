@@ -234,7 +234,7 @@ interface WorkspaceSwitcherItem {
             *ngIf="!edit"
             type="button"
             class="new"
-            title="New workspace (Ctrl+Alt+Shift+N)"
+            aria-label="New workspace" aria-keyshortcuts="Control+Alt+Shift+N" title="New workspace (Ctrl+Alt+Shift+N)"
             (click)="createWorkspace()">
             + New
           </button>

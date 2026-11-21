@@ -65,8 +65,11 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
         <label class="toolbar-label" for="hex-goto-input">Go to</label>
         <input class="goto-input" id="hex-goto-input" type="text" [(ngModel)]="gotoValue"
           placeholder="{{ offsetFormat === 'hex' ? '0x0000' : '0' }}"
-          (keydown.enter)="gotoOffset()" />
+          [attr.aria-invalid]="!!gotoError" [attr.aria-describedby]="gotoError ? 'hex-goto-error' : null"
+          (ngModelChange)="gotoError = ''"
+          (keydown.enter)="gotoOffset(); $event.preventDefault(); $event.stopPropagation()" />
         <button class="tool-btn" type="button" (click)="gotoOffset()" title="Jump to offset" aria-label="Jump to offset">&#x2192;</button>
+        <span *ngIf="gotoError" class="error-detail" id="hex-goto-error" role="status">{{ gotoError }}</span>
 
         <span class="toolbar-divider"></span>
 
@@ -467,6 +470,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   bytesPerRow: 8 | 16 | 32 = 16;
   offsetFormat: OffsetFormat = 'hex';
   gotoValue = '';
+  gotoError = '';
 
   get headerLabels(): string[] {
     return Array.from({ length: this.bytesPerRow }, (_, i) => i.toString(16).toUpperCase().padStart(2, '0'));
@@ -546,9 +550,16 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
     if (!raw || !this._gridBody) return;
     const hex = /^0x/i.test(raw) || this.offsetFormat === 'hex';
     const digits = raw.replace(/^0x/i, '');
-    if (!(hex ? /^[0-9a-f]+$/i : /^\d+$/).test(digits)) return;
+    if (!(hex ? /^[0-9a-f]+$/i : /^\d+$/).test(digits)) {
+      this.gotoError = hex ? 'Enter a hexadecimal offset.' : 'Enter a decimal or 0x-prefixed offset.';
+      return;
+    }
     const offset = Number.parseInt(digits, hex ? 16 : 10);
-    if (!Number.isSafeInteger(offset) || offset < 0) return;
+    if (!Number.isSafeInteger(offset) || offset >= this.totalFileSize) {
+      this.gotoError = 'The offset is beyond the end of this file.';
+      return;
+    }
+    this.gotoError = '';
     const row = Math.max(0, Math.min(Math.floor(offset / this.bytesPerRow), this.totalRows - 1));
     this._gridBody.scrollTop = row * ROW_HEIGHT;
   }

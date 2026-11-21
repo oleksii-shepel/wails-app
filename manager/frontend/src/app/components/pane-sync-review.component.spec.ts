@@ -1,6 +1,7 @@
-import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { FileType } from '../shared/protocol';
 import type { PaneComparisonResult } from '../services/pane-comparison.service';
+import type { PaneSyncPlan } from '../services/pane-sync-review-dialog.service';
+import { PaneSyncReviewDialogService } from '../services/pane-sync-review-dialog.service';
 import { PaneSyncReviewComponent } from './pane-sync-review.component';
 
 function result(): PaneComparisonResult {
@@ -17,36 +18,42 @@ function result(): PaneComparisonResult {
   };
 }
 
+function mountComponent(testResult: PaneComparisonResult) {
+  const dialogs = new PaneSyncReviewDialogService();
+  const plans: PaneSyncPlan[] = [];
+  dialogs.openDialog({
+    getResult: () => testResult,
+    getHistory: () => [],
+    onExecute: (plan) => { plans.push(plan); },
+  });
+  const component = new PaneSyncReviewComponent(dialogs);
+  component.ngDoCheck();
+  return { component, plans };
+}
+
 describe('PaneSyncReviewComponent plan defaults', () => {
   it('auto-approves missing items but skips overwrite candidates', () => {
-    const component = new PaneSyncReviewComponent();
-    component.result = result();
-    component.ngOnChanges();
+    const { component } = mountComponent(result());
 
     expect(component.items.map(item => item.direction)).toEqual(['left-to-right', 'right-to-left', 'skip']);
   });
 
   it('emits only explicitly approved directions', () => {
-    const component = new PaneSyncReviewComponent();
-    component.result = result();
-    component.ngOnChanges();
+    const { component, plans } = mountComponent(result());
     component.setDirection(component.items[2], 'left-to-right');
-    const emit = spyOnFn(component.execute, 'emit');
 
     component.executePlan();
 
-    expect(emit).toHaveBeenCalledWith(jasmine.objectContaining({
+    expect(plans).toHaveSize(1);
+    expect(plans[0]).toEqual(jasmine.objectContaining({
       leftToRight: ['/left/a.txt', '/left/c.txt'],
       rightToLeft: ['/right/b.txt'],
       preset: 'custom',
     }));
   });
-});
 
   it('builds an explicit bidirectional plan from one-sided and newer-side differences', () => {
-    const component = new PaneSyncReviewComponent();
-    component.result = result();
-    component.ngOnChanges();
+    const { component } = mountComponent(result());
 
     component.applyPreset('bidirectional');
 
@@ -55,18 +62,17 @@ describe('PaneSyncReviewComponent plan defaults', () => {
   });
 
   it('keeps ambiguous content differences as conflicts in bidirectional mode', () => {
-    const component = new PaneSyncReviewComponent();
     const base = result();
     const left = base.items[2].left!;
     const right = base.items[2].right!;
-    component.result = {
+    const { component } = mountComponent({
       items: [{ key: 'c', name: 'c.txt', status: 'content-different', left, right }],
       summary: { total: 1, same: 0, onlyLeft: 0, onlyRight: 0, leftNewer: 0, rightNewer: 0, sizeDifferent: 0, hashDifferent: 0, contentDifferent: 1, typeDifferent: 0, different: 1 },
-    };
-    component.ngOnChanges();
+    });
 
     component.applyPreset('bidirectional');
 
     expect(component.conflictCount).toBe(1);
     expect(component.items[0].direction).toBe('skip');
   });
+});

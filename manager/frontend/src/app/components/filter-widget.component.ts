@@ -127,7 +127,7 @@ export interface FindWidgetState {
       </div>
 
       <!-- Regex error -->
-      <div class="fw-error" *ngIf="hasRegexError">
+      <div class="fw-error" role="alert" *ngIf="hasRegexError">
         <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
           <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm-.75 3h1.5v5.5h-1.5V4zm0 7h1.5v1.5h-1.5V11z"/>
         </svg>

@@ -568,6 +568,7 @@ export class WorkspaceService {
 
     // Clear archive states for deleted workspace
     this.clearAllArchiveStatesForWorkspace(workspaceId);
+    this.clearRecentlyClosedTabs(workspaceId);
 
     return true;
   }

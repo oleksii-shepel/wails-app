@@ -248,7 +248,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
                 class="control-btn fullscreen-btn" 
                 (click)="toggleFullscreen()"
                 [disabled]="!videoReady"
-                title="Fullscreen (F)">
+                aria-label="Toggle fullscreen" title="Fullscreen (F)">
                 <span class="icon">⛶</span>
               </button>
             </div>

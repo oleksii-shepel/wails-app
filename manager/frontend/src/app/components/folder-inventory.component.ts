@@ -233,11 +233,13 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
 
   async copyPaths(selectedOnly = false): Promise<void> {
     const paths = selectedOnly ? [...this.selected] : this.visible.map(entry => entry.path);
+    if (!paths.length || this.loading() || this.error()) return;
+    const request = this.request;
     try {
       await writeClipboardText(paths.join('\n'));
-      this.notice.set(`Copied ${paths.length} paths.`);
+      if (request === this.request) this.notice.set(`Copied ${paths.length} paths.`);
     } catch {
-      this.notice.set('Clipboard unavailable. Export CSV to save the paths.');
+      if (request === this.request) this.notice.set('Clipboard unavailable. Export CSV to save the paths.');
     }
   }
 

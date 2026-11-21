@@ -45,6 +45,7 @@ type VisibleRowVm = {
     <div
       #paneContent
       class="pane-content app-scroll-surface"
+      [attr.aria-busy]="loading"
       [class.virtual]="virtualEnabled"
       [class.drop-target-bg]="isBackgroundDropTarget"
       (mousedown)="onListMouseDown($event)"

@@ -143,9 +143,13 @@ export class RemoteConnectionsService {
   }
 
   private healthKey(mount: contracts.RemoteMount): string {
-    return `provider:${this.protocol(mount)}:${this.rootUri(mount).toLocaleLowerCase()}`;
+    return `provider:${this.protocol(mount)}:${this.normalizeUri(this.rootUri(mount))}`;
   }
 
-  private normalizeUri(value:string):string{return (value??'').trim().replace(/\/+$/,'').toLocaleLowerCase()}
+  private normalizeUri(value: string): string {
+    const path = value.trim().replace(/\/+$/, '');
+    const uri = path.replace(/^[a-z][a-z0-9+.-]*:(?=\/\/)/i, scheme => scheme.toLowerCase());
+    return uri.startsWith('smb://') ? uri.toLowerCase() : uri;
+  }
   private patch(patch:Partial<RemoteConnectionSnapshot>):void{this.state$.next({...this.state$.value,...patch})}
 }

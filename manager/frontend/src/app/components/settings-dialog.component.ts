@@ -432,14 +432,14 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Editing</h4>
                   <label class="field">
-                    <span>Word Wrap</span>
-                    <select [(ngModel)]="draft.editor.wordWrap" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-word-wrap-label">Word Wrap</span>
+                    <select aria-labelledby="settings-word-wrap-label" aria-describedby="settings-word-wrap-help" [(ngModel)]="draft.editor.wordWrap" (ngModelChange)="onSettingChanged()">
                       <option value="off">Off</option>
                       <option value="on">On</option>
                       <option value="wordWrapColumn">At Column</option>
                       <option value="bounded">Bounded</option>
                     </select>
-                    <small>How long lines are wrapped in the editor. "At Column" and "Bounded" wrap at a fixed character width.</small>
+                    <small id="settings-word-wrap-help">How long lines are wrapped in the editor. "At Column" and "Bounded" wrap at a fixed character width.</small>
                   </label>
                   <label class="field" *ngIf="draft.editor.wordWrap === 'wordWrapColumn' || draft.editor.wordWrap === 'bounded'">
                     <span>Word Wrap Column</span>

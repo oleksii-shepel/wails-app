@@ -40,7 +40,7 @@ const GLYPH_ROWS = [
           *ngFor="let size of previewSizes"
           class="tool-btn"
           type="button"
-          [class.active]="previewSize === size"
+          [class.active]="previewSize === size" [attr.aria-pressed]="previewSize === size"
           (click)="setPreviewSize(size)">
           {{ size }}px
         </button>

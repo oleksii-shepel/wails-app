@@ -144,8 +144,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                         <small id="settings-theme-preset-help">Extensible palette preset (built-in and plugin-contributed themes).</small>
                       </label>
                     <label class="field">
-                      <span>UI Zoom</span>
-                      <select [(ngModel)]="draft.general.uiZoom" (ngModelChange)="onSettingChanged()">
+                      <span id="settings-ui-zoom-label">UI Zoom</span>
+                      <select aria-labelledby="settings-ui-zoom-label" aria-describedby="settings-ui-zoom-help" [(ngModel)]="draft.general.uiZoom" (ngModelChange)="onSettingChanged()">
                         <option [ngValue]="75">75%</option>
                         <option [ngValue]="90">90%</option>
                         <option [ngValue]="100">100% (Default)</option>
@@ -153,7 +153,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                         <option [ngValue]="125">125%</option>
                         <option [ngValue]="150">150%</option>
                       </select>
-                      <small>Scales all UI elements. Requires a restart to fully apply.</small>
+                      <small id="settings-ui-zoom-help">Scales all UI elements. Requires a restart to fully apply.</small>
                     </label>
                   </div>
                   <label class="field color-field">

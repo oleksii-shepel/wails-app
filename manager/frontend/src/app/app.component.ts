@@ -126,6 +126,7 @@ import {
         #toolsCenter
         (changed)="managerRef?.refreshBothPanes()"
         (navigateTo)="managerRef?.navigateFromTools($event)"
+        (previewRequested)="managerRef?.openSearchResult($event)"
         (openJournalRequested)="showOperationJournal()"
         (openBasketRequested)="selectionBasket?.show()">
       </app-tools-center>

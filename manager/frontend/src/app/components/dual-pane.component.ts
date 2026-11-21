@@ -2695,7 +2695,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   openSearchResult(entry: FileInfo): void {
-    const pane = this.activePane;
+    const pane = this.activePane?.contextState.isDirectoryTab ? this.activePane : this.otherPane;
     if (!pane?.contextState.isDirectoryTab) return;
 
     if (entry.type === FileType.DIRECTORY) {

@@ -64,7 +64,8 @@ import { FileType, type FileInfo } from '../shared/protocol';
                 @if (entry.type === directoryType) {
                   <button type="button" class="palette-dialog-button folder-link" (click)="navigateTo.emit(entry.path)">{{ entry.name }}</button>
                 } @else {
-                  {{ entry.name }}
+                  <button type="button" class="palette-dialog-button folder-link" (click)="previewRequested.emit(entry)"
+                    [attr.aria-label]="'Preview ' + entry.name">{{ entry.name }}</button>
                 }
               </td>
               <td>{{ entry.type.toLowerCase() }}</td>
@@ -105,6 +106,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
 export class FolderInventoryComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) rootPath = '';
   @Output() navigateTo = new EventEmitter<string>();
+  @Output() previewRequested = new EventEmitter<FileInfo>();
 
   private readonly api = inject(ApiService);
   private readonly basket = inject(SelectionBasketService);

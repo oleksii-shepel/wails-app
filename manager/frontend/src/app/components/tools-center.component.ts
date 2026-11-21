@@ -107,7 +107,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </nav>
 
         <div class="body" role="tabpanel" id="tool-panel-inventory" aria-labelledby="tool-tab-inventory" tabindex="0" *ngIf="page === 'inventory'">
-          <app-folder-inventory [rootPath]="rootPath" (navigateTo)="navigateTo.emit($event); close()" />
+          <app-folder-inventory [rootPath]="rootPath" (navigateTo)="navigateTo.emit($event); close()"
+            (previewRequested)="previewRequested.emit($event); close()" />
         </div>
 
         <div class="body" role="tabpanel" id="tool-panel-operations" aria-labelledby="tool-tab-operations" tabindex="0" *ngIf="page === 'operations'">
@@ -475,6 +476,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 export class ToolsCenterComponent implements OnInit, OnDestroy {
   @Output() changed = new EventEmitter<void>();
   @Output() navigateTo = new EventEmitter<string>();
+  @Output() previewRequested = new EventEmitter<FileInfo>();
   @Output() openBasketRequested = new EventEmitter<void>();
   @Output() openJournalRequested = new EventEmitter<void>();
 

@@ -125,10 +125,10 @@ func TestProgressTrackerForce(t *testing.T) {
 }
 
 func TestSameDir(t *testing.T) {
-	if !SameDir("/a/b", "/a/b/") {
+	if !SamePath("/a/b", "/a/b/") {
 		t.Fatal("expected same dir")
 	}
-	if SameDir("/a/b", "/a/c") {
+	if SamePath("/a/b", "/a/c") {
 		t.Fatal("expected different dir")
 	}
 }

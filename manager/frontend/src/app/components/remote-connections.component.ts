@@ -117,7 +117,10 @@ async disconnectSelected(): Promise<void> {
       message: `Disconnect "${this.connections.label(mount)}"?`,
       confirmText: 'Disconnect', danger: true,
     });
-    if (confirmed) await this.connections.disconnect(mount);
+    const stillMounted = this.state.mounts.some(candidate =>
+      this.trackMount(0, candidate) === this.trackMount(0, mount) && this.uri(candidate) === this.uri(mount),
+    );
+    if (confirmed && this.visible && stillMounted) await this.connections.disconnect(mount);
   } finally {
     this.disconnecting = false;
     this.cdr.markForCheck();

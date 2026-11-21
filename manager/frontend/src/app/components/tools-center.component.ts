@@ -410,6 +410,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="error" role="alert" *ngIf="checksumError">{{ checksumError }}</div>
         </div>
 
+        <p class="error" role="alert" *ngIf="clipboardError">{{ clipboardError }}</p>
         <footer class="tool-keys palette-dialog-footer">
           <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · 5 Inventory</span>
           <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete remove</span>
@@ -513,6 +514,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   checksumError = '';
   expectedDigest = '';
   copiedValue = '';
+  clipboardError = '';
 
   private readonly destroy$ = createSubject<void>();
   private readonly modalStack = tryInjectModalStack();
@@ -660,6 +662,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   open(page: AppOverlayToolsPage, rootPath: string): void {
     const rootChanged = this.rootPath !== rootPath;
     this.page = page;
+    this.clipboardError = '';
     this.rootPath = rootPath;
     this.isClosing = false;
     this.renderVisible = true;
@@ -739,6 +742,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   setPage(page: AppOverlayToolsPage): void {
     this.page = page;
+    this.clipboardError = '';
     this.cdr.markForCheck();
 
     if (page === 'disk' && this.diskEntries.length === 0 && this.rootPath) {
@@ -884,6 +888,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   private async copyText(value: string): Promise<void> {
+    this.clipboardError = '';
     try {
       await navigator.clipboard.writeText(value);
       this.copiedValue = value;
@@ -895,7 +900,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       }, 1800);
       this.cdr.markForCheck();
     } catch {
-      // Clipboard may be unavailable
+      this.clipboardError = 'Clipboard unavailable.';
+      this.cdr.markForCheck();
     }
   }
 

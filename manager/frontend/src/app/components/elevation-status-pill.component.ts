@@ -41,7 +41,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
         [title]="tooltip()"
       >
         <!-- Shield icon -->
-        <svg class="icon" viewBox="0 0 24 24" width="13" height="13"
+        <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" width="13" height="13"
              stroke="currentColor" stroke-width="2" fill="none"
              stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>

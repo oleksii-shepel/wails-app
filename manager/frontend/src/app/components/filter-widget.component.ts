@@ -51,7 +51,7 @@ export interface FindWidgetState {
 
           <!-- Toggle buttons -->
           <div class="fw-toggles">
-            <button
+            <button type="button"
               class="fw-toggle"
               [class.fw-toggle--on]="matchCase"
               (click)="matchCase = !matchCase; onTextChange()"
@@ -59,7 +59,7 @@ export interface FindWidgetState {
               aria-label="Match Case"
             >Aa</button>
 
-            <button
+            <button type="button"
               class="fw-toggle"
               [class.fw-toggle--on]="wholeWord"
               (click)="wholeWord = !wholeWord; onTextChange()"
@@ -79,7 +79,7 @@ export interface FindWidgetState {
             </svg>
           </button>
 
-            <button
+            <button type="button"
               class="fw-toggle"
               [class.fw-toggle--on]="useRegex"
               (click)="useRegex = !useRegex; onTextChange()"
@@ -91,7 +91,7 @@ export interface FindWidgetState {
 
         <!-- Prev / Next / Close -->
         <div class="fw-actions">
-          <button
+          <button type="button"
             class="fw-action"
             (click)="onPrev()"
             [disabled]="!matchCount"
@@ -102,7 +102,7 @@ export interface FindWidgetState {
               <path d="M7.977 10.079l4.119-4.834-.753-.642-3.367 3.951-3.367-3.951-.753.642z"/>
             </svg>
           </button>
-          <button
+          <button type="button"
             class="fw-action"
             (click)="onNext()"
             [disabled]="!matchCount"
@@ -113,7 +113,7 @@ export interface FindWidgetState {
               <path d="M7.976 10.072l-4.204-4.786.753-.661 3.451 3.93 3.451-3.93.753.661z" transform="rotate(180,8,8)"/>
             </svg>
           </button>
-          <button
+          <button type="button"
             class="fw-action fw-action--close"
             (click)="close()"
             title="Close (Escape)"

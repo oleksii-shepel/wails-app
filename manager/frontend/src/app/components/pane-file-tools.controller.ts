@@ -170,8 +170,10 @@ export class PaneFileToolsController {
       return;
     }
     this.history.record({ label: `Create archive ${cleanName}`, undo: async () => { await this.api.deleteFile(destination, true, false); }, redo: async () => { await this.api.createZipArchive(sources, destination); } });
-    await host.refresh();
-    host.selectPath(destination);
+    if (host.path === destinationFolder) {
+      await host.refresh();
+      if (host.path === destinationFolder) host.selectPath(destination);
+    }
   }
 
   private effectiveSelection(host: PaneFileToolsHost): FileInfo[] {

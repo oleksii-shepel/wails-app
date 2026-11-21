@@ -35,7 +35,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
       <button type="button" class="palette-dialog-button palette-dialog-button--primary"
         [disabled]="!selected.size" (click)="addToBasket()">Add selected to Basket</button>
       <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="clearSelection()">Clear selection</button>
-      <span role="status" class="palette-dialog-meta">{{ notice() || (visible.length + ' shown · ' + selected.size + ' selected') }}</span>
+      <span role="status" class="palette-dialog-meta">{{ notice() || (visible.length + ' of ' + totalEntries + ' match · ' + selected.size + ' selected') }}</span>
     </div>
     @if (loading()) {
       <p class="palette-dialog-empty" role="status">Loading folder…</p>
@@ -116,7 +116,9 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     return this.visible.some(entry => this.selected.has(entry.path));
   }
 
-  get entriesExist(): boolean { return this.entries.length > 0; }
+  get totalEntries(): number { return this.entries.length; }
+
+  get entriesExist(): boolean { return this.totalEntries > 0; }
 
   get allVisibleSelected(): boolean {
     return this.visible.length > 0 && this.visible.every(entry => this.selected.has(entry.path));

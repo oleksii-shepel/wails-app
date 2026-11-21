@@ -19,7 +19,7 @@ import { InputEngineService } from '../services/input-engine.service';
     <div #wsSelector appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
       <span class="ws-icon">{{ activeWorkspace?.icon || '📁' }}</span>
       <span class="ws-name">{{ activeWorkspace?.name || 'Default' }}</span>
-      <svg class="ws-caret" [class.ws-caret--open]="showMenu"
+      <svg class="ws-caret" aria-hidden="true" [class.ws-caret--open]="showMenu"
         width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
         <path d="M4 6l4 4 4-4H4z"/>
       </svg>

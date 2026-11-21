@@ -398,6 +398,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               <span
                 *ngIf="expectedDigest.trim()"
                 class="verify-status"
+                role="status"
                 [class.match]="!!matchedAlgorithm"
                 [class.mismatch]="!matchedAlgorithm">
                 {{ matchedAlgorithm ? 'Match (' + matchedAlgorithm + ')' : 'Does not match any digest' }}

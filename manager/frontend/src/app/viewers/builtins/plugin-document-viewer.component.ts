@@ -13,7 +13,7 @@ import { withViewerFrameScrollbars } from '../viewer-frame-scrollbars';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="viewer-state" *ngIf="loading">Rendering document…</div>
+    <div class="viewer-state" *ngIf="loading" role="status">Rendering document…</div>
     <div class="viewer-state error" *ngIf="error" role="alert">{{ error }}</div>
     <iframe #frame *ngIf="html && !loading" class="document" sandbox="" title="Document preview"></iframe>
   `,

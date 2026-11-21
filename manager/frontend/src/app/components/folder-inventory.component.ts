@@ -31,7 +31,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
       <button type="button" class="palette-dialog-button" [disabled]="!rootPath || loading()" (click)="load()">Refresh</button>
     </div>
     <div class="palette-dialog-toolbar inventory-toolbar">
-      <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="copyPaths()">Copy visible paths</button>
+      <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="copyPaths()">Copy matching paths</button>
       <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="copyPaths(true)">Copy selected paths</button>
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="download()">Export matching CSV</button>
       <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="download(true)">Export selected CSV</button>
@@ -51,7 +51,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
     } @else {
       <table>
         <thead><tr>
-          <th scope="col"><input type="checkbox" aria-label="Select all visible entries" [checked]="allVisibleSelected"
+          <th scope="col"><input type="checkbox" aria-label="Select all matching entries" [checked]="allVisibleSelected"
             [indeterminate]="!allVisibleSelected && someVisibleSelected" (change)="toggleVisible($event)" /></th>
           <th scope="col">Name</th><th scope="col">Type</th><th scope="col">Bytes</th><th scope="col">Modified</th>
         </tr></thead>

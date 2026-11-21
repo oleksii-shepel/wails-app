@@ -570,7 +570,9 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   async copyPath(): Promise<void> {
     const path = this.displayPath?.trim();
     if (!path) return;
+    const load = this.loadId;
     const copied = await writeClipboardText(path).then(() => true, () => false);
+    if (load !== this.loadId) return;
     if (!copied) {
       this.actionNotice = 'Clipboard unavailable.';
       this.cdr.markForCheck();
@@ -739,6 +741,10 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   private async reload(): Promise<void> {
     const path = (this.targetPath ?? '').trim();
     const currentLoad = ++this.loadId; // invalidate in-flight work
+    this.actionNotice = '';
+    this.copiedPath = false;
+    this.copiedHex = false;
+    this.gotoError = '';
 
     this.error = '';
     this.info = null;

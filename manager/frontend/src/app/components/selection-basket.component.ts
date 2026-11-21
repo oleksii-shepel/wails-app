@@ -108,7 +108,7 @@ import type {
                   <span>{{ ageLabel(entry.addedAt) }}</span>
                 </div>
               </div>
-              <button class="remove-button" type="button" title="Remove from basket" (click)="remove(entry.id)">×</button>
+              <button class="remove-button" type="button" aria-label="Remove item from selection basket" title="Remove from basket" (click)="remove(entry.id)">×</button>
             </article>
           </section>
 

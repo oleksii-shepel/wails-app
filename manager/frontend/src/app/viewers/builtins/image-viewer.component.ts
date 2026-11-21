@@ -122,7 +122,7 @@ interface CarouselVirtualFrame {
                  [style.transform]="imageTransform"
                  (load)="onImageLoad($event)"
                  (error)="onImageError()" />
-            <div *ngIf="imageSwitchPending" class="image-status">Loading next image</div>
+            <div *ngIf="imageSwitchPending" class="image-status" role="status">Loading next image</div>
           </div>
         </div>
 

@@ -25,7 +25,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
         <div class="actions">
           <label>Min size <input type="number" min="0" [(ngModel)]="minSize" [disabled]="scanning"></label>
           <label><input type="checkbox" [(ngModel)]="includeHidden" [disabled]="scanning"> Hidden</label>
-          <button (click)="scan()" [disabled]="scanning || !rootPath">{{ scanning ? 'Scanning…' : 'Scan' }}</button>
+          <button type="button" (click)="scan()" [disabled]="scanning || !rootPath">{{ scanning ? 'Scanning…' : 'Scan' }}</button>
           <button type="button" *ngIf="scanning" (click)="cancelScan()">Cancel scan</button>
           <label>Keep
             <select [(ngModel)]="keeperPolicy" [disabled]="scanning" (ngModelChange)="onKeeperPolicyChange()">
@@ -43,10 +43,10 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
             </select>
           </label>
           <input class="filter" type="search" placeholder="Filter groups…" aria-label="Filter duplicate groups" [(ngModel)]="filterText" [disabled]="scanning">
-          <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Matching Copies</button>
-          <button (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
-          <button (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
-          <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning || deleting">Trash {{ selected.size }}</button>
+          <button type="button" (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Matching Copies</button>
+          <button type="button" (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
+          <button type="button" (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
+          <button type="button" (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning || deleting">Trash {{ selected.size }}</button>
         </div>
       </header>
 
@@ -70,7 +70,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
           <span class="keeper" *ngIf="file.path === keeperPath(group)">KEEP</span>
           <span class="path" [title]="file.path">{{ file.path }}</span>
           <span class="mtime">{{ file.modified | localDateTime }}</span>
-          <button (click)="preview(file.path, file.name)">Preview</button>
+          <button type="button" (click)="preview(file.path, file.name)">Preview</button>
         </div>
       </section>
 

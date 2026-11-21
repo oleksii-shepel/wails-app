@@ -4,8 +4,8 @@ describe('viewer frame scrollbars', () => {
   it('adds the transparent-track square-thumb style inside complete documents', () => {
     const document = withViewerFrameScrollbars('<html><head><title>Preview</title></head><body>Content</body></html>');
 
-    expect(document).toContain('background: var(--aether-scrollbar-track);');
-    expect(document).toContain('border-radius: 0;');
+    expect(document).toContain('background: var(--aether-scrollbar-track) !important;');
+    expect(document).toContain('border-radius: 0 !important;');
     expect(document).toContain('--aether-scrollbar-thumb:');
     expect(document.indexOf('data-aether-viewer-scrollbars')).toBeLessThan(document.indexOf('</head>'));
   });

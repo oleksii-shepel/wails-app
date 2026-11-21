@@ -60,24 +60,24 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       <!-- Toolbar -->
       <div class="viewer-toolbar" *ngIf="hasToolbar">
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
-          <button class="tool-btn" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
+          <button type="button" class="tool-btn" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
           <span class="zoom-label">{{ zoomLabel }}</span>
-          <button class="tool-btn" (click)="zoomIn()" aria-label="Zoom in" title="Zoom in">+</button>
-          <button class="tool-btn" (click)="resetZoom()" title="Fit to window">Fit</button>
-          <button class="tool-btn" (click)="zoom100()" title="Actual size">1:1</button>
+          <button type="button" class="tool-btn" (click)="zoomIn()" aria-label="Zoom in" title="Zoom in">+</button>
+          <button type="button" class="tool-btn" (click)="resetZoom()" title="Fit to window">Fit</button>
+          <button type="button" class="tool-btn" (click)="zoom100()" title="Actual size">1:1</button>
           <span class="toolbar-divider"></span>
-          <button class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard" [attr.aria-pressed]="showCheckerboard"
+          <button type="button" class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard" [attr.aria-pressed]="showCheckerboard"
                   title="Toggle transparency grid">Grid</button>
         </ng-container>
           <ng-container *ngIf="isMarkupKind">
-            <button class="tool-btn" (click)="setMarkupViewMode('rendered')" [class.active]="markupViewMode === 'rendered'" [attr.aria-pressed]="markupViewMode === 'rendered'"
+            <button type="button" class="tool-btn" (click)="setMarkupViewMode('rendered')" [class.active]="markupViewMode === 'rendered'" [attr.aria-pressed]="markupViewMode === 'rendered'"
               title="Rendered preview">Preview</button>
-            <button class="tool-btn" (click)="setMarkupViewMode('source')" [class.active]="markupViewMode === 'source'" [attr.aria-pressed]="markupViewMode === 'source'"
+            <button type="button" class="tool-btn" (click)="setMarkupViewMode('source')" [class.active]="markupViewMode === 'source'" [attr.aria-pressed]="markupViewMode === 'source'"
               title="Source view">Source</button>
             <span class="toolbar-divider"></span>
           </ng-container>
           <ng-container *ngIf="kind === 'text' || kind === 'json' || kind === 'markdown' || kind === 'html'">
-          <button class="tool-btn" (click)="toggleWrap()" [class.active]="wordWrap" [attr.aria-pressed]="wordWrap"
+          <button type="button" class="tool-btn" (click)="toggleWrap()" [class.active]="wordWrap" [attr.aria-pressed]="wordWrap"
                   title="Toggle word wrap">Wrap</button>
         </ng-container>
       </div>
@@ -185,7 +185,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
             <!-- Control buttons row -->
             <div class="controls-row">
               <!-- Play/Pause -->
-              <button
+              <button type="button"
                 class="control-btn play-pause-btn"
                 (click)="videoPlayPause()"
                 [disabled]="!videoReady"
@@ -244,7 +244,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
               </div>
 
               <!-- Fullscreen button -->
-              <button 
+              <button type="button" 
                 class="control-btn fullscreen-btn" 
                 (click)="toggleFullscreen()"
                 [disabled]="!videoReady"
@@ -258,7 +258,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
           <div class="video-error-banner" *ngIf="videoError">
             <span class="error-icon">⚠️</span>
             <span class="error-message">{{ videoError }}</span>
-            <button class="close-btn" (click)="dismissVideoError()" aria-label="Dismiss video error" title="Dismiss">✕</button>
+            <button type="button" class="close-btn" (click)="dismissVideoError()" aria-label="Dismiss video error" title="Dismiss">✕</button>
           </div>
         </div>
 
@@ -281,7 +281,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
             <div class="pdf-fallback">
               <div class="state-label">Embedded PDF preview is unavailable</div>
               <div class="state-sub">The stream loaded, but the embedded renderer could not display this PDF.</div>
-              <button *ngIf="!archiveContext && targetPath" class="tool-btn" (click)="openCurrentFileExternally()">Open externally</button>
+              <button type="button" *ngIf="!archiveContext && targetPath" class="tool-btn" (click)="openCurrentFileExternally()">Open externally</button>
             </div>
           </object>
           <div *ngIf="pdfLoading" class="pdf-loading">

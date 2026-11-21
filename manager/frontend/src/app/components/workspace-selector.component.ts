@@ -58,8 +58,8 @@ import { InputEngineService } from '../services/input-engine.service';
       </div>
 
       <div class="ws-menu-footer">
-        <button (click)="onRename()" class="ws-footer-btn">Rename</button>
-        <button (click)="onDelete()" class="ws-footer-btn ws-footer-btn--danger">Delete</button>
+        <button (click)="onRename()" class="ws-footer-btn" [disabled]="selectedIndex < 0">Rename</button>
+        <button (click)="onDelete()" class="ws-footer-btn ws-footer-btn--danger" [disabled]="selectedIndex < 0">Delete</button>
       </div>
     </div>
     </app-dropdown-container>

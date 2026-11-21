@@ -345,6 +345,19 @@ func FromVFS(path string) string {
 	return normalized
 }
 
+// AliasToVFS converts a path that uses one of the alias schemes backed by a
+// VFS root (registry and the remote providers) into its VFS location. The
+// scheme prefix is matched case-insensitively and normalized before the
+// conversion. ok is false for non-alias paths and for alias schemes without
+// a VFS root (search, http, https).
+func AliasToVFS(path string) (string, bool) {
+	normalized := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if spec, ok := aliasSpecFor(normalized); ok && spec.vfsRoot != "" {
+		return ToVFS(normalized), true
+	}
+	return "", false
+}
+
 func FromVFSEntry(basePublicPath, entryPath string) string {
 	basePublicPath = Normalize(basePublicPath)
 	entryPath = strings.TrimSpace(strings.ReplaceAll(entryPath, "\\", "/"))

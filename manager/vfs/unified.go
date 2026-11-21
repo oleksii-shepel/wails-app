@@ -54,13 +54,6 @@ const (
 	oneDriveScheme = "onedrive://"
 	gDriveScheme   = "gdrive://"
 	dropboxScheme  = "dropbox://"
-
-	registryVFSRoot = "/registry"
-	smbVFSRoot      = "/remote/smb"
-	s3VFSRoot       = "/remote/s3"
-	oneDriveVFSRoot = "/remote/onedrive"
-	gDriveVFSRoot   = "/remote/gdrive"
-	dropboxVFSRoot  = "/remote/dropbox"
 )
 
 // NewUnified creates a Unified VFS backed by the given Mounter.
@@ -293,7 +286,7 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 	}
 
 	// For other paths, use normal VFS mount resolution
-	vfsPath := u.pathrefToVFS(trimmed)
+	vfsPath := pathrefToVFS(trimmed)
 	if isVirtualAliasPath(trimmed) {
 		_, _, vol, err := u.mounts.Resolve(vfsPath)
 		if err != nil {
@@ -323,59 +316,28 @@ func isWindowsDriveLetter(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 }
 
-// pathrefToVFS converts a path using pathref semantics.
-// We can't import pathref here due to circular deps, so we handle filesystem:// locally.
-func (u *Unified) pathrefToVFS(path string) string {
+// pathrefToVFS converts a public path into its VFS location. Drive-scheme
+// paths become native root paths (/c/...), plain native paths stay as-is so
+// the OS filesystem adapter can understand their drive segments, and known
+// aliases are delegated to pathref's canonical conversion, which normalizes
+// the scheme's case.
+func pathrefToVFS(path string) string {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 
 	// Handle filesystem://c/ scheme paths
-	if strings.HasPrefix(strings.ToLower(trimmed), "filesystem://") {
-		rest := strings.TrimLeft(trimmed[len("filesystem://"):], "/")
+	if len(trimmed) >= len(pathref.DriveScheme) && strings.EqualFold(trimmed[:len(pathref.DriveScheme)], pathref.DriveScheme) {
+		rest := strings.TrimLeft(trimmed[len(pathref.DriveScheme):], "/")
 		if len(rest) > 0 {
 			// filesystem://c/Users/... -> /c/Users/...
 			return "/" + rest
 		}
 	}
 
-	if converted, ok := publicAliasToVFS(trimmed, registryScheme, registryVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, smbScheme, smbVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, s3Scheme, s3VFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, oneDriveScheme, oneDriveVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, gDriveScheme, gDriveVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, dropboxScheme, dropboxVFSRoot); ok {
+	if converted, ok := pathref.AliasToVFS(trimmed); ok {
 		return converted
 	}
 
 	return trimmed
-}
-
-func publicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool) {
-	if !strings.HasPrefix(strings.ToLower(path), scheme) {
-		return "", false
-	}
-
-	switch scheme {
-	case smbScheme:
-		if converted, ok := pathref.RemoteURLToVFS(path, scheme, vfsRoot); ok {
-			return converted, true
-		}
-	}
-
-	rest := strings.Trim(strings.TrimPrefix(path, scheme), "/")
-	if rest == "" {
-		return vfsRoot, true
-	}
-	return vfsRoot + "/" + rest, true
 }
 
 func (u *Unified) RealPath(path string) (string, error) {

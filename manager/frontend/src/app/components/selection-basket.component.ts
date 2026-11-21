@@ -91,7 +91,7 @@ import type {
               <code>basket.add</code>
             </div>
 
-            <div *ngIf="entries.length > 0 && filteredEntries.length === 0" class="empty-state palette-dialog-empty">
+            <div *ngIf="entries.length > 0 && filteredEntries.length === 0" class="empty-state palette-dialog-empty" role="status">
               <strong>No matching basket items</strong>
               <span>Clear the search or switch type filter to view all {{ entries.length }} items.</span>
             </div>

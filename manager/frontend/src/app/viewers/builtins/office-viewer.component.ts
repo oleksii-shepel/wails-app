@@ -33,7 +33,7 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="conversion-status" *ngIf="kind === 'loading'">
+      <div class="conversion-status" *ngIf="kind === 'loading'" role="status">
         <span class="conversion-status-activity" aria-hidden="true">
           <span class="conversion-status-activity-dot"></span>
         </span>

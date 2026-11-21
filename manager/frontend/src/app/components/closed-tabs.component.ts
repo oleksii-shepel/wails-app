@@ -51,7 +51,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <select class="palette-dialog-field" aria-label="Filter by original pane" [value]="paneFilter" (change)="onPaneFilterChange($event)">
             <option value="all">Both panes</option><option value="left">Left pane</option><option value="right">Right pane</option>
           </select>
-          <button type="button" class="palette-dialog-button" [disabled]="!searchText" (click)="searchText = ''">Clear filter</button>
+          <button type="button" class="palette-dialog-button" [disabled]="!searchText && paneFilter === 'all'" (click)="resetFilters()">Reset filters</button>
         </div>
 
         <div class="tabs palette-dialog-body palette-dialog-list">
@@ -133,6 +133,7 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['visible']) return;
     if (this.visible) {
+      this.resetFilters();
       if (this.modalStack && this.hostElement && !this.unregisterModal) {
         this.unregisterModal = this.modalStack.register({
           id: 'closed-tabs',
@@ -166,6 +167,11 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
       this.viewerPath(entry).toLowerCase().includes(query) ||
       (entry.paneId ?? '').toLowerCase().includes(query),
     );
+  }
+
+  resetFilters(): void {
+    this.searchText = '';
+    this.paneFilter = 'all';
   }
 
   onPaneFilterChange(event: Event): void {

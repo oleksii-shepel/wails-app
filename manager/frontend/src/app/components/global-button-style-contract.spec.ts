@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const styles = readFileSync(new URL('../../../styles.scss', import.meta.url), 'utf8');
+const styles = readFileSync(new URL('../../styles.scss', import.meta.url), 'utf8');
 
 describe('global button style contract', () => {
   it('does not turn every native button into a primary application action', () => {

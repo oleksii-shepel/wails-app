@@ -145,6 +145,7 @@ export interface DropTarget {
               #renameInput
               class="tree-rename-input"
               type="text"
+              aria-label="New name"
               [(ngModel)]="node.editingName"
               (blur)="onRenameBlur(node)"
               (keydown)="onRenameKeyDown($event, node)"

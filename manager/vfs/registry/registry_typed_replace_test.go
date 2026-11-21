@@ -4,37 +4,41 @@ package registry
 
 import (
 	"context"
+	"crypto/rand"
 	"testing"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-func TestWriteRegistryValueReplacesType(t *testing.T) {
-	const keyPath = `Software\ReassemblyTypedValueTest`
-	const valueName = "Value"
-
-	key, _, err := registry.CreateKey(
-		registry.CURRENT_USER,
-		keyPath,
-		registry.ALL_ACCESS,
-	)
+func createTypedValueTestKey(t *testing.T) (registry.Key, string) {
+	t.Helper()
+	name := "ReassemblyTypedValueTest-" + rand.Text()
+	keyPath := `Software\` + name
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, keyPath, registry.ALL_ACCESS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		key.Close()
-		_ = registry.DeleteKey(registry.CURRENT_USER, keyPath)
-	}()
+		if err := registry.DeleteKey(registry.CURRENT_USER, keyPath); err != nil {
+			t.Errorf("delete test key: %v", err)
+		}
+	})
+	return key, "HKEY_CURRENT_USER/Software/" + name
+}
+
+func TestWriteRegistryValueReplacesType(t *testing.T) {
+	const valueName = "Value"
+	key, path := createTypedValueTestKey(t)
 
 	if err := key.SetStringValue(valueName, "42"); err != nil {
 		t.Fatal(err)
 	}
 
 	fs := &FS{}
-	path := "HKEY_CURRENT_USER/Software/ReassemblyTypedValueTest/Value"
 	if err := fs.WriteRegistryValue(
 		context.Background(),
-		path,
+		path+"/"+valueName,
 		"REG_DWORD",
 		"42",
 	); err != nil {
@@ -54,31 +58,17 @@ func TestWriteRegistryValueReplacesType(t *testing.T) {
 }
 
 func TestWriteRegistryValueRollsBackOnFailedTypeReplacement(t *testing.T) {
-	const keyPath = `Software\ReassemblyTypedValueRollbackTest`
 	const valueName = "Value"
-
-	key, _, err := registry.CreateKey(
-		registry.CURRENT_USER,
-		keyPath,
-		registry.ALL_ACCESS,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		key.Close()
-		_ = registry.DeleteKey(registry.CURRENT_USER, keyPath)
-	}()
+	key, path := createTypedValueTestKey(t)
 
 	if err := key.SetStringValue(valueName, "original"); err != nil {
 		t.Fatal(err)
 	}
 
 	fs := &FS{}
-	path := "HKEY_CURRENT_USER/Software/ReassemblyTypedValueRollbackTest/Value"
-	err = fs.WriteRegistryValue(
+	err := fs.WriteRegistryValue(
 		context.Background(),
-		path,
+		path+"/"+valueName,
 		"REG_DWORD",
 		"not-a-number",
 	)

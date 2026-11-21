@@ -277,7 +277,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               Add to Basket
             </button>
             <button type="button" class="danger" [disabled]="duplicateDeleting || duplicateSelected.size === 0" (click)="deleteDuplicateSelection()">
-              Delete Selected
+              Move Selected to Trash
             </button>
           </div>
 
@@ -417,7 +417,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <p class="error" role="alert" *ngIf="clipboardError">{{ clipboardError }}</p>
         <footer class="tool-keys palette-dialog-footer">
           <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · 5 Inventory</span>
-          <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete remove</span>
+          <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete move to Trash</span>
         </footer>
       </section>
     </div>
@@ -655,7 +655,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.addDuplicatesToBasket,title:'Add Duplicates to Basket',category:'Tools',execute:()=>this.collectDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.deleteDuplicates,title:'Delete Selected Duplicates',category:'Tools',execute:()=>this.deleteDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&!this.duplicateDeleting&&this.duplicateSelected.size>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.deleteDuplicates,title:'Move Selected Duplicates to Trash',category:'Tools',execute:()=>this.deleteDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&!this.duplicateDeleting&&this.duplicateSelected.size>0},OWNER_ID);
 
     for (const binding of BINDINGS) this.input.registerBinding(binding);
   }

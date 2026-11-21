@@ -238,7 +238,10 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
     const paths = Array.from(this.selected);
     if (!paths.length) return;
     const bytes = this.selectedBytes();
-    const ok = await this.confirm.confirm({ title: 'Remove Duplicate Files', message: `Move ${paths.length} selected duplicate file(s) to Trash?\nPotentially reclaim ${this.formatSize(bytes)}.`, confirmText: 'Move to Trash', danger: true });
+    const visiblePaths = new Set(this.visibleGroups.flatMap(group => group.files.map(file => file.path)));
+    const hidden = paths.filter(path => !visiblePaths.has(path)).length;
+    const hiddenMessage = hidden ? `\n${hidden} selected item(s) are outside the current filter.` : '';
+    const ok = await this.confirm.confirm({ title: 'Remove Duplicate Files', message: `Move ${paths.length} selected duplicate file(s) to Trash?\nPotentially reclaim ${this.formatSize(bytes)}.${hiddenMessage}`, confirmText: 'Move to Trash', danger: true });
     if (!ok) return;
     const result = await this.api.batchDelete(paths, false, true);
     if (result.failed > 0) await this.confirm.alert(`Duplicate Cleanup Completed With Errors\n${result.failed} item(s) could not be removed.`);

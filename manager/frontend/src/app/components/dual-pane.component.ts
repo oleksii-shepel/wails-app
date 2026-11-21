@@ -530,8 +530,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               (click)="runPaneIntelligenceAction('prevDiff')">Previous difference</button>
             <button type="button" role="menuitem" data-pane-intelligence-item [disabled]="differenceCount === 0"
               (click)="runPaneIntelligenceAction('nextDiff')">Next difference</button>
-            <button type="button" role="menuitem" data-pane-intelligence-item [disabled]="!mirrorPresentation"
-              [class.checked]="mirrorFilter"
+            <button type="button" role="menuitemcheckbox" data-pane-intelligence-item [disabled]="!mirrorPresentation"
+              [class.checked]="mirrorFilter" [attr.aria-checked]="mirrorFilter"
               (click)="runPaneIntelligenceAction('filter')">
               Mirror filter
               <span aria-hidden="true">{{ mirrorFilter ? '✓' : '' }}</span>

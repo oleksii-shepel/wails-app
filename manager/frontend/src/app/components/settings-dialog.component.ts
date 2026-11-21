@@ -225,8 +225,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Window Behavior</h4>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.general.confirmOnClose" (ngModelChange)="onSettingChanged()" />
-                    <span>Confirm before closing<small>Shows a confirmation dialog before the application window closes.</small></span>
+                    <input aria-labelledby="settings-confirm-on-close-label" aria-describedby="settings-confirm-on-close-help" type="checkbox" [(ngModel)]="draft.general.confirmOnClose" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-confirm-on-close-label">Confirm before closing</span><small id="settings-confirm-on-close-help">Shows a confirmation dialog before the application window closes.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.general.reopenLastWorkspace" (ngModelChange)="onSettingChanged()" />

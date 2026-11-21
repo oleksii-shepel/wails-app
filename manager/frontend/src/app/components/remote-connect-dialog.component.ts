@@ -262,7 +262,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     <span>Endpoint <small>{{ selectedProvider.endpointRequired ? 'Required for this preset' : 'Optional' }}</small></span>
                     <input
                       type="text"
-                      name="remote-endpoint"
+                      name="remote-endpoint" autocapitalize="none" spellcheck="false"
                       [(ngModel)]="form.endpoint"
                       (ngModelChange)="clearError()"
                       [placeholder]="selectedProvider.endpointPlaceholder"

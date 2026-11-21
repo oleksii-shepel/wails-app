@@ -316,8 +316,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">File Operations</h4>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.confirmBeforeDelete" (ngModelChange)="onSettingChanged()" />
-                    <span>Confirm before deleting files<small>Shows a confirmation prompt before any delete operation.</small></span>
+                    <input aria-labelledby="settings-confirm-before-delete-label" aria-describedby="settings-confirm-before-delete-help" type="checkbox" [(ngModel)]="draft.files.confirmBeforeDelete" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-confirm-before-delete-label">Confirm before deleting files</span><small id="settings-confirm-before-delete-help">Shows a confirmation prompt before any delete operation.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.deleteToTrash" (ngModelChange)="onSettingChanged()" />

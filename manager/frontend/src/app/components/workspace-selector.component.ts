@@ -29,7 +29,7 @@ import { InputEngineService } from '../services/input-engine.service';
     <div appDropdownMenu class="ws-menu" role="menu" tabindex="-1" *ngIf="showMenu">
       <div class="ws-menu-header">
         <span>Workspaces</span>
-        <button (click)="onCreateNew()" class="ws-btn-icon" title="New workspace" aria-label="New workspace">
+        <button type="button" (click)="onCreateNew()" class="ws-btn-icon" title="New workspace" aria-label="New workspace">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
             <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
           </svg>
@@ -58,8 +58,8 @@ import { InputEngineService } from '../services/input-engine.service';
       </div>
 
       <div class="ws-menu-footer">
-        <button (click)="onRename()" class="ws-footer-btn" [disabled]="selectedIndex < 0">Rename</button>
-        <button (click)="onDelete()" class="ws-footer-btn ws-footer-btn--danger" [disabled]="selectedIndex < 0">Delete</button>
+        <button type="button" (click)="onRename()" class="ws-footer-btn" [disabled]="selectedIndex < 0">Rename</button>
+        <button type="button" (click)="onDelete()" class="ws-footer-btn ws-footer-btn--danger" [disabled]="selectedIndex < 0">Delete</button>
       </div>
     </div>
     </app-dropdown-container>

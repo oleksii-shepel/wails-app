@@ -22,7 +22,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <h2>Location History</h2>
             <p>Recently visited locations. Click to navigate.</p>
           </div>
-          <span class="dialog-close" aria-label="Close tab" (click)="hide()" title="Close" role="button" tabindex="0" (keydown.enter)="hide()" (keydown.space)="hide(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" (click)="hide()" title="Close"> × </button>
         </div>
 
         <!-- Stats -->

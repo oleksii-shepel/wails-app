@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const directoryPane = readFileSync(new URL('./directory-pane.component.ts', import.meta.url), 'utf8');
-const filePane = readFileSync(new URL('./file-pane.component.ts', import.meta.url), 'utf8');
+const binPane = readFileSync(new URL('./bin-pane.component.ts', import.meta.url), 'utf8');
 const controller = readFileSync(new URL('./pane-clipboard.controller.ts', import.meta.url), 'utf8');
 
 describe('pane clipboard parity', () => {
@@ -12,12 +12,11 @@ describe('pane clipboard parity', () => {
     expect(controller).toContain('async paste(host: PaneClipboardHost)');
   });
 
-  it('uses the shared controller from both pane implementations', () => {
-    expect(directoryPane).toContain('this.clipboardCommands.copy(this.clipboardHost)');
-    expect(directoryPane).toContain('this.clipboardCommands.cut(this.clipboardHost)');
-    expect(directoryPane).toContain('this.clipboardCommands.paste(this.clipboardHost)');
-    expect(filePane).toContain('this.clipboardCommands.copy(this.clipboardHost)');
-    expect(filePane).toContain('this.clipboardCommands.cut(this.clipboardHost)');
-    expect(filePane).toContain('this.clipboardCommands.paste(this.clipboardHost)');
+  it('uses the shared controller from the pane implementations', () => {
+    for (const pane of [directoryPane, binPane]) {
+      expect(pane).toContain('this.clipboardCommands.copy(this.clipboardHost)');
+      expect(pane).toContain('this.clipboardCommands.cut(this.clipboardHost)');
+      expect(pane).toContain('this.clipboardCommands.paste(this.clipboardHost)');
+    }
   });
 });

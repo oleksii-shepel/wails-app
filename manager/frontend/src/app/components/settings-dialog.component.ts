@@ -706,15 +706,15 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <small id="settings-memory-cache-size-help">In-memory buffer for file metadata and preview data. Higher values improve responsiveness at the cost of RAM.</small>
                   </label>
                   <label class="field">
-                    <span>Max Concurrent Operations</span>
-                    <input
+                    <span id="settings-max-concurrent-operations-label">Max Concurrent Operations</span>
+                    <input aria-labelledby="settings-max-concurrent-operations-label" aria-describedby="settings-max-concurrent-operations-help"
                       type="number"
                       [(ngModel)]="draft.advanced.maxConcurrentOperations"
                       (ngModelChange)="onSettingChanged()"
                       min="1"
                       max="16"
                     />
-                    <small>Number of file copy, move, and delete tasks that can run in parallel.</small>
+                    <small id="settings-max-concurrent-operations-help">Number of file copy, move, and delete tasks that can run in parallel.</small>
                   </label>
                   <label class="field">
                     <span>Network Timeout (ms)</span>

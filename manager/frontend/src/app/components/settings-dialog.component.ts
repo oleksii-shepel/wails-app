@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -1682,7 +1683,7 @@ export class SettingsDialogComponent {
       `Host: ${window.location.host}`,
     ].join('\n');
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboardText(text);
       this.aboutInfoCopied = true;
       setTimeout(() => {
         this.aboutInfoCopied = false;

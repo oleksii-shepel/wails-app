@@ -521,8 +521,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-show-line-numbers-label">Show line numbers</span><small id="settings-show-line-numbers-help">Renders line numbers in the left gutter of the editor.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.codeFolding" (ngModelChange)="onSettingChanged()" />
-                    <span>Enable code folding<small>Shows fold controls in the gutter to collapse and expand sections of code.</small></span>
+                    <input aria-labelledby="settings-code-folding-label" aria-describedby="settings-code-folding-help" type="checkbox" [(ngModel)]="draft.editor.codeFolding" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-code-folding-label">Enable code folding</span><small id="settings-code-folding-help">Shows fold controls in the gutter to collapse and expand sections of code.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.highlightCurrentLine" (ngModelChange)="onSettingChanged()" />

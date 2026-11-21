@@ -32,8 +32,9 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
             aria-label="Filter operation journal" />
           <button type="button" class="palette-dialog-button" [disabled]="filter === 'all' && !searchText" (click)="resetFilters()">Reset filters</button>
         </div>
+        @let matching = filteredEntries;
         <div class="entries palette-dialog-body">
-          <article *ngFor="let entry of filteredEntries; trackBy: trackEntry" [class.failed]="entry.state === 'failed' || entry.state === 'partial'">
+          <article *ngFor="let entry of matching; trackBy: trackEntry" [class.failed]="entry.state === 'failed' || entry.state === 'partial'">
             <span class="state" aria-hidden="true">{{ stateIcon(entry) }}</span>
             <div class="main"><strong>{{ entry.label }}</strong>
               <small>{{ stateLabel(entry.state) }} · {{ entry.kind }} · {{ entry.completedAt | date:'short' }} · {{ entry.reversible ? 'undoable' : 'not undoable' }}</small>
@@ -44,12 +45,12 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
             </div>
           </article>
           <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">No file operations recorded in this session.</div>
-          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0" role="status">No operations match the active filter.</div>
+          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && matching.length === 0" role="status">No operations match the active filter.</div>
         </div>
         <footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
           <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
           <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">Clear History</button>
-          <button class="palette-dialog-button" [disabled]="filteredEntries.length === 0" (click)="download()">Export Results</button>
+          <button class="palette-dialog-button" [disabled]="matching.length === 0" (click)="download()">Export Results</button>
           <button class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button></div></footer>
       </section>
     </div>`,

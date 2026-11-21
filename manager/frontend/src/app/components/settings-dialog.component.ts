@@ -492,14 +492,14 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Auto Save</h4>
                   <label class="field">
-                    <span>Auto Save</span>
-                    <select [(ngModel)]="draft.editor.autoSave" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-auto-save-label">Auto Save</span>
+                    <select aria-labelledby="settings-auto-save-label" aria-describedby="settings-auto-save-help" [(ngModel)]="draft.editor.autoSave" (ngModelChange)="onSettingChanged()">
                       <option value="off">Off</option>
                       <option value="afterDelay">After Delay</option>
                       <option value="onFocusChange">On Focus Change</option>
                       <option value="onWindowChange">On Window Change</option>
                     </select>
-                    <small>Automatically saves the open file without requiring an explicit save action.</small>
+                    <small id="settings-auto-save-help">Automatically saves the open file without requiring an explicit save action.</small>
                   </label>
                   <label class="field" *ngIf="draft.editor.autoSave === 'afterDelay'">
                     <span>Auto Save Delay (ms)</span>

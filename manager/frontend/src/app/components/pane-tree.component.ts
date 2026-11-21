@@ -110,8 +110,12 @@ export interface DropTarget {
               [class.indent-guide--skip]="guide.skip">
             </span>
 
+            <!-- Expansion is driven by the treeitem itself (aria-expanded plus
+                 the ArrowLeft/ArrowRight handlers); the twistie is only a
+                 pointer affordance and must not add a second tab stop. -->
             <span
               class="tree-twistie"
+              aria-hidden="true"
               [class.tree-twistie--expandable]="node.expandable"
               [class.tree-twistie--expanded]="node.expandable && isExpanded(node)"
               (mousedown)="onTwistieMouseDown($event, node)"

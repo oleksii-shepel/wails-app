@@ -722,7 +722,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     }
     this.cdr.markForCheck();
 
-    if (page === 'disk' && this.diskEntries.length === 0) {
+    if (page === 'disk' && this.shouldAutoScanDisk) {
       void this.scanDisk();
     } else if (page === 'checksums' && this.checksumCandidates.length === 0 && rootPath) {
       void this.loadChecksumCandidates();
@@ -767,7 +767,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.clipboardError = '';
     this.cdr.markForCheck();
 
-    if (page === 'disk' && this.diskEntries.length === 0 && this.rootPath) {
+    if (page === 'disk' && this.shouldAutoScanDisk) {
       void this.scanDisk();
     } else if (page === 'checksums' && this.checksumCandidates.length === 0 && this.rootPath) {
       void this.loadChecksumCandidates();
@@ -933,6 +933,10 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       this.clipboardError = 'Clipboard unavailable.';
       this.cdr.markForCheck();
     }
+  }
+
+  private get shouldAutoScanDisk(): boolean {
+    return !!this.rootPath && !this.diskScanning && !this.diskCompleted && !this.diskCancelled && !this.diskError;
   }
 
   async scanDisk(): Promise<void> {

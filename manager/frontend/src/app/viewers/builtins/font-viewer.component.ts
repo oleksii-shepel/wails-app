@@ -59,7 +59,7 @@ const GLYPH_ROWS = [
       </div>
 
       <div class="viewer-body">
-        <div *ngIf="kind === 'loading'" class="state-container">
+        <div *ngIf="kind === 'loading'" class="state-container" role="status">
           <div class="spinner"></div>
           <div class="state-label">Loading font preview...</div>
         </div>

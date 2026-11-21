@@ -84,7 +84,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
                   *ngFor="let preset of presets"
                   type="button"
                   class="br-chip"
-                  [class.active]="pattern === preset.pattern"
+                  [class.active]="pattern === preset.pattern" [attr.aria-pressed]="pattern === preset.pattern"
                   (click)="applyPreset(preset.pattern)">
                   {{ preset.label }}
                 </button>

@@ -355,8 +355,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span>Enable file system watcher</span>
                   </label>
                   <label class="field">
-                    <span>Auto-refresh Interval (ms)</span>
-                    <input
+                    <span id="settings-auto-refresh-interval-label">Auto-refresh Interval (ms)</span>
+                    <input aria-labelledby="settings-auto-refresh-interval-label" aria-describedby="settings-auto-refresh-interval-help"
                       type="number"
                       [(ngModel)]="draft.files.autoRefreshInterval"
                       (ngModelChange)="onSettingChanged()"
@@ -364,7 +364,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       max="60000"
                       step="1000"
                     />
-                    <small>How often to poll the filesystem for external changes. Lower values use more CPU.</small>
+                    <small id="settings-auto-refresh-interval-help">How often to poll the filesystem for external changes. Lower values use more CPU.</small>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.cacheThumbnailPreviews" (ngModelChange)="onSettingChanged()" />

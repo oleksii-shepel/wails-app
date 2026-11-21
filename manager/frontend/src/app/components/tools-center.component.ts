@@ -282,7 +282,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="summary" *ngIf="duplicateProgress">
             <span>{{ duplicateProgress.phase }}</span>
             <span>{{ duplicateProgress.discoveredFiles }} discovered</span>
-            <span>{{ duplicateProgress.hashedFiles }} hashed</span>
+            <span *ngIf="duplicateProgress.phase === 'hashing'">{{ duplicateProgress.hashedFiles }} of {{ duplicateProgress.candidateFiles }} hashed</span>
           </div>
 
           <div class="summary" *ngIf="duplicateResult">

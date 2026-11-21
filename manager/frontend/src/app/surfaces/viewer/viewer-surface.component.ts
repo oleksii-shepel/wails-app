@@ -146,7 +146,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
                [class.show-controls]="videoShowControls">
 
             <!-- Loading indicator -->
-            <div class="video-loading" *ngIf="videoLoading">
+            <div class="video-loading" role="status" *ngIf="videoLoading">
               <div class="spinner"></div>
               <div class="loading-text">Loading video...</div>
             </div>
@@ -255,7 +255,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
           </div>
           
           <!-- Error display -->
-          <div class="video-error-banner" *ngIf="videoError">
+          <div class="video-error-banner" role="alert" *ngIf="videoError">
             <span class="error-icon">⚠️</span>
             <span class="error-message">{{ videoError }}</span>
             <button type="button" class="close-btn" (click)="dismissVideoError()" aria-label="Dismiss video error" title="Dismiss">✕</button>
@@ -284,7 +284,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
               <button type="button" *ngIf="!archiveContext && targetPath" class="tool-btn" (click)="openCurrentFileExternally()">Open externally</button>
             </div>
           </object>
-          <div *ngIf="pdfLoading" class="pdf-loading">
+          <div *ngIf="pdfLoading" class="pdf-loading" role="status">
             <div class="spinner"></div>
             <div class="state-label">Loading PDF preview…</div>
             <div class="state-sub">Embedded PDF rendering starts after the full document is loaded.</div>

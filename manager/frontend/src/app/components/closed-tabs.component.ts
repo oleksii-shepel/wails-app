@@ -64,7 +64,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <span class="icon" aria-hidden="true">{{ icon(entry) }}</span>
             <span class="main">
               <strong>{{ entry.tab.title }}</strong>
-              <small>{{ entry.tab.path || viewerPath(entry) || entry.tab.surfaceId || 'surface' }}</small>
+              <small [title]="displayPath(entry)">{{ displayPath(entry) }}</small>
             </span>
             <span class="meta">
               {{ entry.paneId === 'left' ? 'Left pane' : 'Right pane' }} · {{ entry.closedAt | date:'short' }}
@@ -221,6 +221,10 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
     if (kind === 'viewer') return '◫';
     if (kind === 'size-manager') return '▦';
     return '▣';
+  }
+
+  displayPath(entry: RecentlyClosedTab): string {
+    return this.viewerPath(entry) || entry.tab.path || entry.tab.surfaceId || 'Workspace surface';
   }
 
   viewerPath(entry: RecentlyClosedTab): string {

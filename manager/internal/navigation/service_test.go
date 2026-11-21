@@ -1,10 +1,40 @@
 package navigation
 
 import (
+	"fmt"
 	"testing"
 
 	contracts "wails-app/internal/contracts"
 )
+
+func TestNavigateFailureDoesNotRecordHistory(t *testing.T) {
+	manager := NewManager()
+	listings := map[string]*contracts.DirectoryListing{
+		"/ok": {Path: "/ok"},
+	}
+	service := NewService(manager, func(path string, showHidden bool) (*contracts.DirectoryListing, error) {
+		if listing, ok := listings[path]; ok {
+			return listing, nil
+		}
+		return nil, fmt.Errorf("listing %q failed", path)
+	})
+
+	if _, err := service.Navigate("left", "/broken"); err == nil {
+		t.Fatal("expected navigate to a broken path to fail")
+	}
+
+	// The failed location must not become the pane's current path.
+	if current := manager.CurrentPath("left"); current != "" {
+		t.Fatalf("failed navigation recorded %q as current path", current)
+	}
+
+	if _, err := service.Navigate("left", "/ok"); err != nil {
+		t.Fatalf("Navigate to /ok failed: %v", err)
+	}
+	if current := manager.CurrentPath("left"); current != "/ok" {
+		t.Fatalf("current path = %q, want /ok", current)
+	}
+}
 
 func TestSyncPathKeepsGoUpAlignedWithPanePath(t *testing.T) {
 	manager := NewManager()

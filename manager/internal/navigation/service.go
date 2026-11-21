@@ -23,13 +23,23 @@ func NewService(manager *Manager, listDirectory func(path string, showHidden boo
 }
 
 func (s *Service) Navigate(paneID, path string) (*contracts.DirectoryListing, error) {
+	listing, err := s.listDirectory(path, false)
+	if err != nil {
+		return nil, err
+	}
+	// History records real locations only: a failed listing must not
+	// pollute back/forward navigation.
 	s.manager.Navigate(paneID, path)
-	return s.listDirectory(path, false)
+	return listing, nil
 }
 
 func (s *Service) NavigateShowHidden(paneID, path string, showHidden bool) (*contracts.DirectoryListing, error) {
+	listing, err := s.listDirectory(path, showHidden)
+	if err != nil {
+		return nil, err
+	}
 	s.manager.Navigate(paneID, path)
-	return s.listDirectory(path, showHidden)
+	return listing, nil
 }
 
 func (s *Service) Back(paneID string) (*contracts.DirectoryListing, error) {

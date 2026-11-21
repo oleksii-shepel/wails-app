@@ -122,7 +122,7 @@ import {
           <div class="fb-preset-list">
             <div *ngFor="let p of savedPresets; let i = index" class="fb-preset-item" [class.fb-preset-item--selected]="i === selectedPresetIndex" (mouseenter)="setSelectedPresetIndex(i)">
               <span class="fb-preset-name" (click)="applyPreset(p)">{{ p.name }}</span>
-              <button class="fb-preset-delete" (click)="deletePreset(p)" title="Delete">×</button>
+              <button class="fb-preset-delete" (click)="deletePreset(p)" aria-label="Delete saved filter preset" title="Delete">×</button>
             </div>
             <div *ngIf="savedPresets.length === 0" class="fb-preset-empty">No saved presets</div>
           </div>

@@ -44,6 +44,14 @@ affects the current workspace.
 Location History can copy an individual location or the entire history as JSON.
 Autocomplete resolves explicit relative paths against the current local pane.
 
+Quick Access keeps pinned locations in their own section even when Smart also
+suggests them. Use Copy Location to copy the selected target, or select a pin
+to rename or unpin it without leaving the dialog.
+
+Remote Connections filters mounted locations by name, protocol, path, or access
+level. Use Open or Enter to navigate to the selected mount, or copy its public
+location without leaving the dialog.
+
 Folder Inventory lists the active folder's immediate entries, including hidden
 items when requested. Filter by name, path, or entry type and sort by name, type,
 size, or modification time. Copy paths or export either the matching rows or the

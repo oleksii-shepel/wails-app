@@ -32,7 +32,8 @@ import { FileType, type FileInfo } from '../shared/protocol';
     <div class="palette-dialog-toolbar inventory-toolbar">
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="copyPaths()">Copy visible paths</button>
       <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="copyPaths(true)">Copy selected paths</button>
-      <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="download()">Export CSV</button>
+      <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="download()">Export matching CSV</button>
+      <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="download(true)">Export selected CSV</button>
       <button type="button" class="palette-dialog-button palette-dialog-button--primary"
         [disabled]="!selected.size" (click)="addToBasket()">Add selected to Basket</button>
       <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="clearSelection()">Clear selection</button>
@@ -219,13 +220,14 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     }
   }
 
-  download(): void {
+  download(selectedOnly = false): void {
     const csvCell = (value: string | number): string => {
       const text = String(value);
       const safe = typeof value === 'string' && /^[\s]*[=+@-]|^[\t\r\n]/.test(text) ? "'" + text : text;
       return '"' + safe.replace(/"/g, '""') + '"';
     };
-    const rows = this.visible.map(entry => [
+    const entries = selectedOnly ? this.entries.filter(entry => this.selected.has(entry.path)) : this.visible;
+    const rows = entries.map(entry => [
       entry.name, entry.path, entry.type,
       entry.type === FileType.DIRECTORY ? '' : entry.size, entry.modified,
     ]);

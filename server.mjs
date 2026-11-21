@@ -34,8 +34,13 @@ const previewHosts = new Set(
   ['127.0.0.1', 'localhost'].map(host => PORT === 80 ? host : `${host}:${PORT}`),
 );
 app.use((req, res, next) => {
-  if (!previewHosts.has(req.headers.host?.toLowerCase())) {
+  const host = req.headers.host?.toLowerCase();
+  if (!previewHosts.has(host)) {
     return res.status(403).json({ error: 'Open the preview using its local address.' });
+  }
+  const origin = req.headers.origin;
+  if (origin && origin !== `http://${host}`) {
+    return res.status(403).json({ error: 'Cross-origin preview requests are disabled.' });
   }
   next();
 });

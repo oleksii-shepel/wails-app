@@ -2,12 +2,14 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   EventEmitter,
   Input,
   OnChanges,
   OnDestroy,
   Output,
   SimpleChanges,
+  ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
@@ -38,6 +40,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
 
         <div class="tabs-toolbar palette-dialog-toolbar">
           <input
+            #tabsSearch
             type="search"
             class="tabs-search palette-dialog-field"
             [value]="searchText"
@@ -105,6 +108,14 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   @Output() reopenRequested = new EventEmitter<RecentlyClosedTab>();
 
   searchText = '';
+
+  @ViewChild('tabsSearch') set tabsSearch(field: ElementRef<HTMLInputElement> | undefined) {
+    const input = field?.nativeElement;
+    if (!input) return;
+    queueMicrotask(() => {
+      if (this.visible && input.isConnected) input.focus();
+    });
+  }
   private readonly modalStack = tryInjectModalStack();
   private readonly hostElement = tryInjectElementRef();
   private unregisterModal: (() => void) | null = null;

@@ -95,7 +95,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
           <div class="state-label">Select a file to preview</div>
         </div>
 
-        <div *ngIf="kind === 'error'" class="state-container state-error">
+        <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
           <div class="state-icon">&#x26A0;</div>
           <div class="state-label">Preview failed</div>
           <div class="error-detail">{{ error }}</div>

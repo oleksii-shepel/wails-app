@@ -183,7 +183,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     this.isClosing = false;
     this.renderVisible = true;
     this.visible = true;
-    if (this.modalStack && this.hostElement) {
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
       this.unregisterModal = this.modalStack.register({
         id: 'operation-center',
         element: this.hostElement.nativeElement,

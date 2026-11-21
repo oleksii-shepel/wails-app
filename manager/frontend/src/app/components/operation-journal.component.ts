@@ -15,7 +15,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
       <section class="journal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Operation History"
         (mousedown)="$event.stopPropagation()" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header"><div class="palette-dialog-title"><strong>Operation History</strong><span class="palette-dialog-subtitle">{{ entries.length }} recent operations</span></div>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span></header>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button></header>
         <div class="journal-toolbar palette-dialog-toolbar">
           <div class="palette-dialog-segment" role="group" aria-label="Journal filters">
             <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'all'" (click)="setFilter('all')">All</button>

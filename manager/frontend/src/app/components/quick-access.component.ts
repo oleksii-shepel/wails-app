@@ -228,7 +228,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     this.renderVisible = true;
     this.isClosing = false;
     this.input.activateContext(CONTEXT_ID);
-    if (this.modalStack && this.hostElement) {
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
       this.unregisterModal = this.modalStack.register({
         id: 'quick-access',
         element: this.hostElement.nativeElement,

@@ -71,7 +71,7 @@ func (a *App) CreateZipArchive(paths []string, destination string) (*contracts.O
 			rootName = "root"
 		}
 
-		if err := addZipTree(writer, sourceAbs, rootName, destinationAbs, seen); err != nil {
+		if err := addZipTree(writer, sourceAbs, rootName, seen, destinationAbs, tempPath); err != nil {
 			_ = writer.Close()
 			return nil, err
 		}
@@ -95,7 +95,7 @@ func (a *App) CreateZipArchive(paths []string, destination string) (*contracts.O
 	}, nil
 }
 
-func addZipTree(writer *zip.Writer, sourcePath, archiveRoot, destinationAbs string, seen map[string]struct{}) error {
+func addZipTree(writer *zip.Writer, sourcePath, archiveRoot string, seen map[string]struct{}, excludedPaths ...string) error {
 	info, err := os.Lstat(sourcePath)
 	if err != nil {
 		return fmt.Errorf("create zip: stat %q: %w", sourcePath, err)
@@ -110,11 +110,15 @@ func addZipTree(writer *zip.Writer, sourcePath, archiveRoot, destinationAbs stri
 		}
 
 		absolute, err := filepath.Abs(path)
-		if err == nil && sameFilesystemPath(absolute, destinationAbs) {
-			if walkInfo.IsDir() {
-				return filepath.SkipDir
+		if err == nil {
+			for _, excluded := range excludedPaths {
+				if sameFilesystemPath(absolute, excluded) {
+					if walkInfo.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
 			}
-			return nil
 		}
 
 		rel, err := filepath.Rel(sourcePath, path)
@@ -307,7 +311,7 @@ func (a *App) ArchiveImportEntries(req contracts.ArchiveImportRequest) (*contrac
 	}
 
 	for _, root := range roots {
-		if err := addZipTree(writer, root.source, root.root, archiveAbs, seen); err != nil {
+		if err := addZipTree(writer, root.source, root.root, seen, archiveAbs, tmpPath); err != nil {
 			_ = writer.Close()
 			return nil, fmt.Errorf("archive import: add %q: %w", root.source, err)
 		}

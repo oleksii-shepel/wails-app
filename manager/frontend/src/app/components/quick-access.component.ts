@@ -316,8 +316,9 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     const unique = (items: QuickItem[]): QuickItem[] => {
       const seen = new Set<string>();
       return items.filter(item => {
-        const key = this.locationKey(item.path);
-        if (!key || seen.has(key)) return false;
+        const location = this.locationKey(item.path);
+        const key = `${location}|${item.surfaceId || 'dir'}`;
+        if (!location || seen.has(key)) return false;
         seen.add(key);
         return true;
       });

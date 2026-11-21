@@ -276,7 +276,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <button type="button" [disabled]="duplicateSelected.size === 0" (click)="collectDuplicateSelection()">
               Add to Basket
             </button>
-            <button type="button" class="danger" [disabled]="duplicateSelected.size === 0" (click)="deleteDuplicateSelection()">
+            <button type="button" class="danger" [disabled]="duplicateDeleting || duplicateSelected.size === 0" (click)="deleteDuplicateSelection()">
               Delete Selected
             </button>
           </div>
@@ -502,6 +502,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   duplicateFilter = '';
   duplicateIncludeHidden = false;
   duplicateScanning = false;
+  duplicateDeleting = false;
   private duplicateAbort: AbortController | null = null;
   duplicateProgress: DuplicateScanProgress | null = null;
   duplicateResult: DuplicateScanResult | null = null;
@@ -654,7 +655,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.addDuplicatesToBasket,title:'Add Duplicates to Basket',category:'Tools',execute:()=>this.collectDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.deleteDuplicates,title:'Delete Selected Duplicates',category:'Tools',execute:()=>this.deleteDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.deleteDuplicates,title:'Delete Selected Duplicates',category:'Tools',execute:()=>this.deleteDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&!this.duplicateDeleting&&this.duplicateSelected.size>0},OWNER_ID);
 
     for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
@@ -1086,6 +1087,18 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   async deleteDuplicateSelection(): Promise<void> {
+    if (this.duplicateDeleting) return;
+    this.duplicateDeleting = true;
+    this.cdr.markForCheck();
+    try {
+      await this.confirmAndDeleteDuplicates();
+    } finally {
+      this.duplicateDeleting = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async confirmAndDeleteDuplicates(): Promise<void> {
     const paths = Array.from(this.duplicateSelected);
     if (paths.length === 0) return;
 

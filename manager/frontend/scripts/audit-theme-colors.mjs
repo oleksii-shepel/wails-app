@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('../src/', import.meta.url).pathname;
+const root = fileURLToPath(new URL('../src/', import.meta.url));
 const themeFile = join(root, 'vscode-theme.scss');
 const extensions = new Set(['.ts', '.scss', '.css', '.html']);
 const rawColor = /(?<![\w-])(#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\))/g;

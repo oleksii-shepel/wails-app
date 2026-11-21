@@ -33,7 +33,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <strong>Recently Closed Tabs</strong>
             <span class="palette-dialog-subtitle">{{ entries.length }} recoverable tabs</span>
           </div>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
         </header>
 
         <div class="tabs-toolbar palette-dialog-toolbar">

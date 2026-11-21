@@ -211,7 +211,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="viewer-toolbar" *ngIf="kind === 'editor'">
+      <div class="viewer-toolbar" role="group" aria-label="Text preview controls" *ngIf="kind === 'editor'">
         <button class="tool-btn" type="button" (click)="toggleWordWrap()" [class.active]="wordWrap" [attr.aria-pressed]="wordWrap">
           Wrap
         </button>

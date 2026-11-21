@@ -62,7 +62,7 @@ export class PinnedLocationService {
       surfaceId: resolvedSurfaceId,
       label: (typeof label === 'string' && label.trim()) || locationLabel(canonical),
       icon: (typeof icon === 'string' && icon.trim()) || locationIcon(scheme),
-      addedAt,
+      addedAt: Number.isFinite(addedAt) && addedAt >= 0 ? addedAt : Date.now(),
     };
   }
 

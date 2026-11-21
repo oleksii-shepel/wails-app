@@ -235,6 +235,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     if (!query) return byTab;
     return byTab.filter(op =>
       op.config.title.toLowerCase().includes(query) ||
+      this.statusLabel(op.status).toLowerCase().includes(query) ||
       this.operationPath(op).toLowerCase().includes(query) ||
       (op.error ?? '').toLowerCase().includes(query),
     );

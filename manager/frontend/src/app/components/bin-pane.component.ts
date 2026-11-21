@@ -517,7 +517,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
             (click)="$event.stopPropagation()"
             (dblclick)="$event.stopPropagation()">
             <input
-              class="rename-input"
+              class="rename-input" aria-label="New name"
               [class.rename-input--invalid]="!!renameError"
               [value]="renameValue"
               [disabled]="renameBusy"

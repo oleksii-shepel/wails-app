@@ -237,13 +237,11 @@ export class ArchiveFilesDialogComponent implements OnInit, OnDestroy {
 
   applyDatedPreset(): void {
     const trimmed = this.draftValue.trim() || 'archive.zip';
-    const match = ARCHIVE_EXTENSION_PATTERN.exec(trimmed);
-    const ext = match ? match[0] : '.zip';
     const stem = this.stripExtension(trimmed) || 'archive';
     const now = new Date();
     const dateTag = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const cleanedStem = stem.replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    this.draftValue = `${cleanedStem}-${dateTag}${ext}`;
+    this.draftValue = `${cleanedStem}-${dateTag}.zip`;
     this.focusInputAtEnd();
   }
 

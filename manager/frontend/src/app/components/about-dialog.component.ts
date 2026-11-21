@@ -166,7 +166,7 @@ import { ModalStackService } from '../services/modal-stack.service';
       border-radius: 8px;
       background: var(--vsc-dialog-background, var(--vsc-editor-background));
       color: var(--vsc-foreground);
-      box-shadow: 0 20px 56px var(--vsc-scrim, rgba(0, 0, 0, 0.55));
+      box-shadow: 0 20px 56px var(--vsc-scrim);
       font: 12px/1.45 var(--vsc-font-family, system-ui, sans-serif);
     }
 
@@ -183,7 +183,7 @@ import { ModalStackService } from '../services/modal-stack.service';
       border-radius: 6px;
       overflow: hidden;
       border: 1px solid var(--vsc-border-subtle, var(--vsc-border));
-      background: #070d18;
+      background: var(--vsc-about-hero-background);
       aspect-ratio: 16 / 10;
       max-height: 360px;
       width: 100%;
@@ -203,14 +203,14 @@ import { ModalStackService } from '../services/modal-stack.service';
       place-items: center;
       gap: 6px;
       padding: 24px;
-      color: #cfe0ff;
+      color: var(--vsc-about-hero-foreground);
       text-align: center;
     }
 
     .hero-fallback svg {
       width: 56px;
       height: 36px;
-      color: var(--vsc-accent-blue, #3b82f6);
+      color: var(--vsc-accent-blue);
     }
 
     .fallback-title {

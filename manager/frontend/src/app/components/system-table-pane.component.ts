@@ -69,13 +69,13 @@ import { schemeOf } from './pane-renderer-registry.service';
     }
 
     :host,.surface{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden}
-    .surface{flex-direction:column;background:var(--vsc-editor-background,#fff)}
+    .surface{flex-direction:column;background:var(--vsc-editor-background)}
     .title-row{display:flex;align-items:center;justify-content:space-between;min-height:30px;padding:0 9px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));font-size:11px}
     .title-row span{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font-size:10px}
-    .rows{flex:1 1 0%;min-height:0;overflow:auto;background:var(--vsc-editor-background,#fff);outline:none;display:grid;grid-template-columns:minmax(100%,max-content);align-content:start;scroll-padding-top:26px}
-    .table-header-viewport{position:sticky;top:0;z-index:4;width:auto;min-width:0;justify-self:stretch;overflow:visible;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background,#fff)}
+    .rows{flex:1 1 0%;min-height:0;overflow:auto;background:var(--vsc-editor-background);outline:none;display:grid;grid-template-columns:minmax(100%,max-content);align-content:start;scroll-padding-top:26px}
+    .table-header-viewport{position:sticky;top:0;z-index:4;width:auto;min-width:0;justify-self:stretch;overflow:visible;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-editor-background)}
     .table-header,.row{display:grid;column-gap:var(--pane-column-gap,6px);align-items:center}
-    .table-header{min-height:26px;width:100%;min-width:100%;margin:0;padding:0;font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));background:var(--vsc-editor-background,#fff)}
+    .table-header{min-height:26px;width:100%;min-width:100%;margin:0;padding:0;font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));background:var(--vsc-editor-background)}
     .row{min-height:30px;width:auto;min-width:0;justify-self:stretch;padding:2px 0;border-radius:3px;font-size:11px;cursor:default}
     .row:hover{background:var(--vsc-list-hover-background)}
     .row.selected{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground,var(--vsc-foreground))}

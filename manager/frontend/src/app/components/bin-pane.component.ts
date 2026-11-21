@@ -1298,7 +1298,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
     .bin-mode-switch button.active {
       background: var(--vsc-list-active-selection-background);
       color: var(--vsc-list-active-selection-foreground, var(--vsc-foreground));
-      box-shadow: 0 1px 2px color-mix(in srgb, #000 16%, transparent);
+      box-shadow: 0 1px 2px var(--vsc-shadow-soft);
     }
     .bin-mode-switch button:focus-visible { outline: 1px solid var(--vsc-focus-ring, var(--vsc-focus-border)); outline-offset: 1px; }
 

@@ -17,7 +17,7 @@ import { withViewerFrameScrollbars } from '../viewer-frame-scrollbars';
     <div class="viewer-state error" *ngIf="error" role="alert">{{ error }}</div>
     <iframe #frame *ngIf="html && !loading" class="document" sandbox="" title="Document preview"></iframe>
   `,
-  styles: [`:host { display:flex; flex:1 1 0%; min-height:0; } .document { border:0; flex:1 1 0%; min-height:0; width:100%; background:white; } .viewer-state { display:grid; place-items:center; flex:1; color:var(--vsc-foreground); } .error { color:var(--vsc-errorForeground, #f14c4c); padding:20px; text-align:center; }`],
+  styles: [`:host { display:flex; flex:1 1 0%; min-height:0; } .document { border:0; flex:1 1 0%; min-height:0; width:100%; background:var(--vsc-document-canvas-background); } .viewer-state { display:grid; place-items:center; flex:1; color:var(--vsc-foreground); } .error { color:var(--vsc-error-foreground); padding:20px; text-align:center; }`],
 })
 export class PluginDocumentViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';

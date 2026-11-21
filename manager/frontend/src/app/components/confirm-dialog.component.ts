@@ -340,12 +340,12 @@ interface ConfirmDialogRequest {
     }
 
     .confirm-panel--alert[data-tone='success'] {
-      border-color: var(--vsc-success, #16825d);
+      border-color: var(--vsc-success);
     }
 
     .confirm-panel--alert[data-tone='success'] .alert-symbol,
     .confirm-panel--alert[data-tone='success'] .conflict-title {
-      color: var(--vsc-success, #16825d);
+      color: var(--vsc-success);
     }
 
     .confirm-panel--alert[data-tone='error'] {

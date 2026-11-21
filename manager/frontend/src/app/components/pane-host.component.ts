@@ -404,7 +404,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     :host {--pane-column-gutter:12px;height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden
       --pane-column-gap: 6px;
 }
-    .specialized-pane{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:var(--vsc-editor-background,#fff);color:var(--vsc-foreground);border:1px solid transparent}
+    .specialized-pane{height:100%;width:100%;display:flex;flex:1 1 0%;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:var(--vsc-editor-background);color:var(--vsc-foreground);border:1px solid transparent}
     .specialized-pane.active-pane{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-focus-border)) 62%,transparent)}
     .navigation-bar {
       display: flex;
@@ -605,7 +605,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
     .plugin-action{display:inline-flex;align-items:center;gap:5px;padding:3px 9px}
     .plugin-icon{display:inline-grid;place-items:center;width:16px;height:16px}
     .error{display:flex;flex:1 1 0%;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
-    app-bin-pane,app-registry-pane,app-autorun-pane,app-network-pane,app-environment-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background,#fff)}
+    app-bin-pane,app-registry-pane,app-autorun-pane,app-network-pane,app-environment-pane,app-system-table-pane{display:flex;flex:1 1 0%;min-width:0;min-height:0;overflow:hidden;background:var(--vsc-editor-background)}
   `],
 })
 export class PaneHostComponent implements DoCheck, PanePeerPort, PaneStatePort {

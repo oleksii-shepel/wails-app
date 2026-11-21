@@ -392,6 +392,8 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   }
 
   show(): void {
+    this.clipboardError = '';
+    this.copiedFeedback = false;
     if (this.visible) return;
     this.isClosing = false;
     this.visible = true;

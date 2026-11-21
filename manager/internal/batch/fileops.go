@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -75,7 +76,7 @@ func (f *FileOperator) StreamToFile(r io.Reader, dst string, size int64, label s
 			written += int64(nw)
 			f.progress.Set(baseItems, baseBytes+written, label, size, false)
 		}
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {

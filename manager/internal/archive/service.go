@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -216,7 +217,7 @@ func (s *Service) ReadFileStream(fsPath string, nestedChain []string, entryPath 
 
 				chunk := make([]byte, chunkSize)
 				n, err := f.Read(chunk)
-				if err != nil && err != io.EOF {
+				if err != nil && !errors.Is(err, io.EOF) {
 					emitEvent("archive:read:error", map[string]interface{}{
 						"streamID": streamID,
 						"error":    fmt.Sprintf("archive read: failed to read chunk: %v", err),
@@ -233,7 +234,7 @@ func (s *Service) ReadFileStream(fsPath string, nestedChain []string, entryPath 
 					})
 				}
 
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					emitEvent("archive:read:done", map[string]interface{}{
 						"streamID":   streamID,
 						"totalBytes": bytesRead,

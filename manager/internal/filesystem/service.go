@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -532,7 +533,7 @@ func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(stri
 
 				chunk := make([]byte, chunkSize)
 				n, err := reader.Read(chunk)
-				if err != nil && err != io.EOF {
+				if err != nil && !errors.Is(err, io.EOF) {
 					emitEvent("file:read:error", map[string]interface{}{
 						"streamID": streamID,
 						"error":    fmt.Sprintf("read chunk: %v", err),
@@ -549,7 +550,7 @@ func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(stri
 					})
 				}
 
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					emitEvent("file:read:done", map[string]interface{}{
 						"streamID":   streamID,
 						"totalBytes": bytesRead,

@@ -105,7 +105,7 @@ func (s *Service) extractTarSync(fsPath string, entries []string, stripPrefix st
 			break
 		}
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -217,7 +217,7 @@ func (s *Service) extractArchiveReaderSync(fsPath string, entries []string, stri
 			break
 		}
 		entry, err := reader.Read()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -278,7 +278,7 @@ func (s *Service) extractEntriesFromBytes(data []byte, archiveName string, entri
 				break
 			}
 			f, err := reader.Read()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
@@ -393,7 +393,7 @@ func (s *Service) extractEntriesFromBytes(data []byte, archiveName string, entri
 			break
 		}
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

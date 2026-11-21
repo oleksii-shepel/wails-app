@@ -400,7 +400,7 @@ func (f *readFile) Read(p []byte) (int, error) {
 
 	n, err := f.body.Read(p)
 	f.position += int64(n)
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		_ = f.closeBody()
 		if f.position < f.size && n > 0 {
 			return n, nil

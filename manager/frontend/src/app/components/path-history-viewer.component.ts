@@ -55,7 +55,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
 
         <!-- History List -->
         <div class="history-list">
-          <div *ngIf="filteredEntries.length === 0" class="empty-state">
+          <div *ngIf="filteredEntries.length === 0" class="empty-state" role="status">
             <span class="empty-icon">📭</span>
             <p>No history entries found</p>
             <p class="empty-hint">Navigate to some locations to build history</p>

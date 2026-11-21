@@ -300,8 +300,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-show-file-extensions-label">Show file extensions</span><small id="settings-show-file-extensions-help">Appends the extension (.txt, .jpg …) to every filename in the list.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.sortFoldersFirst" (ngModelChange)="onSettingChanged()" />
-                    <span>Sort folders before files<small>Keeps directories grouped at the top regardless of the active sort column.</small></span>
+                    <input aria-labelledby="settings-sort-folders-first-label" aria-describedby="settings-sort-folders-first-help" type="checkbox" [(ngModel)]="draft.files.sortFoldersFirst" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-sort-folders-first-label">Sort folders before files</span><small id="settings-sort-folders-first-help">Keeps directories grouped at the top regardless of the active sort column.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.singleClickToOpen" (ngModelChange)="onSettingChanged()" />

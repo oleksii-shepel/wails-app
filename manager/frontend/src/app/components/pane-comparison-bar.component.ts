@@ -13,7 +13,7 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
       <div class="compare-summary" [title]="leftPath + ' ↔ ' + rightPath">
         <strong>{{ recursive ? 'Compare · Recursive' : 'Compare' }}</strong>
         <span class="metric" *ngIf="scanning">Scanning…</span>
-        <span class="metric different" *ngIf="error">{{ error }}</span>
+        <span class="metric different" *ngIf="error" role="alert">{{ error }}</span>
         <span class="metric only-left" *ngIf="result.summary.onlyLeft">{{ result.summary.onlyLeft }} left only</span>
         <span class="metric only-right" *ngIf="result.summary.onlyRight">{{ result.summary.onlyRight }} right only</span>
         <span class="metric newer" *ngIf="result.summary.leftNewer">{{ result.summary.leftNewer }} newer left</span>

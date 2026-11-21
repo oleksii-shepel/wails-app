@@ -97,7 +97,7 @@ type CompareFilter = 'different' | 'all' | 'only-left' | 'only-right' | 'modifie
                     <span class="entry-meta num" [title]="sideTooltip(item.right)">{{ sideLabel(item.right) }}</span>
                   </div>
                 } @empty {
-                  <div class="diff-empty">
+                  <div class="diff-empty" role="status">
                     {{ summary.different === 0 && filter === 'different' ? 'Both panes are identical under this comparison policy.' : 'No entries match the current filter.' }}
                   </div>
                 }

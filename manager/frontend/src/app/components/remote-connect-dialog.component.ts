@@ -274,7 +274,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     <span>Region</span>
                     <input
                       type="text"
-                      name="remote-region"
+                      name="remote-region" autocapitalize="none" spellcheck="false"
                       [(ngModel)]="form.region"
                       (ngModelChange)="clearError()"
                       [placeholder]="selectedProvider.region || 'us-east-1'"

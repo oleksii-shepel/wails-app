@@ -116,7 +116,7 @@ import {
               class="fb-preset-save"
               (click)="onSavePreset()"
               [disabled]="!canSavePreset"
-              title="Save current selection as preset"
+              aria-label="Save current selection as preset" title="Save current selection as preset"
             >+ Save</button>
           </div>
           <div class="fb-preset-list">

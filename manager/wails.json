@@ -3,9 +3,9 @@
   "name": "wails-app",
   "outputfilename": "wails-app",
   "frontend:install": "npm install --prefix ../..",
-  "frontend:build": "npm run build:plugins --prefix ../.. && npm run build",
+  "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
-  "frontend:devServerUrl": "http://localhost:4200",
+  "frontend:devServerUrl": "http://localhost:3000",
   "frontend:dir": "frontend",
   "author": {
     "name": "epikodelabs",

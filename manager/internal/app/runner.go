@@ -25,7 +25,7 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		return fmt.Errorf("app binding is required")
 	}
 
-	// Detect if we're in dev mode (Angular dev server is expected to be running on :4200)
+	// Detect if we're in dev mode (Angular dev server is expected to be running on :3000)
 	isDev := os.Getenv("WAILS_DEV") == "true"
 
 	if isDev {
@@ -35,7 +35,7 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 			return err
 		}
 
-		angularDevURL := "http://127.0.0.1:4200"
+		angularDevURL := "http://127.0.0.1:3000"
 		proxyServer, proxyURL, err := StartDevProxy(streamBaseURL, angularDevURL, archCache)
 		if err != nil {
 			streamServer.Shutdown(context.Background())

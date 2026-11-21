@@ -66,7 +66,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
       <section class="quick palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
         tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
-          <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
+          <div class="palette-dialog-title"><strong>Quick Access</strong><span class="palette-dialog-subtitle" role="status">{{ loading ? 'Loading locations' : totalItems + ' locations' }}</span></div>
           <input type="search" class="palette-dialog-field" [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
           <button type="button" class="palette-dialog-button" [disabled]="!filterText" (click)="filterText = ''; resetSelection()">Clear filter</button>

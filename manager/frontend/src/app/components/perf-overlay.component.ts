@@ -44,22 +44,22 @@ import { PerfProbeService, type PerfProbeSnapshot } from '../services/perf-probe
       z-index: 20000;
       min-width: 112px;
       padding: 8px 10px;
-      background: rgba(245, 245, 245, 0.96);
-      border: 1px solid rgba(0, 0, 0, 0.12);
+      background: var(--vsc-popover-background);
+      border: 1px solid var(--vsc-border-subtle);
       border-radius: 4px;
-      color: #111;
+      color: var(--vsc-foreground);
       font: 12px/1.5 Consolas, 'Courier New', monospace;
       cursor: move;
       pointer-events: auto;
       white-space: nowrap;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 1px 3px var(--vsc-shadow-soft);
       touch-action: none;
       user-select: none;
     }
 
     .perf-overlay:hover {
-      border-color: rgba(0, 0, 0, 0.2);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      border-color: var(--vsc-border);
+      box-shadow: 0 2px 8px var(--vsc-shadow);
     }
 
     .perf-overlay--dragging {
@@ -69,7 +69,7 @@ import { PerfProbeService, type PerfProbeSnapshot } from '../services/perf-probe
 
     .divider {
       margin: 6px 0;
-      border-top: 1px solid rgba(0, 0, 0, 0.12);
+      border-top: 1px solid var(--vsc-border-subtle);
     }
   `],
 })

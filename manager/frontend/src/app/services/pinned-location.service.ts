@@ -24,15 +24,28 @@ interface LegacyPinnedPath {
 export class PinnedLocationService {
   load(): PinnedLocation[] {
     const current = this.read<unknown>(PINNED_LOCATIONS_KEY);
-    if (Array.isArray(current)) return current.map(pin => this.normalizeStoredPin(pin)).filter((pin): pin is PinnedLocation => !!pin);
+    if (Array.isArray(current)) {
+      const pins = current.map(pin => this.normalizeStoredPin(pin)).filter((pin): pin is PinnedLocation => !!pin);
+      return this.uniquePins(pins);
+    }
 
     const legacy = this.read<LegacyPinnedPath[]>(LEGACY_PINNED_PATHS_KEY);
     const migrated = (Array.isArray(legacy) ? legacy : [])
       .map(pin => typeof pin?.path === 'string' ? this.create(pin.path, pin.label, pin.icon, pin.addedAt) : null)
       .filter((pin): pin is PinnedLocation => !!pin);
 
-    if (migrated.length > 0) this.save(migrated);
-    return migrated;
+    const pins = this.uniquePins(migrated);
+    if (pins.length > 0) this.save(pins);
+    return pins;
+  }
+
+  private uniquePins(pins: readonly PinnedLocation[]): PinnedLocation[] {
+    const seen = new Set<string>();
+    return pins.filter(pin => {
+      if (seen.has(pin.id)) return false;
+      seen.add(pin.id);
+      return true;
+    });
   }
 
   save(pins: readonly PinnedLocation[]): void {

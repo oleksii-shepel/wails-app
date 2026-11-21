@@ -26,7 +26,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
   template: `
     <div class="elev-pill-host">
       <!-- Only render when there is something worth showing -->
-      <button
+      <button type="button"
         class="elev-pill"
         [class.idle]="pillState() === 'idle'"
         [class.starting]="pillState() === 'starting'"

@@ -510,6 +510,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async restoreSelected(): Promise<void> {
+    if (this.loading) return;
     const selected = this.selectedEntries;
     if (selected.length === 0 || !this.canRestoreSelection) return;
 
@@ -531,6 +532,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async deleteSelected(): Promise<void> {
+    if (this.loading) return;
     const selected = this.selectedEntries;
     if (selected.length === 0) return;
 
@@ -545,7 +547,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       confirmText: 'Delete',
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || this.loading) return;
 
     this.loading = true;
     this.error = '';
@@ -565,7 +567,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async emptyTrash(): Promise<void> {
-    if (this.entries.length === 0) return;
+    if (this.loading || this.entries.length === 0) return;
 
     const confirmed = await this.confirmDialog.confirm({
       title: 'Empty Trash',
@@ -573,7 +575,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       confirmText: 'Empty Trash',
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || this.loading) return;
 
     this.loading = true;
     this.error = '';

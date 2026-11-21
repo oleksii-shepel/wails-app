@@ -156,9 +156,10 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
   undo():void{this.undoRequested.emit();this.cdr.markForCheck();}
   redo():void{this.redoRequested.emit();this.cdr.markForCheck();}
   download(): void {
-    const entries = this.filteredEntries.map(({ label, kind, state, completedAt, summary, error, affectedPaths }) =>
-      ({ label, kind, state, completedAt, summary, error, affectedPaths }),
+    const entries = this.filteredEntries.map(({ label, kind, state, startedAt, completedAt, reversible, summary, error, affectedPaths }) =>
+      ({ label, kind, state, startedAt, completedAt, reversible, summary, error, affectedPaths }),
     );
+    if (!entries.length) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;

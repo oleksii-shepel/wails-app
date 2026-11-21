@@ -31,12 +31,13 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
   <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = ''; selectedIndex = 0">Clear filter</button>
 </div>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
+@let matching = matchingMounts;
 <div class="list palette-dialog-body palette-dialog-list" role="listbox" aria-label="Remote connections" [attr.aria-busy]="state.loading">
-<button type="button" class="mount palette-dialog-item" role="option" *ngFor="let mount of matchingMounts;let i=index;trackBy:trackMount" [class.selected]="i===selectedIndex" [class.is-selected]="i===selectedIndex" [attr.aria-selected]="i===selectedIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="matchingMounts.length" [attr.tabindex]="i===selectedIndex ? 0 : -1" (mouseenter)="selectedIndex=i" (click)="openMount(mount)">
+<button type="button" class="mount palette-dialog-item" role="option" *ngFor="let mount of matching;let i=index;trackBy:trackMount" [class.selected]="i===selectedIndex" [class.is-selected]="i===selectedIndex" [attr.aria-selected]="i===selectedIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="matching.length" [attr.tabindex]="i===selectedIndex ? 0 : -1" (mouseenter)="selectedIndex=i" (click)="openMount(mount)">
 <span class="icon" aria-hidden="true">☁</span><span class="details"><strong>{{label(mount)}}</strong><small [title]="uri(mount)">{{uri(mount)}}</small></span><span class="mount-status"><span class="read-only" *ngIf="mount.readOnly">Read only</span><span class="protocol">{{protocol(mount)}}</span></span>
 </button>
 <div class="empty palette-dialog-empty" *ngIf="!state.loading&&!state.error&&state.mounts.length===0" role="status"><strong>No remote connections.</strong><span>Use + Connect or Insert to add one.</span></div>
-<div class="empty palette-dialog-empty" *ngIf="!state.loading && state.mounts.length && !matchingMounts.length" role="status">No matching connections.</div>
+<div class="empty palette-dialog-empty" *ngIf="!state.loading && state.mounts.length && !matching.length" role="status">No matching connections.</div>
 </div>
 <footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="!selectedMount" (click)="disconnectSelected()">Del&nbsp;&nbsp;Disconnect</button></div><span *ngIf="state.refreshedAt" class="palette-dialog-meta" [title]="state.refreshedAt | date:'medium'">Updated {{state.refreshedAt | date:'shortTime'}}</span><span class="palette-dialog-footnote">↑ ↓ select · Enter open · Insert connect · F5 refresh</span></footer>
 </section></div>`,

@@ -42,8 +42,7 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
                 [attr.aria-invalid]="!!validationError"
                 [attr.aria-describedby]="validationError ? 'archive-name-error' : 'archive-name-hint'"
                 (input)="onDraftInput($event)"
-                (keydown.enter)="submit()"
-                (keydown.escape)="dialogs.close()"
+                (keydown.enter)="submit(); $event.preventDefault(); $event.stopPropagation()"
                 spellcheck="false"
                 autocomplete="off" />
             </label>

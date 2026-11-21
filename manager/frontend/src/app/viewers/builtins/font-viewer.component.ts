@@ -74,7 +74,7 @@ const GLYPH_ROWS = [
           <div class="state-label">Directory - no preview available</div>
         </div>
 
-        <div *ngIf="kind === 'error'" class="state-container state-error">
+        <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
           <div class="state-icon">⚠</div>
           <div class="state-label">Font preview failed</div>
           <div class="state-sub">The browser could not decode this font file.</div>

@@ -141,9 +141,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               <strong>{{ operation.config.title }}</strong>
               <span>{{ operation.status }}</span>
             </div>
-            <div class="progress">
-              <i [style.width.%]="operation.metrics.totalBytes > 0 ? operation.percentComplete : 0"></i>
-            </div>
+            <progress class="operation-progress" [attr.aria-label]="operation.config.title" max="100"
+              [attr.value]="operation.metrics.totalBytes > 0 ? operation.percentComplete : null"></progress>
             <small *ngIf="operation.metrics.currentFile">{{ operation.metrics.currentFile }}</small>
             <small class="operation-error" *ngIf="operation.error">{{ operation.error }}</small>
             <div class="operation-actions">
@@ -433,6 +432,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .tool-filter-input{flex:1;min-width:min(150px,100%)}
     .danger{color:var(--vsc-error-foreground,var(--vsc-error))!important}.operation{padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}.row{display:flex;justify-content:space-between;gap:10px}.operation small{display:block;margin-top:4px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .progress,.bar{height:4px;margin-top:6px;background:var(--vsc-neutral-overlay-soft);overflow:hidden;border-radius:99px}.progress i,.bar i{display:block;height:100%;background:var(--vsc-accent-blue)}
+    .operation-progress{display:block;width:100%;height:6px;margin-top:6px;accent-color:var(--vsc-accent-blue)}
     .history-title{padding:8px 12px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.operation.history{opacity:.8}
     .disk-row{display:grid;grid-template-columns:minmax(140px,1fr) 100px 80px minmax(100px,220px);gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--vsc-border-subtle)}.disk-row .name,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.num{font-variant-numeric:tabular-nums}
     .duplicate-group{margin:8px 12px;border:1px solid var(--vsc-border,var(--vsc-list-active-background));border-radius:5px;overflow:hidden}.duplicate-group>header{padding:7px 9px;background:var(--vsc-neutral-overlay-subtle);font-size:11px;font-variant-numeric:tabular-nums}.duplicate-file{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 9px;border-top:1px solid var(--vsc-neutral-overlay-soft)}.duplicate-file small{color:var(--vsc-accent-green,var(--vsc-success))}

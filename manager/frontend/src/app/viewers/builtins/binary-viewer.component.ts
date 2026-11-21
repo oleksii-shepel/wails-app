@@ -544,16 +544,11 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   gotoOffset(): void {
     const raw = this.gotoValue.trim();
     if (!raw || !this._gridBody) return;
-    let offset: number;
-    if (raw.startsWith('0x') || raw.startsWith('0X')) {
-      offset = parseInt(raw.slice(2), 16);
-    } else if (this.offsetFormat === 'hex' && /^[0-9a-fA-F]+$/.test(raw)) {
-      offset = parseInt(raw, 16);
-    } else {
-      offset = parseInt(raw, 10);
-      if (isNaN(offset)) offset = parseInt(raw, 16);
-    }
-    if (isNaN(offset) || offset < 0) return;
+    const hex = /^0x/i.test(raw) || this.offsetFormat === 'hex';
+    const digits = raw.replace(/^0x/i, '');
+    if (!(hex ? /^[0-9a-f]+$/i : /^\d+$/).test(digits)) return;
+    const offset = Number.parseInt(digits, hex ? 16 : 10);
+    if (!Number.isSafeInteger(offset) || offset < 0) return;
     const row = Math.max(0, Math.min(Math.floor(offset / this.bytesPerRow), this.totalRows - 1));
     this._gridBody.scrollTop = row * ROW_HEIGHT;
   }

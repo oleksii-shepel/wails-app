@@ -170,7 +170,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                         [(ngModel)]="draft.general.accentColor"
                         (ngModelChange)="onSettingChanged()"
                         placeholder="var(--vsc-accent-blue)"
-                        class="color-text"
+                        class="color-text" aria-label="Enter accent color"
                       />
                       <button
                         type="button"

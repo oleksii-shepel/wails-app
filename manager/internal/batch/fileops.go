@@ -84,6 +84,12 @@ func (f *FileOperator) StreamToFile(r io.Reader, dst string, size int64, label s
 	}
 
 	f.progress.Set(baseItems+1, baseBytes+written, "", 0, false)
+	// Surface close failures (e.g. a flush hitting a full disk) instead of
+	// reporting success and leaving a truncated file behind.
+	if err := out.Close(); err != nil {
+		os.Remove(dst)
+		return written, err
+	}
 	return written, nil
 }
 

@@ -246,6 +246,9 @@ func VFSWriteFile(ctx context.Context, vfs *vfslib.Unified, path string, content
 	if err := file.Sync(); err != nil {
 		return nil, err
 	}
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
 
 	return &contracts.OperationResult{
 		Success:       true,

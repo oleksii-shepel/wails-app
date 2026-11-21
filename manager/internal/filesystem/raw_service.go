@@ -346,7 +346,11 @@ func (s *RawService) copyFile(src, dst string) error {
 	defer out.Close()
 
 	_, err = io.Copy(out, in)
-	return err
+	if err != nil {
+		return err
+	}
+	// Surface close failures instead of reporting a successful copy.
+	return out.Close()
 }
 
 func (s *RawService) copyDir(src, dst string) error {

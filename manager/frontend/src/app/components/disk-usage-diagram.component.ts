@@ -200,7 +200,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
           (click)="clearSelection()">Clear selection</button>
       </div>
 
-      <button
+      <button type="button"
         *ngFor="let e of displayEntries; let i = index; trackBy: trackLegendEntry"
         class="pie-legend-item"
         [class.pie-legend-item--active]="selectedIndex === i" [attr.aria-pressed]="selectedIndex === i"
@@ -214,7 +214,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
         <span class="pie-legend-pct">{{ pctStr(e) }}</span>
       </button>
 
-      <button
+      <button type="button"
       *ngIf="otherEntries.length > 0"
       class="pie-legend-item pie-legend-item--other"
       [class.pie-legend-item--active]="selectedIndex === -1" [attr.aria-pressed]="selectedIndex === -1"

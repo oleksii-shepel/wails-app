@@ -36,6 +36,7 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
               <span>Archive name</span>
               <input
                 #nameInput
+                class="palette-dialog-field"
                 type="text"
                 [value]="draftValue"
                 [attr.aria-invalid]="!!validationError"

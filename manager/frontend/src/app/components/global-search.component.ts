@@ -105,9 +105,9 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
         </header>
 
         <nav class="modes palette-dialog-tabbar" aria-label="Discovery source">
-          <button type="button" [class.active]="mode === 'search'" (click)="setMode('search')">Search</button>
-          <button type="button" [class.active]="mode === 'recent'" (click)="setMode('recent')">Recent</button>
-          <button type="button" [class.active]="mode === 'collections'" (click)="setMode('collections')">Collections</button>
+          <button type="button" [class.active]="mode === 'search'" [attr.aria-pressed]="mode === 'search'" (click)="setMode('search')">Search</button>
+          <button type="button" [class.active]="mode === 'recent'" [attr.aria-pressed]="mode === 'recent'" (click)="setMode('recent')">Recent</button>
+          <button type="button" [class.active]="mode === 'collections'" [attr.aria-pressed]="mode === 'collections'" (click)="setMode('collections')">Collections</button>
         </nav>
 
         <div class="query">

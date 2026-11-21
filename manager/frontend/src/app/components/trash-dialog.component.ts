@@ -85,7 +85,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <option value="name">Name</option>
             <option value="path">Original location</option>
           </select>
-          <button type="button" class="palette-dialog-button" [disabled]="loading" (click)="reload()">
+          <button type="button" class="palette-dialog-button" [disabled]="loading || confirmationPending" (click)="reload()">
             Refresh
           </button>
           <button

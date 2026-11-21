@@ -81,7 +81,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
             </span>
           </button>
           <div class="empty palette-dialog-empty" *ngIf="filteredEntries.length===0" role="status">
-            {{ entries.length===0 ? 'No path history yet.' : 'No matching locations.' }}
+            {{ entries.length===0 ? 'No location history yet.' : modeEntries.length===0 ? 'No locations in this view.' : 'No matching locations.' }}
           </div>
         </div>
 

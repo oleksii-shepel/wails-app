@@ -43,7 +43,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
             </div>
           </article>
           <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">No file operations recorded in this session.</div>
-          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0">No operations match the active filter.</div>
+          <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && filteredEntries.length === 0" role="status">No operations match the active filter.</div>
         </div>
         <footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
           <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>

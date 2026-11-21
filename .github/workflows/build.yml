@@ -61,3 +61,42 @@ jobs:
       - name: Run Go tests
         working-directory: manager
         run: go test ./...
+
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: manager/go.mod
+          cache-dependency-path: |
+            go.work.sum
+            manager/go.sum
+
+      - name: Install the Wails CLI matching the app
+        working-directory: manager
+        run: |
+          $version = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2
+          if ($LASTEXITCODE -ne 0 -or !$version) { throw 'Unable to resolve the Wails version' }
+          go install "github.com/wailsapp/wails/v2/cmd/wails@$version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package the desktop executable
+        working-directory: manager
+        run: |
+          $wails = Join-Path (go env GOPATH) 'bin/wails.exe'
+          & $wails build
+          exit $LASTEXITCODE
+
+      - name: Upload the Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: reassembly-windows
+          path: manager/build/bin/wails-app.exe
+          if-no-files-found: error

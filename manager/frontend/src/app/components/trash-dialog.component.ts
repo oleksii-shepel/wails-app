@@ -73,6 +73,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             (click)="toggleSelectAll()">
             {{ allFilteredSelected ? 'Deselect matches' : 'Select matches' }}
           </button>
+          <button type="button" class="palette-dialog-button" [disabled]="loading || confirmationPending || !hasRestorableMatches" (click)="selectRestorableMatches()">Select restorable</button>
           <input
             type="search"
             class="trash-search palette-dialog-field"
@@ -401,6 +402,14 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       const tb = Date.parse(b.deletedAt || '') || 0;
       return tb - ta;
     });
+  }
+
+  get hasRestorableMatches(): boolean { return this.filteredEntries.some(entry => entry.canRestore); }
+
+  selectRestorableMatches(): void {
+    if (this.loading || this.confirmationPending) return;
+    this.selectedIds = new Set(this.filteredEntries.filter(entry => entry.canRestore).map(entry => entry.id));
+    this.cdr.markForCheck();
   }
 
   get allFilteredSelected(): boolean {

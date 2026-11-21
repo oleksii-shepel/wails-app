@@ -4,7 +4,10 @@ import {
   Component,
   EventEmitter,
   Input,
+  OnChanges,
+  OnDestroy,
   Output,
+  SimpleChanges,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
@@ -12,6 +15,7 @@ import {
   WorkspaceService,
   type RecentlyClosedTab,
 } from '../services/workspace.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 @Component({
   selector: 'app-closed-tabs',
   imports: [CommonModule],
@@ -94,17 +98,42 @@ import {
     .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small,.meta{color:var(--vsc-description-foreground)}.meta{font-size:10px;font-variant-numeric:tabular-nums}
   `],
 })
-export class ClosedTabsComponent {
+export class ClosedTabsComponent implements OnChanges, OnDestroy {
   @Input() visible = false;
   @Output() closed = new EventEmitter<void>();
   @Output() reopenRequested = new EventEmitter<RecentlyClosedTab>();
 
   searchText = '';
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     readonly workspaces: WorkspaceService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!changes['visible']) return;
+    if (this.visible) {
+      if (this.modalStack && this.hostElement && !this.unregisterModal) {
+        this.unregisterModal = this.modalStack.register({
+          id: 'closed-tabs',
+          element: this.hostElement.nativeElement,
+          dismiss: () => this.close(),
+          dismissible: () => this.visible,
+        });
+      }
+    } else {
+      this.unregisterModal?.();
+      this.unregisterModal = null;
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+  }
 
   get entries(): readonly RecentlyClosedTab[] {
     return this.workspaces.getRecentlyClosedTabs();
@@ -127,6 +156,8 @@ export class ClosedTabsComponent {
   }
 
   close(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.closed.emit();
   }
 

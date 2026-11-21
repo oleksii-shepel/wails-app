@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../services/api.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { QUICK_ACCESS_INPUT, QUICK_ACCESS_INPUT_COMMANDS } from '../services/dialog-input-catalog';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { PinnedLocationService } from '../services/pinned-location.service';
 import { RelatedLocationService } from '../services/related-location.service';
@@ -133,6 +134,9 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   sectionIndex = 0;
   itemIndex = 0;
   private pins: PinnedLocation[] = [];
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly api: ApiService,
@@ -199,6 +203,8 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
     for (const id of Object.values(COMMAND)) this.input.unregisterCommandDescriptor(id, OWNER_ID);
   }
@@ -221,6 +227,15 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     this.renderVisible = true;
     this.isClosing = false;
     this.input.activateContext(CONTEXT_ID);
+    if (this.modalStack && this.hostElement) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'quick-access',
+        element: this.hostElement.nativeElement,
+        contextId: CONTEXT_ID,
+        dismiss: () => this.close(),
+        dismissible: () => this.renderVisible && !this.isClosing,
+      });
+    }
     this.cdr.markForCheck();
   }
 
@@ -228,6 +243,8 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     if(!this.renderVisible||this.isClosing)return;
     this.visible=false;
     this.isClosing=true;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
     this.cdr.markForCheck();
   }

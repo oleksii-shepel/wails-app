@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { OperationHistoryService, type OperationJournalEntry } from '../services/operation-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 type JournalFilter = 'all' | 'undoable' | 'failed';
 
@@ -63,13 +64,16 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
     .state{font-size:14px;text-align:center}.main{display:grid;min-width:0;gap:2px}.main small,.main>span{color:var(--vsc-description-foreground)}.main .error{color:var(--vsc-error)}details code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground)}
   `]
 })
-export class OperationJournalComponent implements OnChanges {
+export class OperationJournalComponent implements OnChanges, OnDestroy {
   @Input() visible=false;
   renderVisible=false;
   isClosing=false;
   filter: JournalFilter = 'all';
   searchText = '';
   private emitClosedOnFinish=false;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
   @Output() closed=new EventEmitter<void>();
   @Output() undoRequested=new EventEmitter<void>();
   @Output() redoRequested=new EventEmitter<void>();
@@ -98,13 +102,32 @@ export class OperationJournalComponent implements OnChanges {
       this.renderVisible = true;
       this.isClosing = false;
       this.emitClosedOnFinish = false;
+      if (this.modalStack && this.hostElement && !this.unregisterModal) {
+        this.unregisterModal = this.modalStack.register({
+          id: 'operation-journal',
+          element: this.hostElement.nativeElement,
+          dismiss: () => this.close(),
+          dismissible: () => this.renderVisible && !this.isClosing,
+        });
+      }
       this.cdr.markForCheck();
     } else if (this.renderVisible && !this.isClosing) {
+      this.unregisterModal?.();
+      this.unregisterModal = null;
       this.isClosing = true;
       this.cdr.markForCheck();
+    } else {
+      this.unregisterModal?.();
+      this.unregisterModal = null;
     }
   }
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+  }
   close():void{
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if (!this.renderVisible || this.isClosing) return;
     this.isClosing=true;
     this.emitClosedOnFinish=true;

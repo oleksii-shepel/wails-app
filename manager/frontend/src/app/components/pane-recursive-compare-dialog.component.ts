@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import {
   PaneRecursiveCompareDialogService,
   type PaneRecursiveCompareDialogRequest,
@@ -10,6 +11,7 @@ import type {
   PaneComparisonStatus,
 } from '../services/pane-comparison.service';
 import type { FileInfo } from '../shared/protocol';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 type RecursiveCompareFilter = 'different' | 'only-left' | 'only-right' | 'modified' | 'all';
 
@@ -176,11 +178,42 @@ type RecursiveCompareFilter = 'different' | 'only-left' | 'only-right' | 'modifi
     }
   `],
 })
-export class PaneRecursiveCompareDialogComponent {
+export class PaneRecursiveCompareDialogComponent implements OnInit, OnDestroy {
   filter: RecursiveCompareFilter = 'different';
   searchQuery = '';
+  private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(readonly dialogs: PaneRecursiveCompareDialogService) {}
+
+  ngOnInit(): void {
+    this.dialogs.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((request) => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'pane-recursive-compare-dialog',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.dialogs.close(),
+              dismissible: () => !this.isClosing,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 
   get activeRequest(): PaneRecursiveCompareDialogRequest | null {
     return this.dialogs.mountedRequest$.value;

@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import {
   PaneCompareDialogService,
   type PaneCompareDialogRequest,
@@ -10,6 +11,7 @@ import type {
   PaneComparisonStatus,
 } from '../services/pane-comparison.service';
 import type { FileInfo } from '../shared/protocol';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 type CompareFilter = 'different' | 'all' | 'only-left' | 'only-right' | 'modified' | 'same';
 
@@ -166,11 +168,42 @@ type CompareFilter = 'different' | 'all' | 'only-left' | 'only-right' | 'modifie
     }
   `],
 })
-export class PaneCompareDialogComponent {
+export class PaneCompareDialogComponent implements OnInit, OnDestroy {
   filter: CompareFilter = 'different';
   searchQuery = '';
+  private readonly destroy$ = createSubject<void>();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(readonly dialogs: PaneCompareDialogService) {}
+
+  ngOnInit(): void {
+    this.dialogs.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((request) => {
+        if (request) {
+          if (this.modalStack && this.hostElement && !this.unregisterModal) {
+            this.unregisterModal = this.modalStack.register({
+              id: 'pane-compare-dialog',
+              element: this.hostElement.nativeElement,
+              dismiss: () => this.dialogs.close(),
+              dismissible: () => !this.isClosing,
+            });
+          }
+        } else {
+          this.unregisterModal?.();
+          this.unregisterModal = null;
+        }
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 
   get activeRequest(): PaneCompareDialogRequest | null {
     return this.dialogs.mountedRequest$.value;

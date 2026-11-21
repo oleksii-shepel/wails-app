@@ -7,6 +7,7 @@ import {
   InputBindingDefinition,
   InputContextDefinition,
 } from '../services/input-system.types';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 
 interface BindingCategory {
@@ -61,6 +62,9 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   private releaseDialogContext: (() => void) | null = null;
   private preservedContextIds = new Set<string>();
   private includeGlobalSection = true;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private inputContexts: InputContextService,
@@ -75,6 +79,8 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.overlayFreeze.release('dialog.keyboardHelp');
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
@@ -135,6 +141,15 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.isClosing = false;
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.keyboardHelp');
     this.overlayFreeze.acquire('dialog.keyboardHelp');
+    if (this.modalStack && this.hostElement) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'keyboard-help',
+        element: this.hostElement.nativeElement,
+        contextId: 'dialog.keyboardHelp',
+        dismiss: () => this.hide(),
+        dismissible: () => this.isVisible && !this.isClosing,
+      });
+    }
     this.searchText = '';
     this.loadShortcuts();
     this.cdr.detectChanges();
@@ -150,6 +165,8 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     }
     this.isVisible = false;
     this.isClosing = true;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.overlayFreeze.release('dialog.keyboardHelp');

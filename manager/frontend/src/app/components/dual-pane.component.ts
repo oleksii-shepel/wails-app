@@ -29,6 +29,7 @@ import { ToolWorkspaceHostComponent } from './tool-workspace-host.component';
 import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { CommandInvocation, InputBindingDefinition } from '../services/input-system.types';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import {
@@ -973,6 +974,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private contextMenuActions = new Map<string, () => void | Promise<void>>();
   private contextMenuActionSequence = 0;
   private readonly subscription = new Subscription();
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterPaneIntelligenceModal: (() => void) | null = null;
 
   constructor(
     private readonly input: InputEngineService,
@@ -1269,6 +1273,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterPaneIntelligenceModal?.();
+    this.unregisterPaneIntelligenceModal = null;
     this.subscription.unsubscribe();
     this.clearPaneIntelligenceTypeahead();
     this.stopDriveLifecycle?.();
@@ -1377,6 +1383,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
     this.paneIntelligenceMenuOpen = true;
     this.clearPaneIntelligenceTypeahead();
+    if (this.modalStack && this.hostElement && !this.unregisterPaneIntelligenceModal) {
+      this.unregisterPaneIntelligenceModal = this.modalStack.register({
+        id: 'pane-intelligence-menu',
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.closePaneIntelligenceMenu(true),
+        dismissible: () => this.paneIntelligenceMenuOpen,
+      });
+    }
     this.cdr.detectChanges();
 
     queueMicrotask(() => {
@@ -1388,6 +1402,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     if (!this.paneIntelligenceMenuOpen) return;
 
     this.paneIntelligenceMenuOpen = false;
+    this.unregisterPaneIntelligenceModal?.();
+    this.unregisterPaneIntelligenceModal = null;
     this.clearPaneIntelligenceTypeahead();
     this.cdr.markForCheck();
 
@@ -1399,6 +1415,14 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
   onPaneIntelligenceMenuKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      if (this.modalStack && !this.modalStack.isTopmost('pane-intelligence-menu')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.closePaneIntelligenceMenu(true);
+      return;
+    }
+
     const items = this.paneIntelligenceItems();
     if (!items.length) return;
 
@@ -1406,12 +1430,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const current = Math.max(0, items.indexOf(active as HTMLButtonElement));
 
     switch (event.key) {
-      case 'Escape':
-        event.preventDefault();
-        event.stopPropagation();
-        this.closePaneIntelligenceMenu(true);
-        return;
-
       case 'ArrowDown':
         event.preventDefault();
         this.focusPaneIntelligenceItem(current + 1, 1);

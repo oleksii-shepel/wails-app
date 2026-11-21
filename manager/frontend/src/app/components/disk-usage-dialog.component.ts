@@ -7,12 +7,14 @@ import {
   HostListener,
   Input,
   OnChanges,
+  OnDestroy,
   Output,
   SimpleChanges,
 } from '@angular/core';
 import type { TabInfo } from '../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surfaces/surface-context';
 import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manager-surface.component';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
 @Component({
   selector: 'app-disk-usage-dialog',
@@ -84,7 +86,7 @@ import { SizeManagerSurfaceComponent } from '../surfaces/size-manager/size-manag
     }
   `],
 })
-export class DiskUsageDialogComponent implements OnChanges {
+export class DiskUsageDialogComponent implements OnChanges, OnDestroy {
   @Input() visible = false;
   @Input() rootPath = '';
   @Output() closed = new EventEmitter<void>();
@@ -93,6 +95,9 @@ export class DiskUsageDialogComponent implements OnChanges {
   renderVisible = false;
   isClosing = false;
   private emitClosedOnFinish = false;
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(private readonly cdr: ChangeDetectorRef) {}
 
@@ -103,15 +108,31 @@ export class DiskUsageDialogComponent implements OnChanges {
         this.renderVisible = true;
         this.isClosing = false;
         this.emitClosedOnFinish = false;
+        if (this.modalStack && this.hostElement) {
+          this.unregisterModal = this.modalStack.register({
+            id: 'disk-usage-dialog',
+            element: this.hostElement.nativeElement,
+            dismiss: () => this.close(),
+            dismissible: () => this.visible && !this.isClosing,
+          });
+        }
       } else if (!this.visible && this.renderVisible && !this.isClosing) {
+        this.unregisterModal?.();
+        this.unregisterModal = null;
         this.isClosing = true;
       }
     }
   }
 
+  ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
+  }
+
   @HostListener('document:keydown.escape', ['$event'])
   onEscape(event: Event): void {
-    if (!this.visible) return;
+    if (!this.visible || this.isClosing) return;
+    if (this.modalStack && !this.modalStack.isTopmost('disk-usage-dialog')) return;
     event.preventDefault();
     event.stopPropagation();
     this.close();
@@ -123,6 +144,8 @@ export class DiskUsageDialogComponent implements OnChanges {
 
   close(): void {
     if (!this.renderVisible || this.isClosing) return;
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.isClosing = true;
     this.emitClosedOnFinish = true;
     this.cdr.markForCheck();

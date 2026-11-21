@@ -30,7 +30,7 @@ import { ModalStackService } from '../services/modal-stack.service';
           aria-label="About Reassembly"
           tabindex="-1"
           (mousedown)="$event.stopPropagation()"
-          (keydown.escape)="onClose($event)">
+          (keydown.escape)="onEscape($event)">
           <header class="palette-dialog-header">
             <div class="palette-dialog-title">
               <strong>About Reassembly</strong>
@@ -368,6 +368,11 @@ export class AboutDialogComponent implements OnChanges, OnDestroy {
     if (event.target === event.currentTarget) {
       this.close.emit();
     }
+  }
+
+  onEscape(event: Event): void {
+    if (!this.modalStack.isTopmost('about-dialog')) return;
+    this.onClose(event);
   }
 
   onClose(event: Event): void {

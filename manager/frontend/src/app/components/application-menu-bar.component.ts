@@ -10,6 +10,7 @@ import { CommonModule } from '@angular/common';
 
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { tryInjectModalStack } from '../services/modal-stack.service';
 import { FILE_MANAGER_COMMANDS } from './command-registry';
 import { WindowStateService } from '../services/window-state.service';
 import {
@@ -495,6 +496,8 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
   readonly menus = MENUS;
   openMenuIndex: number | null = null;
   maximized = false;
+  private readonly modalStack = tryInjectModalStack();
+  private unregisterModal: (() => void) | null = null;
 
   private readonly resizeHandler = () => {
     void this.refreshMaximizedState();
@@ -513,25 +516,27 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     window.removeEventListener('resize', this.resizeHandler);
   }
 
   toggleMenu(index: number, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
-    this.openMenuIndex = this.openMenuIndex === index ? null : index;
+    this.setOpenMenuIndex(this.openMenuIndex === index ? null : index);
   }
 
   openMenu(index: number, event?: Event): void {
     event?.preventDefault();
     event?.stopPropagation();
-    this.openMenuIndex = index;
+    this.setOpenMenuIndex(index);
     queueMicrotask(() => this.focusFirstEnabledItem());
   }
 
   onMenuHover(index: number): void {
     if (this.openMenuIndex !== null) {
-      this.openMenuIndex = index;
+      this.setOpenMenuIndex(index);
     }
   }
 
@@ -540,7 +545,7 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
     event.stopPropagation();
     if (!this.isEnabled(commandId)) return;
 
-    this.openMenuIndex = null;
+    this.setOpenMenuIndex(null);
     this.cdr.detectChanges();
     queueMicrotask(() => {
       this.input.dispatchCommandById(commandId, { source: 'mouse' });
@@ -559,14 +564,14 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
   minimizeWindow(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
-    this.openMenuIndex = null;
+    this.setOpenMenuIndex(null);
     WindowMinimise();
   }
 
   async toggleMaximize(event: MouseEvent): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
-    this.openMenuIndex = null;
+    this.setOpenMenuIndex(null);
     WindowToggleMaximise();
     await this.refreshMaximizedState();
   }
@@ -574,7 +579,7 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
   async closeWindow(event: MouseEvent): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
-    this.openMenuIndex = null;
+    this.setOpenMenuIndex(null);
 
     // Preserve the same geometry persistence path used by normal app shutdown.
     await this.windowState.captureNow().catch(() => undefined);
@@ -593,15 +598,16 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
   onDocumentMouseDown(event: MouseEvent): void {
     if (this.openMenuIndex === null) return;
     if (this.element.nativeElement.contains(event.target as Node)) return;
-    this.openMenuIndex = null;
+    this.setOpenMenuIndex(null);
   }
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape' && this.openMenuIndex !== null) {
+      if (this.modalStack && !this.modalStack.isTopmost('application-menu-bar')) return;
       event.preventDefault();
       event.stopPropagation();
-      this.openMenuIndex = null;
+      this.setOpenMenuIndex(null);
       return;
     }
 
@@ -609,17 +615,45 @@ export class ApplicationMenuBarComponent implements OnInit, OnDestroy {
 
     if (event.key === 'ArrowRight') {
       event.preventDefault();
-      this.openMenuIndex = (this.openMenuIndex + 1) % this.menus.length;
+      this.setOpenMenuIndex((this.openMenuIndex + 1) % this.menus.length);
       queueMicrotask(() => this.focusFirstEnabledItem());
       return;
     }
 
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
-      this.openMenuIndex =
-        (this.openMenuIndex - 1 + this.menus.length) % this.menus.length;
+      this.setOpenMenuIndex(
+        (this.openMenuIndex - 1 + this.menus.length) % this.menus.length,
+      );
       queueMicrotask(() => this.focusFirstEnabledItem());
     }
+  }
+
+  private setOpenMenuIndex(index: number | null): void {
+    this.openMenuIndex = index;
+    this.syncModalRegistration();
+  }
+
+  private closeMenu(): void {
+    if (this.openMenuIndex === null) return;
+    this.setOpenMenuIndex(null);
+    this.cdr.markForCheck();
+  }
+
+  private syncModalRegistration(): void {
+    if (this.openMenuIndex !== null) {
+      if (this.modalStack && !this.unregisterModal) {
+        this.unregisterModal = this.modalStack.register({
+          id: 'application-menu-bar',
+          element: this.element.nativeElement,
+          dismiss: () => this.closeMenu(),
+          dismissible: () => this.openMenuIndex !== null,
+        });
+      }
+      return;
+    }
+    this.unregisterModal?.();
+    this.unregisterModal = null;
   }
 
   private focusFirstEnabledItem(): void {

@@ -14,6 +14,7 @@ import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { PATH_HISTORY_INPUT, PATH_HISTORY_INPUT_COMMANDS } from '../services/dialog-input-catalog';
+import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import {
   PathHistoryService,
   type LocationHistoryEntry,
@@ -116,6 +117,9 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
   entries:LocationHistoryEntry[]=[];
   selectedIndex=0;
   mode:HistoryMode='pane';
+  private readonly modalStack = tryInjectModalStack();
+  private readonly hostElement = tryInjectElementRef();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private readonly historyService:PathHistoryService,
@@ -181,12 +185,13 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy():void{
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
     for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);
   }
 
   open(mode:HistoryMode='pane'):void{
-    
     this.entries=this.historyService.getAllHistory();
     this.mode=mode;
     this.filterText='';
@@ -194,15 +199,24 @@ export class PathHistoryComponent implements OnInit, OnDestroy {
     this.isClosing=false;
     this.visible=true;
     this.input.activateContext(CONTEXT_ID);
+    if (this.modalStack && this.hostElement && !this.unregisterModal) {
+      this.unregisterModal = this.modalStack.register({
+        id: 'path-history',
+        contextId: CONTEXT_ID,
+        element: this.hostElement.nativeElement,
+        dismiss: () => this.close(),
+        dismissible: () => this.visible && !this.isClosing,
+      });
+    }
     this.cdr.markForCheck();
   }
 
   close():void{
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     if(!this.visible||this.isClosing)return;
     this.isClosing=true;
     this.input.deactivateContext(CONTEXT_ID);
-    
-    
     this.cdr.markForCheck();
   }
 

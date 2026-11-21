@@ -5,6 +5,7 @@ import {contracts} from '../../../wailsjs/go/models';
 import {ConfirmDialogService} from '../services/confirm-dialog.service';
 import {InputEngineService} from '../services/input-engine.service';
 import type {InputBindingDefinition} from '../services/input-system.types';
+import {tryInjectElementRef,tryInjectModalStack} from '../services/modal-stack.service';
 import {RemoteConnectionsService,type RemoteConnectionSnapshot} from '../services/remote-connections.service';
 import {RemoteConnectDialogService} from '../services/remote-connect-dialog.service';
 const CONTEXT_ID='overlay.RemoteConnections';
@@ -37,6 +38,9 @@ styles:[`:host{position:fixed;inset:0;z-index:9550;pointer-events:none}.backdrop
 export class RemoteConnectionsComponent implements OnInit,OnDestroy{
 @Output() navigate=new EventEmitter<string>(); visible=false; renderVisible=false; isClosing=false; state:RemoteConnectionSnapshot={mounts:[],loading:false,error:'',refreshedAt:0}; selectedIndex=0;
 private readonly destroy$=createSubject<void>();
+private readonly modalStack=tryInjectModalStack();
+private readonly hostElement=tryInjectElementRef();
+private unregisterModal:(()=>void)|null=null;
 constructor(private readonly connections:RemoteConnectionsService,private readonly connectDialog:RemoteConnectDialogService,private readonly confirm:ConfirmDialogService,private readonly input:InputEngineService,private readonly cdr:ChangeDetectorRef){}
 get selectedMount():contracts.RemoteMount|null{return this.state.mounts[this.selectedIndex]??null}
 ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priority:420, exclusive: true,parentId:'global',description:'Remote connections'});const d=(
@@ -48,9 +52,9 @@ ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priorit
       {id,title,category:'Remote',execute,isEnabled},
       OWNER_ID,
     );d(COMMAND.close,'Close Remote Connections',()=>this.close());d(COMMAND.previous,'Previous Remote Connection',()=>this.move(-1));d(COMMAND.next,'Next Remote Connection',()=>this.move(1));d(COMMAND.open,'Open Remote Connection',()=>{const m=this.selectedMount;if(m)this.openMount(m)},()=>!!this.selectedMount);d(COMMAND.connect,'Connect Remote',()=>this.connect());d(COMMAND.disconnect,'Disconnect Remote',()=>this.disconnectSelected(),()=>!!this.selectedMount);d(COMMAND.refresh,'Refresh Remote Connections',()=>this.refresh());for(const b of BINDINGS)this.input.registerBinding(b);this.connections.state$.pipe(takeUntil(this.destroy$)).subscribe(state=>{this.state=state;this.selectedIndex=Math.min(this.selectedIndex,Math.max(0,state.mounts.length-1));this.cdr.markForCheck()})}
-ngOnDestroy():void{this.input.deactivateContext(CONTEXT_ID);for(const b of BINDINGS)this.input.unregisterBinding(b.id);for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);this.destroy$.next();this.destroy$.complete()}
-open():void{this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);this.cdr.markForCheck();void this.refresh()}
-close():void{if(!this.renderVisible||this.isClosing)return;this.visible=false;this.isClosing=true;this.input.deactivateContext(CONTEXT_ID);this.cdr.markForCheck()}
+ngOnDestroy():void{this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);for(const b of BINDINGS)this.input.unregisterBinding(b.id);for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);this.destroy$.next();this.destroy$.complete()}
+open():void{this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);if(this.modalStack&&this.hostElement){this.unregisterModal=this.modalStack.register({id:'remote-connections',element:this.hostElement.nativeElement,contextId:CONTEXT_ID,dismiss:()=>this.close(),dismissible:()=>this.renderVisible&&!this.isClosing});}this.cdr.markForCheck();void this.refresh()}
+close():void{if(!this.renderVisible||this.isClosing)return;this.visible=false;this.isClosing=true;this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);this.cdr.markForCheck()}
 async refresh():Promise<void>{await this.connections.refresh()}
 async connect():Promise<void>{const mount=await this.connectDialog.openDialog();if(!mount)return;await this.connections.refresh();const uri=this.connections.rootUri(mount);if(uri){this.navigate.emit(uri);this.close()}}
 async disconnectSelected():Promise<void>{const mount=this.selectedMount;if(!mount)return;const ok=await this.confirm.confirm({title:'Disconnect Remote',message:`Disconnect "${this.connections.label(mount)}"?`,confirmText:'Disconnect',danger:true});if(ok)await this.connections.disconnect(mount)}

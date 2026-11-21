@@ -2,6 +2,7 @@ import {
   Directive,
   ElementRef,
   Input,
+  OnChanges,
   OnDestroy,
   OnInit,
   Output,
@@ -9,8 +10,10 @@ import {
   ContentChild,
   AfterContentInit,
   AfterContentChecked,
+  SimpleChanges,
 } from '@angular/core';
 import { DropdownService } from '../services/dropdown.service';
+import { tryInjectModalStack } from '../services/modal-stack.service';
 
 /**
  * DropdownTriggerDirective — marks the trigger element of a dropdown.
@@ -62,11 +65,11 @@ export class DropdownMenuDirective {
   selector: '[appDropdown]',
   standalone: true,
   host: {
-    '(keydown.escape)': 'close()',
+    '(keydown.escape)': 'onEscape($event)',
   },
   exportAs: 'appDropdown',
 })
-export class DropdownDirective implements OnInit, AfterContentInit, AfterContentChecked, OnDestroy {
+export class DropdownDirective implements OnInit, OnChanges, AfterContentInit, AfterContentChecked, OnDestroy {
   // Bind to the host attribute name so templates can use `[appDropdown]`.
   @Input('appDropdown') isOpen = false;
   @Output() isOpenChange = new EventEmitter<boolean>();
@@ -77,6 +80,8 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
 
   private dropdownId!: string;
   private lastMenuEl: HTMLElement | null = null;
+  private readonly modalStack = tryInjectModalStack();
+  private unregisterModal: (() => void) | null = null;
 
   constructor(
     private el: ElementRef<HTMLElement>,
@@ -89,6 +94,13 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
       this.el.nativeElement,
       () => this.close(),
     );
+    this.syncModalRegistration();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isOpen']) {
+      this.syncModalRegistration();
+    }
   }
 
   ngAfterContentInit(): void {
@@ -110,9 +122,18 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
     this.dropdownService.update(this.dropdownId, trigger, menu);
   }
 
+  onEscape(event?: Event): void {
+    if (!this.isOpen) return;
+    if (this.modalStack && this.dropdownId && !this.modalStack.isTopmost(this.dropdownId)) return;
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.close();
+  }
+
   open(): void {
     this.dropdownService.closeOthers(this.dropdownId);
     this.isOpen = true;
+    this.syncModalRegistration();
     this.isOpenChange.emit(true);
   }
 
@@ -120,6 +141,7 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
     if (!this.isOpen) return;
     if (this.dropdownService.isInteractionPending(this.dropdownId)) return;
     this.isOpen = false;
+    this.syncModalRegistration();
     this.isOpenChange.emit(false);
     this.closed.emit();
   }
@@ -129,6 +151,24 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
   }
 
   ngOnDestroy(): void {
+    this.unregisterModal?.();
+    this.unregisterModal = null;
     this.dropdownService.unregister(this.dropdownId);
+  }
+
+  private syncModalRegistration(): void {
+    if (this.isOpen && this.modalStack && this.dropdownId) {
+      if (!this.unregisterModal) {
+        this.unregisterModal = this.modalStack.register({
+          id: this.dropdownId,
+          element: this.el.nativeElement,
+          dismiss: () => this.close(),
+          dismissible: () => this.isOpen,
+        });
+      }
+      return;
+    }
+    this.unregisterModal?.();
+    this.unregisterModal = null;
   }
 }

@@ -80,7 +80,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 type="button"
                 class="btn btn-secondary btn-small"
                 (click)="onResetSection()"
-                title="Reset current section to defaults"
+                aria-label="Reset current section to defaults" title="Reset current section to defaults"
               >
                 Reset Section
               </button>
@@ -89,7 +89,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 type="button"
                 class="btn btn-secondary btn-small"
                 (click)="onResetAll()"
-                title="Reset all settings to defaults"
+                aria-label="Reset all settings to defaults" title="Reset all settings to defaults"
               >
                 Reset All
               </button>
@@ -176,7 +176,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                         type="button"
                         class="btn btn-secondary btn-small"
                         (click)="draft.general.accentColor = ''; onSettingChanged()"
-                        title="Reset to default accent color"
+                        aria-label="Reset to default accent color" title="Reset to default accent color"
                       >Reset</button>
                     </div>
                     <small>Overrides the default blue highlight color for active items, selections, and focus rings. Leave empty to use the default.</small>

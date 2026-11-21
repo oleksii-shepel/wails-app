@@ -43,7 +43,7 @@ import { ThemeService } from '../services/theme.service';
         <button type="button"
           (click)="onToggleTheme()"
           class="btn"
-          title="Toggle theme">
+          aria-label="Theme" title="Toggle theme">
           Theme
         </button>
 
@@ -51,7 +51,7 @@ import { ThemeService } from '../services/theme.service';
           (click)="onToggleCompact()"
           [class.active]="isCompact" [attr.aria-pressed]="isCompact"
           class="btn"
-          title="Toggle compact mode">
+          aria-label="Compact mode" title="Toggle compact mode">
           Compact
         </button>
       </div>

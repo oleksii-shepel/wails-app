@@ -139,7 +139,7 @@ interface VideoNavItem {
             <div class="progress-section">
               <div class="progress-container">
                 <input
-                  type="range"
+                  type="range" aria-label="Playback position"
                   min="0"
                   [max]="videoDuration"
                   step="any"

@@ -66,18 +66,18 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
           <button class="tool-btn" (click)="resetZoom()" title="Fit to window">Fit</button>
           <button class="tool-btn" (click)="zoom100()" title="Actual size">1:1</button>
           <span class="toolbar-divider"></span>
-          <button class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard"
+          <button class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard" [attr.aria-pressed]="showCheckerboard"
                   title="Toggle transparency grid">Grid</button>
         </ng-container>
           <ng-container *ngIf="isMarkupKind">
-            <button class="tool-btn" (click)="setMarkupViewMode('rendered')" [class.active]="markupViewMode === 'rendered'"
+            <button class="tool-btn" (click)="setMarkupViewMode('rendered')" [class.active]="markupViewMode === 'rendered'" [attr.aria-pressed]="markupViewMode === 'rendered'"
               title="Rendered preview">Preview</button>
-            <button class="tool-btn" (click)="setMarkupViewMode('source')" [class.active]="markupViewMode === 'source'"
+            <button class="tool-btn" (click)="setMarkupViewMode('source')" [class.active]="markupViewMode === 'source'" [attr.aria-pressed]="markupViewMode === 'source'"
               title="Source view">Source</button>
             <span class="toolbar-divider"></span>
           </ng-container>
           <ng-container *ngIf="kind === 'text' || kind === 'json' || kind === 'markdown' || kind === 'html'">
-          <button class="tool-btn" (click)="toggleWrap()" [class.active]="wordWrap"
+          <button class="tool-btn" (click)="toggleWrap()" [class.active]="wordWrap" [attr.aria-pressed]="wordWrap"
                   title="Toggle word wrap">Wrap</button>
         </ng-container>
       </div>

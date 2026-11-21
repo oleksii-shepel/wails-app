@@ -45,6 +45,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             class="tabs-search palette-dialog-field"
             [value]="searchText"
             (input)="onSearchInput($event)"
+            (keydown.enter)="reopenLatest(); $event.preventDefault(); $event.stopPropagation()"
             placeholder="Filter closed tabs by title or path…"
             aria-label="Filter recently closed tabs" />
           <select class="palette-dialog-field" aria-label="Filter by original pane" [value]="paneFilter" (change)="onPaneFilterChange($event)">
@@ -85,8 +86,8 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             </button>
           </div>
           <div class="palette-dialog-footer-actions">
-            <button type="button" class="palette-dialog-button" [disabled]="entries.length === 0" (click)="reopenLatest()">
-              Reopen Latest
+            <button type="button" class="palette-dialog-button" [disabled]="filteredEntries.length === 0" (click)="reopenLatest()">
+              Reopen Latest Match
             </button>
             <button type="button" class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button>
           </div>
@@ -188,7 +189,7 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   }
 
   reopenLatest(): void {
-    const latest = this.entries[0];
+    const latest = this.filteredEntries[0];
     if (latest) {
       this.reopenRequested.emit(latest);
     }

@@ -173,7 +173,7 @@ interface VideoNavItem {
               <div class="volume-control">
                 <span class="volume-icon">🔊</span>
                 <input
-                  type="range"
+                  type="range" aria-label="Volume"
                   min="0"
                   max="100"
                   [value]="videoVolume"

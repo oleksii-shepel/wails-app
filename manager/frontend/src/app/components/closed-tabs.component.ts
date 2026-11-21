@@ -17,6 +17,7 @@ import {
   WorkspaceService,
   type RecentlyClosedTab,
 } from '../services/workspace.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 @Component({
   selector: 'app-closed-tabs',
@@ -82,7 +83,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
         <footer class="palette-dialog-footer">
           <div class="palette-dialog-footer-actions">
             <button type="button" class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">
-              Clear
+              Clear Recovery List
             </button>
           </div>
           <div class="palette-dialog-footer-actions">
@@ -128,6 +129,7 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   constructor(
     readonly workspaces: WorkspaceService,
     private readonly cdr: ChangeDetectorRef,
+    private readonly confirm: ConfirmDialogService,
   ) {}
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -201,8 +203,16 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
     }
   }
 
-  clear(): void {
-    this.workspaces.clearRecentlyClosedTabs();
+  async clear(): Promise<void> {
+    const workspaceId = this.entries[0]?.workspaceId;
+    if (!workspaceId) return;
+    const confirmed = await this.confirm.confirm({
+      title: 'Clear Recently Closed Tabs',
+      message: 'Remove all recoverable tabs for this workspace, including tabs outside the current filter?',
+      confirmText: 'Clear',
+    });
+    if (!confirmed) return;
+    this.workspaces.clearRecentlyClosedTabs(workspaceId);
     this.cdr.markForCheck();
   }
 

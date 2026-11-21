@@ -15,6 +15,7 @@ import type { SpecialFolder } from '../shared/protocol';
 
 import { discoveryScore } from './discovery';
 import { rankNavigationCandidates } from '../services/navigation-intelligence';
+import { locationIdentity, locationLabel } from '../services/location-reference';
 
 export interface QuickAccessTarget {
   path: string;
@@ -474,11 +475,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   }
 
   private locationKey(path: string): string {
-    return (path ?? '')
-      .trim()
-      .replace(/\\/g, '/')
-      .replace(/\/+$/, '')
-      .toLocaleLowerCase();
+    return locationIdentity(path);
   }
 
   private moveItem(delta:-1|1):void{const count=this.activeItems.length;if(!count)return;this.itemIndex=(this.itemIndex+delta+count)%count;this.cdr.markForCheck()}

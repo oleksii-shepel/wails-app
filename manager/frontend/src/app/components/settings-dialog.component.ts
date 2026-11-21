@@ -529,8 +529,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-highlight-current-line-label">Highlight current line</span><small id="settings-highlight-current-line-help">Applies a subtle background tint to the line containing the cursor.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.occurrencesHighlight" (ngModelChange)="onSettingChanged()" />
-                    <span>Highlight all occurrences<small>When a word is selected, highlights all other matching occurrences in the file.</small></span>
+                    <input aria-labelledby="settings-occurrences-highlight-label" aria-describedby="settings-occurrences-highlight-help" type="checkbox" [(ngModel)]="draft.editor.occurrencesHighlight" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-occurrences-highlight-label">Highlight all occurrences</span><small id="settings-occurrences-highlight-help">When a word is selected, highlights all other matching occurrences in the file.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.minimap" (ngModelChange)="onSettingChanged()" />

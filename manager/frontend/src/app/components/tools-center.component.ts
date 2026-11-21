@@ -92,7 +92,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <strong>Tools</strong>
             <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ rootPath }}</span>
           </div>
-          <button type="button" class="palette-dialog-button" (click)="close()">Close</button>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()">×</button>
         </header>
 
         <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages" (keydown)="onTabKey($event)">

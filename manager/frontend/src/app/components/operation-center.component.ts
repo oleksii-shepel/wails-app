@@ -32,6 +32,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
             <button *ngFor="let item of filterItems"
                     type="button"
                     [class.active]="filter === item.id"
+                    [attr.aria-pressed]="filter === item.id"
                     (click)="filter = item.id">
               {{ item.label }}
             </button>

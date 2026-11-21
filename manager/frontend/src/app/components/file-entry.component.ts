@@ -145,6 +145,7 @@ function truncateFileName(name: string, maxLength: number): string {
         *ngIf="isRenaming"
         #renameInput
         class="rename-input"
+        aria-label="New name"
         [value]="editingName"
         (click)="$event.stopPropagation()"
         (dblclick)="$event.stopPropagation()"

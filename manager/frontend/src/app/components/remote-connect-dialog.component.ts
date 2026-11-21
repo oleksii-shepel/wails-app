@@ -341,7 +341,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       <span>{{ selectedProtocol.oauthClientLabel || 'Client ID' }}</span>
                       <input
                         type="text"
-                        name="remote-client-id"
+                        name="remote-client-id" autocapitalize="none" spellcheck="false"
                         [(ngModel)]="form.clientId"
                         (ngModelChange)="onOAuthInputChange()"
                         placeholder="Paste the provider client ID"

@@ -59,7 +59,7 @@ function extLower(path: string): string {
 
           <span class="viewer-divider" *ngIf="sourceAvailable"></span>
 
-          <button type="button" (click)="toggleFullscreen()" title="Fullscreen">⛶</button>
+          <button type="button" (click)="toggleFullscreen()" aria-label="Toggle viewer fullscreen" title="Fullscreen">⛶</button>
           <button
             type="button"
             [disabled]="!!archiveContext"

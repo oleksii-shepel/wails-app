@@ -208,7 +208,7 @@ export interface QuickAccessItem {
             <button
               *ngFor="let item of activeSection.items; let iIdx = index"
               class="ab-drop-item qa-item"
-              [class.ab-drop-item--active]="item.path === currentPath"
+              [class.ab-drop-item--active]="item.path === currentPath" [attr.aria-current]="item.path === currentPath ? 'location' : null"
               [class.qa-item--highlighted]="isHighlighted(iIdx)"
               role="menuitem"
               (click)="selectItem(activeTabIdx, iIdx)"

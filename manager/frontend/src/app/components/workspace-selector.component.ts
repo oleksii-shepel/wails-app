@@ -48,7 +48,7 @@ import { InputEngineService } from '../services/input-engine.service';
           (focus)="setSelectedIndex(i)"
           (mouseenter)="setSelectedIndex(i)"
           (click)="onSelect(workspace)">
-          <span class="ws-item-icon">{{ workspace.icon }}</span>
+          <span class="ws-item-icon" aria-hidden="true">{{ workspace.icon }}</span>
           <span class="ws-item-name">{{ workspace.name }}</span>
           <svg *ngIf="workspace.id === activeWorkspace?.id"
             class="ws-item-check" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">

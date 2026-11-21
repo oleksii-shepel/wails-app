@@ -74,12 +74,12 @@ type RecursiveCompareFilter = 'different' | 'only-left' | 'only-right' | 'modifi
             }
 
             <div class="filter-bar">
-              <div class="filter-tabs" role="tablist" aria-label="Filter recursive differences">
-                <button type="button" role="tab" [attr.aria-selected]="filter === 'different'" [class.active]="filter === 'different'" (click)="filter = 'different'">Differences ({{ summary.different }})</button>
-                <button type="button" role="tab" [attr.aria-selected]="filter === 'only-left'" [class.active]="filter === 'only-left'" (click)="filter = 'only-left'">Left Only ({{ summary.onlyLeft }})</button>
-                <button type="button" role="tab" [attr.aria-selected]="filter === 'only-right'" [class.active]="filter === 'only-right'" (click)="filter = 'only-right'">Right Only ({{ summary.onlyRight }})</button>
-                <button type="button" role="tab" [attr.aria-selected]="filter === 'modified'" [class.active]="filter === 'modified'" (click)="filter = 'modified'">Modified ({{ summary.different - summary.onlyLeft - summary.onlyRight }})</button>
-                <button type="button" role="tab" [attr.aria-selected]="filter === 'all'" [class.active]="filter === 'all'" (click)="filter = 'all'">All ({{ summary.total }})</button>
+              <div class="filter-tabs" role="group" aria-label="Filter recursive differences">
+                <button type="button" [attr.aria-pressed]="filter === 'different'" [class.active]="filter === 'different'" (click)="filter = 'different'">Differences ({{ summary.different }})</button>
+                <button type="button" [attr.aria-pressed]="filter === 'only-left'" [class.active]="filter === 'only-left'" (click)="filter = 'only-left'">Left Only ({{ summary.onlyLeft }})</button>
+                <button type="button" [attr.aria-pressed]="filter === 'only-right'" [class.active]="filter === 'only-right'" (click)="filter = 'only-right'">Right Only ({{ summary.onlyRight }})</button>
+                <button type="button" [attr.aria-pressed]="filter === 'modified'" [class.active]="filter === 'modified'" (click)="filter = 'modified'">Modified ({{ summary.different - summary.onlyLeft - summary.onlyRight }})</button>
+                <button type="button" [attr.aria-pressed]="filter === 'all'" [class.active]="filter === 'all'" (click)="filter = 'all'">All ({{ summary.total }})</button>
               </div>
               <input
                 type="search"

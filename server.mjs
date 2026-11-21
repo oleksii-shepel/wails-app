@@ -30,6 +30,15 @@ if (!fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
 }
 
 const app = express();
+const previewHosts = new Set(
+  ['127.0.0.1', 'localhost'].map(host => PORT === 80 ? host : `${host}:${PORT}`),
+);
+app.use((req, res, next) => {
+  if (!previewHosts.has(req.headers.host?.toLowerCase())) {
+    return res.status(403).json({ error: 'Open the preview using its local address.' });
+  }
+  next();
+});
 app.use(express.json({ limit: '100mb' }));
 
 const defaultWorkspace = {

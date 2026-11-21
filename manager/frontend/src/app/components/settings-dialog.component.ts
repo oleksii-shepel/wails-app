@@ -564,14 +564,14 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     </label>
                   </div>
                   <label class="field">
-                    <span>Render Whitespace</span>
-                    <select [(ngModel)]="draft.editor.renderWhitespace" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-render-whitespace-label">Render Whitespace</span>
+                    <select aria-labelledby="settings-render-whitespace-label" aria-describedby="settings-render-whitespace-help" [(ngModel)]="draft.editor.renderWhitespace" (ngModelChange)="onSettingChanged()">
                       <option value="none">None</option>
                       <option value="boundary">Boundary</option>
                       <option value="selection">Selection only</option>
                       <option value="all">All</option>
                     </select>
-                    <small>Controls when space and tab characters are shown as visible glyphs.</small>
+                    <small id="settings-render-whitespace-help">Controls when space and tab characters are shown as visible glyphs.</small>
                   </label>
                 </div>
               </section>

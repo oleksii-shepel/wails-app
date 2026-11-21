@@ -631,8 +631,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-thumbnails-enabled-label">Show image thumbnails</span><small id="settings-thumbnails-enabled-help">Renders previews for image files. May slow down folder loading for large directories.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.foldersFirst" (ngModelChange)="onSettingChanged()" />
-                    <span>Sort folders before files<small>Keeps directories at the top of the file list regardless of the active sort column.</small></span>
+                    <input aria-labelledby="settings-folders-first-label" aria-describedby="settings-folders-first-help" type="checkbox" [(ngModel)]="draft.view.foldersFirst" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-folders-first-label">Sort folders before files</span><small id="settings-folders-first-help">Keeps directories at the top of the file list regardless of the active sort column.</small></span>
                   </label>
                   <label class="field">
                     <span>View Mode</span>

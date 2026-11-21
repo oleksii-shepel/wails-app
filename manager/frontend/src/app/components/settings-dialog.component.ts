@@ -592,8 +592,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-animations-enabled-label">Enable animations</span><small id="settings-animations-enabled-help">Smooth transitions for panel openings, dialog entries, and list updates.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.showTabBar" (ngModelChange)="onSettingChanged()" />
-                    <span>Show tab bar<small>Displays the tab strip above the file pane for switching between open locations.</small></span>
+                    <input aria-labelledby="settings-show-tab-bar-label" aria-describedby="settings-show-tab-bar-help" type="checkbox" [(ngModel)]="draft.view.showTabBar" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-show-tab-bar-label">Show tab bar</span><small id="settings-show-tab-bar-help">Displays the tab strip above the file pane for switching between open locations.</small></span>
                   </label>
                   <label class="field" *ngIf="draft.view.showTabBar">
                     <span>Tab Position</span>

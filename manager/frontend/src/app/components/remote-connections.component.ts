@@ -32,7 +32,7 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
   <select class="palette-dialog-field" aria-label="Connection access" [value]="accessFilter" (change)="onAccessFilter($event)">
     <option value="all">Any access</option><option value="read-only">Read only</option><option value="writable">Writable</option>
   </select>
-  <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = ''; selectedIndex = 0">Clear filter</button>
+  <button type="button" class="palette-dialog-button" [disabled]="!query && accessFilter === 'all'" (click)="resetFilters()">Reset filters</button>
 </div>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
 @let matching = matchingMounts;
@@ -82,6 +82,12 @@ openSelectedFromFilter(event: Event): void {
   event.stopPropagation();
   this.openSelected();
 }
+resetFilters(): void {
+  this.query = '';
+  this.accessFilter = 'all';
+  this.selectedIndex = 0;
+  this.copyNotice = '';
+}
 onAccessFilter(event: Event): void {
   const value = (event.target as HTMLSelectElement).value;
   this.accessFilter = value === 'read-only' || value === 'writable' ? value : 'all';
@@ -109,7 +115,7 @@ ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priorit
       this.cdr.markForCheck();
     })}
 ngOnDestroy():void{this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);for(const b of BINDINGS)this.input.unregisterBinding(b.id);for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);this.destroy$.next();this.destroy$.complete()}
-open():void{if(!this.visible){this.copyNotice='';this.query='';this.selectedIndex=0;}this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);if(this.modalStack&&this.hostElement&&!this.unregisterModal){this.unregisterModal=this.modalStack.register({id:'remote-connections',element:this.hostElement.nativeElement,contextId:CONTEXT_ID,dismiss:()=>this.close(),dismissible:()=>this.renderVisible&&!this.isClosing});}this.cdr.markForCheck();void this.refresh()}
+open():void{if(!this.visible)this.resetFilters();this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);if(this.modalStack&&this.hostElement&&!this.unregisterModal){this.unregisterModal=this.modalStack.register({id:'remote-connections',element:this.hostElement.nativeElement,contextId:CONTEXT_ID,dismiss:()=>this.close(),dismissible:()=>this.renderVisible&&!this.isClosing});}this.cdr.markForCheck();void this.refresh()}
 close():void{if(!this.renderVisible||this.isClosing)return;this.visible=false;this.isClosing=true;this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);this.cdr.markForCheck()}
 async copySelectedLocation(): Promise<void> {
   const mount = this.selectedMount;

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnDestroy, OnInit, Output } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, OnDestroy, OnInit, Output, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { writeClipboardText } from '../utils/clipboard-text';
 import { FormsModule } from '@angular/forms';
@@ -67,7 +67,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
         tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title"><strong>Quick Access</strong><span class="palette-dialog-subtitle" role="status">{{ loading ? 'Loading locations' : totalItems + ' locations' }}</span></div>
-          <input type="search" class="palette-dialog-field" [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
+          <input #quickSearch type="search" class="palette-dialog-field" [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
           <button type="button" class="palette-dialog-button" [disabled]="!filterText" (click)="filterText = ''; resetSelection()">Clear filter</button>
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close (Esc)" (click)="close()"> × </button>
@@ -143,6 +143,11 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   sections: QuickSection[] = [];
   sectionIndex = 0;
   itemIndex = 0;
+  @ViewChild('quickSearch') set quickSearch(field: ElementRef<HTMLInputElement> | undefined) {
+    const element = field?.nativeElement;
+    if (element) queueMicrotask(() => { if (this.visible && element.isConnected) element.focus(); });
+  }
+
   private pins: PinnedLocation[] = [];
   private loadRevision = 0;
   private readonly modalStack = tryInjectModalStack();

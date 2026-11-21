@@ -5,7 +5,7 @@
   "frontend:install": "npm ci --prefix ../..",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
-  "frontend:devServerUrl": "http://localhost:3000",
+  "frontend:devServerUrl": "http://127.0.0.1:3000",
   "frontend:dir": "frontend",
   "author": {
     "name": "epikodelabs",

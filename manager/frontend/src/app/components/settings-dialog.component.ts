@@ -229,8 +229,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-confirm-on-close-label">Confirm before closing</span><small id="settings-confirm-on-close-help">Shows a confirmation dialog before the application window closes.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.general.reopenLastWorkspace" (ngModelChange)="onSettingChanged()" />
-                    <span>Reopen last workspace on launch<small>Automatically activates the most recently used workspace when the app starts.</small></span>
+                    <input aria-labelledby="settings-reopen-last-workspace-label" aria-describedby="settings-reopen-last-workspace-help" type="checkbox" [(ngModel)]="draft.general.reopenLastWorkspace" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-reopen-last-workspace-label">Reopen last workspace on launch</span><small id="settings-reopen-last-workspace-help">Automatically activates the most recently used workspace when the app starts.</small></span>
                   </label>
                   <p class="section-note">Background tray mode is not available in the current desktop shell, so closing the window either confirms and exits or exits immediately.</p>
                 </div>

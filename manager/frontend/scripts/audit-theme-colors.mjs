@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../src/', import.meta.url));
 const themeFile = join(root, 'vscode-theme.scss');
 const extensions = new Set(['.ts', '.scss', '.css', '.html']);
+// Spec files assert on styles; they are test fixtures, not presentation code.
+const excluded = /(^|[\\/])[^\\/]*\.spec\.ts$/;
 const rawColor = /(?<![\w-])(#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\))/g;
 const namedColor = /(?:color|background|border(?:-color)?|fill|stroke|shadow)[^;\n]*:\s*(white|black|red|green|blue|yellow|orange|purple|gray|grey)(?=[; ,}\)])/gi;
 const variableRef = /var\((--[\w-]+)/g;
@@ -17,7 +19,7 @@ function filesUnder(directory) {
     const path = join(directory, name);
     const stat = statSync(path);
     if (stat.isDirectory()) result.push(...filesUnder(path));
-    else if (extensions.has(extname(path))) result.push(path);
+    else if (extensions.has(extname(path)) && !excluded.test(path)) result.push(path);
   }
   return result;
 }

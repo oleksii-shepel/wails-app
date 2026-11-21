@@ -63,7 +63,7 @@ interface AudioTagRow {
 
         <!-- empty -->
         <div *ngIf="kind === 'empty'" class="state-container">
-          <div class="state-icon-wrap">
+          <div class="state-icon-wrap" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="4"/><path d="M16 8V4l5-2v4l-5 2z"/>
             </svg>
@@ -73,7 +73,7 @@ interface AudioTagRow {
 
         <!-- directory -->
         <div *ngIf="kind === 'directory'" class="state-container">
-          <div class="state-icon-wrap state-icon-folder">
+          <div class="state-icon-wrap state-icon-folder" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
@@ -83,7 +83,7 @@ interface AudioTagRow {
 
         <!-- unsupported -->
         <div *ngIf="kind === 'unsupported'" class="state-container">
-          <div class="state-icon-wrap state-icon-warn">
+          <div class="state-icon-wrap state-icon-warn" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
@@ -94,7 +94,7 @@ interface AudioTagRow {
 
         <!-- error -->
         <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
-          <div class="state-icon-wrap state-icon-error">
+          <div class="state-icon-wrap state-icon-error" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
               <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>

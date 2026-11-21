@@ -131,7 +131,7 @@ const HOST_COMMAND_OPTIONS: readonly HostCommandOption[] = [
       <div *ngIf="error" class="plugins-banner error" role="alert">{{ error }}</div>
       <div *ngIf="pluginDirectory" class="plugins-directory" title="Plugin directory">{{ pluginDirectory }}</div>
 
-      <div *ngIf="!refreshing && snapshots.length === 0" class="plugins-empty">
+      <div *ngIf="!refreshing && snapshots.length === 0" class="plugins-empty" role="status">
         <strong>No plugin packages discovered.</strong>
         <span>Place manifest-based packages in the plugin folder, then refresh.</span>
       </div>

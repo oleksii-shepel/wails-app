@@ -255,7 +255,7 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
 
         <div
           *ngIf="text(surface, 'error')"
-          class="surface-error"
+          class="surface-error" role="alert"
           role="alert">
           {{ text(surface, 'error') }}
         </div>

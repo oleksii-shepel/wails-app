@@ -104,7 +104,10 @@ interface DetailsRowVm {
             [class.sortable]="col.column.sortable"
             role="columnheader"
             [attr.aria-sort]="getSortState(col.column.field)"
-            (click)="col.column.sortable && onSort(col.column.field)">
+            [attr.tabindex]="col.column.sortable ? 0 : undefined"
+            (click)="col.column.sortable && onSort(col.column.field)"
+            (keydown.enter)="col.column.sortable && onSort(col.column.field)"
+            (keydown.space)="$event.preventDefault(); col.column.sortable && onSort(col.column.field)">
             <span class="header-label">{{ col.column.header }}</span>
             <span class="sort-indicator" *ngIf="sortField === col.column.field"
                   [class.sort-asc]="sortDirection === 'asc'"
@@ -316,6 +319,11 @@ interface DetailsRowVm {
 
     .header-column.sortable {
       cursor: pointer;
+    }
+
+    .header-column.sortable:focus-visible {
+      outline: 1px solid var(--vsc-input-focus-border);
+      outline-offset: -1px;
     }
 
     /* Legacy Details used a short delimiter inside the resize hit target, not

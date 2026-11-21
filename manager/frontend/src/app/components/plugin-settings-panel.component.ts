@@ -180,7 +180,7 @@ const HOST_COMMAND_OPTIONS: readonly HostCommandOption[] = [
           <strong>Manifest errors</strong>
           <ul><li *ngFor="let message of snapshot.plugin.discovered.errors">{{ message }}</li></ul>
         </div>
-        <div *ngIf="snapshot.plugin.discovered.warnings.length" class="plugin-messages warning">
+        <div *ngIf="snapshot.plugin.discovered.warnings.length" class="plugin-messages warning" role="status">
           <strong>Warnings</strong>
           <ul><li *ngFor="let message of snapshot.plugin.discovered.warnings">{{ message }}</li></ul>
         </div>

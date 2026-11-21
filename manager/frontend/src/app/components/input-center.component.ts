@@ -83,7 +83,7 @@ import type {
         </div>
 
         <div class="content" [class.empty-content]="visibleBindings.length === 0">
-          <div class="empty-state" *ngIf="visibleBindings.length === 0">
+          <div class="empty-state" *ngIf="visibleBindings.length === 0" role="status">
             <ng-container *ngIf="conflictsOnly && conflicts.length === 0; else noBindingMatches">
               <strong>No shortcut conflicts</strong>
               <span>All currently registered bindings resolve without an actionable conflict.</span>

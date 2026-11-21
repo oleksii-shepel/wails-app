@@ -289,6 +289,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <span>{{ duplicateResult.groups.length }} groups</span>
             <span>{{ duplicateResult.scannedFiles }} files</span>
             <span>{{ formatBytes(duplicateResult.reclaimableBytes) }} reclaimable</span>
+            <span>{{ duplicateSelected.size }} selected</span>
           </div>
 
           <section class="duplicate-group" *ngFor="let group of duplicateGroups; trackBy:trackGroup">

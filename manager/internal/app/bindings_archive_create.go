@@ -26,6 +26,11 @@ func (a *App) CreateZipArchive(paths []string, destination string) (*contracts.O
 	if err != nil {
 		return nil, fmt.Errorf("create zip: resolve destination: %w", err)
 	}
+	if _, err := os.Lstat(resolvedDestination); err == nil {
+		return nil, fmt.Errorf("create zip: destination already exists: %w", os.ErrExist)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("create zip: inspect destination: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(resolvedDestination), 0755); err != nil {
 		return nil, fmt.Errorf("create zip: prepare destination: %w", err)
 	}

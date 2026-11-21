@@ -44,7 +44,7 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
 
       <div class="viewer-body">
         <div *ngIf="kind === 'empty'" class="state-container">
-          <div class="state-icon">🔍</div>
+          <div class="state-icon" aria-hidden="true">🔍</div>
           <div class="state-label">Select a file to preview</div>
         </div>
 
@@ -59,14 +59,14 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
         </div>
 
         <div *ngIf="kind === 'unsupported'" class="state-container state-error">
-          <div class="state-icon">⛔</div>
+          <div class="state-icon" aria-hidden="true">⛔</div>
           <div class="state-label">Unsupported document format</div>
           <div class="error-detail" *ngIf="fileExt">.{{ fileExt }}</div>
           <div class="state-sub">Supported formats: .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .odt, .ods, .odp, .rtf, .epub, .djvu, .djv</div>
         </div>
 
         <div *ngIf="kind === 'unavailable'" class="state-container state-error">
-          <div class="state-icon">⚠️</div>
+          <div class="state-icon" aria-hidden="true">⚠️</div>
           <div class="state-label">Converter not available</div>
           <div class="error-detail">{{ error }}</div>
           <div class="state-sub">
@@ -80,14 +80,14 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
         </div>
 
         <div *ngIf="kind === 'plugin-required'" class="state-container state-error">
-          <div class="state-icon">⚠️</div>
+          <div class="state-icon" aria-hidden="true">⚠️</div>
           <div class="state-label">Office Renderer plugin required</div>
           <div class="error-detail">{{ error }}</div>
           <div class="state-sub">Enable the Office Document Renderer plugin in Settings, then reopen this document.</div>
         </div>
 
         <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
-          <div class="state-icon">❌</div>
+          <div class="state-icon" aria-hidden="true">❌</div>
           <div class="state-label">Failed to convert document</div>
           <div class="error-detail">{{ error }}</div>
           <div class="state-sub">Check that the file is a valid Office document and is not corrupted</div>

@@ -144,6 +144,7 @@ func (f *FileOperator) DeleteDir(path string) error {
 		return nil
 	})
 
+	var removeErr error
 	for _, file := range files {
 		if f.isCancelled != nil && f.isCancelled() {
 			return fmt.Errorf("operation cancelled")
@@ -152,11 +153,18 @@ func (f *FileOperator) DeleteDir(path string) error {
 		if info, err := os.Stat(file); err == nil {
 			size = info.Size()
 		}
-		os.Remove(file)
+		if err := os.Remove(file); err != nil && removeErr == nil {
+			removeErr = err
+		}
 		f.progress.Advance(1, size, filepath.Base(file), size, false)
 	}
 	for index := len(dirs) - 1; index >= 0; index-- {
-		os.Remove(dirs[index])
+		if err := os.Remove(dirs[index]); err != nil && removeErr == nil {
+			removeErr = err
+		}
+	}
+	if removeErr != nil {
+		return removeErr
 	}
 	return os.Remove(path)
 }
@@ -184,7 +192,10 @@ func pathAvailable(path string) bool {
 func walkDirOrdered(root string, visit func(path string, isDir bool, size int64) error) error {
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			// Propagate traversal failures: silently skipping unreadable
+			// subtrees made copies and deletes report success while files
+			// were left behind.
+			return err
 		}
 		return visit(path, info.IsDir(), info.Size())
 	})

@@ -1169,7 +1169,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   trackOperation(_index:number, item:OperationState):string { return item.id; }
   trackDisk(_index:number, item:DiskUsageEntry):string { return item.path; }
-  trackGroup(_index:number, item:DuplicateGroup):string { return item.hash; }
+  trackGroup(_index: number, item: DuplicateGroup): string { return `${item.size}:${item.hash}`; }
 
   formatBytes(bytes:number):string {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';

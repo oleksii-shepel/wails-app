@@ -38,6 +38,8 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
                 #nameInput
                 type="text"
                 [value]="draftValue"
+                [attr.aria-invalid]="!!validationError"
+                [attr.aria-describedby]="validationError ? 'archive-name-error' : 'archive-name-hint'"
                 (input)="onDraftInput($event)"
                 (keydown.enter)="submit()"
                 (keydown.escape)="dialogs.close()"
@@ -51,7 +53,8 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
               <button type="button" class="preset-btn" (click)="applyDatedPreset()">+ Date stamp</button>
             </div>
 
-            <div *ngIf="validationError" class="validation-note" role="alert">
+            <small id="archive-name-hint">A .zip extension is added if needed.</small>
+            <div *ngIf="validationError" id="archive-name-error" class="validation-note" role="alert">
               {{ validationError }}
             </div>
 

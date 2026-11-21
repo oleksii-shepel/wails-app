@@ -85,7 +85,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
               <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
               <span class="glyph">{{ item.icon }}</span>
             </span>
-            <span class="details"><strong>{{ item.label }}</strong><small>{{ item.path }}</small></span>
+            <span class="details"><strong>{{ item.label }}</strong><small [title]="item.path">{{ item.path }}</small></span>
             <span class="meta">{{ item.meta || item.kind }}</span>
           </button>
           <div class="empty" *ngIf="activeItems.length === 0" role="status">No matching locations.</div>

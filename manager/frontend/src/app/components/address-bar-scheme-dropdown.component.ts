@@ -23,11 +23,11 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
         <span class="ab-badge">{{ schemes.length }}</span>
       </div>
 
-      <div class="ab-drop-loading" *ngIf="loading">
+      <div class="ab-drop-loading" role="status" *ngIf="loading">
         <span class="ab-spinner"></span>Loading schemes...
       </div>
 
-      <div class="ab-drop-empty" *ngIf="!loading && schemes.length === 0">
+      <div class="ab-drop-empty" role="status" *ngIf="!loading && schemes.length === 0">
         <span class="ab-drop-empty-icon">💽</span>
         <span>No schemes found</span>
       </div>

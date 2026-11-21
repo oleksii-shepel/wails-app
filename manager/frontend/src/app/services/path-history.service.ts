@@ -290,7 +290,7 @@ export class PathHistoryService {
   }
 
   private sortedHistory(compare: (a: LocationHistoryEntry, b: LocationHistoryEntry) => number): LocationHistoryEntry[] {
-    return Array.from(this.history.values()).sort(compare);
+    return Array.from(this.history.values()).sort(compare).map(entry => ({ ...entry }));
   }
 
   clearHistory(): void {

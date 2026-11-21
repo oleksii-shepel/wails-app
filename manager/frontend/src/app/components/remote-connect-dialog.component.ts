@@ -443,7 +443,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                 </button>
               </div>
 
-              <div *ngIf="connections.length === 0" class="empty-state">
+              <div *ngIf="connections.length === 0" class="empty-state" role="status">
                 No remote mounts are active in this session.
               </div>
 

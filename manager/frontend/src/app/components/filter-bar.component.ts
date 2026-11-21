@@ -53,7 +53,7 @@ import {
         [class.fb-btn--open]="showCategoryDropdown"
         [class.fb-btn--active]="selectedPresets.length > 0"
         (click)="toggleCategoryDropdown()"
-        aria-label="Open advanced filters" title="Filter by type, size, date…"
+        aria-label="Open advanced filters" [attr.aria-expanded]="showCategoryDropdown" title="Filter by type, size, date…"
       >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="fb-icon">
           <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>

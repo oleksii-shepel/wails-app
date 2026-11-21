@@ -60,25 +60,25 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       <!-- Toolbar -->
       <div class="viewer-toolbar" *ngIf="hasToolbar">
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
-          <button type="button" class="tool-btn" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
+          <button type="button" class="tool-btn" (click)="zoomOut()" aria-label="Zoom out" title="Zoom out">&#x2212;</button>
           <span class="zoom-label">{{ zoomLabel }}</span>
           <button type="button" class="tool-btn" (click)="zoomIn()" aria-label="Zoom in" title="Zoom in">+</button>
-          <button type="button" class="tool-btn" (click)="resetZoom()" title="Fit to window">Fit</button>
-          <button type="button" class="tool-btn" (click)="zoom100()" title="Actual size">1:1</button>
+          <button type="button" class="tool-btn" (click)="resetZoom()" aria-label="Fit to window" title="Fit to window">Fit</button>
+          <button type="button" class="tool-btn" (click)="zoom100()" aria-label="Actual size (1:1)" title="Actual size">1:1</button>
           <span class="toolbar-divider"></span>
           <button type="button" class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard" [attr.aria-pressed]="showCheckerboard"
-                  title="Toggle transparency grid">Grid</button>
+                  aria-label="Transparency grid" title="Toggle transparency grid">Grid</button>
         </ng-container>
           <ng-container *ngIf="isMarkupKind">
             <button type="button" class="tool-btn" (click)="setMarkupViewMode('rendered')" [class.active]="markupViewMode === 'rendered'" [attr.aria-pressed]="markupViewMode === 'rendered'"
-              title="Rendered preview">Preview</button>
+              aria-label="Rendered preview" title="Rendered preview">Preview</button>
             <button type="button" class="tool-btn" (click)="setMarkupViewMode('source')" [class.active]="markupViewMode === 'source'" [attr.aria-pressed]="markupViewMode === 'source'"
-              title="Source view">Source</button>
+              aria-label="Source view" title="Source view">Source</button>
             <span class="toolbar-divider"></span>
           </ng-container>
           <ng-container *ngIf="kind === 'text' || kind === 'json' || kind === 'markdown' || kind === 'html'">
           <button type="button" class="tool-btn" (click)="toggleWrap()" [class.active]="wordWrap" [attr.aria-pressed]="wordWrap"
-                  title="Toggle word wrap">Wrap</button>
+                  aria-label="Word wrap" title="Toggle word wrap">Wrap</button>
         </ng-container>
       </div>
 

@@ -43,7 +43,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
             </select>
           </label>
           <input class="filter" type="search" placeholder="Filter groups…" aria-label="Filter duplicate groups" [(ngModel)]="filterText" [disabled]="scanning">
-          <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Redundant</button>
+          <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Matching Copies</button>
           <button (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
           <button (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
           <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning">Delete {{ selected.size }}</button>
@@ -168,7 +168,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
   }
 
   selectSuggested(): void {
-    this.selected = new Set(this.finder.redundantPaths(this.result?.groups ?? [], this.keeperPolicy));
+    this.selected = new Set(this.finder.redundantPaths(this.visibleGroups, this.keeperPolicy));
     this.cdr.markForCheck();
   }
 

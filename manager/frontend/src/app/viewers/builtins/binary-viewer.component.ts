@@ -46,17 +46,17 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
 
         <span class="toolbar-label">Width</span>
         <div class="seg-group">
-          <button class="seg-btn" type="button" [class.active]="bytesPerRow === 8"  (click)="setBytesPerRow(8)">8</button>
-          <button class="seg-btn" type="button" [class.active]="bytesPerRow === 16" (click)="setBytesPerRow(16)">16</button>
-          <button class="seg-btn" type="button" [class.active]="bytesPerRow === 32" (click)="setBytesPerRow(32)">32</button>
+          <button class="seg-btn" type="button" [class.active]="bytesPerRow === 8" [attr.aria-pressed]="bytesPerRow === 8"  (click)="setBytesPerRow(8)">8</button>
+          <button class="seg-btn" type="button" [class.active]="bytesPerRow === 16" [attr.aria-pressed]="bytesPerRow === 16" (click)="setBytesPerRow(16)">16</button>
+          <button class="seg-btn" type="button" [class.active]="bytesPerRow === 32" [attr.aria-pressed]="bytesPerRow === 32" (click)="setBytesPerRow(32)">32</button>
         </div>
 
         <span class="toolbar-divider"></span>
 
         <span class="toolbar-label">Offset</span>
         <div class="seg-group">
-          <button class="seg-btn" type="button" [class.active]="offsetFormat === 'hex'" (click)="setOffsetFormat('hex')">HEX</button>
-          <button class="seg-btn" type="button" [class.active]="offsetFormat === 'dec'" (click)="setOffsetFormat('dec')">DEC</button>
+          <button class="seg-btn" type="button" [class.active]="offsetFormat === 'hex'" [attr.aria-pressed]="offsetFormat === 'hex'" (click)="setOffsetFormat('hex')">HEX</button>
+          <button class="seg-btn" type="button" [class.active]="offsetFormat === 'dec'" [attr.aria-pressed]="offsetFormat === 'dec'" (click)="setOffsetFormat('dec')">DEC</button>
         </div>
 
         <span class="toolbar-divider"></span>

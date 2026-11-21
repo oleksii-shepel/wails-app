@@ -89,7 +89,7 @@ const PIE_PREFETCH_LIMIT = 5;
       <div class="sm-header-actions">
         <button type="button" class="sm-btn sm-btn--icon" [disabled]="!canGoBack" (click)="goBack()" title="Back" aria-label="Back">←</button>
         <button type="button" class="sm-btn sm-btn--icon" [disabled]="!canGoForward" (click)="goForward()" title="Forward" aria-label="Forward">→</button>
-        <button type="button" class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
+        <button type="button" class="sm-btn" [disabled]="!parentPath" (click)="goUp()" aria-label="Go to parent folder" title="Go to parent">↑ Parent</button>
         <button type="button" class="sm-btn" (click)="refresh()">↺ Refresh</button>
         <button type="button" class="dialog-close" (click)="close()" title="Close" aria-label="Close tab"> × </button>
       </div>

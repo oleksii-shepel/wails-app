@@ -296,8 +296,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-show-hidden-files-label">Show hidden files</span><small id="settings-show-hidden-files-help">Displays files and folders whose names start with a dot or have the hidden attribute set.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.showFileExtensions" (ngModelChange)="onSettingChanged()" />
-                    <span>Show file extensions<small>Appends the extension (.txt, .jpg …) to every filename in the list.</small></span>
+                    <input aria-labelledby="settings-show-file-extensions-label" aria-describedby="settings-show-file-extensions-help" type="checkbox" [(ngModel)]="draft.files.showFileExtensions" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-show-file-extensions-label">Show file extensions</span><small id="settings-show-file-extensions-help">Appends the extension (.txt, .jpg …) to every filename in the list.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.sortFoldersFirst" (ngModelChange)="onSettingChanged()" />

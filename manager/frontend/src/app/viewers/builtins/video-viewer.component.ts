@@ -157,7 +157,7 @@ interface VideoNavItem {
             </div>
 
             <div class="controls-row">
-              <button class="control-btn play-pause-btn" [disabled]="!videoReady" (click)="videoPlayPause()"
+              <button type="button" class="control-btn play-pause-btn" [disabled]="!videoReady" (click)="videoPlayPause()"
                       [attr.aria-label]="videoIsPlaying ? 'Pause' : 'Play'">
                 <span class="icon">{{ videoIsPlaying ? '⏸' : '▶' }}</span>
               </button>

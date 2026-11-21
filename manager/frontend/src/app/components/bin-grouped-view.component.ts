@@ -84,7 +84,7 @@ type BinFileInfo = FileInfo & {
       </div>
 
       <div *ngIf="afterPx > 0" class="virtual-spacer" [style.height.px]="afterPx" aria-hidden="true"></div>
-      <div class="empty" *ngIf="!loading && entries.length === 0">Recycle Bin is empty.</div>
+      <div class="empty" *ngIf="!loading && entries.length === 0" role="status">Recycle Bin is empty.</div>
     </div>
   `,
   styles: [`

@@ -537,8 +537,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-minimap-label">Show minimap</span><small id="settings-minimap-help">Displays a scaled-down overview of the file in the right scroll margin.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.smoothScrolling" (ngModelChange)="onSettingChanged()" />
-                    <span>Smooth scrolling<small>Animates scroll events for a more fluid experience in the editor.</small></span>
+                    <input aria-labelledby="settings-smooth-scrolling-label" aria-describedby="settings-smooth-scrolling-help" type="checkbox" [(ngModel)]="draft.editor.smoothScrolling" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-smooth-scrolling-label">Smooth scrolling</span><small id="settings-smooth-scrolling-help">Animates scroll events for a more fluid experience in the editor.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.bracketPairColorization" (ngModelChange)="onSettingChanged()" />

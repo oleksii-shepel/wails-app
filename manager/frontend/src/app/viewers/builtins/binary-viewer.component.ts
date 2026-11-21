@@ -593,7 +593,9 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
       const hex = row.cells.map(c => c.hex).join(' ');
       return `${row.offsetStr}  ${hex}  ${row.ascii}`;
     });
+    const load = this.loadId;
     const copied = await writeClipboardText(lines.join('\n')).then(() => true, () => false);
+    if (load !== this.loadId) return;
     if (!copied) {
       this.actionNotice = 'Clipboard unavailable.';
       this.cdr.markForCheck();

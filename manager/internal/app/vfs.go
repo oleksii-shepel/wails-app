@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
@@ -11,6 +12,7 @@ import (
 func (s *State) InitVFS() {
 	vfs, err := internalruntime.InitVFS()
 	if err != nil {
+		fmt.Printf("Warning: could not initialize virtual filesystem: %v\n", err)
 		return
 	}
 	s.vfs = vfs

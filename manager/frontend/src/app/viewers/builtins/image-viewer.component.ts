@@ -55,11 +55,11 @@ interface CarouselVirtualFrame {
           <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out" aria-label="Zoom out">&#x2212;</button>
           <span class="zoom-label">{{ zoomLabel }}</span>
           <button class="tool-btn" type="button" (click)="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
-          <button class="tool-btn" type="button" (click)="resetZoom()" title="Fit to window">Fit</button>
-          <button class="tool-btn" type="button" (click)="zoom100()" title="Actual size">1:1</button>
+          <button class="tool-btn" type="button" (click)="resetZoom()" aria-label="Fit to window" title="Fit to window">Fit</button>
+          <button class="tool-btn" type="button" (click)="zoom100()" aria-label="Actual size (1:1)" title="Actual size">1:1</button>
           <span class="toolbar-divider"></span>
           <button class="tool-btn" type="button" (click)="toggleCheckerboard()" [class.active]="showCheckerboard" [attr.aria-pressed]="showCheckerboard"
-                  title="Toggle transparency grid">Grid</button>
+                  aria-label="Transparency grid" title="Toggle transparency grid">Grid</button>
         </ng-container>
 
         <ng-container *ngIf="hasCarousel">

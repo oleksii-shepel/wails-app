@@ -124,7 +124,7 @@ import {
               <span class="fb-preset-name" (click)="applyPreset(p)">{{ p.name }}</span>
               <button type="button" class="fb-preset-delete" (click)="deletePreset(p)" aria-label="Delete saved filter preset" title="Delete">×</button>
             </div>
-            <div *ngIf="savedPresets.length === 0" class="fb-preset-empty">No saved presets</div>
+            <div *ngIf="savedPresets.length === 0" class="fb-preset-empty" role="status">No saved presets</div>
           </div>
         </div>
       </app-dropdown-container>

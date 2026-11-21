@@ -100,7 +100,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               · {{ folderCount }} folders · {{ fileCount }} files
             </ng-container>
           </span>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
           </div>
         </header>
 

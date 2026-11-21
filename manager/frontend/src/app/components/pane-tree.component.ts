@@ -122,7 +122,7 @@ export interface DropTarget {
               (click)="onTwistieClick($event, node)">
 
               <ng-container *ngIf="node.expandable">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <svg width="16" height="16" aria-hidden="true" viewBox="0 0 16 16" fill="none">
                   <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </ng-container>

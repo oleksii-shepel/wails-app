@@ -292,6 +292,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
 
   readonly request$: Stream<TrashDialogRequest | null> = this.dialog.mountedRequest$;
   loading = false;
+  private listingRevision = 0;
   error = '';
   entries: TrashEntry[] = [];
   selectedIds = new Set<string>();
@@ -351,6 +352,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
           return;
         }
 
+        this.listingRevision++;
         this.selectedIds = new Set();
         this.loading = false;
         this.error = '';
@@ -362,6 +364,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.listingRevision++;
     this.unregisterModal?.();
     this.unregisterModal = null;
     this.releaseDialogContext?.();
@@ -484,20 +487,25 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   }
 
   async reload(): Promise<void> {
+    const revision = ++this.listingRevision;
     this.loading = true;
     this.error = '';
     this.cdr.markForCheck();
     try {
-      this.entries = await this.api.listTrashEntries();
+      const entries = await this.api.listTrashEntries();
+      if (revision !== this.listingRevision) return;
+      this.entries = entries;
       const available = new Set(this.entries.map(entry => entry.id));
       this.selectedIds = new Set(
         [...this.selectedIds].filter(id => available.has(id)),
       );
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      if (revision === this.listingRevision) this.error = error instanceof Error ? error.message : String(error);
     } finally {
-      this.loading = false;
-      this.cdr.markForCheck();
+      if (revision === this.listingRevision) {
+        this.loading = false;
+        this.cdr.markForCheck();
+      }
     }
   }
 

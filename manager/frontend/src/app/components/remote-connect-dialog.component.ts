@@ -250,7 +250,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     <span>Bucket</span>
                     <input
                       type="text"
-                      name="remote-bucket"
+                      name="remote-bucket" autocapitalize="none" spellcheck="false"
                       [(ngModel)]="form.bucket"
                       (ngModelChange)="clearError()"
                       placeholder="bucket-name"

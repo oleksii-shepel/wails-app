@@ -183,7 +183,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
               <div class="br-preview-header">
                 <span>Preview · {{ changedCount }} of {{ preview.length }} will change</span>
                 <span *ngIf="conflictCount > 0" class="br-conflict-badge">
-                  {{ conflictCount }} conflict(s)
+                  {{ conflictCount }} {{ conflictCount === 1 ? 'item needs' : 'items need' }} attention
                 </span>
               </div>
               <div class="br-preview-list">
@@ -202,7 +202,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
                   </span>
                   <span class="br-preview-new" [title]="row.newName">{{ row.newName || '(empty)' }}</span>
                   <span class="br-preview-status" [class.conflict]="row.conflict" [class.changed]="row.changed && !row.conflict">
-                    {{ row.problem || (row.conflict ? 'Collision' : row.changed ? 'Will rename' : 'Unchanged') }}
+                    {{ row.problem || (row.conflict ? 'Duplicate destination name' : row.changed ? 'Will rename' : 'Unchanged') }}
                   </span>
                 </div>
               </div>

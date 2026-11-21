@@ -62,7 +62,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             </span>
           </button>
 
-          <div class="empty palette-dialog-empty" *ngIf="entries.length === 0">
+          <div class="empty palette-dialog-empty" *ngIf="entries.length === 0" role="status">
             No recently closed tabs in this workspace.
           </div>
 

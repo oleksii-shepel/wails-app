@@ -176,7 +176,7 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
         <button
           type="button"
           class="cancel"
-          title="Cancel (Escape)"
+          aria-label="Cancel address editing" title="Cancel (Escape)"
           (mousedown)="$event.preventDefault()"
           (click)="cancelEdit()">
           ×

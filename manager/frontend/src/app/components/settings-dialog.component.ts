@@ -517,8 +517,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Display</h4>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.showLineNumbers" (ngModelChange)="onSettingChanged()" />
-                    <span>Show line numbers<small>Renders line numbers in the left gutter of the editor.</small></span>
+                    <input aria-labelledby="settings-show-line-numbers-label" aria-describedby="settings-show-line-numbers-help" type="checkbox" [(ngModel)]="draft.editor.showLineNumbers" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-show-line-numbers-label">Show line numbers</span><small id="settings-show-line-numbers-help">Renders line numbers in the left gutter of the editor.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.codeFolding" (ngModelChange)="onSettingChanged()" />

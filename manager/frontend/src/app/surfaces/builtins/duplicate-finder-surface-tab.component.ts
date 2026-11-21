@@ -56,6 +56,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
       </div>
 
       <div class="empty" *ngIf="!scanning && result && result.groups.length === 0" role="status">No verified duplicates found.</div>
+      <div class="empty" *ngIf="!scanning && result && result.groups.length > 0 && visibleGroups.length === 0" role="status">No duplicate groups match this filter.</div>
 
       <section class="group" *ngFor="let group of visibleGroups; trackBy: trackGroup">
         <div class="group-head">

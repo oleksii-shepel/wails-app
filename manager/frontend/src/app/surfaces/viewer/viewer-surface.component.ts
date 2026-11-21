@@ -233,7 +233,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
               <div class="volume-control" title="Volume">
                 <span class="volume-icon">🔊</span>
                 <input 
-                  type="range" aria-label="Volume"
+                  type="range" aria-label="Volume" [attr.aria-valuetext]="videoVolume + '%'"
                   min="0" 
                   max="100"
                   [value]="videoVolume"

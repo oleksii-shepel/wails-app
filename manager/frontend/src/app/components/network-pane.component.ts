@@ -913,10 +913,10 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .status-row.status-error {
       background: color-mix(
         in srgb,
-        var(--vsc-error, #c42b1c) 7%,
-        var(--vsc-editor-background, #fff)
+        var(--vsc-error) 7%,
+        var(--vsc-editor-background)
       );
-      color: var(--vsc-error-foreground, var(--vsc-error, #c42b1c));
+      color: var(--vsc-error-foreground);
     }
 
     .status-indicator {

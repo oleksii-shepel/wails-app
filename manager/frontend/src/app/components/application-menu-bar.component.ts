@@ -345,7 +345,7 @@ const MENUS: readonly ApplicationMenu[] = [
 
     .menu-trigger:hover,
     .menu-root.open > .menu-trigger {
-      background: var(--vsc-list-hover-background, rgba(127, 127, 127, .14));
+      background: var(--vsc-list-hover-background);
     }
 
     .menu-root.open > .menu-trigger {
@@ -359,11 +359,11 @@ const MENUS: readonly ApplicationMenu[] = [
       min-width: 245px;
       max-width: min(360px, calc(100vw - 16px));
       padding: 4px;
-      border: 1px solid var(--vsc-border, #555);
+      border: 1px solid var(--vsc-border);
       border-radius: 5px;
       background: var(--vsc-menu-background, var(--vsc-popover-background, var(--vsc-editor-background)));
       color: var(--vsc-menu-foreground, var(--vsc-foreground));
-      box-shadow: 0 8px 24px var(--vsc-scrim-soft, rgba(0, 0, 0, .28));
+      box-shadow: 0 8px 24px var(--vsc-scrim-soft);
       z-index: 10000;
       transform-origin: top left;
       animation: menu-surface-enter 0.18s var(--dialog-enter-ease, cubic-bezier(0.16, 1, 0.3, 1));
@@ -460,12 +460,12 @@ const MENUS: readonly ApplicationMenu[] = [
     }
 
     .window-control:hover {
-      background: var(--vsc-list-hover-background, rgba(127, 127, 127, .16));
+      background: var(--vsc-list-hover-background);
     }
 
     .window-control-close:hover {
-      background: #c42b1c;
-      color: #fff;
+      background: var(--vsc-button-danger-background);
+      color: var(--vsc-button-danger-foreground);
     }
 
     .window-control svg {

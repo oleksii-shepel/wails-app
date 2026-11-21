@@ -21,10 +21,9 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: manager/frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: manager/frontend
         run: npm ci
 
       - name: Run frontend checks

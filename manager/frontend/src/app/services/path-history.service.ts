@@ -242,9 +242,13 @@ export class PathHistoryService {
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
       if (!stored) return;
-      const entries = JSON.parse(stored) as LegacyPathHistoryEntry[];
-      for (const storedEntry of entries) {
-        const rawLocation = storedEntry.location ?? storedEntry.path ?? '';
+      const entries: unknown = JSON.parse(stored);
+      if (!Array.isArray(entries)) return;
+      for (const value of entries) {
+        if (!value || typeof value !== 'object') continue;
+        const storedEntry = value as LegacyPathHistoryEntry;
+        const rawLocation = typeof storedEntry.location === 'string' ? storedEntry.location : storedEntry.path;
+        if (typeof rawLocation !== 'string') continue;
         const descriptor = describeLocation(rawLocation);
         if (!descriptor) continue;
         const id = locationIdentity(descriptor.location);

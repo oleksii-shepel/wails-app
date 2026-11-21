@@ -16,6 +16,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
       <select class="palette-dialog-field" aria-label="Sort inventory" [value]="sort"
         (change)="changeSort($event)">
         <option value="name">Name</option>
+        <option value="type">Type</option>
         <option value="size">Largest first</option>
         <option value="modified">Newest first</option>
         <option value="size-asc">Smallest first</option>
@@ -279,7 +280,8 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
       const order = this.sort === 'size' ? b.size - a.size
         : this.sort === 'size-asc' ? a.size - b.size
         : this.sort === 'modified' ? b.modified - a.modified
-        : this.sort === 'modified-asc' ? a.modified - b.modified : 0;
+        : this.sort === 'modified-asc' ? a.modified - b.modified
+        : this.sort === 'type' ? a.type.localeCompare(b.type) : 0;
       return order || a.name.localeCompare(b.name, undefined, { numeric: true });
     });
   }

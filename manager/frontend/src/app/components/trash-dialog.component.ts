@@ -45,7 +45,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <h2>Trash / Recycle Bin</h2>
-            <p class="palette-dialog-subtitle">{{ entries.length }} item{{ entries.length === 1 ? '' : 's' }} · {{ selectedIds.size }} selected<span *ngIf="hiddenSelectionCount as count"> ({{ count }} outside filter)</span></p>
+            <p class="palette-dialog-subtitle">{{ filteredEntries.length }} of {{ entries.length }} shown · {{ selectedIds.size }} selected<span *ngIf="hiddenSelectionCount as count"> ({{ count }} outside filter)</span></p>
           </div>
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
         </header>

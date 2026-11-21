@@ -58,7 +58,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <strong>Command Palette</strong>
             <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
           </div>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
         </header>
 
         <div class="query">

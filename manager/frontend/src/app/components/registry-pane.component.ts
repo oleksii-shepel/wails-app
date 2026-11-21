@@ -6327,6 +6327,7 @@ export class RegistryPaneComponent implements OnInit, OnDestroy {
       defaultValue: `${baseName}.zip`,
     });
 
+    if (requestedName == null) return;
     let cleanName = this.cleanLeafName(requestedName);
     if (!cleanName) {
       await this.confirmDialog.alert({

@@ -77,7 +77,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
                 <span>{{ timeLabel(op) }}</span>
               </div>
 
-              <div *ngIf="op.error" class="operation-error">{{ op.error }}</div>
+              <div *ngIf="op.error" class="operation-error" role="status">{{ op.error }}</div>
             </div>
 
             <div class="operation-actions">

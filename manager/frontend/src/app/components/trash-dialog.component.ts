@@ -196,27 +196,8 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
       font-variant-numeric: tabular-nums;
     }
 
-    .trash-search {
-      flex: 1;
-      min-width: 170px;
-      height: 26px;
-      padding: 0 8px;
-      border: 1px solid var(--vsc-input-border, var(--vsc-border));
-      border-radius: 4px;
-      background: var(--vsc-input-background);
-      color: var(--vsc-input-foreground, var(--vsc-foreground));
-      font: inherit;
-    }
-
-    .trash-sort {
-      height: 26px;
-      padding: 0 6px;
-      border: 1px solid var(--vsc-border);
-      border-radius: 4px;
-      background: var(--vsc-input-background);
-      color: var(--vsc-input-foreground, var(--vsc-foreground));
-      font: inherit;
-    }
+    .trash-search { flex: 1; min-width: min(170px, 100%); }
+    .trash-sort { max-width: 100%; }
 
     .trash-list {
       flex: 1 1 0%;

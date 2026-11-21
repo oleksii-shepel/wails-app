@@ -290,6 +290,55 @@ export class SplitDividerComponent implements OnDestroy {
 
     @Input() snapPoints: number[] = [20, 25, 33.333, 50, 66.666, 75, 80];
 
+    /* ---------------- KEYBOARD ACCESS ---------------- */
+
+    @HostBinding('attr.role') readonly separatorRole = 'separator';
+    @HostBinding('attr.tabindex') readonly separatorTabindex = 0;
+    @HostBinding('attr.aria-orientation') get separatorOrientation() { return this.orientation; }
+    @HostBinding('attr.aria-valuenow') get ariaValueNow() { return Math.round(this.position); }
+    @HostBinding('attr.aria-valuemin') get ariaValueMin() { return this.min; }
+    @HostBinding('attr.aria-valuemax') get ariaValueMax() { return this.max; }
+
+    @HostListener('keydown', ['$event'])
+    onKeyDown(e: KeyboardEvent) {
+        let delta = 0;
+        switch (e.key) {
+            case 'ArrowLeft':
+            case 'ArrowUp':
+                delta = -1;
+                break;
+            case 'ArrowRight':
+            case 'ArrowDown':
+                delta = 1;
+                break;
+            case 'Home':
+                e.preventDefault();
+                this.applyPosition(this.min);
+                return;
+            case 'End':
+                e.preventDefault();
+                this.applyPosition(this.max);
+                return;
+            case 'Enter':
+            case ' ':
+                e.preventDefault();
+                this.applyPosition(this.resetPosition);
+                return;
+            default:
+                return;
+        }
+        e.preventDefault();
+        this.applyPosition(this.position + delta * (e.shiftKey ? 5 : 1));
+    }
+
+    private applyPosition(value: number) {
+        const clamped = Math.max(this.min, Math.min(this.max, value));
+        if (clamped === this.position) return;
+        this.position = clamped;
+        this.positionChange.emit(clamped);
+        window.dispatchEvent(new CustomEvent('file-manager-divider-move'));
+    }
+
     /* ---------------- STATE ---------------- */
 
     dragging = false;

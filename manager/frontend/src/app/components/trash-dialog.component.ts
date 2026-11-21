@@ -541,21 +541,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     });
     if (!confirmed || this.loading || this.dialog.activeRequest$.value !== request) return;
 
-    this.loading = true;
-    this.error = '';
-    this.cdr.markForCheck();
-    try {
-      for (const entry of selected) {
-        await this.api.deleteTrashEntry(entry.id);
-      }
-      this.selectedIds = new Set();
-      await this.reload();
-      this.dialog.notifyMutated();
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-      this.loading = false;
-      this.cdr.markForCheck();
-    }
+    await this.mutateSelected(selected, 'delete', entry => this.api.deleteTrashEntry(entry.id));
   }
 
   async emptyTrash(): Promise<void> {

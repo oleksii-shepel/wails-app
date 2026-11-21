@@ -116,6 +116,7 @@ interface ConfirmDialogRequest {
                   name="confirm-prompt-value"
                   [(ngModel)]="draftValue"
                   [placeholder]="request.options.placeholder || ''"
+                  [attr.aria-label]="request.options.title"
                   data-dialog-initial-focus
                   autocomplete="off"
                 />

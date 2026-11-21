@@ -31,6 +31,21 @@ describe('DuplicateFinderService', () => {
     expect(api.listDirectory).toHaveBeenCalledTimes(1);
   });
 
+  it('stops scheduling hashes when cancelled during a scan', async () => {
+    const controller = new AbortController();
+    const reason = new Error('Scan cancelled');
+    const api = {
+      listDirectory: fn(async () => ({ entries: [f('/a', 10), f('/b', 10)] })),
+      hashFile: fn(async () => {
+        controller.abort(reason);
+        return 'same';
+      }),
+    };
+    const scan = new DuplicateFinderService(api as any).scan('/root', { signal: controller.signal });
+    await expectAsync(scan).toBeRejectedWith(reason);
+    expect(api.hashFile).toHaveBeenCalledTimes(1);
+  });
+
   it('returns suggested redundant paths while preserving one keeper', () => {
     const service = new DuplicateFinderService({} as any);
     const group = { hash: 'x', size: 3, files: [f('/a', 3), f('/b', 3), f('/c', 3)], reclaimableBytes: 6, suggestedKeeperPath: '/a' };

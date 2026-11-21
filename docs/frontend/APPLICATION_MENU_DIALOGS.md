@@ -37,11 +37,13 @@ Operations in View and Tools). This is intentional discoverability, not a
 second implementation.
 
 Folder Inventory lists the active folder's immediate entries, including hidden
-items when requested. Filter by name or path, sort by name, size or modification
+items when requested. Filter by name, path, or entry type. Sort by name, size or modification
 time, and copy paths or export the filtered listing as CSV. Select entries to
 send them to the Selection Basket, or open a folder directly in the pane.
 
 Operation History can export the entries matching its active filters as JSON.
+In Tools Center, press 5 to open Folder Inventory. Duplicate scans can be
+cancelled between file operations and indicate when a scan limit was reached.
 
 ## Contextual-only dialogs
 

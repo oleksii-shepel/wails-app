@@ -56,6 +56,7 @@ const COMMAND = {
   disk: 'reassembly.toolsCenter.disk',
   duplicates: 'reassembly.toolsCenter.duplicates',
   checksums: 'reassembly.toolsCenter.checksums',
+  inventory: 'reassembly.toolsCenter.inventory',
   rescan: 'reassembly.toolsCenter.rescan',
   selectAllDuplicates: 'reassembly.toolsCenter.selectAllDuplicates',
   clearDuplicateSelection: 'reassembly.toolsCenter.clearDuplicateSelection',
@@ -69,6 +70,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.toolsCenter.page2', commandId:COMMAND.disk, contextId:CONTEXT_ID, source:'default', description:'Disk Usage page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
   { id:'reassembly.toolsCenter.page3', commandId:COMMAND.duplicates, contextId:CONTEXT_ID, source:'default', description:'Duplicates page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
   { id:'reassembly.toolsCenter.page4', commandId:COMMAND.checksums, contextId:CONTEXT_ID, source:'default', description:'Checksums page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'4'}]}}},
+  { id:'reassembly.toolsCenter.page5', commandId:COMMAND.inventory, contextId:CONTEXT_ID, source:'default', description:'Folder Inventory page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'5'}]}}},
   { id:'reassembly.toolsCenter.rescan', commandId:COMMAND.rescan, contextId:CONTEXT_ID, source:'default', description:'Rescan current tool', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'r'}]}}},
   { id:'reassembly.toolsCenter.selectAllDuplicates', commandId:COMMAND.selectAllDuplicates, contextId:CONTEXT_ID, source:'default', description:'Select reclaimable duplicates', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'a'}]}}},
   { id:'reassembly.toolsCenter.clearDuplicateSelection', commandId:COMMAND.clearDuplicateSelection, contextId:CONTEXT_ID, source:'default', description:'Clear duplicate selection', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'u'}]}}},
@@ -406,7 +408,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <footer class="tool-keys palette-dialog-footer">
-          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · R rescan</span>
+          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · 5 Inventory</span>
           <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete remove</span>
         </footer>
       </section>
@@ -623,6 +625,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.disk,title:'Tools: Disk Usage',category:'Tools',execute:()=>this.setPage('disk')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.duplicates,title:'Tools: Duplicates',category:'Tools',execute:()=>this.setPage('duplicates')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.checksums,title:'Tools: Checksums',category:'Tools',execute:()=>this.setPage('checksums')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.inventory,title:'Tools: Folder Inventory',category:'Tools',execute:()=>this.setPage('inventory')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page==='checksums'||((this.page==='disk'||this.page==='duplicates')&&!!this.rootPath)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);

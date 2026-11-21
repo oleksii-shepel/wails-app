@@ -62,6 +62,7 @@ export interface RecentlyClosedTab {
   readonly workspaceId: string;
   readonly paneId: 'left' | 'right';
   readonly closedAt: number;
+  readonly tabIndex?: number;
   readonly tab: TabInfo;
 }
 
@@ -724,6 +725,7 @@ export class WorkspaceService {
       workspace.id,
       paneId === 'right' ? 'right' : 'left',
       closingTab,
+      tabIndex,
     );
 
     // Clear archive state when closing tab
@@ -1160,7 +1162,10 @@ export class WorkspaceService {
       createdAt: Date.now(),
     };
 
-    pane.tabs.push(restored);
+    const position = Number.isSafeInteger(entry.tabIndex) && entry.tabIndex! >= 0
+      ? Math.min(entry.tabIndex!, pane.tabs.length)
+      : pane.tabs.length;
+    pane.tabs.splice(position, 0, restored);
     pane.activeTabId = restored.id;
 
     this.updateWorkspace(workspace.id, {
@@ -1177,6 +1182,7 @@ export class WorkspaceService {
     workspaceId: string,
     paneId: 'left' | 'right',
     tab: TabInfo,
+    tabIndex: number,
   ): void {
     if (!workspaceId || !tab?.id) return;
 
@@ -1187,6 +1193,7 @@ export class WorkspaceService {
       workspaceId,
       paneId,
       closedAt: Date.now(),
+      tabIndex,
       tab: this.cloneTab(tab),
     };
 

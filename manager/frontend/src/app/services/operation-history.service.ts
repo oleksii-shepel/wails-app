@@ -70,6 +70,10 @@ export class OperationHistoryService {
     return !this.running() && this.redoStack.length > 0;
   }
 
+  get isBusy(): boolean {
+    return this.running();
+  }
+
   record(action: ReversibleAction): void {
     if (this.running()) return;
     const entry = this.appendJournal({

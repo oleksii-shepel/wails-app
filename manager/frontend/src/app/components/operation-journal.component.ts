@@ -53,7 +53,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
           <span class="palette-dialog-meta" role="status">{{ notice || (matching.length + ' of ' + entries.length + ' shown') }}</span>
           <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
           <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
-          <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">Clear Journal</button>
+          <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="history.isBusy || entries.length === 0" (click)="clear()">Clear Journal</button>
           <button class="palette-dialog-button" [disabled]="matching.length === 0" (click)="download()">Export Results</button>
           <button class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button></div></footer>
       </section>
@@ -181,7 +181,19 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
     this.notice = `Requested JSON download for ${entries.length} ${entries.length === 1 ? 'operation' : 'operations'}.`;
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  async clear():Promise<void>{const ok=await this.dialogs.confirm({title:'Clear Operation Journal',message:'Clear all recorded journal entries, including entries outside the active filter? Undo and redo actions will remain available.',confirmText:'Clear',danger:true});if(!ok)return;this.history.clearJournal();this.cdr.markForCheck();}
+  async clear(): Promise<void> {
+    if (this.history.isBusy || !this.entries.length) return;
+    const confirmed = await this.dialogs.confirm({
+      title: 'Clear Operation Journal',
+      message: 'Clear all recorded journal entries, including entries outside the active filter? Undo and redo actions will remain available.',
+      confirmText: 'Clear',
+      danger: true,
+    });
+    if (!confirmed || this.history.isBusy) return;
+    this.history.clearJournal();
+    this.notice = 'Operation journal cleared.';
+    this.cdr.markForCheck();
+  }
   stateLabel(state: OperationJournalEntry['state']): string {
     return { completed: 'Completed', partial: 'Partial success', failed: 'Failed', undone: 'Undone', redone: 'Redone' }[state];
   }

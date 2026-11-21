@@ -165,7 +165,7 @@ export class PathHistoryService {
       for (const entry of listing.entries) {
         if (entry.type !== FileType.DIRECTORY) continue;
         if (!entry.name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
-        const fullPath = canonicalizeLocation(`${dirPath}${entry.name}`);
+        const fullPath = canonicalizeLocation(entry.path || `${dirPath}${entry.name}`);
         suggestions.push({
           path: fullPath,
           displayName: entry.name,

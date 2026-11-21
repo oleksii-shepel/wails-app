@@ -126,13 +126,13 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                   <h4 class="group-title">Appearance</h4>
                   <div class="field-row">
                       <label class="field">
-                        <span>Theme Mode</span>
-                        <select [(ngModel)]="draft.general.theme" (ngModelChange)="onSettingChanged()">
+                        <span id="settings-theme-label">Theme Mode</span>
+                        <select aria-labelledby="settings-theme-label" aria-describedby="settings-theme-help" [(ngModel)]="draft.general.theme" (ngModelChange)="onSettingChanged()">
                           <option value="dark">Dark</option>
                           <option value="light">Light</option>
                           <option value="system">System Preference</option>
                         </select>
-                        <small>Base dark/light mode. "System Preference" follows your OS setting.</small>
+                        <small id="settings-theme-help">Base dark/light mode. "System Preference" follows your OS setting.</small>
                       </label>
                       <label class="field">
                         <span>Theme Preset</span>

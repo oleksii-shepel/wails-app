@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	internalarchive "wails-app/internal/archive"
 	"wails-app/internal/contracts"
 )
 
@@ -78,8 +79,7 @@ func (a *App) CreateZipArchive(paths []string, destination string) (*contracts.O
 		return nil, fmt.Errorf("create zip: close temp file: %w", err)
 	}
 
-	_ = os.Remove(resolvedDestination)
-	if err := os.Rename(tempPath, resolvedDestination); err != nil {
+	if err := internalarchive.PublishNewArchive(tempPath, resolvedDestination); err != nil {
 		return nil, fmt.Errorf("create zip: commit: %w", err)
 	}
 

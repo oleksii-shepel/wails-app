@@ -15,6 +15,9 @@ import (
 // CreateZipArchive creates a ZIP archive from public file-manager paths.
 // Selected roots are stored by basename so absolute host paths never leak.
 func (a *App) CreateZipArchive(paths []string, destination string) (*contracts.OperationResult, error) {
+	if a == nil || a.State == nil || a.State.Filesystem == nil {
+		return nil, fmt.Errorf("create zip: filesystem is unavailable")
+	}
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("create zip: no source paths")
 	}

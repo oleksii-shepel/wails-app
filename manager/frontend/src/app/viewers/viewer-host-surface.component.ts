@@ -71,7 +71,7 @@ function extLower(path: string): string {
             type="button"
             [disabled]="isPinned || !isClosable"
             (click)="close.emit()"
-            title="Close viewer">
+            aria-label="Close viewer" title="Close viewer">
             ×
           </button>
         </div>

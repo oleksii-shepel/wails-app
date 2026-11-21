@@ -15,9 +15,9 @@ const BINDINGS:readonly InputBindingDefinition[]=[
 {id:'reassembly.remoteConnections.escape',commandId:COMMAND.close,contextId:CONTEXT_ID,source:'default',description:'Close remote connections',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'escape'}]}}},
 {id:'reassembly.remoteConnections.up',commandId:COMMAND.previous,contextId:CONTEXT_ID,source:'default',description:'Previous remote connection',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'arrowup'}]}}},
 {id:'reassembly.remoteConnections.down',commandId:COMMAND.next,contextId:CONTEXT_ID,source:'default',description:'Next remote connection',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'arrowdown'}]}}},
-{id:'reassembly.remoteConnections.enter',commandId:COMMAND.open,contextId:CONTEXT_ID,source:'default',description:'Open remote connection',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'enter'}]}}},
-{id:'reassembly.remoteConnections.delete',commandId:COMMAND.disconnect,contextId:CONTEXT_ID,source:'default',description:'Disconnect remote connection',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'delete'}]}}},
-{id:'reassembly.remoteConnections.insert',commandId:COMMAND.connect,contextId:CONTEXT_ID,source:'default',description:'Connect remote',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'insert'}]}}},
+{id:'reassembly.remoteConnections.enter',commandId:COMMAND.open,contextId:CONTEXT_ID,source:'default',description:'Open remote connection',category:'Remote',when:'!typing',trigger:{device:'keyboard',chord:{steps:[{key:'enter'}]}}},
+{id:'reassembly.remoteConnections.delete',commandId:COMMAND.disconnect,contextId:CONTEXT_ID,source:'default',description:'Disconnect remote connection',category:'Remote',when:'!typing',trigger:{device:'keyboard',chord:{steps:[{key:'delete'}]}}},
+{id:'reassembly.remoteConnections.insert',commandId:COMMAND.connect,contextId:CONTEXT_ID,source:'default',description:'Connect remote',category:'Remote',when:'!typing',trigger:{device:'keyboard',chord:{steps:[{key:'insert'}]}}},
 {id:'reassembly.remoteConnections.f5',commandId:COMMAND.refresh,contextId:CONTEXT_ID,source:'default',description:'Refresh remote connections',category:'Remote',trigger:{device:'keyboard',chord:{steps:[{key:'f5'}]}}},
 ];
 
@@ -27,7 +27,7 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <header class="palette-dialog-header"><div class="palette-dialog-title"><strong>Remote connections</strong><span class="palette-dialog-subtitle">{{state.mounts.length}}</span></div><div class="header-actions"><button type="button" class="palette-dialog-button" (click)="connect()">+ Connect</button><button type="button" class="palette-dialog-button" (click)="refresh()" [disabled]="state.loading">{{state.loading?'Refreshing…':'Refresh'}}</button><button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button></div></header>
 <div class="palette-dialog-toolbar">
   <input class="palette-dialog-field remote-filter" type="search" placeholder="Filter connections…" aria-label="Filter remote connections"
-    [value]="query" (input)="onQueryInput($event)" />
+    [value]="query" (input)="onQueryInput($event)" (keydown.enter)="openSelectedFromFilter($event)" />
 </div>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
 <div class="list palette-dialog-body palette-dialog-list" role="listbox" aria-label="Remote connections" [attr.aria-busy]="state.loading">
@@ -56,6 +56,11 @@ get matchingMounts(): contracts.RemoteMount[] {
   );
 }
 get selectedMount(): contracts.RemoteMount | null { return this.matchingMounts[this.selectedIndex] ?? null; }
+openSelectedFromFilter(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
+  if (this.selectedMount) this.openMount(this.selectedMount);
+}
 onQueryInput(event: Event): void {
   this.query = (event.target as HTMLInputElement).value;
   this.selectedIndex = 0;

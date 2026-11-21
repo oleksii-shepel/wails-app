@@ -66,7 +66,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
           <input [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
-          <span class="dialog-close" aria-label="Close tab" title="Close (Esc)" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+          <button type="button" class="dialog-close" aria-label="Close dialog" title="Close (Esc)" (click)="close()"> × </button>
         </header>
 
         <nav class="sections" *ngIf="filteredSections.length > 1" aria-label="Quick Access sections">

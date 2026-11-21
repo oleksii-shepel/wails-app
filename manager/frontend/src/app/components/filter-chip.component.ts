@@ -15,7 +15,7 @@ import { FilterPreset } from './filter-bar.types';
     >
       <span class="fb-chip-icon">{{ preset.icon || '🔍' }}</span>
       <span class="fb-chip-label">{{ preset.name }}</span>
-      <button
+      <button type="button"
         class="fb-chip-close"
         (click)="$event.stopPropagation(); remove.emit(preset)"
         [title]="'Remove ' + preset.name"

@@ -533,8 +533,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-occurrences-highlight-label">Highlight all occurrences</span><small id="settings-occurrences-highlight-help">When a word is selected, highlights all other matching occurrences in the file.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.minimap" (ngModelChange)="onSettingChanged()" />
-                    <span>Show minimap<small>Displays a scaled-down overview of the file in the right scroll margin.</small></span>
+                    <input aria-labelledby="settings-minimap-label" aria-describedby="settings-minimap-help" type="checkbox" [(ngModel)]="draft.editor.minimap" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-minimap-label">Show minimap</span><small id="settings-minimap-help">Displays a scaled-down overview of the file in the right scroll margin.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.smoothScrolling" (ngModelChange)="onSettingChanged()" />

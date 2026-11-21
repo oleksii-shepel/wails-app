@@ -481,7 +481,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   private moveItem(delta:-1|1):void{const count=this.activeItems.length;if(!count)return;this.itemIndex=(this.itemIndex+delta+count)%count;this.cdr.markForCheck()}
   private moveSection(delta:-1|1):void{const count=this.filteredSections.length;if(!count)return;this.sectionIndex=(this.sectionIndex+delta+count)%count;this.itemIndex=0;this.cdr.markForCheck()}
   private iconFor(icon:string|undefined,fallback:string):string{const normalized=(icon||'').trim();if(!normalized)return fallback;return SPECIAL_LOCATION_ICONS[normalized.toLowerCase()]??normalized}
-  private labelFor(path:string):string{const normalized=(path||'').replace(/\\/g,'/').replace(/\/+$/,'');const parts=normalized.split('/').filter(Boolean);return parts[parts.length-1]||normalized||path}
+  private labelFor(path: string): string { return locationLabel(path) || path; }
   onBackdropAnimationEnd(event: AnimationEvent): void {
     if (event.target !== event.currentTarget || !this.isClosing) return;
     this.renderVisible = false;

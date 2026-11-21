@@ -37,13 +37,20 @@ Operations in View and Tools). This is intentional discoverability, not a
 second implementation.
 
 Folder Inventory lists the active folder's immediate entries, including hidden
-items when requested. Filter by name, path, or entry type. Sort by name, size or modification
-time, and copy paths or export the filtered listing as CSV. Select entries to
-send them to the Selection Basket, or open a folder directly in the pane.
+items when requested. Filter by name, path, or entry type and sort by name, size,
+or modification time. Copy paths or export either the matching rows or the selected
+rows as CSV. The selection summary includes entries outside the active filter.
+Select entries to send them to the Selection Basket, or open a folder directly
+in the pane.
 
 Operation History can export the entries matching its active filters as JSON.
+Search current and recent jobs from the Operations page in Tools Center.
+
 In Tools Center, press 5 to open Folder Inventory. Duplicate scans can be
-cancelled between file operations and indicate when a scan limit was reached.
+cancelled between file operations from Tools Center or the standalone Duplicate
+Finder. Expand the warning summary in Tools Center to see skipped paths.
+The Checksums page can copy the full set of digests and accepts a raw checksum or
+a checksum line with a filename.
 
 ## Contextual-only dialogs
 

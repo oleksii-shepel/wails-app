@@ -36,6 +36,14 @@ Some commands appear in more than one semantically useful menu (for example
 Operations in View and Tools). This is intentional discoverability, not a
 second implementation.
 
+Recently Closed Tabs restores a tab to its previous pane and position. Filter
+by pane, title, or path. In the filter field, Enter restores the latest match
+and the arrow keys move focus to the results. Clearing the recovery list only
+affects the current workspace.
+
+Location History can copy an individual location or the entire history as JSON.
+Autocomplete resolves explicit relative paths against the current local pane.
+
 Folder Inventory lists the active folder's immediate entries, including hidden
 items when requested. Filter by name, path, or entry type and sort by name, type,
 size, or modification time. Copy paths or export either the matching rows or the

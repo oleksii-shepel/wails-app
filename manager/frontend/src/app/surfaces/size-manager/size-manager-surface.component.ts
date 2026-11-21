@@ -96,7 +96,7 @@ const PIE_PREFETCH_LIMIT = 5;
     </div>
 
     <!-- ── Error ──────────────────────────────────────────── -->
-    <div class="sm-error" *ngIf="error && !isTraversing">
+    <div class="sm-error" *ngIf="error && !isTraversing" role="alert">
       <span class="sm-error-icon">⚠</span>
       <span>{{ error }}</span>
       <button class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>

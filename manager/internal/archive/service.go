@@ -271,14 +271,23 @@ func (s *Service) CopyEntries(req contracts.ArchiveEntriesRequest) (*contracts.A
 		return nil, err
 	}
 
-	op.Complete()
-	return &contracts.ArchiveEntriesResult{
+	result := &contracts.ArchiveEntriesResult{
 		OperationID: op.ID(),
 		Total:       succeeded + failed,
 		Succeeded:   succeeded,
 		Failed:      failed,
 		Errors:      errs,
-	}, nil
+	}
+
+	// Mirror MoveEntries: a partially failed copy must not look like a
+	// fully successful operation in the operation center.
+	if failed > 0 {
+		op.SetError(fmt.Errorf("%d file(s) failed to copy", failed))
+		return result, nil
+	}
+
+	op.Complete()
+	return result, nil
 }
 
 func (s *Service) MoveEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error) {

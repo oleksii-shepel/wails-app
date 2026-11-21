@@ -13,25 +13,28 @@ import { OperationService, OperationState } from '../services/operation.service'
   imports: [CommonModule],
   template: `
     <div class="status-operations" *ngIf="hasOperations">
-      <div 
+      <button
+        type="button"
         class="status-pill"
+        [attr.aria-expanded]="!toastCollapsed"
         [class.has-active]="hasActive"
         [class.has-conflict]="hasConflict"
         [class.is-expanded]="!toastCollapsed"
         (click)="onPillClick()"
       >
-        <div class="pill-indicator" [class.pulse]="hasActive" [class.warning]="hasConflict"></div>
+        <span class="pill-indicator" aria-hidden="true" [class.pulse]="hasActive" [class.warning]="hasConflict"></span>
         
         <span class="pill-label">{{ count }} operation{{ count !== 1 ? 's' : '' }}</span>
         
-        <div class="pill-progress" *ngIf="hasActive && !hasConflict && overallProgress > 0">
-          <div class="pill-progress-fill" [style.width.%]="overallProgress"></div>
-        </div>
+        <span class="pill-progress" aria-hidden="true" *ngIf="hasActive && !hasConflict && overallProgress > 0">
+          <span class="pill-progress-fill" [style.width.%]="overallProgress"></span>
+        </span>
 
         <span class="conflict-badge" *ngIf="hasConflict">⚠️ Conflict</span>
 
         <svg 
           class="expand-icon"
+          aria-hidden="true"
           [class.expanded]="!toastCollapsed"
           viewBox="0 0 24 24" 
           width="12" 
@@ -42,7 +45,7 @@ import { OperationService, OperationState } from '../services/operation.service'
         >
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
-      </div>
+      </button>
     </div>
   `,
   styles: [`
@@ -65,6 +68,8 @@ import { OperationService, OperationState } from '../services/operation.service'
       border: 1px solid transparent;
       user-select: none;
     }
+
+    .status-pill:focus-visible { outline: 1px solid var(--vsc-focus-border); outline-offset: 1px; }
 
     .status-pill:hover {
       background: var(--vsc-list-hover-background);

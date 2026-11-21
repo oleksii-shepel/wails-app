@@ -56,7 +56,7 @@ interface AudioTagRow {
       <div class="viewer-body">
 
         <!-- loading -->
-        <div *ngIf="kind === 'loading'" class="state-container">
+        <div *ngIf="kind === 'loading'" class="state-container" role="status">
           <div class="spinner"></div>
           <div class="state-label">Loading audio preview...</div>
         </div>

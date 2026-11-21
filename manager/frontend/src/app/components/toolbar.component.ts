@@ -34,7 +34,7 @@ import { ThemeService } from '../services/theme.service';
       <div class="toolbar-right">
         <button
           (click)="onToggleHidden()"
-          [class.active]="showHidden"
+          [class.active]="showHidden" [attr.aria-pressed]="showHidden" aria-label="Show hidden files"
           class="btn"
           title="Toggle hidden files">
           {{ showHidden ? 'Hide' : 'Show' }} Hidden

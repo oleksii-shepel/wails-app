@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	bzip2writer "github.com/dsnet/compress/bzip2"
 )
 
 type rewriteStubOp struct{}
@@ -61,7 +63,18 @@ func createCompressedTar(t *testing.T, path, compression string, entries []rewri
 			t.Fatalf("close gzip: %v", err)
 		}
 	case "bz2":
-		t.Fatalf("bz2 rewrite covered by TestRewriteTarBz2KeepsBzip2Container")
+		bw, err := bzip2writer.NewWriter(f, nil)
+		if err != nil {
+			t.Fatalf("bzip2 writer: %v", err)
+		}
+		tw := tar.NewWriter(bw)
+		writeTarEntries(t, tw, entries)
+		if err := tw.Close(); err != nil {
+			t.Fatalf("close tar: %v", err)
+		}
+		if err := bw.Close(); err != nil {
+			t.Fatalf("close bzip2: %v", err)
+		}
 	case "":
 		tw := tar.NewWriter(f)
 		writeTarEntries(t, tw, entries)
@@ -126,7 +139,7 @@ func TestRewriteTarRemovesEntriesAndStaysReadable(t *testing.T) {
 		{name: "remove-me.txt", body: "gone"},
 		{name: "sub/c.txt", body: "gamma"},
 	}
-	for _, compression := range []string{"", "gz"} {
+	for _, compression := range []string{"", "gz", "bz2"} {
 		t.Run(compression, func(t *testing.T) {
 			dir := t.TempDir()
 			archivePath := filepath.Join(dir, "sample.tar"+compressionSuffix(compression))

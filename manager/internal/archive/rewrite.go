@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	bzip2writer "github.com/dsnet/compress/bzip2"
 	"github.com/mholt/archiver/v3"
 )
 
@@ -127,10 +128,20 @@ func rewriteTar(fsPath string, entries []string, compression string, op Operatio
 
 	var tarWriter *tar.Writer
 	var gzWriter *gzip.Writer
-	if compression == "gz" || compression == "bz2" {
+	var bzWriter *bzip2writer.Writer
+	switch compression {
+	case "gz":
 		gzWriter = gzip.NewWriter(tmp)
 		tarWriter = tar.NewWriter(gzWriter)
-	} else {
+	case "bz2":
+		// Go's stdlib bzip2 is read-only; dsnet/compress provides the writer
+		// so a rewritten .tar.bz2 stays a bzip2 container.
+		bzWriter, err = bzip2writer.NewWriter(tmp, nil)
+		if err != nil {
+			return removed, kept, err
+		}
+		tarWriter = tar.NewWriter(bzWriter)
+	default:
 		tarWriter = tar.NewWriter(tmp)
 	}
 
@@ -140,6 +151,9 @@ func rewriteTar(fsPath string, entries []string, compression string, op Operatio
 			tarWriter.Close()
 			if gzWriter != nil {
 				gzWriter.Close()
+			}
+			if bzWriter != nil {
+				bzWriter.Close()
 			}
 			return removed, kept, fmt.Errorf("cancelled")
 		}
@@ -177,6 +191,11 @@ func rewriteTar(fsPath string, entries []string, compression string, op Operatio
 	}
 	if gzWriter != nil {
 		if e := gzWriter.Close(); e != nil {
+			return removed, kept, e
+		}
+	}
+	if bzWriter != nil {
+		if e := bzWriter.Close(); e != nil {
 			return removed, kept, e
 		}
 	}

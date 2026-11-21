@@ -1,4 +1,4 @@
-import { buildSegments, isWindowsPath, normalizePath, shortenPath } from '../components/address-bar.utils';
+import { buildSegments, isWindowsPath, normalizePath, pathIdentityKey, shortenPath } from '../components/address-bar.utils';
 
 import type { LocationKind, LocationReference } from '../shared/protocol-enhanced';
 export type { LocationKind, LocationReference } from '../shared/protocol-enhanced';
@@ -71,7 +71,7 @@ export function locationIdentity(location: string): string {
   const canonical = canonicalizeLocation(location);
   if (!canonical) return '';
   const scheme = schemeOfLocation(canonical);
-  const value = scheme === 'filesystem' ? canonical.toLowerCase() : canonical;
+  const value = scheme === 'filesystem' ? pathIdentityKey(canonical) : canonical;
   return `${scheme}:${value}`;
 }
 

@@ -364,6 +364,7 @@ import posixpath
 import shutil
 import sys
 import tarfile
+import tempfile
 import time
 import zipfile
 

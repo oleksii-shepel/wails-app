@@ -99,5 +99,20 @@ describe('PinnedLocationService', () => {
     expect(service.contextLocation('search://?path=/src/features&pattern=TODO')).toContain('/src/features');
   });
 
+  it('falls back to legacy storage when the current payload is not a list', () => {
+    localStorage.setItem(PINNED_LOCATIONS_KEY, '{"invalid":true}');
+    localStorage.setItem(LEGACY_PINNED_PATHS_KEY, JSON.stringify([null, { path: '/legacy' }]));
+    expect(service.load().map(pin => pin.location)).toEqual(['/legacy']);
+  });
 
+  it('deduplicates stored records and recovers invalid display metadata', () => {
+    localStorage.setItem(PINNED_LOCATIONS_KEY, JSON.stringify([
+      { location: '/work', label: 42, icon: false, addedAt: -1 },
+      { location: '/work', label: 'Duplicate' },
+    ]));
+    const pins = service.load();
+    expect(pins).toHaveSize(1);
+    expect(pins[0].label).toBe('work');
+    expect(pins[0].addedAt).toBeGreaterThan(0);
+  });
 });

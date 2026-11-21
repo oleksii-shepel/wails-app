@@ -584,8 +584,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Layout</h4>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.compactMode" (ngModelChange)="onSettingChanged()" />
-                    <span>Compact mode<small>Reduces padding and font size throughout the UI for a denser layout.</small></span>
+                    <input aria-labelledby="settings-compact-mode-label" aria-describedby="settings-compact-mode-help" type="checkbox" [(ngModel)]="draft.view.compactMode" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-compact-mode-label">Compact mode</span><small id="settings-compact-mode-help">Reduces padding and font size throughout the UI for a denser layout.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.view.animationsEnabled" (ngModelChange)="onSettingChanged()" />

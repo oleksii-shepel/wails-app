@@ -96,20 +96,20 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </header>
 
         <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages" (keydown)="onTabKey($event)">
-          <button type="button" role="tab" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="setPage('operations')">
+          <button type="button" role="tab" id="tool-tab-operations" aria-controls="tool-panel-operations" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="setPage('operations')">
             Operations <span>{{ activeOperations.length }}</span>
           </button>
-          <button type="button" role="tab" [attr.aria-selected]="page === 'disk'" [attr.tabindex]="page === 'disk' ? 0 : -1" [class.active]="page === 'disk'" (click)="setPage('disk')">Disk Usage</button>
-          <button type="button" role="tab" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="setPage('duplicates')">Duplicates</button>
-          <button type="button" role="tab" [attr.aria-selected]="page === 'checksums'" [attr.tabindex]="page === 'checksums' ? 0 : -1" [class.active]="page === 'checksums'" (click)="setPage('checksums')">Checksums</button>
-          <button type="button" role="tab" [attr.aria-selected]="page === 'inventory'" [attr.tabindex]="page === 'inventory' ? 0 : -1" [class.active]="page === 'inventory'" (click)="setPage('inventory')">Folder Inventory</button>
+          <button type="button" role="tab" id="tool-tab-disk" aria-controls="tool-panel-disk" [attr.aria-selected]="page === 'disk'" [attr.tabindex]="page === 'disk' ? 0 : -1" [class.active]="page === 'disk'" (click)="setPage('disk')">Disk Usage</button>
+          <button type="button" role="tab" id="tool-tab-duplicates" aria-controls="tool-panel-duplicates" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="setPage('duplicates')">Duplicates</button>
+          <button type="button" role="tab" id="tool-tab-checksums" aria-controls="tool-panel-checksums" [attr.aria-selected]="page === 'checksums'" [attr.tabindex]="page === 'checksums' ? 0 : -1" [class.active]="page === 'checksums'" (click)="setPage('checksums')">Checksums</button>
+          <button type="button" role="tab" id="tool-tab-inventory" aria-controls="tool-panel-inventory" [attr.aria-selected]="page === 'inventory'" [attr.tabindex]="page === 'inventory' ? 0 : -1" [class.active]="page === 'inventory'" (click)="setPage('inventory')">Folder Inventory</button>
         </nav>
 
-        <div class="body" role="tabpanel" aria-label="Folder Inventory" *ngIf="page === 'inventory'">
+        <div class="body" role="tabpanel" id="tool-panel-inventory" aria-labelledby="tool-tab-inventory" tabindex="0" *ngIf="page === 'inventory'">
           <app-folder-inventory [rootPath]="rootPath" (navigateTo)="navigateTo.emit($event); close()" />
         </div>
 
-        <div class="body" role="tabpanel" aria-label="Operations" *ngIf="page === 'operations'">
+        <div class="body" role="tabpanel" id="tool-panel-operations" aria-labelledby="tool-tab-operations" tabindex="0" *ngIf="page === 'operations'">
           <div class="tool-actions operation-filters palette-dialog-toolbar">
             <button type="button" (click)="close(); openJournalRequested.emit()">Operation History…</button>
             <label>
@@ -179,7 +179,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </div>
         </div>
 
-        <div class="body" role="tabpanel" aria-label="Disk Usage" *ngIf="page === 'disk'">
+        <div class="body" role="tabpanel" id="tool-panel-disk" aria-labelledby="tool-tab-disk" tabindex="0" *ngIf="page === 'disk'">
           <div class="tool-actions palette-dialog-toolbar">
             <button type="button" (click)="scanDisk()" [disabled]="diskScanning || !rootPath">
               {{ diskScanning ? 'Scanning…' : 'Scan current directory' }}
@@ -235,7 +235,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="error" role="alert" *ngIf="diskError">{{ diskError }}</div>
         </div>
 
-        <div class="body" role="tabpanel" aria-label="Duplicates" *ngIf="page === 'duplicates'">
+        <div class="body" role="tabpanel" id="tool-panel-duplicates" aria-labelledby="tool-tab-duplicates" tabindex="0" *ngIf="page === 'duplicates'">
           <div class="tool-actions palette-dialog-toolbar">
             <label>
               Min size
@@ -339,7 +339,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="error" role="alert" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>
 
-        <div class="body" role="tabpanel" aria-label="Checksums" *ngIf="page === 'checksums'">
+        <div class="body" role="tabpanel" id="tool-panel-checksums" aria-labelledby="tool-tab-checksums" tabindex="0" *ngIf="page === 'checksums'">
           <div class="tool-actions palette-dialog-toolbar">
             <select
               *ngIf="checksumCandidates.length > 0"

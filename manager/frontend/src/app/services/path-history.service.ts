@@ -103,7 +103,8 @@ export class PathHistoryService {
   }
 
   async getSuggestions(query: string, currentPath: string): Promise<PathSuggestion[]> {
-    if (!query || query.trim() === '') {
+    query = query.trim();
+    if (!query) {
       return this.getRecentLocations(10).map(entry => this.toHistorySuggestion(entry));
     }
 

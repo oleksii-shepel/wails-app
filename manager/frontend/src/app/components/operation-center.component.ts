@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { operationProgress } from '../utils/operation-progress';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { OperationHistoryEntry, OperationService, OperationState } from '../services/operation.service';
@@ -161,6 +162,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
 
   constructor(
     public readonly operationService: OperationService,
+    private readonly confirm: ConfirmDialogService,
   ) {}
 
   ngOnInit(): void {
@@ -261,5 +263,13 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
     return new Date(when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
   async cancel(id: string): Promise<void> { await this.operationService.cancel(id); }
-  clearHistory(): void { this.operationService.clearHistory(); }
+  async clearHistory(): Promise<void> {
+    if (!this.history.length) return;
+    const confirmed = await this.confirm.confirm({
+      title: 'Clear Recent Operations',
+      message: 'Clear the recent activity list? Active operations will continue.',
+      confirmText: 'Clear',
+    });
+    if (confirmed) this.operationService.clearHistory();
+  }
 }

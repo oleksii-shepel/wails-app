@@ -88,7 +88,7 @@ function bindings(
       </span>
 
       <button type="button" aria-label="Previous filter match" title="Previous match (Shift+Enter)" (click)="previous.emit()">↑</button>
-      <button type="button" title="Next match (Enter)" (click)="next.emit()">↓</button>
+      <button type="button" aria-label="Next filter match" title="Next match (Enter)" (click)="next.emit()">↓</button>
       <button type="button" title="Close (Escape)" (click)="close.emit()">×</button>
     </div>
   `,

@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import {
   ChangeDetectionStrategy,
@@ -169,6 +170,7 @@ import type {
         <footer class="basket-footer">
           <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="clear()">Clear Basket</button>
           <span class="footer-spacer"></span>
+          <span *ngIf="clipboardError" class="footer-status" role="alert">{{ clipboardError }}</span>
           <span class="footer-status">{{ filteredEntries.length }} of {{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</span>
           <button
             type="button"
@@ -295,6 +297,7 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   searchText = '';
   typeFilter: 'all' | 'files' | 'folders' = 'all';
   copiedFeedback = false;
+  clipboardError = '';
   operation: SelectionBasketOperation = 'copy';
   destinationSide: SelectionBasketDestination = 'right';
   destinationMode: SelectionBasketDestination | 'custom' = 'right';
@@ -359,10 +362,11 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   }
 
   async copyPaths(): Promise<void> {
-    if (!this.entries.length) return;
     const text = this.filteredEntries.map(entry => entry.path).join('\n');
+    if (!text) return;
+    this.clipboardError = '';
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboardText(text);
       this.copiedFeedback = true;
       if (this.copiedTimer !== null) window.clearTimeout(this.copiedTimer);
       this.copiedTimer = window.setTimeout(() => {
@@ -372,7 +376,9 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
       }, 1800);
       this.cdr.markForCheck();
     } catch {
-      // Clipboard may be unavailable in restricted contexts
+      this.copiedFeedback = false;
+      this.clipboardError = 'Clipboard unavailable.';
+      this.cdr.markForCheck();
     }
   }
 

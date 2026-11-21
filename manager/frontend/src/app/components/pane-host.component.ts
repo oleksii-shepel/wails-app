@@ -192,7 +192,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
               <button
                 type="button"
                 class="cancel"
-                title="Cancel (Escape)"
+                aria-label="Cancel" title="Cancel (Escape)"
                 (mousedown)="$event.preventDefault()"
                 (click)="cancelSpecializedLocationEdit()">
                 &#x00D7;
@@ -220,14 +220,14 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
           </div>
 
           <span class="action-separator"></span>
-          <button type="button" [disabled]="provider.loading || !provider.canCreate" (click)="provider.newFolder()" title="New folder (F7)">New folder</button>
-          <button type="button" [disabled]="provider.loading || !provider.canRename" (click)="provider.renameSelected()" title="Rename (F2)">Rename</button>
+          <button type="button" [disabled]="provider.loading || !provider.canCreate" (click)="provider.newFolder()" aria-label="New folder" title="New folder (F7)">New folder</button>
+          <button type="button" [disabled]="provider.loading || !provider.canRename" (click)="provider.renameSelected()" aria-label="Rename" title="Rename (F2)">Rename</button>
           <span class="action-separator"></span>
-          <button type="button" [disabled]="provider.loading || !provider.hasSelection" (click)="provider.copySelected()" title="Copy (Ctrl+C)">Copy</button>
-          <button type="button" [disabled]="provider.loading || !provider.canCut" (click)="provider.cutSelected()" title="Cut (Ctrl+X)">Cut</button>
-          <button type="button" [disabled]="provider.loading || !provider.canPaste" (click)="provider.paste()" title="Paste (Ctrl+V)">Paste</button>
+          <button type="button" [disabled]="provider.loading || !provider.hasSelection" (click)="provider.copySelected()" aria-label="Copy" title="Copy (Ctrl+C)">Copy</button>
+          <button type="button" [disabled]="provider.loading || !provider.canCut" (click)="provider.cutSelected()" aria-label="Cut" title="Cut (Ctrl+X)">Cut</button>
+          <button type="button" [disabled]="provider.loading || !provider.canPaste" (click)="provider.paste()" aria-label="Paste" title="Paste (Ctrl+V)">Paste</button>
           <span class="action-separator"></span>
-          <button type="button" class="danger" [disabled]="provider.loading || !provider.canDelete" (click)="provider.deleteSelected()" title="Delete (Delete / F8)">Delete</button>
+          <button type="button" class="danger" [disabled]="provider.loading || !provider.canDelete" (click)="provider.deleteSelected()" aria-label="Delete" title="Delete (Delete / F8)">Delete</button>
 
           <ng-container *ngIf="effectivePluginToolbarActions.length">
             <span class="action-separator"></span>

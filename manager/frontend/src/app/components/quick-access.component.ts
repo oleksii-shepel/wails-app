@@ -81,7 +81,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
           <button *ngFor="let item of activeItems; let i=index; trackBy:trackItem" type="button"
             class="item" [class.selected]="i === itemIndex" role="option"
             [attr.aria-selected]="i === itemIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="activeItems.length" (mouseenter)="itemIndex=i" (click)="openItem(item)">
-            <span class="icon">
+            <span class="icon" aria-hidden="true">
               <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
               <span class="glyph">{{ item.icon }}</span>
             </span>

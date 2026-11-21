@@ -8,8 +8,10 @@ import {
   OnChanges,
   OnDestroy,
   Output,
+  QueryList,
   SimpleChanges,
   ViewChild,
+  ViewChildren,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
@@ -47,6 +49,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             [value]="searchText"
             (input)="onSearchInput($event)"
             (keydown.enter)="reopenLatest(); $event.preventDefault(); $event.stopPropagation()"
+            (keydown.arrowdown)="focusResult($event)" (keydown.arrowup)="focusResult($event, true)"
             placeholder="Filter closed tabs by title or path…"
             aria-label="Filter recently closed tabs" />
           <select class="palette-dialog-field" aria-label="Filter by original pane" [value]="paneFilter" (change)="onPaneFilterChange($event)">
@@ -58,6 +61,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
         @let matching = filteredEntries;
         <div class="tabs palette-dialog-body palette-dialog-list">
           <button
+            #closedTabResult
             *ngFor="let entry of matching; trackBy: trackEntry"
             type="button"
             class="closed-tab palette-dialog-item"
@@ -117,6 +121,8 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
 
   searchText = '';
   paneFilter: 'all' | 'left' | 'right' = 'all';
+
+  @ViewChildren('closedTabResult') private tabResults?: QueryList<ElementRef<HTMLButtonElement>>;
 
   @ViewChild('tabsSearch') set tabsSearch(field: ElementRef<HTMLInputElement> | undefined) {
     const input = field?.nativeElement;
@@ -182,6 +188,14 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   onPaneFilterChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value;
     this.paneFilter = value === 'left' || value === 'right' ? value : 'all';
+  }
+
+  focusResult(event: KeyboardEvent, last = false): void {
+    const result = last ? this.tabResults?.last : this.tabResults?.first;
+    if (!result) return;
+    event.preventDefault();
+    event.stopPropagation();
+    result.nativeElement.focus();
   }
 
   onSearchInput(event: Event): void {

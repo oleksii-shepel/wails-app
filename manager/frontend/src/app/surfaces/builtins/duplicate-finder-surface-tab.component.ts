@@ -53,7 +53,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
       <div class="summary" *ngIf="progress || result">
         <span *ngIf="progress">{{ progress.phase }} · {{ progress.discoveredFiles }} files · {{ progress.hashedFiles }}/{{ progress.candidateFiles }} hashed</span>
         <span *ngIf="result">{{ result.groups.length }} groups · {{ result.scannedFiles }} files · {{ formatSize(result.reclaimableBytes) }} reclaimable</span>
-        <span class="warning" *ngIf="result?.truncated">scan limit reached</span>
+        <span class="warning" *ngIf="result?.truncated" role="status">scan limit reached</span>
       </div>
 
       <div class="empty" *ngIf="!scanning && result && result.groups.length === 0" role="status">No verified duplicates found.</div>

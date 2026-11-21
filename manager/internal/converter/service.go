@@ -340,11 +340,15 @@ func (s *Service) IsSupportedSourceFormat(extension string) bool {
 }
 
 // GetAvailableConversionFormats returns the list of formats this source can be converted to.
-// Depends on libvips availability.
+// Depends on libvips availability: the Go fallback only encodes png and jpeg.
 func (s *Service) GetAvailableConversionFormats(sourceExt string) []string {
 	// Always available if we can convert at all
 	if s.IsSupportedSourceFormat(sourceExt) {
-		return []string{"png", "jpg", "jpeg", "gif", "webp", "bmp"}
+		s.ensureDetected()
+		if s.hasVips {
+			return []string{"png", "jpg", "jpeg", "gif", "webp", "bmp"}
+		}
+		return []string{"png", "jpg", "jpeg"}
 	}
 	return []string{}
 }

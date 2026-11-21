@@ -135,13 +135,13 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                         <small id="settings-theme-help">Base dark/light mode. "System Preference" follows your OS setting.</small>
                       </label>
                       <label class="field">
-                        <span>Theme Preset</span>
-                        <select [(ngModel)]="draft.general.themePreset" (ngModelChange)="onSettingChanged()">
+                        <span id="settings-theme-preset-label">Theme Preset</span>
+                        <select aria-labelledby="settings-theme-preset-label" aria-describedby="settings-theme-preset-help" [(ngModel)]="draft.general.themePreset" (ngModelChange)="onSettingChanged()">
                           @for (preset of themePresets; track preset.id) {
                             <option [value]="preset.id">{{ preset.label }}</option>
                           }
                         </select>
-                        <small>Extensible palette preset (built-in and plugin-contributed themes).</small>
+                        <small id="settings-theme-preset-help">Extensible palette preset (built-in and plugin-contributed themes).</small>
                       </label>
                     <label class="field">
                       <span>UI Zoom</span>

@@ -96,8 +96,6 @@ func (s *Service) ResolveLink(path string) (*ResolvedLink, error) {
 }
 
 func (s *Service) HandleFileDrop(x int, y int, paths []string) error {
-	fmt.Printf("[HandleFileDrop] Called with x=%d, y=%d, %d paths: %v\n", x, y, len(paths), paths)
-
 	if len(paths) == 0 {
 		return fmt.Errorf("no paths provided")
 	}
@@ -107,20 +105,15 @@ func (s *Service) HandleFileDrop(x int, y int, paths []string) error {
 	for _, path := range paths {
 		if !isAbsolutePath(path) {
 			isRelativeOnly = true
-			fmt.Printf("[HandleFileDrop] Path is relative: %s\n", path)
 			break
 		}
 	}
 
 	if isRelativeOnly {
-		fmt.Println("[HandleFileDrop] Detected filename-only paths, attempting clipboard fallback...")
-		clipboardPaths, err := GetFilePaths()
-		if err == nil && len(clipboardPaths) > 0 {
-			fmt.Printf("[HandleFileDrop] Got %d paths from clipboard: %v\n", len(clipboardPaths), clipboardPaths)
+		// Drag sources such as browsers only report dropped filenames, so
+		// fall back to the file paths copied alongside the drop.
+		if clipboardPaths, err := GetFilePaths(); err == nil && len(clipboardPaths) > 0 {
 			providedPaths = clipboardPaths
-		} else {
-			fmt.Println("[HandleFileDrop] Clipboard fallback failed:", err)
-			fmt.Printf("[HandleFileDrop] Continuing with provided %d paths\n", len(paths))
 		}
 	}
 
@@ -129,21 +122,15 @@ func (s *Service) HandleFileDrop(x int, y int, paths []string) error {
 		if path == "" {
 			continue
 		}
-		fmt.Printf("[HandleFileDrop] Checking path: %s\n", path)
-		if stat, err := os.Stat(path); err == nil {
+		if _, err := os.Stat(path); err == nil {
 			validPaths = append(validPaths, path)
-			fmt.Printf("[HandleFileDrop] Path exists: %s (isDir=%v)\n", path, stat.IsDir())
-		} else {
-			fmt.Printf("[HandleFileDrop] Path does not exist: %s (%v)\n", path, err)
 		}
 	}
 
 	if len(validPaths) == 0 {
-		fmt.Println("[HandleFileDrop] No valid file paths after validation")
 		return fmt.Errorf("no valid file paths after validation")
 	}
 
-	fmt.Printf("[HandleFileDrop] Emitting file:drop event with %d valid files\n", len(validPaths))
 	if s.emitEvent != nil {
 		s.emitEvent("file:drop", map[string]interface{}{
 			"x":     x,

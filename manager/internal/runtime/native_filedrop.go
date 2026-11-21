@@ -2,20 +2,17 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func BindNativeFileDrop(ctx context.Context, onDrop func(x, y int, paths []string)) {
 	wailsruntime.EventsOn(ctx, "wails:file-drop", func(optionalData ...interface{}) {
-		fmt.Println("[wails:file-drop] Backend listener fired!")
 		x, y, paths, ok := parseNativeFileDrop(optionalData)
 		if !ok {
 			return
 		}
 
-		fmt.Printf("[wails:file-drop] x=%d, y=%d, paths=%v\n", x, y, paths)
 		onDrop(x, y, paths)
 	})
 }
@@ -29,8 +26,6 @@ func parseNativeFileDrop(optionalData []interface{}) (int, int, []string, bool) 
 	if !ok {
 		return 0, 0, nil, false
 	}
-
-	fmt.Printf("[wails:file-drop] Native event received: %+v\n", data)
 
 	x := 0
 	y := 0

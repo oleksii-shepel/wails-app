@@ -1,5 +1,6 @@
 import {ChangeDetectionStrategy,ChangeDetectorRef,Component,EventEmitter,OnDestroy,OnInit,Output} from '@angular/core';
 import {CommonModule} from '@angular/common';
+import { writeClipboardText } from '../utils/clipboard-text';
 import {createSubject,takeUntil} from '@epikodelabs/streamix';
 import {contracts} from '../../../wailsjs/go/models';
 import {ConfirmDialogService} from '../services/confirm-dialog.service';
@@ -28,7 +29,8 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <div class="palette-dialog-toolbar">
   <input class="palette-dialog-field remote-filter" type="search" placeholder="Filter connections…" aria-label="Filter remote connections"
     [value]="query" (input)="onQueryInput($event)" (keydown.enter)="openSelectedFromFilter($event)" />
-  <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = ''; selectedIndex = 0">Clear filter</button>
+  <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = '';
+copyNotice = ''; selectedIndex = 0">Clear filter</button>
 </div>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
 @let matching = matchingMounts;
@@ -39,7 +41,7 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <div class="empty palette-dialog-empty" *ngIf="!state.loading&&!state.error&&state.mounts.length===0" role="status"><strong>No remote connections.</strong><span>Choose Connect or press Insert to add one.</span></div>
 <div class="empty palette-dialog-empty" *ngIf="!state.loading && state.mounts.length && !matching.length" role="status">No matching connections.</div>
 </div>
-<footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="!selectedMount" (click)="disconnectSelected()">Disconnect</button></div><span *ngIf="state.refreshedAt" class="palette-dialog-meta" [title]="state.refreshedAt | date:'medium'">Updated {{state.refreshedAt | date:'shortTime'}}</span><span class="palette-dialog-footnote">↑ ↓ select · Enter open · Insert connect · Del disconnect · F5 refresh</span></footer>
+<footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button" [disabled]="!selectedMount" (click)="copySelectedLocation()">Copy Location</button><button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="!selectedMount" (click)="disconnectSelected()">Disconnect</button></div><span class="palette-dialog-meta" role="status">{{copyNotice}}</span><span *ngIf="state.refreshedAt" class="palette-dialog-meta" [title]="state.refreshedAt | date:'medium'">Updated {{state.refreshedAt | date:'shortTime'}}</span><span class="palette-dialog-footnote">↑ ↓ select · Enter open · Insert connect · Del disconnect · F5 refresh</span></footer>
 </section></div>`,
 styles:[`:host{position:fixed;inset:0;z-index:9550;pointer-events:none}.backdrop{pointer-events:auto}.backdrop--closing{pointer-events:none}.panel{width:min(560px,calc(100vw - 24px));max-height:min(650px,calc(100vh - 40px));display:flex;flex-direction:column}.header-actions{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.palette-dialog-header,.palette-dialog-footer{flex-wrap:wrap}.remote-filter{flex:1}.list{min-height:120px;overflow:auto}.mount{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:9px;align-items:center;width:100%;min-height:48px;padding:6px 8px;text-align:left}.mount.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.details{display:grid;min-width:0}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small,.protocol{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.mount-status{display:grid;justify-items:end;gap:2px}.protocol{text-transform:uppercase;font-size:9px}.read-only{color:var(--vsc-warning-foreground,var(--vsc-warning));font-size:9px}.empty{display:grid;place-items:center;align-content:center;gap:4px;min-height:130px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.error{padding:7px 10px;color:var(--vsc-error-foreground,var(--vsc-error))}`]})
 export class RemoteConnectionsComponent implements OnInit,OnDestroy{
@@ -50,6 +52,7 @@ private readonly hostElement=tryInjectElementRef();
 private unregisterModal:(()=>void)|null=null;
 constructor(private readonly connections:RemoteConnectionsService,private readonly connectDialog:RemoteConnectDialogService,private readonly confirm:ConfirmDialogService,private readonly input:InputEngineService,private readonly cdr:ChangeDetectorRef){}
 query = '';
+copyNotice = '';
 get matchingMounts(): contracts.RemoteMount[] {
   const query = this.query.trim().toLowerCase();
   if (!query) return this.state.mounts;
@@ -85,8 +88,20 @@ ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priorit
       this.cdr.markForCheck();
     })}
 ngOnDestroy():void{this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);for(const b of BINDINGS)this.input.unregisterBinding(b.id);for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);this.destroy$.next();this.destroy$.complete()}
-open():void{if(!this.visible){this.query='';this.selectedIndex=0;}this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);if(this.modalStack&&this.hostElement&&!this.unregisterModal){this.unregisterModal=this.modalStack.register({id:'remote-connections',element:this.hostElement.nativeElement,contextId:CONTEXT_ID,dismiss:()=>this.close(),dismissible:()=>this.renderVisible&&!this.isClosing});}this.cdr.markForCheck();void this.refresh()}
+open():void{if(!this.visible){this.copyNotice='';this.query='';this.selectedIndex=0;}this.visible=true;this.renderVisible=true;this.isClosing=false;this.input.activateContext(CONTEXT_ID);if(this.modalStack&&this.hostElement&&!this.unregisterModal){this.unregisterModal=this.modalStack.register({id:'remote-connections',element:this.hostElement.nativeElement,contextId:CONTEXT_ID,dismiss:()=>this.close(),dismissible:()=>this.renderVisible&&!this.isClosing});}this.cdr.markForCheck();void this.refresh()}
 close():void{if(!this.renderVisible||this.isClosing)return;this.visible=false;this.isClosing=true;this.unregisterModal?.();this.unregisterModal=null;this.input.deactivateContext(CONTEXT_ID);this.cdr.markForCheck()}
+async copySelectedLocation(): Promise<void> {
+  const mount = this.selectedMount;
+  const location = mount && this.uri(mount);
+  if (!location) return;
+  try {
+    await writeClipboardText(location);
+    this.copyNotice = 'Location copied.';
+  } catch {
+    this.copyNotice = 'Clipboard unavailable.';
+  }
+  this.cdr.markForCheck();
+}
 async refresh():Promise<void>{await this.connections.refresh()}
 async connect():Promise<void>{const mount=await this.connectDialog.openDialog();if(!mount)return;await this.connections.refresh();const uri=this.connections.rootUri(mount);if(uri){this.navigate.emit(uri);this.close()}}
 async disconnectSelected():Promise<void>{const mount=this.selectedMount;if(!mount)return;const ok=await this.confirm.confirm({title:'Disconnect Remote',message:`Disconnect "${this.connections.label(mount)}"?`,confirmText:'Disconnect',danger:true});if(ok)await this.connections.disconnect(mount)}

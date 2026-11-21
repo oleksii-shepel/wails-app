@@ -86,7 +86,7 @@ import type {
 
         <div class="basket-workspace">
           <section class="basket-list palette-dialog-body" aria-label="Basket contents">
-            <div *ngIf="entries.length === 0" class="empty-state palette-dialog-empty">
+            <div *ngIf="entries.length === 0" class="empty-state palette-dialog-empty" role="status">
               <strong>The basket is empty</strong>
               <span>Add selections from panes, searches, duplicate results, or commands.</span>
               <code>basket.add</code>

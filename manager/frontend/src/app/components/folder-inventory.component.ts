@@ -46,7 +46,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
     } @else if (error()) {
       <p class="palette-dialog-empty" role="alert">{{ error() }}</p>
     } @else if (!visible.length) {
-      <p class="palette-dialog-empty">
+      <p class="palette-dialog-empty" role="status">
         {{ !rootPath ? 'Open a folder in a file pane to create an inventory.' : entriesExist ? 'No entries match the current filters.' : 'This folder is empty.' }}
       </p>
     } @else {

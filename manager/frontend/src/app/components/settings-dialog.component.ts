@@ -588,8 +588,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-compact-mode-label">Compact mode</span><small id="settings-compact-mode-help">Reduces padding and font size throughout the UI for a denser layout.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.animationsEnabled" (ngModelChange)="onSettingChanged()" />
-                    <span>Enable animations<small>Smooth transitions for panel openings, dialog entries, and list updates.</small></span>
+                    <input aria-labelledby="settings-animations-enabled-label" aria-describedby="settings-animations-enabled-help" type="checkbox" [(ngModel)]="draft.view.animationsEnabled" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-animations-enabled-label">Enable animations</span><small id="settings-animations-enabled-help">Smooth transitions for panel openings, dialog entries, and list updates.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.view.showTabBar" (ngModelChange)="onSettingChanged()" />

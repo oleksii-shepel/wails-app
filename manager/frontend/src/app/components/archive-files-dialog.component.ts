@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { filenameProblem } from '../utils/filename-validation';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
@@ -171,12 +171,13 @@ export class ArchiveFilesDialogComponent implements OnInit, OnDestroy {
   private readonly hostElement = tryInjectElementRef();
   private unregisterModal: (() => void) | null = null;
 
-  constructor(readonly dialogs: ArchiveFilesDialogService) {}
+  constructor(readonly dialogs: ArchiveFilesDialogService, private readonly cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
     this.dialogs.activeRequest$
       .pipe(takeUntil(this.destroy$))
       .subscribe((request) => {
+        this.cdr.markForCheck();
         if (request) {
           if (this.modalStack && this.hostElement && !this.unregisterModal) {
             this.unregisterModal = this.modalStack.register({

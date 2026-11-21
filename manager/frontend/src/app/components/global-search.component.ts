@@ -221,7 +221,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
         <footer class="palette-dialog-footer">
           <span *ngIf="error" class="error" role="alert">{{ error }}</span>
           <span *ngIf="!error && searchProgress" class="progress">{{ searchProgress }}</span>
-          <span *ngIf="searchWarnings.length" class="warning" [title]="searchWarnings.join('\n')">
+          <span *ngIf="searchWarnings.length" class="warning" role="status" [title]="searchWarnings.join('\n')">
             {{ searchWarnings.length }} warning{{ searchWarnings.length === 1 ? '' : 's' }}
           </span>
           <button

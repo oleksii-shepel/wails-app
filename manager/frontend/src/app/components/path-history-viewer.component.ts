@@ -15,11 +15,11 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
   imports: [CommonModule, FormsModule],
   template: `
     <div class="path-history-overlay" *ngIf="renderVisible" [class.path-history-overlay--closing]="isClosing" (click)="hide()" (animationend)="onOverlayAnimationEnd($event)">
-      <div class="path-history-modal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown.escape)="hide(); $event.preventDefault(); $event.stopPropagation()">
+      <div class="path-history-modal palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-labelledby="path-history-viewer-title" tabindex="-1" (click)="$event.stopPropagation()" (keydown.escape)="hide(); $event.preventDefault(); $event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
           <div>
-            <h2>Location History</h2>
+            <h2 id="path-history-viewer-title">Location History</h2>
             <p>Recently visited locations. Click to navigate.</p>
           </div>
           <button type="button" class="dialog-close" aria-label="Close dialog" (click)="hide()" title="Close"> × </button>

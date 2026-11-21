@@ -87,10 +87,10 @@ const PIE_PREFETCH_LIMIT = 5;
         </nav>
       </div>
       <div class="sm-header-actions">
-        <button class="sm-btn sm-btn--icon" [disabled]="!canGoBack" (click)="goBack()" title="Back" aria-label="Back">←</button>
-        <button class="sm-btn sm-btn--icon" [disabled]="!canGoForward" (click)="goForward()" title="Forward" aria-label="Forward">→</button>
-        <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
-        <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
+        <button type="button" class="sm-btn sm-btn--icon" [disabled]="!canGoBack" (click)="goBack()" title="Back" aria-label="Back">←</button>
+        <button type="button" class="sm-btn sm-btn--icon" [disabled]="!canGoForward" (click)="goForward()" title="Forward" aria-label="Forward">→</button>
+        <button type="button" class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
+        <button type="button" class="sm-btn" (click)="refresh()">↺ Refresh</button>
         <button type="button" class="dialog-close" (click)="close()" title="Close" aria-label="Close tab"> × </button>
       </div>
     </div>
@@ -99,7 +99,7 @@ const PIE_PREFETCH_LIMIT = 5;
     <div class="sm-error" *ngIf="error && !isTraversing" role="alert">
       <span class="sm-error-icon">⚠</span>
       <span>{{ error }}</span>
-      <button class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>
+      <button type="button" class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>
     </div>
 
     <!-- ── Dashboard ──────────────────────────────────────── -->
@@ -144,7 +144,7 @@ const PIE_PREFETCH_LIMIT = 5;
 
         <!-- Distribution breadcrumb nav -->
         <div class="sm-pie-nav" *ngIf="pieStack.length > 0">
-          <button
+          <button type="button"
             *ngFor="let frame of pieStack; let i = index; let last = last"
             class="sm-pie-crumb"
             [class.sm-pie-crumb--active]="last"
@@ -236,7 +236,7 @@ const PIE_PREFETCH_LIMIT = 5;
         </div>
 
         <div class="sm-table-body" *ngIf="entries.length > 0; else emptyBreakdown">
-          <button
+          <button type="button"
             class="sm-row"
             *ngFor="let e of entries; trackBy: trackEntry"
             [class.sm-row--dir]="e.isDir"

@@ -457,7 +457,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="linkedNavigation"
             [attr.aria-pressed]="linkedNavigation"
-            title="Linked navigation · Ctrl+Alt+L"
+            aria-label="Linked navigation" aria-keyshortcuts="Control+Alt+L" title="Linked navigation · Ctrl+Alt+L"
             (click)="toggleLinkedNavigation()">
             Link
           </button>
@@ -466,7 +466,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="mirrorPresentation"
             [attr.aria-pressed]="mirrorPresentation"
-            title="Mirror view/sort state · Ctrl+Alt+M"
+            aria-label="Mirror view and sort state" aria-keyshortcuts="Control+Alt+M" title="Mirror view/sort state · Ctrl+Alt+M"
             (click)="toggleMirrorPresentation()">
             Mirror
           </button>
@@ -475,7 +475,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="syncScroll"
             [attr.aria-pressed]="syncScroll"
-            title="Synchronized scrolling · Ctrl+Alt+S"
+            aria-label="Synchronized scrolling" aria-keyshortcuts="Control+Alt+S" title="Synchronized scrolling · Ctrl+Alt+S"
             (click)="toggleSyncScroll()">
             Scroll
           </button>
@@ -484,7 +484,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             class="mode-toggle"
             [class.active]="followSelection"
             [attr.aria-pressed]="followSelection"
-            title="Follow matching item · Ctrl+Alt+F"
+            aria-label="Follow matching item" aria-keyshortcuts="Control+Alt+F" title="Follow matching item · Ctrl+Alt+F"
             (click)="toggleFollowSelection()">
             Follow
           </button>

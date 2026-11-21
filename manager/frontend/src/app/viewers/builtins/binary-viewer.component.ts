@@ -542,6 +542,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   setOffsetFormat(fmt: OffsetFormat): void {
     if (this.offsetFormat === fmt) return;
     this.offsetFormat = fmt;
+    this.gotoError = '';
     this.scheduleUpdate();
   }
 

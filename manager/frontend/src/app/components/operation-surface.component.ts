@@ -8,6 +8,7 @@ import {
   Output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { operationProgress } from '../utils/operation-progress';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 import {
@@ -115,11 +116,14 @@ import {
           {{ leafName(operation.metrics.currentFile) }}
         </div>
 
-        <div class="progress-track" *ngIf="operation.status !== 'error'">
+        @let progress = progressFor(operation.metrics);
+        <div class="progress-track" *ngIf="operation.status !== 'error' && (progress !== null || isActive(operation))"
+          role="progressbar" [attr.aria-label]="operation.config.title"
+          [attr.aria-valuemin]="0" [attr.aria-valuemax]="100" [attr.aria-valuenow]="progress">
           <div
             class="progress-value"
-            [class.indeterminate]="operation.metrics.totalBytes <= 0 && isActive(operation)"
-            [style.width.%]="operation.metrics.totalBytes > 0 ? operation.percentComplete : null">
+            [class.indeterminate]="progress === null && isActive(operation)"
+            [style.width.%]="progress">
           </div>
         </div>
 
@@ -142,8 +146,8 @@ import {
             {{ operationService.formatDuration(operation.timing.estimatedRemainingMs) }} left
           </span>
 
-          <span *ngIf="operation.metrics.totalBytes > 0">
-            {{ operation.percentComplete | number:'1.0-0' }}%
+          <span *ngIf="progress !== null">
+            {{ progress | number:'1.0-0' }}%
           </span>
         </div>
 
@@ -427,6 +431,7 @@ import {
   `],
 })
 export class OperationSurfaceComponent implements OnInit, OnDestroy {
+  readonly progressFor = operationProgress;
   @Output() openDetails = new EventEmitter<void>();
 
   operations: OperationState[] = [];

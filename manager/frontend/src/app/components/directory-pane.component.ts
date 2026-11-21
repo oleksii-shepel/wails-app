@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -5141,18 +5142,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!value) return false;
 
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboardText(value);
       return true;
     } catch {
-      const runtime = (window as unknown as {
-        runtime?: {
-          ClipboardSetText?: (text: string) => Promise<boolean>;
-        };
-      }).runtime;
-
-      if (typeof runtime?.ClipboardSetText === 'function') {
-        return await runtime.ClipboardSetText(value);
-      }
       return false;
     }
   }

@@ -772,7 +772,7 @@ export class WorkspaceService {
 
   getRecentlyClosedTabs(
     workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
-    limit = 20,
+    limit = RECENTLY_CLOSED_TABS_LIMIT,
   ): RecentlyClosedTab[] {
     this.closedTabsRevision();
     return this.recentlyClosedTabs

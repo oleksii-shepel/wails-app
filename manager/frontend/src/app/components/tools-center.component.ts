@@ -301,6 +301,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <div class="duplicate-file" *ngFor="let file of group.files">
               <input
                 type="checkbox"
+                [attr.aria-label]="'Select duplicate: ' + file.path"
                 [checked]="duplicateSelected.has(file.path)"
                 [disabled]="file.path === group.suggestedKeeperPath"
                 (change)="toggleDuplicate(file.path)">

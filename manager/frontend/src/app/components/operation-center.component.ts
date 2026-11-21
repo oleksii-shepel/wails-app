@@ -39,7 +39,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
           </div>
           <input
             type="search"
-            class="filter-search"
+            class="filter-search palette-dialog-field"
             [value]="searchText"
             (input)="onSearchInput($event)"
             placeholder="Filter operations or paths…"

@@ -84,6 +84,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           <button type="button" class="palette-dialog-button" [disabled]="!searchText" (click)="clearSearch()">Clear filter</button>
           <select class="trash-sort palette-dialog-field" [value]="sortBy" (change)="onSortChange($event)" aria-label="Sort trash items">
             <option value="deleted">Newest deleted</option>
+            <option value="oldest">Oldest deleted</option>
             <option value="name">Name</option>
             <option value="path">Original location</option>
           </select>
@@ -301,7 +302,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   entries: TrashEntry[] = [];
   selectedIds = new Set<string>();
   searchText = '';
-  sortBy: 'deleted' | 'name' | 'path' = 'deleted';
+  sortBy: 'deleted' | 'oldest' | 'name' | 'path' = 'deleted';
 
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
@@ -400,7 +401,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     return filtered.sort((a, b) => {
       const ta = Date.parse(a.deletedAt || '') || 0;
       const tb = Date.parse(b.deletedAt || '') || 0;
-      return tb - ta;
+      return this.sortBy === 'oldest' ? ta - tb : tb - ta;
     });
   }
 
@@ -443,7 +444,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
 
   onSortChange(event: Event): void {
     const val = (event.target as HTMLSelectElement).value;
-    if (val === 'deleted' || val === 'name' || val === 'path') {
+    if (val === 'deleted' || val === 'oldest' || val === 'name' || val === 'path') {
       this.sortBy = val;
       this.cdr.markForCheck();
     }

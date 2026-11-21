@@ -304,8 +304,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-sort-folders-first-label">Sort folders before files</span><small id="settings-sort-folders-first-help">Keeps directories grouped at the top regardless of the active sort column.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.singleClickToOpen" (ngModelChange)="onSettingChanged()" />
-                    <span>Single-click to open<small>Opens files and navigates into folders with a single click instead of a double-click.</small></span>
+                    <input aria-labelledby="settings-single-click-to-open-label" aria-describedby="settings-single-click-to-open-help" type="checkbox" [(ngModel)]="draft.files.singleClickToOpen" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-single-click-to-open-label">Single-click to open</span><small id="settings-single-click-to-open-help">Opens files and navigates into folders with a single click instead of a double-click.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.calculateFolderSizes" (ngModelChange)="onSettingChanged()" />

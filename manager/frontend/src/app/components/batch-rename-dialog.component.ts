@@ -75,7 +75,7 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
           <header class="br-header">
             <div class="br-title-group">
               <h2>Batch Rename</h2>
-              <span class="br-subtitle">{{ request.items.length }} selected · {{ changedCount }} changed</span>
+              <span class="br-subtitle" role="status">{{ request.items.length }} selected · {{ changedCount }} will change</span>
             </div>
             <button type="button" class="dialog-close" aria-label="Close dialog" title="Close (Esc)" (click)="onCancel()"> × </button>
           </header>

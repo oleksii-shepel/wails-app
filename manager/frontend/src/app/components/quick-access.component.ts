@@ -532,6 +532,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     const count = this.activeItems.length;
     if (!count) return;
     this.itemIndex = boundary === 'first' ? 0 : count - 1;
+    this.revealSelected();
     this.cdr.markForCheck();
   }
 
@@ -548,7 +549,17 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     return locationIdentity(path);
   }
 
-  private moveItem(delta:-1|1):void{const count=this.activeItems.length;if(!count)return;this.itemIndex=(this.itemIndex+delta+count)%count;this.cdr.markForCheck()}
+  private moveItem(delta: -1 | 1): void {
+    const count = this.activeItems.length;
+    if (!count) return;
+    this.itemIndex = (this.itemIndex + delta + count) % count;
+    this.revealSelected();
+    this.cdr.markForCheck();
+  }
+
+  private revealSelected(): void {
+    this.hostElement?.nativeElement.querySelectorAll('.item')[this.itemIndex]?.scrollIntoView({ block: 'nearest' });
+  }
   private moveSection(delta:-1|1):void{const count=this.filteredSections.length;if(!count)return;this.sectionIndex=(this.sectionIndex+delta+count)%count;this.itemIndex=0;this.cdr.markForCheck()}
   private iconFor(icon:string|undefined,fallback:string):string{const normalized=(icon||'').trim();if(!normalized)return fallback;return SPECIAL_LOCATION_ICONS[normalized.toLowerCase()]??normalized}
   private labelFor(path: string): string { return locationLabel(path) || path; }

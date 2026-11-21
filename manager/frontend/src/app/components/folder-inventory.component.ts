@@ -32,12 +32,12 @@ import { FileType, type FileInfo } from '../shared/protocol';
     </div>
     <div class="palette-dialog-toolbar inventory-toolbar">
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="copyPaths()">Copy matching paths</button>
-      <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="copyPaths(true)">Copy selected paths</button>
+      <button type="button" class="palette-dialog-button" [disabled]="loading() || !!error() || !selected.size" (click)="copyPaths(true)">Copy selected paths</button>
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="download()">Export matching CSV</button>
-      <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="download(true)">Export selected CSV</button>
+      <button type="button" class="palette-dialog-button" [disabled]="loading() || !!error() || !selected.size" (click)="download(true)">Export selected CSV</button>
       <button type="button" class="palette-dialog-button palette-dialog-button--primary"
-        [disabled]="loading() || !selected.size" (click)="addToBasket()">Add selected to Basket</button>
-      <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="clearSelection()">Clear selection</button>
+        [disabled]="loading() || !!error() || !selected.size" (click)="addToBasket()">Add selected to Basket</button>
+      <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="clearSelection()">Clear selection</button>
       <span role="status" class="palette-dialog-meta">{{ notice() || selectionSummary }}</span>
     </div>
     @if (loading()) {
@@ -171,7 +171,6 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
       this.updateVisible();
     } catch (error) {
       if (request === this.request) {
-        this.selected.clear();
         this.error.set(error instanceof Error ? error.message : String(error));
       }
     } finally {

@@ -336,8 +336,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span>Confirm drag and drop operations</span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.files.copyOnDrop" (ngModelChange)="onSettingChanged()" />
-                    <span>Copy on drag and drop by default<small>When dropping without a modifier key, copies instead of moving the files.</small></span>
+                    <input aria-labelledby="settings-copy-on-drop-label" aria-describedby="settings-copy-on-drop-help" type="checkbox" [(ngModel)]="draft.files.copyOnDrop" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-copy-on-drop-label">Copy on drag and drop by default</span><small id="settings-copy-on-drop-help">When dropping without a modifier key, copies instead of moving the files.</small></span>
                   </label>
                   <label class="field">
                     <span>Default Open Action</span>

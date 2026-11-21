@@ -418,7 +418,7 @@ export class BatchRenameDialogComponent {
   }
 
   private rebuildPreview(req: BatchRenameRequest): void {
-    const seen = new Set<string>();
+    const byDestination = new Map<string, PreviewRow>();
     const rows: PreviewRow[] = [];
     let counter = Math.max(0, Math.floor(Number(this.startAt) || 0));
     const step = Math.max(1, Math.floor(Number(this.increment) || 1));
@@ -447,15 +447,17 @@ export class BatchRenameDialogComponent {
       }
       const problem = filenameProblem(newName, isWindowsPath(item.entry.path)) ?? undefined;
       const destination = pathIdentityKey(`${parentPath(item.entry.path).replace(/\/+$/, '')}/${newName}`);
-      const conflict = seen.has(destination) || !!problem;
-      seen.add(destination);
-      rows.push({
+      const previous = byDestination.get(destination);
+      if (previous) previous.conflict = true;
+      const row: PreviewRow = {
         entry: item.entry,
         newName,
-        conflict,
+        conflict: !!previous || !!problem,
         problem,
         changed: newName !== item.entry.name,
-      });
+      };
+      byDestination.set(destination, row);
+      rows.push(row);
       counter += step;
     }
 

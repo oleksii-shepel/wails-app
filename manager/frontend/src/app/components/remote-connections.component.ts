@@ -1,4 +1,4 @@
-import {ChangeDetectionStrategy,ChangeDetectorRef,Component,EventEmitter,OnDestroy,OnInit,Output} from '@angular/core';
+import {ChangeDetectionStrategy,ChangeDetectorRef,Component,ElementRef,EventEmitter,OnDestroy,OnInit,Output,ViewChild} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import { writeClipboardText } from '../utils/clipboard-text';
 import {createSubject,takeUntil} from '@epikodelabs/streamix';
@@ -27,9 +27,13 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
         tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
 <header class="palette-dialog-header"><div class="palette-dialog-title"><strong>Remote connections</strong><span class="palette-dialog-subtitle" role="status">{{matchingMounts.length}} of {{state.mounts.length}}</span></div><div class="header-actions"><button type="button" class="palette-dialog-button" (click)="connect()">Connect…</button><button type="button" class="palette-dialog-button" (click)="refresh()" [disabled]="state.loading">{{state.loading?'Refreshing…':'Refresh'}}</button><button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button></div></header>
 <div class="palette-dialog-toolbar">
-  <input class="palette-dialog-field remote-filter" type="search" placeholder="Filter connections…" aria-label="Filter remote connections"
+  <input #remoteFilter class="palette-dialog-field remote-filter" type="search" placeholder="Filter connections…" aria-label="Filter remote connections"
     [value]="query" (input)="onQueryInput($event)" (keydown.enter)="openSelectedFromFilter($event)" />
-  <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = '';
+  <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="@ViewChild('remoteFilter') set remoteFilter(field: ElementRef<HTMLInputElement> | undefined) {
+  const element = field?.nativeElement;
+  if (element) queueMicrotask(() => { if (this.visible && element.isConnected) element.focus(); });
+}
+query = '';
 copyNotice = '';
 disconnecting = false; selectedIndex = 0">Clear filter</button>
 </div>
@@ -52,6 +56,10 @@ private readonly modalStack=tryInjectModalStack();
 private readonly hostElement=tryInjectElementRef();
 private unregisterModal:(()=>void)|null=null;
 constructor(private readonly connections:RemoteConnectionsService,private readonly connectDialog:RemoteConnectDialogService,private readonly confirm:ConfirmDialogService,private readonly input:InputEngineService,private readonly cdr:ChangeDetectorRef){}
+@ViewChild('remoteFilter') set remoteFilter(field: ElementRef<HTMLInputElement> | undefined) {
+  const element = field?.nativeElement;
+  if (element) queueMicrotask(() => { if (this.visible && element.isConnected) element.focus(); });
+}
 query = '';
 copyNotice = '';
 disconnecting = false;

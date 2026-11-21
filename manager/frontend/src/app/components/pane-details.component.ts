@@ -136,7 +136,11 @@ interface DetailsRowVm {
         (drop)="onBackgroundDrop($event)">
         
         <div class="virtual-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
-        
+
+        <div *ngIf="showsEmptyState" class="empty" role="status">
+          {{ emptyMessage }}
+        </div>
+
         <div class="details-window" [class.virtual-window]="virtualEnabled" [style.transform]="virtualWindowTransform">
           <div 
             *ngFor="let row of visibleRowVms; trackBy: trackByRowPath"
@@ -503,6 +507,17 @@ interface DetailsRowVm {
       touch-action: pan-y;
       contain: layout paint;
     }
+
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--vsc-foreground-dim);
+      font-size: var(--vsc-font-size);
+      pointer-events: none;
+    }
     
     .virtual-spacer {
       width: 1px;
@@ -629,6 +644,7 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @ViewChild('detailsRoot') detailsRootRef?: ElementRef<HTMLElement>;
   @ViewChild('detailsBody') detailsBodyRef?: ElementRef<HTMLElement>;
   @Input() entries: FileInfo[] = [];
+  @Input() emptyMessage = 'No items to display.';
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
@@ -850,6 +866,12 @@ export class PaneDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   get totalContentHeight(): number {
     return this.virtualCollection.window.totalExtentPx ||
       this.entries.length * this.rowHeight;
+  }
+
+  /** True when nothing but (at most) the synthetic parent entry remains. */
+  get showsEmptyState(): boolean {
+    return this.entries.length === 0 ||
+      (this.entries.length === 1 && this.isParentEntry(this.entries[0]));
   }
 
   get virtualWindowTransform(): string {

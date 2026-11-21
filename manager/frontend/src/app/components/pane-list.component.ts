@@ -63,7 +63,11 @@ type VisibleRowVm = {
       <div *ngIf="error" class="error" role="alert">
         {{ error }}
       </div>
-      
+
+      <div *ngIf="!loading && !error && entries.length === 0" class="empty" role="status">
+        {{ emptyMessage }}
+      </div>
+
       <div *ngIf="!loading && !error" class="file-list-container">
         <div
           *ngIf="virtualEnabled && parentEntry"
@@ -172,7 +176,8 @@ type VisibleRowVm = {
     }
 
     .loading,
-    .error {
+    .error,
+    .empty {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -306,6 +311,7 @@ export class PaneListComponent implements OnDestroy, OnChanges, AfterViewInit {
   @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
+  @Input() emptyMessage = 'No items to display.';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() cursorPath: string | null = null;

@@ -50,7 +50,11 @@ import {
       (drop)="onBackgroundDrop($event)">
       
       <div class="virtual-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
-      
+
+      <div *ngIf="showsEmptyState" class="empty" role="status">
+        {{ emptyMessage }}
+      </div>
+
       <div class="grid-window" [class.virtual-window]="virtualEnabled" [style.transform]="virtualWindowTransform">
         <ng-container *ngFor="let entry of displayEntries; trackBy: trackByDisplayPath">
         <div
@@ -176,6 +180,17 @@ import {
       min-width: 0;
       overflow: hidden;
       contain: layout style paint;
+    }
+
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--vsc-foreground-dim);
+      font-size: var(--vsc-font-size);
+      pointer-events: none;
     }
 
     .file-grid {
@@ -491,6 +506,7 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
+  @Input() emptyMessage = 'No items to display.';
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
@@ -593,6 +609,12 @@ export class PaneGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   get totalContentHeight(): number {
     return this.virtualCollection.window.totalExtentPx ||
       Math.ceil(this.entries.length / this.cachedVirtualColumns) * this.rowHeight;
+  }
+
+  /** True when nothing but (at most) the synthetic parent entry remains. */
+  get showsEmptyState(): boolean {
+    return this.entries.length === 0 ||
+      (this.entries.length === 1 && this.isParentEntry(this.entries[0]));
   }
 
   get virtualWindowTransform(): string {

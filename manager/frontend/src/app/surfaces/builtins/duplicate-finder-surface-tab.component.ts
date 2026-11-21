@@ -55,7 +55,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
         <span class="warning" *ngIf="result?.truncated">scan limit reached</span>
       </div>
 
-      <div class="empty" *ngIf="!scanning && result && result.groups.length === 0">No verified duplicates found.</div>
+      <div class="empty" *ngIf="!scanning && result && result.groups.length === 0" role="status">No verified duplicates found.</div>
 
       <section class="group" *ngFor="let group of visibleGroups; trackBy: trackGroup">
         <div class="group-head">

@@ -47,6 +47,9 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             (input)="onSearchInput($event)"
             placeholder="Filter closed tabs by title or path…"
             aria-label="Filter recently closed tabs" />
+          <select class="palette-dialog-field" aria-label="Filter by original pane" [value]="paneFilter" (change)="onPaneFilterChange($event)">
+            <option value="all">Both panes</option><option value="left">Left pane</option><option value="right">Right pane</option>
+          </select>
           <button type="button" class="palette-dialog-button" [disabled]="!searchText" (click)="searchText = ''">Clear filter</button>
         </div>
 
@@ -108,6 +111,7 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   @Output() reopenRequested = new EventEmitter<RecentlyClosedTab>();
 
   searchText = '';
+  paneFilter: 'all' | 'left' | 'right' = 'all';
 
   @ViewChild('tabsSearch') set tabsSearch(field: ElementRef<HTMLInputElement> | undefined) {
     const input = field?.nativeElement;
@@ -153,13 +157,19 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
 
   get filteredEntries(): readonly RecentlyClosedTab[] {
     const query = this.searchText.trim().toLowerCase();
-    if (!query) return this.entries;
-    return this.entries.filter(entry =>
+    const scoped = this.paneFilter === 'all' ? this.entries : this.entries.filter(entry => entry.paneId === this.paneFilter);
+    if (!query) return scoped;
+    return scoped.filter(entry =>
       (entry.tab.title ?? '').toLowerCase().includes(query) ||
       (entry.tab.path ?? '').toLowerCase().includes(query) ||
       this.viewerPath(entry).toLowerCase().includes(query) ||
       (entry.paneId ?? '').toLowerCase().includes(query),
     );
+  }
+
+  onPaneFilterChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.paneFilter = value === 'left' || value === 'right' ? value : 'all';
   }
 
   onSearchInput(event: Event): void {

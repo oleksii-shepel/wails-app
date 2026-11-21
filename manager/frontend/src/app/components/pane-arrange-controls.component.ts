@@ -33,7 +33,7 @@ export interface PaneSortChange {
         [class.active]="menuOpen"
         aria-haspopup="menu"
         [attr.aria-expanded]="menuOpen"
-        title="Arrange"
+        aria-label="Arrange panes" title="Arrange"
         (click)="toggleMenu($event)">
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <line x1="2" y1="5" x2="9" y2="5" stroke="currentColor"/>

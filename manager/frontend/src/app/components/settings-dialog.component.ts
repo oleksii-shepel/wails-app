@@ -833,8 +833,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <small id="settings-telemetry-level-help">Granular control over what diagnostic data is transmitted. Overrides the individual analytics and crash-report toggles in General.</small>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.advanced.useNativeFilePicker" (ngModelChange)="onSettingChanged()" />
-                    <span>Use native file picker<small>Opens the OS file chooser dialog for save/open prompts instead of the built-in browser.</small></span>
+                    <input aria-labelledby="settings-use-native-file-picker-label" aria-describedby="settings-use-native-file-picker-help" type="checkbox" [(ngModel)]="draft.advanced.useNativeFilePicker" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-use-native-file-picker-label">Use native file picker</span><small id="settings-use-native-file-picker-help">Opens the OS file chooser dialog for save/open prompts instead of the built-in browser.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.advanced.hardReloadOnExternalChange" (ngModelChange)="onSettingChanged()" />

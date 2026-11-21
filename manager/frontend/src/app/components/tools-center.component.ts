@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -7,29 +8,41 @@ import {
   OnInit,
   Output,
 } from '@angular/core';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { CommonModule } from '@angular/common';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
+import { writeClipboardText } from '../utils/clipboard-text';
 import { ApiService } from '../services/api.service';
 import type { AppOverlayToolsPage } from '../services/application-overlay-host.service';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { FolderInventoryComponent } from './folder-inventory.component';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { parentPath } from './address-bar.utils';
+import { writeClipboardText } from '../utils/clipboard-text';
 import {
   DuplicateFinderService,
   type DuplicateGroup,
   type DuplicateScanProgress,
   type DuplicateScanResult,
 } from '../services/duplicate-finder.service';
+import { writeClipboardText } from '../utils/clipboard-text';
 import {
   OperationService,
   type OperationHistoryEntry,
   type OperationState,
 } from '../services/operation.service';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { SelectionBasketService } from '../services/selection-basket.service';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { FileType, type FileInfo } from '../shared/protocol';
 import type {
   DiskUsageEntry,
@@ -922,7 +935,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   private async copyText(value: string): Promise<void> {
     this.clipboardError = '';
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboardText(value);
       this.copiedValue = value;
       if (this.copiedTimer !== null) window.clearTimeout(this.copiedTimer);
       this.copiedTimer = window.setTimeout(() => {

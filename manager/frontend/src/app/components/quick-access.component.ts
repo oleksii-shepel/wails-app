@@ -221,6 +221,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
 
   async open(sectionId?: string): Promise<void> {
     this.filterText = '';
+    this.notice = '';
     this.sections = [];
     this.loading = true;
     this.itemIndex = 0;
@@ -276,7 +277,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     this.close();
   }
   selectSection(index:number):void{this.sectionIndex=Math.max(0,Math.min(index,this.filteredSections.length-1));this.itemIndex=0;this.cdr.markForCheck()}
-  resetSelection():void{this.sectionIndex=0;this.itemIndex=0;this.cdr.markForCheck()}
+  resetSelection():void{this.notice='';this.sectionIndex=0;this.itemIndex=0;this.cdr.markForCheck()}
   trackItem(_index:number,item:QuickItem):string{return item.id}
 
   async copySelectedLocation(): Promise<void> {

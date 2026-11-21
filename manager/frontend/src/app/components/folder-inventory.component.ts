@@ -23,6 +23,7 @@ import { FileType, type FileInfo } from '../shared/protocol';
         <option value="folders">Folders</option>
         <option value="files">Files and links</option>
       </select>
+      <button type="button" class="palette-dialog-button" [disabled]="!query && kind === 'all' && sort === 'name'" (click)="resetFilters()">Reset filters</button>
       <label><input type="checkbox" [checked]="showHidden" (change)="changeHidden($event)" /> Hidden</label>
       <button type="button" class="palette-dialog-button" [disabled]="!rootPath || loading()" (click)="load()">Refresh</button>
     </div>
@@ -156,6 +157,13 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
   changeHidden(event: Event): void {
     this.showHidden = (event.target as HTMLInputElement).checked;
     void this.load();
+  }
+
+  resetFilters(): void {
+    this.query = '';
+    this.kind = 'all';
+    this.sort = 'name';
+    this.updateVisible();
   }
 
   changeKind(event: Event): void {

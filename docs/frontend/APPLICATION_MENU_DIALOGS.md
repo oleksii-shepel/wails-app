@@ -37,11 +37,12 @@ Operations in View and Tools). This is intentional discoverability, not a
 second implementation.
 
 Folder Inventory lists the active folder's immediate entries, including hidden
-items when requested. Filter by name, path, or entry type and sort by name, size,
-or modification time. Copy paths or export either the matching rows or the selected
-rows as CSV. The selection summary includes entries outside the active filter.
-Select entries to send them to the Selection Basket, or open a folder directly
-in the pane.
+items when requested. Filter by name, path, or entry type and sort by name, type,
+size, or modification time. Copy paths or export either the matching rows or the
+selected rows as CSV. The selection summary includes entries outside the active
+filter. Select entries to send them to the Selection Basket, open a folder in
+the pane, or open a file preview directly from its name. Switching tools keeps
+the inventory filters and selection until Tools Center closes.
 
 Operation History can export the entries matching its active filters as JSON.
 Search current and recent jobs from the Operations page in Tools Center.

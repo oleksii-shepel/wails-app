@@ -14,7 +14,7 @@ import { shortenPath } from './address-bar.utils';
         <span>Pinned Locations</span>
         <span class="ab-badge">{{ pins.length }}</span>
       </div>
-      <div class="ab-drop-empty" *ngIf="pins.length === 0">
+      <div class="ab-drop-empty" role="status" *ngIf="pins.length === 0">
         <span class="ab-drop-empty-icon">📍</span>
         <span>No pinned locations yet.<br>Click ☆ to pin the current path.</span>
       </div>

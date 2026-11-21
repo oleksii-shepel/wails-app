@@ -497,7 +497,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [class.active]="paneIntelligenceMenuOpen"
           [attr.aria-expanded]="paneIntelligenceMenuOpen"
           aria-haspopup="menu"
-          title="More pane actions"
+          aria-label="More pane actions" title="More pane actions"
           (click)="togglePaneIntelligenceMenu($event)">
           ⋯
         </button>

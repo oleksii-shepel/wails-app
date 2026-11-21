@@ -50,7 +50,7 @@ interface VideoNavItem {
 
     <div *ngIf="!useLegacySurface" class="viewer-surface">
       <div class="viewer-body">
-        <div *ngIf="loading" class="state-container">
+        <div *ngIf="loading" class="state-container" role="status">
           <div class="spinner"></div>
           <div class="state-label">Loading segmented preview...</div>
         </div>
@@ -126,7 +126,7 @@ interface VideoNavItem {
               </div>
             </button>
 
-            <div class="video-loading" *ngIf="videoLoading">
+            <div class="video-loading" *ngIf="videoLoading" role="status">
               <div class="spinner"></div>
               <div class="loading-text">Loading video...</div>
             </div>

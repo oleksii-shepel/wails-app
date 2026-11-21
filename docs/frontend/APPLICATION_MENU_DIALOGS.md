@@ -18,6 +18,8 @@ The menu exposes:
 - Pinned Locations
 - Workspace Switcher
 - Operations Center
+- Folder Inventory
+- File Checksums
 - Selection Basket
 - Operation History
 - Recently Closed Tabs
@@ -33,6 +35,13 @@ The menu exposes:
 Some commands appear in more than one semantically useful menu (for example
 Operations in View and Tools). This is intentional discoverability, not a
 second implementation.
+
+Folder Inventory lists the active folder's immediate entries, including hidden
+items when requested. Filter by name or path, sort by name, size or modification
+time, and copy paths or export the filtered listing as CSV. Select entries to
+send them to the Selection Basket, or open a folder directly in the pane.
+
+Operation History can export the entries matching its active filters as JSON.
 
 ## Contextual-only dialogs
 

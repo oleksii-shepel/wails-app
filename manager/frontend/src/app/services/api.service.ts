@@ -627,6 +627,19 @@ export class ApiService {
     return await window.go.app.App.HashFile(this.normalizeCanonicalPath(path));
   }
 
+  async getFileChecksums(path: string): Promise<{
+    hash?: string;
+    size?: number;
+    algorithms?: Partial<Record<'sha256' | 'sha512' | 'sha1' | 'md5', string>>;
+  }> {
+    type ChecksumResult = Awaited<ReturnType<ApiService['getFileChecksums']>>;
+    const app = window.go.app.App as typeof window.go.app.App & {
+      GetFileChecksums?: (path: string) => Promise<ChecksumResult>;
+    };
+    if (app.GetFileChecksums) return app.GetFileChecksums(this.normalizeCanonicalPath(path));
+    return { hash: await this.hashFile(path) };
+  }
+
   async createZipArchive(
     paths: string[],
     destination: string,

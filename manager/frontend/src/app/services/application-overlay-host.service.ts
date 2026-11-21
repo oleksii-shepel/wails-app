@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 
-export type AppOverlayToolsPage = 'operations' | 'disk' | 'duplicates';
+export type AppOverlayToolsPage = 'operations' | 'disk' | 'duplicates' | 'checksums' | 'inventory';
 export type AppOverlayHistoryMode = 'pane' | 'all' | 'frequent';
 export interface KeyboardHelpRequest {
   contextIds?: readonly string[];

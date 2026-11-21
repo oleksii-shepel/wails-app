@@ -147,6 +147,8 @@ const MENUS: readonly ApplicationMenu[] = [
       separator(),
       command(FILE_MANAGER_COMMANDS.diskUsage, 'Disk Usage…'),
       command(FILE_MANAGER_COMMANDS.findDuplicates, 'Find Duplicates…'),
+      command(FILE_MANAGER_COMMANDS.folderInventory, 'Folder Inventory…'),
+      command(FILE_MANAGER_COMMANDS.fileChecksums, 'File Checksums…'),
       command(FILE_MANAGER_COMMANDS.batchRename, 'Batch Rename…'),
       separator(),
       command(FILE_MANAGER_COMMANDS.comparePanes, 'Compare Panes'),

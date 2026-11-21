@@ -17,18 +17,19 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
         <header class="palette-dialog-header"><div class="palette-dialog-title"><strong>Operation History</strong><span class="palette-dialog-subtitle">{{ entries.length }} recent operations</span></div>
           <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span></header>
         <div class="journal-toolbar palette-dialog-toolbar">
-          <div class="filter-tabs" role="group" aria-label="Journal filters">
-            <button type="button" [class.active]="filter === 'all'" (click)="setFilter('all')">All</button>
-            <button type="button" [class.active]="filter === 'undoable'" (click)="setFilter('undoable')">Undoable</button>
-            <button type="button" [class.active]="filter === 'failed'" (click)="setFilter('failed')">Failed</button>
+          <div class="palette-dialog-segment" role="group" aria-label="Journal filters">
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'all'" (click)="setFilter('all')">All</button>
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'undoable'" (click)="setFilter('undoable')">Undoable</button>
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'failed'" (click)="setFilter('failed')">Failed</button>
           </div>
           <input
             type="search"
-            class="journal-search"
+            class="journal-search palette-dialog-field"
             [value]="searchText"
             (input)="onSearchInput($event)"
             placeholder="Filter operation, summary, or path…"
             aria-label="Filter operation journal" />
+          <button type="button" class="palette-dialog-button" [disabled]="filter === 'all' && !searchText" (click)="resetFilters()">Reset filters</button>
         </div>
         <div class="entries palette-dialog-body">
           <article *ngFor="let entry of filteredEntries; trackBy: trackEntry" [class.failed]="entry.state === 'failed' || entry.state === 'partial'">
@@ -47,6 +48,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
         <footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
           <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
           <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">Clear History</button>
+          <button class="palette-dialog-button" [disabled]="filteredEntries.length === 0" (click)="download()">Export Results</button>
           <button class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button></div></footer>
       </section>
     </div>`,
@@ -55,10 +57,8 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
     :host{position:fixed;inset:0;z-index:8700;pointer-events:none}
     .journal{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;width:min(780px,calc(100vw - 24px));height:min(680px,calc(100vh - 40px))}
     .journal-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:7px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
-    .filter-tabs{display:inline-flex;gap:3px}
-    .filter-tabs button{min-height:25px;padding:2px 8px;border:1px solid var(--vsc-border-subtle,var(--vsc-border));border-radius:4px;background:transparent;color:var(--vsc-description-foreground);font:inherit;font-size:11px;cursor:pointer}
-    .filter-tabs button.active{color:var(--vsc-foreground);border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 14%,transparent)}
-    .journal-search{flex:1;min-width:170px;height:25px;padding:0 8px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background);color:var(--vsc-input-foreground,var(--vsc-foreground));font:inherit;font-size:12px}
+    .journal-search{flex:1;min-width:min(170px,100%)}
+    .entries{overflow-wrap:anywhere}
     .entries{min-height:0;overflow:auto;font-variant-numeric:tabular-nums}.entries article{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;padding:8px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
     .entries article.failed{background:var(--vsc-error-surface)}
     .state{font-size:14px;text-align:center}.main{display:grid;min-width:0;gap:2px}.main small,.main>span{color:var(--vsc-description-foreground)}.main .error{color:var(--vsc-error)}details code{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground)}
@@ -95,6 +95,10 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
     });
   }
   setFilter(next: JournalFilter): void { this.filter = next; this.cdr.markForCheck(); }
+  resetFilters(): void {
+    this.searchText = '';
+    this.setFilter('all');
+  }
   onSearchInput(event: Event): void { this.searchText = (event.target as HTMLInputElement).value; this.cdr.markForCheck(); }
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['visible']) return;
@@ -144,6 +148,17 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
   }
   undo():void{this.undoRequested.emit();this.cdr.markForCheck();}
   redo():void{this.redoRequested.emit();this.cdr.markForCheck();}
+  download(): void {
+    const entries = this.filteredEntries.map(({ label, kind, state, completedAt, summary, error, affectedPaths }) =>
+      ({ label, kind, state, completedAt, summary, error, affectedPaths }),
+    );
+    const url = URL.createObjectURL(new Blob([JSON.stringify(entries, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'operation-history.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
   async clear():Promise<void>{const ok=await this.dialogs.confirm({title:'Clear Operation History',message:'Clear the visible operation journal? Undo/redo stacks are left unchanged.',confirmText:'Clear',danger:true});if(!ok)return;this.history.clearJournal();this.cdr.markForCheck();}
   stateIcon(entry:OperationJournalEntry):string{if(entry.state==='failed')return '×';if(entry.state==='partial')return '!';if(entry.state==='undone')return '↶';if(entry.state==='redone')return '↷';return '✓';}
   trackEntry(_index:number,entry:OperationJournalEntry):string{return entry.id;}

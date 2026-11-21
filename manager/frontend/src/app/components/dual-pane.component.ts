@@ -79,7 +79,7 @@ import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './pane-link-policy';
 import type { PanePresentation } from './pane-component.contract';
 import { FILE_MANAGER_COMMANDS } from './command-registry';
-import { ApplicationOverlayHostService } from '../services/application-overlay-host.service';
+import { ApplicationOverlayHostService, type AppOverlayToolsPage } from '../services/application-overlay-host.service';
 import { ArchiveService, isArchive as isArchiveFileName } from '../services/archive.service';
 import { ActionFeedbackService } from '../services/action-feedback.service';
 import type { RecentlyClosedTab } from '../services/workspace.service';
@@ -255,6 +255,8 @@ const COMMAND = {
   openOperations: FILE_MANAGER_COMMANDS.openOperations,
   diskUsage: FILE_MANAGER_COMMANDS.diskUsage,
   findDuplicates: FILE_MANAGER_COMMANDS.findDuplicates,
+  folderInventory: FILE_MANAGER_COMMANDS.folderInventory,
+  fileChecksums: FILE_MANAGER_COMMANDS.fileChecksums,
   recentFiles: 'reassembly.tools.recentFiles',
   batchRename: FILE_MANAGER_COMMANDS.batchRename,
 
@@ -3563,7 +3565,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   }
 
 
-  openTools(page: 'operations' | 'disk' | 'duplicates'): void {
+  openTools(page: AppOverlayToolsPage): void {
     const rootPath = this.activePane?.contextState.isDirectoryTab
       ? this.activePane.contextState.path
       : this.otherPane?.contextState.isDirectoryTab
@@ -5428,6 +5430,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
       this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
       this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
+      this.menuCommand(COMMAND.folderInventory, 'Folder Inventory…'),
+      this.menuCommand(COMMAND.fileChecksums, 'File Checksums…'),
       this.menuCommand(COMMAND.remoteConnect, 'Connect Remote…'),
     ]);
 
@@ -6464,6 +6468,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
     descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openDiskUsageDialog(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.folderInventory, 'Folder Inventory', 'Tools', () => this.openTools('inventory'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.fileChecksums, 'File Checksums', 'Tools', () => this.openTools('checksums'));
     descriptor(COMMAND.recentFiles, 'Recent Files', 'Tools', () => this.activePane?.viewerCommands?.openRecentFilesPanel(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(
       COMMAND.batchRename,

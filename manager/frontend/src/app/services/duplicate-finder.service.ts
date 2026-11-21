@@ -3,6 +3,7 @@ import { ApiService } from './api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 
 export interface DuplicateScanOptions {
+  signal?: AbortSignal;
   includeHidden?: boolean;
   minSize?: number;
   maxFiles?: number;
@@ -54,6 +55,7 @@ export class DuplicateFinderService {
     let truncated = false;
 
     const walk = async (path: string, depth: number): Promise<void> => {
+      options.signal?.throwIfAborted();
       if (files.length >= maxFiles) { truncated = true; return; }
       if (depth > maxDepth) { truncated = true; return; }
       let listing;
@@ -64,6 +66,7 @@ export class DuplicateFinderService {
         return;
       }
       for (const entry of listing.entries ?? []) {
+        options.signal?.throwIfAborted();
         if (files.length >= maxFiles) { truncated = true; return; }
         if (!includeHidden && entry.isHidden) continue;
         if (entry.type === FileType.DIRECTORY && !entry.isSymlink) {
@@ -77,6 +80,7 @@ export class DuplicateFinderService {
     };
 
     await walk(root, 0);
+    options.signal?.throwIfAborted();
 
     const bySize = new Map<number, FileInfo[]>();
     for (const file of files) {
@@ -88,6 +92,7 @@ export class DuplicateFinderService {
     const byHash = new Map<string, FileInfo[]>();
     let hashedFiles = 0;
     for (const file of candidates) {
+      options.signal?.throwIfAborted();
       try {
         const hash = await this.api.hashFile(file.path);
         const key = `${file.size}:${hash}`;
@@ -101,6 +106,8 @@ export class DuplicateFinderService {
         onProgress?.({ phase: 'hashing', discoveredFiles: files.length, candidateFiles: candidates.length, hashedFiles });
       }
     }
+
+    options.signal?.throwIfAborted();
 
     const groups = Array.from(byHash.entries())
       .filter(([, group]) => group.length > 1)

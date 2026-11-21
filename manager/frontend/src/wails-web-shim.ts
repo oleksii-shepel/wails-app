@@ -456,6 +456,8 @@ function installGoAppBridge() {
       const res = await apiJson<{ hash: string }>('/api/fs/hash', { method: 'POST', body: JSON.stringify({ path: p }) });
       return res.hash;
     },
+    GetFileChecksums: (p: string) =>
+      apiJson('/api/fs/hash', { method: 'POST', body: JSON.stringify({ path: p }) }),
 
     AnalyzeDiskUsage: (p: string) =>
       apiJson('/api/fs/disk-usage', { method: 'POST', body: JSON.stringify({ path: p }) }),

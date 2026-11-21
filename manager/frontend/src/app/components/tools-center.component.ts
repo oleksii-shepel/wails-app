@@ -11,6 +11,9 @@ import { CommonModule } from '@angular/common';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 import { ApiService } from '../services/api.service';
+import type { AppOverlayToolsPage } from '../services/application-overlay-host.service';
+import { FolderInventoryComponent } from './folder-inventory.component';
+import { parentPath } from './address-bar.utils';
 import {
   DuplicateFinderService,
   type DuplicateGroup,
@@ -34,7 +37,6 @@ import type {
   DiskUsageResult,
 } from '../shared/protocol-enhanced';
 
-type ToolPage = 'operations' | 'disk' | 'duplicates' | 'checksums';
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
 type DiskSort = 'size' | 'files' | 'name';
 type DuplicateSort = 'reclaimable' | 'size' | 'copies';
@@ -76,7 +78,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
 @Component({
   selector: 'app-tools-center',
-  imports: [CommonModule],
+  imports: [CommonModule, FolderInventoryComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="renderVisible" [class.dialog-group--closing]="isClosing" (mousedown)="close()" (animationend)="onAnimationEnd($event)">
@@ -88,23 +90,29 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <strong>Tools</strong>
             <span class="root palette-dialog-subtitle palette-dialog-mono" [title]="rootPath">{{ rootPath }}</span>
           </div>
-          <span class="dialog-close" aria-label="Close tab" title="Close" (click)="close()" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+          <button type="button" class="palette-dialog-button" (click)="close()">Close</button>
         </header>
 
-        <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages">
+        <nav class="palette-dialog-tabbar" role="tablist" aria-label="Tool pages" (keydown)="onTabKey($event)">
           <button type="button" role="tab" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="setPage('operations')">
             Operations <span>{{ activeOperations.length }}</span>
           </button>
           <button type="button" role="tab" [attr.aria-selected]="page === 'disk'" [attr.tabindex]="page === 'disk' ? 0 : -1" [class.active]="page === 'disk'" (click)="setPage('disk')">Disk Usage</button>
           <button type="button" role="tab" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="setPage('duplicates')">Duplicates</button>
           <button type="button" role="tab" [attr.aria-selected]="page === 'checksums'" [attr.tabindex]="page === 'checksums' ? 0 : -1" [class.active]="page === 'checksums'" (click)="setPage('checksums')">Checksums</button>
+          <button type="button" role="tab" [attr.aria-selected]="page === 'inventory'" [attr.tabindex]="page === 'inventory' ? 0 : -1" [class.active]="page === 'inventory'" (click)="setPage('inventory')">Folder Inventory</button>
         </nav>
+
+        <div class="body" role="tabpanel" aria-label="Folder Inventory" *ngIf="page === 'inventory'">
+          <app-folder-inventory [rootPath]="rootPath" (navigateTo)="navigateTo.emit($event); close()" />
+        </div>
 
         <div class="body" role="tabpanel" aria-label="Operations" *ngIf="page === 'operations'">
           <div class="tool-actions operation-filters palette-dialog-toolbar">
+            <button type="button" (click)="close(); openJournalRequested.emit()">Operation History…</button>
             <label>
               Show
-              <select [value]="operationFilter" (change)="onOperationFilterChange($event)">
+              <select class="palette-dialog-field" [value]="operationFilter" (change)="onOperationFilterChange($event)">
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="completed">Completed</option>
@@ -178,7 +186,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <button type="button" *ngIf="diskScanning" (click)="cancelDisk()">Cancel</button>
             <input
               type="search"
-              class="tool-filter-input"
+              class="tool-filter-input palette-dialog-field"
               [value]="diskFilter"
               (input)="onDiskFilterInput($event)"
               placeholder="Filter entries…"
@@ -193,10 +201,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </label>
           </div>
 
-          <div class="summary" *ngIf="diskProgress">
+          <div class="summary" *ngIf="diskProgress || diskCancelled">
+            <span *ngIf="diskCancelled" role="status">Scan cancelled. Results may be incomplete.</span>
+            <ng-container *ngIf="diskProgress">
             <span>{{ formatBytes(diskProgress.totalSize || 0) }}</span>
             <span>{{ diskProgress.totalFiles || 0 }} files</span>
             <span>{{ diskProgress.totalDirs || 0 }} dirs</span>
+            </ng-container>
           </div>
 
           <div class="disk-list" *ngIf="sortedDiskEntries.length">
@@ -243,7 +254,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </label>
             <input
               type="search"
-              class="tool-filter-input"
+              class="tool-filter-input palette-dialog-field"
               [value]="duplicateFilter"
               (input)="onDuplicateFilterInput($event)"
               placeholder="Filter path…"
@@ -251,6 +262,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <button type="button" (click)="scanDuplicates()" [disabled]="duplicateScanning || !rootPath">
               {{ duplicateScanning ? 'Scanning…' : 'Scan' }}
             </button>
+            <button type="button" *ngIf="duplicateScanning" (click)="cancelDuplicates()">Cancel</button>
             <button type="button" [disabled]="duplicateGroups.length === 0" (click)="selectAllDuplicates()">
               Select reclaimable
             </button>
@@ -309,10 +321,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </div>
           </section>
 
-          <div class="empty" *ngIf="!duplicateScanning && duplicateGroups.length === 0">
-            Scan recursively to find content-identical files.
+          <div class="empty" *ngIf="!duplicateScanning && !duplicateError && duplicateGroups.length === 0">
+            {{ !duplicateResult ? 'Scan recursively to find content-identical files.' :
+              duplicateResult.groups.length ? 'No duplicate groups match this filter.' : 'No duplicate groups were found.' }}
           </div>
 
+          <div class="warnings" role="status" *ngIf="duplicateResult?.truncated">
+            Scan reached a file or depth limit. Results cover only the scanned portion of this folder.
+          </div>
           <div class="warnings" *ngIf="duplicateResult && duplicateResult.warnings.length > 0">
             {{ duplicateResult.warnings.length }} paths could not be scanned.
           </div>
@@ -323,7 +339,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="tool-actions palette-dialog-toolbar">
             <select
               *ngIf="checksumCandidates.length > 0"
-              class="checksum-select"
+              class="checksum-select palette-dialog-field"
               [value]="checksumTargetPath"
               (change)="onChecksumCandidateSelect($event)"
               aria-label="Files in active directory">
@@ -334,7 +350,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </select>
             <input
               type="text"
-              class="checksum-path-input"
+              class="checksum-path-input palette-dialog-field"
               [value]="checksumTargetPath"
               (input)="onChecksumPathInput($event)"
               (keydown.enter)="computeChecksums()"
@@ -364,12 +380,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </div>
 
           <div class="checksum-verify" *ngIf="checksumResults.length > 0">
-            <label for="checksum-expected">Verify expected digest (SHA-256 / SHA-512 / SHA-1 / MD5)</label>
+            <label for="checksum-expected">Verify expected digest ({{ availableChecksumAlgorithms }})</label>
             <div class="checksum-verify-row">
               <input
                 id="checksum-expected"
                 type="text"
-                class="checksum-path-input"
+                class="checksum-path-input palette-dialog-field"
                 [value]="expectedDigest"
                 (input)="onExpectedDigestInput($event)"
                 placeholder="Paste expected hex digest to verify…" />
@@ -384,7 +400,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </div>
 
           <div class="empty" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
-            Choose a file or enter a path to compute SHA-256, SHA-512, SHA-1, and MD5 digests in one pass.
+            Choose a file or enter a path to compute its checksum.
           </div>
           <div class="error" *ngIf="checksumError">{{ checksumError }}</div>
         </div>
@@ -406,7 +422,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
     nav span{opacity:.6;margin-left:4px}.body{flex:1;min-height:0;overflow:auto}.summary,.tool-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--vsc-border-subtle);font-variant-numeric:tabular-nums}
     .tool-actions label{display:flex;align-items:center;gap:5px}.tool-actions input[type=number]{width:82px;background:var(--vsc-input-background);color:inherit;border:1px solid var(--vsc-border);padding:3px 5px}
-    .tool-filter-input{min-width:150px;height:26px;padding:0 8px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background);color:inherit}
+    .tool-filter-input{flex:1;min-width:min(150px,100%)}
     .danger{color:var(--vsc-error-foreground,var(--vsc-error))!important}.operation{padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}.row{display:flex;justify-content:space-between;gap:10px}.operation small{display:block;margin-top:4px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .progress,.bar{height:4px;margin-top:6px;background:var(--vsc-neutral-overlay-soft);overflow:hidden;border-radius:99px}.progress i,.bar i{display:block;height:100%;background:var(--vsc-accent-blue)}
     .history-title{padding:8px 12px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.operation.history{opacity:.8}
@@ -415,8 +431,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .duplicate-file-actions{display:flex;align-items:center;gap:8px}
     .copy-mini-btn{padding:2px 7px;border:1px solid var(--vsc-border-subtle,var(--vsc-border));border-radius:3px;font-size:10px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .copy-mini-btn:hover{color:var(--vsc-foreground);background:var(--vsc-list-hover-background)}
-    .checksum-select{max-width:260px;height:26px;padding:0 6px}
-    .checksum-path-input{flex:1;min-width:200px;height:26px;padding:0 8px;font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px}
+    .checksum-select{max-width:min(260px,100%)}
+    .checksum-path-input{flex:1;min-width:min(200px,100%);font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px}
+    .palette-dialog-tabbar{overflow-x:auto;flex-shrink:0}
+    .palette-dialog-tabbar button{white-space:nowrap}
+    @media (max-width: 560px) {
+      .disk-row{grid-template-columns:minmax(0,1fr) auto auto}
+      .disk-row .bar{display:none}
+      .tool-keys{flex-wrap:wrap}
+    }
     .checksum-grid{display:grid;gap:1px;border-bottom:1px solid var(--vsc-border-subtle)}
     .checksum-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}
     .checksum-row:last-child{border-bottom:0}
@@ -441,11 +464,12 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   @Output() changed = new EventEmitter<void>();
   @Output() navigateTo = new EventEmitter<string>();
   @Output() openBasketRequested = new EventEmitter<void>();
+  @Output() openJournalRequested = new EventEmitter<void>();
 
   visible = false;
   renderVisible = false;
   isClosing = false;
-  page: ToolPage = 'operations';
+  page: AppOverlayToolsPage = 'operations';
   rootPath = '';
 
   activeOperations: OperationState[] = [];
@@ -453,6 +477,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   operationFilter: OperationFilter = 'all';
 
   diskScanning = false;
+  diskCancelled = false;
   diskSort: DiskSort = 'size';
   diskFilter = '';
   diskProgress: DiskUsageProgress | DiskUsageResult | null = null;
@@ -465,6 +490,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   duplicateFilter = '';
   duplicateIncludeHidden = false;
   duplicateScanning = false;
+  private duplicateAbort: AbortController | null = null;
   duplicateProgress: DuplicateScanProgress | null = null;
   duplicateResult: DuplicateScanResult | null = null;
   duplicateSelected = new Set<string>();
@@ -473,8 +499,12 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   checksumCandidates: FileInfo[] = [];
   checksumTargetPath = '';
   checksumComputing = false;
+  private checksumRequest = 0;
   checksumFileSize: number | null = null;
   checksumResults: ChecksumAlgorithmRow[] = [];
+  get availableChecksumAlgorithms(): string {
+    return this.checksumResults.map(result => result.label).join(' / ');
+  }
   checksumError = '';
   expectedDigest = '';
   copiedValue = '';
@@ -593,7 +623,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.disk,title:'Tools: Disk Usage',category:'Tools',execute:()=>this.setPage('disk')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.duplicates,title:'Tools: Duplicates',category:'Tools',execute:()=>this.setPage('duplicates')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.checksums,title:'Tools: Checksums',category:'Tools',execute:()=>this.setPage('checksums')},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page!=='operations'&&(!!this.rootPath||this.page==='checksums')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page==='checksums'||((this.page==='disk'||this.page==='duplicates')&&!!this.rootPath)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.addDuplicatesToBasket,title:'Add Duplicates to Basket',category:'Tools',execute:()=>this.collectDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
@@ -603,9 +633,11 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.checksumRequest++;
     this.unregisterModal?.();
     this.unregisterModal = null;
     this.cancelDisk();
+    this.cancelDuplicates();
     if (this.copiedTimer !== null) {
       window.clearTimeout(this.copiedTimer);
       this.copiedTimer = null;
@@ -619,7 +651,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  open(page: ToolPage, rootPath: string): void {
+  open(page: AppOverlayToolsPage, rootPath: string): void {
     const rootChanged = this.rootPath !== rootPath;
     this.page = page;
     this.rootPath = rootPath;
@@ -628,6 +660,9 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.visible = true;
 
     if (rootChanged) {
+      this.cancelDisk();
+      this.diskCancelled = false;
+      this.cancelDuplicates();
       this.diskEntries = [];
       this.diskProgress = null;
       this.diskError = '';
@@ -638,7 +673,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       this.duplicateError = '';
       this.duplicateFilter = '';
       this.checksumCandidates = [];
-      this.checksumTargetPath = '';
+      this.updateChecksumTarget('');
       this.checksumResults = [];
       this.checksumFileSize = null;
       this.checksumError = '';
@@ -680,7 +715,23 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  setPage(page: ToolPage): void {
+  onTabKey(event: KeyboardEvent): void {
+    const tabs = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const index = tabs.indexOf(event.target as HTMLButtonElement);
+    if (index < 0) return;
+    const next = {
+      ArrowLeft: (index + tabs.length - 1) % tabs.length,
+      ArrowRight: (index + 1) % tabs.length,
+      Home: 0,
+      End: tabs.length - 1,
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
+  }
+
+  setPage(page: AppOverlayToolsPage): void {
     this.page = page;
     this.cdr.markForCheck();
 
@@ -739,7 +790,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
   onChecksumCandidateSelect(event: Event): void {
     const val = (event.target as HTMLSelectElement).value;
-    this.checksumTargetPath = val;
+    this.updateChecksumTarget(val);
     if (val) {
       void this.computeChecksums();
     }
@@ -747,7 +798,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   onChecksumPathInput(event: Event): void {
-    this.checksumTargetPath = (event.target as HTMLInputElement).value;
+    this.updateChecksumTarget((event.target as HTMLInputElement).value);
     this.cdr.markForCheck();
   }
 
@@ -759,7 +810,9 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   async loadChecksumCandidates(): Promise<void> {
     if (!this.rootPath) return;
     try {
-      const listing = await this.api.listDirectory(this.rootPath, false);
+      const root = this.rootPath;
+      const listing = await this.api.listDirectory(root, false);
+      if (root !== this.rootPath) return;
       this.checksumCandidates = (listing.entries ?? [])
         .filter(entry => entry.type !== FileType.DIRECTORY)
         .slice(0, 200);
@@ -772,9 +825,21 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     }
   }
 
+  private updateChecksumTarget(path: string): void {
+    if (path === this.checksumTargetPath) return;
+    this.checksumRequest++;
+    this.checksumTargetPath = path;
+    this.checksumComputing = false;
+    this.checksumResults = [];
+    this.checksumFileSize = null;
+    this.checksumError = '';
+    this.expectedDigest = '';
+  }
+
   async computeChecksums(): Promise<void> {
     const target = this.checksumTargetPath.trim();
     if (!target || this.checksumComputing) return;
+    const request = ++this.checksumRequest;
 
     this.checksumComputing = true;
     this.checksumError = '';
@@ -783,48 +848,24 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const res = await fetch('/api/fs/hash', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: target }),
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as {
-          hash?: string;
-          size?: number;
-          algorithms?: Partial<Record<'sha256' | 'sha512' | 'sha1' | 'md5', string>>;
-        };
-        if (typeof data.size === 'number') {
-          this.checksumFileSize = data.size;
-        }
-        const rows: ChecksumAlgorithmRow[] = [];
-        if (data.algorithms?.sha256 || data.hash) {
-          rows.push({ id: 'sha256', label: 'SHA-256', value: data.algorithms?.sha256 || data.hash || '' });
-        }
-        if (data.algorithms?.sha512) {
-          rows.push({ id: 'sha512', label: 'SHA-512', value: data.algorithms.sha512 });
-        }
-        if (data.algorithms?.sha1) {
-          rows.push({ id: 'sha1', label: 'SHA-1', value: data.algorithms.sha1 });
-        }
-        if (data.algorithms?.md5) {
-          rows.push({ id: 'md5', label: 'MD5', value: data.algorithms.md5 });
-        }
-        this.checksumResults = rows;
-      } else {
-        const payload = await res.json().catch(() => ({} as { error?: string }));
-        if (res.status === 400 && payload.error) {
-          throw new Error(payload.error);
-        }
-        const sha256 = await this.api.hashFile(target);
-        this.checksumResults = [{ id: 'sha256', label: 'SHA-256', value: sha256 }];
-      }
+      const data = await this.api.getFileChecksums(target);
+      if (request !== this.checksumRequest) return;
+      const algorithms = [
+        ['sha256', 'SHA-256', data.algorithms?.sha256 || data.hash],
+        ['sha512', 'SHA-512', data.algorithms?.sha512],
+        ['sha1', 'SHA-1', data.algorithms?.sha1],
+        ['md5', 'MD5', data.algorithms?.md5],
+      ] as const;
+      this.checksumResults = algorithms.flatMap(([id, label, value]) => value ? [{ id, label, value }] : []);
+      if (!this.checksumResults.length) throw new Error('No checksum was returned.');
+      this.checksumFileSize = data.size ?? null;
     } catch (error) {
-      this.checksumError = error instanceof Error ? error.message : String(error);
+      if (request === this.checksumRequest) this.checksumError = error instanceof Error ? error.message : String(error);
     } finally {
-      this.checksumComputing = false;
-      this.cdr.markForCheck();
+      if (request === this.checksumRequest) {
+        this.checksumComputing = false;
+        this.cdr.markForCheck();
+      }
     }
   }
 
@@ -856,8 +897,10 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     if (!this.rootPath || this.diskScanning) return;
 
     this.cancelDisk();
-    this.diskAbort = new AbortController();
+    const controller = new AbortController();
+    this.diskAbort = controller;
     this.diskScanning = true;
+    this.diskCancelled = false;
     this.diskError = '';
     this.diskEntries = [];
     this.diskProgress = null;
@@ -866,8 +909,9 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     try {
       for await (const item of this.api.streamDiskUsage(
         this.rootPath,
-        { signal: this.diskAbort.signal },
+        { signal: controller.signal },
       )) {
+        if (controller.signal.aborted) return;
         if (this.isDiskResult(item)) {
           this.diskProgress = item;
           this.diskEntries = [...(item.entries ?? [])]
@@ -888,17 +932,20 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
         this.cdr.markForCheck();
       }
     } catch (error) {
-      if (!this.diskAbort?.signal.aborted) {
+      if (!controller.signal.aborted) {
         this.diskError = error instanceof Error ? error.message : String(error);
       }
     } finally {
-      this.diskScanning = false;
-      this.diskAbort = null;
-      this.cdr.markForCheck();
+      if (this.diskAbort === controller) {
+        this.diskScanning = false;
+        this.diskAbort = null;
+        this.cdr.markForCheck();
+      }
     }
   }
 
   cancelDisk(): void {
+    if (this.diskAbort) this.diskCancelled = true;
     this.diskAbort?.abort();
     this.diskAbort = null;
     this.diskScanning = false;
@@ -912,6 +959,8 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   async scanDuplicates(): Promise<void> {
     if (!this.rootPath || this.duplicateScanning) return;
 
+    const controller = new AbortController();
+    this.duplicateAbort = controller;
     this.duplicateScanning = true;
     this.duplicateProgress = null;
     this.duplicateResult = null;
@@ -920,17 +969,21 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      this.duplicateResult = await this.duplicates.scan(
+      const result = await this.duplicates.scan(
         this.rootPath,
         {
           includeHidden: this.duplicateIncludeHidden,
+          signal: controller.signal,
           minSize: Math.max(0, Number(this.duplicateMinSize) || 0),
         },
         progress => {
+          if (controller.signal.aborted) return;
           this.duplicateProgress = progress;
           this.cdr.markForCheck();
         },
       );
+      if (controller.signal.aborted) return;
+      this.duplicateResult = result;
 
       const selected = new Set<string>();
       for (const group of this.duplicateResult.groups) {
@@ -940,11 +993,21 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       }
       this.duplicateSelected = selected;
     } catch (error) {
-      this.duplicateError = error instanceof Error ? error.message : String(error);
+      if (!controller.signal.aborted) this.duplicateError = error instanceof Error ? error.message : String(error);
     } finally {
-      this.duplicateScanning = false;
-      this.cdr.markForCheck();
+      if (this.duplicateAbort === controller) {
+        this.duplicateAbort = null;
+        this.duplicateScanning = false;
+        this.cdr.markForCheck();
+      }
     }
+  }
+
+  cancelDuplicates(): void {
+    this.duplicateAbort?.abort();
+    this.duplicateAbort = null;
+    this.duplicateScanning = false;
+    this.duplicateProgress = null;
   }
 
   toggleDuplicate(path: string): void {
@@ -979,11 +1042,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   openContainingFolder(path: string): void {
-    const normalized = (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
-    const schemeIndex = normalized.indexOf('://');
-    const minimum = schemeIndex >= 0 ? schemeIndex + 3 : 0;
-    const slash = normalized.lastIndexOf('/');
-    const parent = slash < minimum ? normalized : normalized.slice(0, slash);
+    const parent = parentPath(path);
     if (!parent) return;
     this.navigateTo.emit(parent);
     this.close();

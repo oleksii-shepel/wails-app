@@ -85,6 +85,8 @@ export const FILE_MANAGER_COMMANDS = {
   copyMissingRightToLeft:'pane.compare.copyMissingRightToLeft',
   diskUsage:            'pane.tools.diskUsage',
   findDuplicates:       'pane.tools.findDuplicates',
+  folderInventory:      'pane.tools.folderInventory',
+  fileChecksums:        'pane.tools.fileChecksums',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
   uploadFiles:          'pane.files.upload',

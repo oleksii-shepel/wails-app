@@ -65,7 +65,7 @@ import type {
         <div class="basket-toolbar">
           <input
             type="search"
-            class="basket-search"
+            class="basket-search palette-dialog-field"
             [value]="searchText"
             (input)="onSearchInput($event)"
             placeholder="Filter basket items or paths…"
@@ -217,7 +217,7 @@ import type {
     .basket-summary span { font-size:10px; }
 
     .basket-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:7px 10px; border-bottom:1px solid var(--vsc-border-subtle); }
-    .basket-search { flex:1; min-width:180px; height:26px; padding:0 8px; border:1px solid var(--vsc-input-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-input-background); color:var(--vsc-input-foreground, var(--vsc-foreground)); font-size:12px; }
+    .basket-search { flex:1; min-width:min(180px,100%); }
     .type-filter { display:inline-flex; gap:3px; }
     .type-filter button, .tool-utility-btn { min-height:26px; padding:2px 8px; border:1px solid var(--vsc-border-subtle, var(--vsc-border)); border-radius:4px; background:transparent; font-size:11px; cursor:pointer; font-variant-numeric:tabular-nums; }
     .type-filter button.active { border-color:color-mix(in srgb, var(--vsc-accent-blue) 55%, var(--vsc-border)); background:color-mix(in srgb, var(--vsc-accent-blue) 14%, transparent); color:var(--vsc-foreground); }

@@ -14,6 +14,7 @@ describe('PathHistoryService location history', () => {
   beforeEach(() => {
     stubGlobal('localStorage', new StorageStub());
   });
+  afterEach(restoreGlobals);
 
   it('stores scheme and kind for search history', () => {
     const service = new PathHistoryService({ listDirectory: fn() } as any);
@@ -43,5 +44,31 @@ describe('PathHistoryService location history', () => {
     service.addLocation('search://?pattern=todo', 'right');
     expect(service.getFrequentLocations(5)[0]).toEqual(jasmine.objectContaining({ scheme: 'smb', accessCount: 2 }));
     expect(service.getRecentLocations(5).some(entry => entry.scheme === 'search')).toBe(true);
+  });
+
+  it('preserves distinct case-sensitive locations', () => {
+    const service = new PathHistoryService({ listDirectory: fn() } as any);
+    service.addLocation('/srv/Reports', 'left');
+    service.addLocation('/srv/reports', 'left');
+    expect(service.getAllHistory()).toHaveSize(2);
+  });
+
+  it('keeps valid entries when stored history contains malformed rows', () => {
+    localStorage.setItem('filemanager:path-history', JSON.stringify([
+      null,
+      { path: true },
+      { path: '/valid', timestamp: -1, accessCount: -2 },
+    ]));
+    const service = new PathHistoryService({ listDirectory: fn() } as any);
+    expect(service.getAllHistory()).toHaveSize(1);
+    expect(service.getAllHistory()[0]).toEqual(jasmine.objectContaining({ location: '/valid', accessCount: 1 }));
+    expect(service.getAllHistory()[0].timestamp).toBeGreaterThan(0);
+  });
+
+  it('does not expose mutable references to stored history', () => {
+    const service = new PathHistoryService({ listDirectory: fn() } as any);
+    service.addLocation('/original', 'left');
+    service.getAllHistory()[0].location = '/changed';
+    expect(service.getAllHistory()[0].location).toBe('/original');
   });
 });

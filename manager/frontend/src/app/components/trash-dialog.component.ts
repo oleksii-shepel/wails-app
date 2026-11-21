@@ -536,6 +536,8 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     const selected = this.selectedEntries;
     if (selected.length === 0) return;
 
+    const request = this.dialog.activeRequest$.value;
+    if (!request) return;
     const hidden = this.hiddenSelectionCount;
     const hiddenMessage = hidden ? ` ${hidden} selected ${hidden === 1 ? 'item is' : 'items are'} outside the filter.` : '';
     const confirmed = await this.confirmDialog.confirm({
@@ -547,7 +549,7 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
       confirmText: 'Delete',
       danger: true,
     });
-    if (!confirmed || this.loading) return;
+    if (!confirmed || this.loading || this.dialog.activeRequest$.value !== request) return;
 
     this.loading = true;
     this.error = '';
@@ -569,13 +571,15 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   async emptyTrash(): Promise<void> {
     if (this.loading || this.entries.length === 0) return;
 
+    const request = this.dialog.activeRequest$.value;
+    if (!request) return;
     const confirmed = await this.confirmDialog.confirm({
       title: 'Empty Trash',
       message: 'Permanently delete every item in Trash / Recycle Bin?',
       confirmText: 'Empty Trash',
       danger: true,
     });
-    if (!confirmed || this.loading) return;
+    if (!confirmed || this.loading || this.dialog.activeRequest$.value !== request) return;
 
     this.loading = true;
     this.error = '';

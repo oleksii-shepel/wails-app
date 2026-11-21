@@ -49,7 +49,7 @@ import { ThemeService } from '../services/theme.service';
 
         <button
           (click)="onToggleCompact()"
-          [class.active]="isCompact"
+          [class.active]="isCompact" [attr.aria-pressed]="isCompact"
           class="btn"
           title="Toggle compact mode">
           Compact

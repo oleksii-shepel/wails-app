@@ -134,7 +134,8 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     const matching = this.visible.reduce((count, entry) => count + Number(this.selected.has(entry.path)), 0);
     const outsideFilter = this.selected.size - matching;
     const summary = `${this.visible.length} of ${this.totalEntries} match · ${this.selected.size} selected`;
-    return outsideFilter ? `${summary} (${outsideFilter} outside filter)` : summary;
+    const selection = outsideFilter ? `${summary} (${outsideFilter} outside filter)` : summary;
+    return this.visible.length > this.limit ? `${selection} · ${this.limit} displayed` : selection;
   }
 
   get entriesExist(): boolean { return this.totalEntries > 0; }

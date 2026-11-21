@@ -618,7 +618,9 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     const path = this.displayPath?.trim();
     if (!path) return;
 
+    const load = this.loadId;
     const copied = await writeClipboardText(path).then(() => true, () => false);
+    if (load !== this.loadId) return;
     if (!copied) {
       this.actionNotice = 'Clipboard unavailable.';
       this.cdr.markForCheck();
@@ -648,6 +650,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   private async reload(): Promise<void> {
     const path = (this.targetPath ?? '').trim();
     const currentLoad = ++this.loadId;
+    this.actionNotice = '';
+    this.copiedPath = false;
 
     this.error = '';
     this.info = null;

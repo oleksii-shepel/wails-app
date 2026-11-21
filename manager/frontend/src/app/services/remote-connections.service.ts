@@ -82,7 +82,12 @@ export class RemoteConnectionsService {
   async disconnect(mountOrPoint: contracts.RemoteMount|string): Promise<boolean> {
     const mountPoint=typeof mountOrPoint==='string'?mountOrPoint.trim():String(mountOrPoint.mountPoint??'').trim();
     if(!mountPoint)return false;
-    try { await this.api.remoteDisconnect(mountPoint); await this.refresh(); return true; }
+    try {
+      await this.api.remoteDisconnect(mountPoint);
+      this.patch({ mounts: this.mounts.filter(mount => this.mountPoint(mount) !== mountPoint), error: '' });
+      await this.refresh();
+      return true;
+    }
     catch(error){ this.patch({error:error instanceof Error?error.message:String(error)}); return false; }
   }
 

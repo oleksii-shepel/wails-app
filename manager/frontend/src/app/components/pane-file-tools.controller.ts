@@ -143,6 +143,7 @@ export class PaneFileToolsController {
   async createZipFromSelection(host: PaneFileToolsHost): Promise<void> {
     if (!host.isDirectoryTab || host.isInArchive || !host.canCreate || host.selectedEntries.length === 0) return;
     const entries = [...host.selectedEntries];
+    const destinationFolder = host.path;
     const first = entries[0];
     const baseName = entries.length === 1 ? first.name.replace(/\.[^.]+$/, '') || first.name : 'Archive';
     const requested = await this.archiveFilesDialog.open({
@@ -155,7 +156,7 @@ export class PaneFileToolsController {
     let cleanName = this.cleanLeafName(requested);
     if (!cleanName) { await this.confirm.alert({ title: 'Invalid Name', message: 'Choose a valid ZIP filename.' }); return; }
     if (!/\.zip$/i.test(cleanName)) cleanName += '.zip';
-    const destination = await this.api.joinPaths([host.path, cleanName]);
+    const destination = await this.api.joinPaths([destinationFolder, cleanName]);
     try { await this.api.getFileInfo(destination); await this.confirm.alert({ title: 'Name Already Exists', message: `An item named "${cleanName}" already exists.` }); return; } catch { /* available */ }
     const sources = entries.map(entry => entry.path);
     await this.api.createZipArchive(sources, destination);

@@ -112,7 +112,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     .summary strong { font-size:18px; } .summary span { color:var(--vsc-foreground-dim); font-size:11px; }
     .filters { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 14px; border-bottom:1px solid var(--vsc-border); }
     .filter-buttons { display:flex; gap:4px; }
-    .filter-search { flex:1; min-width:170px; height:26px; padding:0 8px; border:1px solid var(--vsc-input-border, var(--vsc-border)); border-radius:4px; background:var(--vsc-input-background); color:var(--vsc-input-foreground, var(--vsc-foreground)); font:inherit; font-size:12px; }
+    .filter-search { flex:1; min-width:min(170px,100%); }
     .filters button, .operation-actions button, .center-footer button {
       border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-button-secondary-foreground);
       padding:4px 9px; font:inherit; font-size:12px; cursor:pointer;

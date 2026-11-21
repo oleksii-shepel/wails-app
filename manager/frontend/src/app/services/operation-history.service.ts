@@ -52,8 +52,8 @@ export interface ReversibleAction {
 
 @Injectable({ providedIn: 'root' })
 export class OperationHistoryService {
-  private readonly undoStack: ReversibleAction[] = [];
-  private readonly redoStack: ReversibleAction[] = [];
+  private readonly undoStack: Array<{ action: ReversibleAction; journalId: string }> = [];
+  private readonly redoStack: Array<{ action: ReversibleAction; journalId: string }> = [];
   private running = false;
   private readonly limit = 100;
   private syncHistory: SyncHistoryEntry[] | null = null;
@@ -69,13 +69,7 @@ export class OperationHistoryService {
 
   record(action: ReversibleAction): void {
     if (this.running) return;
-    this.undoStack.push(action);
-    if (this.undoStack.length > this.limit) {
-      this.undoStack.splice(0, this.undoStack.length - this.limit);
-    }
-    this.redoStack.length = 0;
-
-    this.appendJournal({
+    const entry = this.appendJournal({
       label: action.label,
       kind: action.kind ?? 'file-operation',
       reversible: true,
@@ -83,6 +77,11 @@ export class OperationHistoryService {
       summary: action.summary,
       state: 'completed',
     });
+    this.undoStack.push({ action, journalId: entry.id });
+    if (this.undoStack.length > this.limit) {
+      this.undoStack.splice(0, this.undoStack.length - this.limit);
+    }
+    this.redoStack.length = 0;
   }
 
   recordOutcome(entry: {
@@ -116,17 +115,18 @@ export class OperationHistoryService {
 
   async undo(): Promise<string | null> {
     if (!this.canUndo) return null;
-    const action = this.undoStack.pop();
-    if (!action) return null;
+    const entry = this.undoStack.pop();
+    if (!entry) return null;
+    const { action, journalId } = entry;
 
     this.running = true;
     try {
       await action.undo();
-      this.redoStack.push(action);
-      this.markJournalState(action.label, 'undone');
+      this.redoStack.push(entry);
+      this.markJournalState(journalId, 'undone');
       return action.label;
     } catch (error) {
-      this.undoStack.push(action);
+      this.undoStack.push(entry);
       throw error;
     } finally {
       this.running = false;
@@ -135,17 +135,18 @@ export class OperationHistoryService {
 
   async redo(): Promise<string | null> {
     if (!this.canRedo) return null;
-    const action = this.redoStack.pop();
-    if (!action) return null;
+    const entry = this.redoStack.pop();
+    if (!entry) return null;
+    const { action, journalId } = entry;
 
     this.running = true;
     try {
       await action.redo();
-      this.undoStack.push(action);
-      this.markJournalState(action.label, 'redone');
+      this.undoStack.push(entry);
+      this.markJournalState(journalId, 'redone');
       return action.label;
     } catch (error) {
-      this.redoStack.push(action);
+      this.redoStack.push(entry);
       throw error;
     } finally {
       this.running = false;
@@ -212,8 +213,8 @@ export class OperationHistoryService {
     return recorded;
   }
 
-  private markJournalState(label: string, state: 'undone' | 'redone'): void {
-    const index = this.journal.findIndex(entry => entry.label === label && entry.reversible);
+  private markJournalState(id: string, state: 'undone' | 'redone'): void {
+    const index = this.journal.findIndex(entry => entry.id === id && entry.reversible);
     if (index < 0) return;
     this.journal[index] = { ...this.journal[index], state, completedAt: Date.now() };
   }

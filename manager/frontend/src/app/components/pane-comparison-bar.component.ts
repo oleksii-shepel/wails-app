@@ -36,7 +36,7 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
             <option value="content">Content</option>
           </select>
         </label>
-        <button type="button" class="btn" (click)="toggleRecursive.emit()" [disabled]="scanning" [class.active]="recursive" title="Compare complete directory trees">Recursive</button>
+        <button type="button" class="btn" (click)="toggleRecursive.emit()" [disabled]="scanning" [class.active]="recursive" [attr.aria-pressed]="recursive" title="Compare complete directory trees">Recursive</button>
         <button type="button" class="btn" *ngIf="recursive" (click)="refreshRecursive.emit()" [disabled]="scanning" title="Rescan both directory trees">Refresh</button>
         <button type="button" class="btn" (click)="selectLeft.emit()" [disabled]="leftDifferenceCount === 0" title="Select differing items in the left pane">Select Left</button>
         <button type="button" class="btn" (click)="selectRight.emit()" [disabled]="rightDifferenceCount === 0" title="Select differing items in the right pane">Select Right</button>

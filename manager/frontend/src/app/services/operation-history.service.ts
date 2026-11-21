@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 
 
 export type SyncMode = 'left-to-right' | 'right-to-left' | 'bidirectional' | 'custom';
@@ -54,21 +54,24 @@ export interface ReversibleAction {
 export class OperationHistoryService {
   private readonly undoStack: Array<{ action: ReversibleAction; journalId: string }> = [];
   private readonly redoStack: Array<{ action: ReversibleAction; journalId: string }> = [];
-  private running = false;
+  private readonly running = signal(false);
+  private readonly revision = signal(0);
   private readonly limit = 100;
   private syncHistory: SyncHistoryEntry[] | null = null;
   private journal: OperationJournalEntry[] = [];
 
   get canUndo(): boolean {
-    return !this.running && this.undoStack.length > 0;
+    this.revision();
+    return !this.running() && this.undoStack.length > 0;
   }
 
   get canRedo(): boolean {
-    return !this.running && this.redoStack.length > 0;
+    this.revision();
+    return !this.running() && this.redoStack.length > 0;
   }
 
   record(action: ReversibleAction): void {
-    if (this.running) return;
+    if (this.running()) return;
     const entry = this.appendJournal({
       label: action.label,
       kind: action.kind ?? 'file-operation',
@@ -107,6 +110,7 @@ export class OperationHistoryService {
   }
 
   recentOperations(limit = 100): readonly OperationJournalEntry[] {
+    this.revision();
     return this.journal.slice(0, Math.max(0, limit)).map(entry => ({
       ...entry,
       affectedPaths: [...entry.affectedPaths],
@@ -119,7 +123,7 @@ export class OperationHistoryService {
     if (!entry) return null;
     const { action, journalId } = entry;
 
-    this.running = true;
+    this.running.set(true);
     try {
       await action.undo();
       this.redoStack.push(entry);
@@ -129,7 +133,7 @@ export class OperationHistoryService {
       this.undoStack.push(entry);
       throw error;
     } finally {
-      this.running = false;
+      this.running.set(false);
     }
   }
 
@@ -139,7 +143,7 @@ export class OperationHistoryService {
     if (!entry) return null;
     const { action, journalId } = entry;
 
-    this.running = true;
+    this.running.set(true);
     try {
       await action.redo();
       this.undoStack.push(entry);
@@ -149,19 +153,21 @@ export class OperationHistoryService {
       this.redoStack.push(entry);
       throw error;
     } finally {
-      this.running = false;
+      this.running.set(false);
     }
   }
 
   clear(): void {
-    if (this.running) return;
+    if (this.running()) return;
     this.undoStack.length = 0;
     this.redoStack.length = 0;
+    this.revision.update(value => value + 1);
   }
 
   clearJournal(): void {
-    if (this.running) return;
+    if (this.running()) return;
     this.journal = [];
+    this.revision.update(value => value + 1);
   }
 
   recordSync(entry: Omit<SyncHistoryEntry, 'id'> & { readonly id?: string }): SyncHistoryEntry {
@@ -210,13 +216,15 @@ export class OperationHistoryService {
     };
     this.journal.unshift(recorded);
     if (this.journal.length > this.limit) this.journal.splice(this.limit);
+    this.revision.update(value => value + 1);
     return recorded;
   }
 
   private markJournalState(id: string, state: 'undone' | 'redone'): void {
     const index = this.journal.findIndex(entry => entry.id === id && entry.reversible);
     if (index < 0) return;
-    this.journal[index] = { ...this.journal[index], state, completedAt: Date.now() };
+    this.journal[index] = { ...this.journal[index], state };
+    this.revision.update(value => value + 1);
   }
 
   private loadSyncHistory(): SyncHistoryEntry[] {

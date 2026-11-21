@@ -19,7 +19,7 @@ const TRASH_MANIFEST = path.join(TRASH_ROOT, 'index.json');
 const PLUGINS_ROOT = path.join(os.tmpdir(), 'reassembly-web-plugins');
 const PLUGIN_STATE_FILE = path.join(os.tmpdir(), 'reassembly-web-plugin-states.json');
 const PORT = Number(process.env.PORT || 3000);
-const HOST = '0.0.0.0';
+const HOST = '127.0.0.1';
 
 if (!fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
   console.log('[server] Frontend dist not found, building manager/frontend...');

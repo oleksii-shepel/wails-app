@@ -36,7 +36,7 @@ import { InputEngineService } from '../services/input-engine.service';
           class="fd-header-clear"
           *ngIf="selected.length > 0"
           (click)="onClearAllClick($event)"
-          title="Clear all filters"
+          aria-label="Clear all filters" title="Clear all filters"
         >Clear</button>
       </div>
 

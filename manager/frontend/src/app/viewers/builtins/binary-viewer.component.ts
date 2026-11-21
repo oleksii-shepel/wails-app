@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../../utils/clipboard-text';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
@@ -560,7 +561,8 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   async copyPath(): Promise<void> {
     const path = this.displayPath?.trim();
     if (!path) return;
-    await navigator.clipboard.writeText(path).catch(() => {});
+    const copied = await writeClipboardText(path).then(() => true, () => false);
+    if (!copied) return;
     this.copiedPath = true;
     if (this.copyResetTimer !== null) clearTimeout(this.copyResetTimer);
     this.copyResetTimer = window.setTimeout(() => {
@@ -574,7 +576,8 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
       const hex = row.cells.map(c => c.hex).join(' ');
       return `${row.offsetStr}  ${hex}  ${row.ascii}`;
     });
-    await navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
+    const copied = await writeClipboardText(lines.join('\n')).then(() => true, () => false);
+    if (!copied) return;
     this.copiedHex = true;
     if (this.copyHexResetTimer !== null) clearTimeout(this.copyHexResetTimer);
     this.copyHexResetTimer = window.setTimeout(() => {

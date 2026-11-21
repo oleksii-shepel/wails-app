@@ -32,7 +32,7 @@ import { InputEngineService } from '../services/input-engine.service';
           {{ selected.length }}
         </span>
 
-        <button
+        <button type="button"
           class="fd-header-clear"
           *ngIf="selected.length > 0"
           (click)="onClearAllClick($event)"

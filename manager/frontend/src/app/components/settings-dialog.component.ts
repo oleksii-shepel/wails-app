@@ -199,14 +199,14 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                   </label>
                   <div class="field-row">
                     <label class="field">
-                      <span>Date Format</span>
-                      <select [(ngModel)]="draft.general.dateFormat" (ngModelChange)="onSettingChanged()">
+                      <span id="settings-date-format-label">Date Format</span>
+                      <select aria-labelledby="settings-date-format-label" aria-describedby="settings-date-format-help" [(ngModel)]="draft.general.dateFormat" (ngModelChange)="onSettingChanged()">
                         <option value="relative">Relative (2 hours ago)</option>
                         <option value="short">Short (Apr 21, 2026)</option>
                         <option value="long">Long (April 21, 2026 10:30 AM)</option>
                         <option value="iso">ISO 8601 (2026-04-21T10:30)</option>
                       </select>
-                      <small>How timestamps appear in file lists and the details pane.</small>
+                      <small id="settings-date-format-help">How timestamps appear in file lists and the details pane.</small>
                     </label>
                     <label class="field">
                       <span>Size Unit</span>

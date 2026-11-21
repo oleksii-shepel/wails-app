@@ -60,13 +60,13 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             type="button"
             class="closed-tab palette-dialog-item"
             (click)="reopen(entry)">
-            <span class="icon">{{ icon(entry) }}</span>
+            <span class="icon" aria-hidden="true">{{ icon(entry) }}</span>
             <span class="main">
               <strong>{{ entry.tab.title }}</strong>
               <small>{{ entry.tab.path || viewerPath(entry) || entry.tab.surfaceId || 'surface' }}</small>
             </span>
             <span class="meta">
-              {{ entry.paneId }} · {{ entry.closedAt | date:'shortTime' }}
+              {{ entry.paneId === 'left' ? 'Left pane' : 'Right pane' }} · {{ entry.closedAt | date:'short' }}
             </span>
           </button>
 

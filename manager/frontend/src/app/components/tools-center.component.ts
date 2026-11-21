@@ -1,4 +1,5 @@
 import { writeClipboardText } from '../utils/clipboard-text';
+import { operationProgress } from '../utils/operation-progress';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -147,7 +148,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               <span>{{ operation.status }}</span>
             </div>
             <progress class="operation-progress" [attr.aria-label]="operation.config.title" max="100"
-              [attr.value]="operation.metrics.totalBytes > 0 ? operation.percentComplete : null"></progress>
+              [attr.value]="progressFor(operation.metrics)"></progress>
             <small *ngIf="operation.metrics.currentFile">{{ operation.metrics.currentFile }}</small>
             <small class="operation-error" *ngIf="operation.error">{{ operation.error }}</small>
             <div class="operation-actions">
@@ -475,6 +476,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `],
 })
 export class ToolsCenterComponent implements OnInit, OnDestroy {
+  readonly progressFor = operationProgress;
   @Output() changed = new EventEmitter<void>();
   @Output() navigateTo = new EventEmitter<string>();
   @Output() previewRequested = new EventEmitter<FileInfo>();

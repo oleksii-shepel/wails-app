@@ -330,7 +330,7 @@ interface DetailsRowVm {
       left: 50%;
       width: 1px;
       transform: translateX(-50%);
-      background: var(--vsc-border, rgba(128, 128, 128, .7));
+      background: var(--vsc-border);
       opacity: .72;
       pointer-events: none;
     }

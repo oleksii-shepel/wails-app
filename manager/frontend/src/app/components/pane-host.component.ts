@@ -412,7 +412,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
       gap: 8px;
       padding: 6px 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
-      background: var(--vsc-editor-background, #fff);
+      background: var(--vsc-editor-background);
     }
     .nav-cluster {
       display: flex;
@@ -549,7 +549,7 @@ import type { PaneContextState, PaneMutationState, PanePinState, PaneStatePort, 
       min-height: 28px;
       padding: 0 10px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
-      background: var(--vsc-panel-background, var(--vsc-editor-background, #fff));
+      background: var(--vsc-panel-background);
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
     }

@@ -43,7 +43,7 @@ export class PaneDetailsResizeHandleDirective implements AfterViewInit, OnDestro
   @HostBinding('style.z-index') readonly zIndex = '6';
   @HostBinding('style.user-select') readonly userSelect = 'none';
   @HostBinding('style.background') readonly delimiterBackground =
-    'linear-gradient(to right, transparent calc(50% - 0.5px), var(--vsc-border, rgba(128, 128, 128, .7)) calc(50% - 0.5px), var(--vsc-border, rgba(128, 128, 128, .7)) calc(50% + 0.5px), transparent calc(50% + 0.5px))';
+    'linear-gradient(to right, transparent calc(50% - 0.5px), var(--vsc-border) calc(50% - 0.5px), var(--vsc-border) calc(50% + 0.5px), transparent calc(50% + 0.5px))';
   @HostBinding('style.opacity') delimiterOpacity = '0.72';
   @HostBinding('class.pane-details-resize-handle--dragging') dragging = false;
 

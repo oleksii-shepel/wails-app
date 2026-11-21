@@ -117,6 +117,7 @@ export class PathHistoryService {
 
     suggestions.push(...this.getFuzzyMatches(query));
 
+    suggestions.sort((a, b) => b.score - a.score);
     const uniqueLocations = new Set<string>();
     const uniqueSuggestions = suggestions.filter(suggestion => {
       const id = locationIdentity(suggestion.path);
@@ -125,7 +126,6 @@ export class PathHistoryService {
       return true;
     });
 
-    uniqueSuggestions.sort((a, b) => b.score - a.score);
     return uniqueSuggestions.slice(0, 10);
   }
 

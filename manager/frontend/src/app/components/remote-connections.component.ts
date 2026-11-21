@@ -28,6 +28,7 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <div class="palette-dialog-toolbar">
   <input class="palette-dialog-field remote-filter" type="search" placeholder="Filter connections…" aria-label="Filter remote connections"
     [value]="query" (input)="onQueryInput($event)" (keydown.enter)="openSelectedFromFilter($event)" />
+  <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = ''; selectedIndex = 0">Clear filter</button>
 </div>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
 <div class="list palette-dialog-body palette-dialog-list" role="listbox" aria-label="Remote connections" [attr.aria-busy]="state.loading">

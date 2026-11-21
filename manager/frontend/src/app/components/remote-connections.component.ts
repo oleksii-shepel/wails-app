@@ -29,6 +29,9 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <div class="palette-dialog-toolbar">
   <input #remoteFilter class="palette-dialog-field remote-filter" type="search" placeholder="Filter connections…" aria-label="Filter remote connections"
     [value]="query" (input)="onQueryInput($event)" (keydown.enter)="openSelectedFromFilter($event)" />
+  <select class="palette-dialog-field" aria-label="Connection access" [value]="accessFilter" (change)="onAccessFilter($event)">
+    <option value="all">Any access</option><option value="read-only">Read only</option><option value="writable">Writable</option>
+  </select>
   <button type="button" class="palette-dialog-button" [disabled]="!query" (click)="query = ''; selectedIndex = 0">Clear filter</button>
 </div>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
@@ -55,14 +58,15 @@ constructor(private readonly connections:RemoteConnectionsService,private readon
   if (element) queueMicrotask(() => { if (this.visible && element.isConnected) element.focus(); });
 }
 query = '';
+accessFilter: 'all' | 'read-only' | 'writable' = 'all';
 copyNotice = '';
 disconnecting = false;
 get matchingMounts(): contracts.RemoteMount[] {
   const query = this.query.trim().toLowerCase();
-  if (!query) return this.state.mounts;
-  return this.state.mounts.filter(mount =>
-    [this.label(mount), this.protocol(mount), this.uri(mount)].some(value => value.toLowerCase().includes(query)),
-  );
+  return this.state.mounts.filter(mount => {
+    if (this.accessFilter !== 'all' && !!mount.readOnly !== (this.accessFilter === 'read-only')) return false;
+    return !query || [this.label(mount), this.protocol(mount), this.uri(mount)].some(value => value.toLowerCase().includes(query));
+  });
 }
 get selectedMount(): contracts.RemoteMount | null { return this.matchingMounts[this.selectedIndex] ?? null; }
 get canDisconnect(): boolean {
@@ -77,6 +81,11 @@ openSelectedFromFilter(event: Event): void {
   event.preventDefault();
   event.stopPropagation();
   this.openSelected();
+}
+onAccessFilter(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value;
+  this.accessFilter = value === 'read-only' || value === 'writable' ? value : 'all';
+  this.selectedIndex = 0;
 }
 onQueryInput(event: Event): void {
   this.query = (event.target as HTMLInputElement).value;

@@ -67,7 +67,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
         tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title"><strong>Quick Access</strong><span class="palette-dialog-subtitle" role="status">{{ loading ? 'Loading locations' : totalItems + ' locations' }}</span></div>
-          <input #quickSearch type="search" class="palette-dialog-field" [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
+          <input #quickSearch type="search" class="palette-dialog-field" [ngModel]="filterText" (ngModelChange)="applyFilter($event)" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
           <button type="button" class="palette-dialog-button" [disabled]="!filterText" (click)="filterText = ''; resetSelection()">Clear filter</button>
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close (Esc)" (click)="close()"> × </button>
@@ -285,6 +285,13 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     this.close();
   }
   selectSection(index:number):void{this.sectionIndex=Math.max(0,Math.min(index,this.filteredSections.length-1));this.itemIndex=0;this.cdr.markForCheck()}
+  applyFilter(value: string): void {
+    const sectionId = this.activeSection?.id;
+    this.filterText = value;
+    this.notice = '';
+    const index = this.filteredSections.findIndex(section => section.id === sectionId);
+    this.selectSection(Math.max(0, index));
+  }
   resetSelection():void{this.notice='';this.sectionIndex=0;this.itemIndex=0;this.cdr.markForCheck()}
   trackItem(_index:number,item:QuickItem):string{return item.id}
 

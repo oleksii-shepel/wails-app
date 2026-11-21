@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 const address = readFileSync(
   new URL('./address-bar.component.ts', import.meta.url),
   'utf8',

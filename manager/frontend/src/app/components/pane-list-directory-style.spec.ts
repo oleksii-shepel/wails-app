@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 const source = readFileSync(new URL('./pane-list.component.ts', import.meta.url), 'utf8');
 
 describe('PaneList directory-style layout', () => {

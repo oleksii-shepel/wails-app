@@ -47,13 +47,13 @@ const GLYPH_ROWS = [
 
         <span class="toolbar-divider"></span>
 
-        <button class="tool-btn" type="button" [class.active]="sampleMode === 'sentence'" (click)="setSampleMode('sentence')">
+        <button class="tool-btn" type="button" [class.active]="sampleMode === 'sentence'" [attr.aria-pressed]="sampleMode === 'sentence'" (click)="setSampleMode('sentence')">
           Sentence
         </button>
-        <button class="tool-btn" type="button" [class.active]="sampleMode === 'alphabet'" (click)="setSampleMode('alphabet')">
+        <button class="tool-btn" type="button" [class.active]="sampleMode === 'alphabet'" [attr.aria-pressed]="sampleMode === 'alphabet'" (click)="setSampleMode('alphabet')">
           Alphabet
         </button>
-        <button class="tool-btn" type="button" [class.active]="sampleMode === 'symbols'" (click)="setSampleMode('symbols')">
+        <button class="tool-btn" type="button" [class.active]="sampleMode === 'symbols'" [attr.aria-pressed]="sampleMode === 'symbols'" (click)="setSampleMode('symbols')">
           Symbols
         </button>
       </div>

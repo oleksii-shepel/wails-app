@@ -83,7 +83,14 @@ import { FileType, type FileInfo } from '../shared/protocol';
     .inventory-toolbar input[type='search'] { flex: 1; min-width: min(14rem, 100%); }
     table { width: 100%; table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; }
     th, td { padding: 6px 8px; text-align: start; border-block-end: 1px solid var(--vsc-border-subtle, var(--vsc-border)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    th { color: var(--vsc-description-foreground); font-weight: 600; }
+    th {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 1;
+      background: var(--vsc-panel-background);
+      color: var(--vsc-description-foreground);
+      font-weight: 600;
+    }
     th:first-child { width: 36px; }
     th:nth-child(3), th:nth-child(4) { width: 15%; }
     th:last-child { width: 25%; }

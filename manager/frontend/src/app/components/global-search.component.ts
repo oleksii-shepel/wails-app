@@ -214,7 +214,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               </span>
               <span class="kind">{{ panel.metadata.resultCount ?? panel.entries.length }} items</span>
             </button>
-            <div class="empty palette-dialog-empty" *ngIf="visibleCollections.length === 0">No matching collections.</div>
+            <div class="empty palette-dialog-empty" *ngIf="visibleCollections.length === 0" role="status">No matching collections.</div>
           </ng-template>
         </div>
 

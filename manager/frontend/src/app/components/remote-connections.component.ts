@@ -30,7 +30,7 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <button type="button" class="mount palette-dialog-item" role="option" *ngFor="let mount of state.mounts;let i=index;trackBy:trackMount" [class.selected]="i===selectedIndex" [class.is-selected]="i===selectedIndex" [attr.aria-selected]="i===selectedIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="state.mounts.length" [attr.tabindex]="i===selectedIndex ? 0 : -1" (mouseenter)="selectedIndex=i" (click)="openMount(mount)">
 <span class="icon">☁</span><span class="details"><strong>{{label(mount)}}</strong><small>{{uri(mount)}}</small></span><span class="mount-status"><span class="read-only" *ngIf="mount.readOnly">Read only</span><span class="protocol">{{protocol(mount)}}</span></span>
 </button>
-<div class="empty palette-dialog-empty" *ngIf="!state.loading&&!state.error&&state.mounts.length===0"><strong>No remote connections.</strong><span>Use + Connect or Insert to add one.</span></div>
+<div class="empty palette-dialog-empty" *ngIf="!state.loading&&!state.error&&state.mounts.length===0" role="status"><strong>No remote connections.</strong><span>Use + Connect or Insert to add one.</span></div>
 </div>
 <footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="!selectedMount" (click)="disconnectSelected()">Del&nbsp;&nbsp;Disconnect</button></div><span class="palette-dialog-footnote">↑ ↓ select · Enter open · Insert connect · F5 refresh</span></footer>
 </section></div>`,

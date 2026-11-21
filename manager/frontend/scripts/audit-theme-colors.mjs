@@ -12,6 +12,17 @@ const namedColor = /(?:color|background|border(?:-color)?|fill|stroke|shadow)[^;
 const variableRef = /var\((--[\w-]+)/g;
 const variableDef = /(--[\w-]+)\s*:/g;
 const localVariables = new Set(['--tx', '--ty', '--workspace-ratio', '--cols']);
+// Tokens set dynamically through style bindings never appear as CSS
+// definitions, so the audit allowlists them by prefix.
+const localVariablePrefixes = [
+  '--details-column-',
+  '--details-scrollbar-gutter',
+  '--grid-row-pitch',
+];
+
+function isLocalVariable(token) {
+  return localVariables.has(token) || localVariablePrefixes.some((prefix) => token.startsWith(prefix));
+}
 
 function filesUnder(directory) {
   const result = [];
@@ -48,7 +59,7 @@ for (const path of files) {
 }
 
 for (const [token, sites] of references) {
-  if (definitions.has(token) || localVariables.has(token)) continue;
+  if (definitions.has(token) || isLocalVariable(token)) continue;
   violations.push(`${sites[0]}: unresolved theme token ${token}`);
 }
 

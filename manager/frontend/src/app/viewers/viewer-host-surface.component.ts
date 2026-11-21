@@ -64,7 +64,7 @@ function extLower(path: string): string {
             type="button"
             [disabled]="!!archiveContext"
             (click)="external.emit()"
-            title="Open with external application">
+            aria-label="Open with external application" title="Open with external application">
             ↗
           </button>
           <button

@@ -79,7 +79,7 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
           </div>
         </div>
 
-        <div *ngIf="kind === 'plugin-required'" class="state-container state-error">
+        <div *ngIf="kind === 'plugin-required'" class="state-container state-error" role="status">
           <div class="state-icon" aria-hidden="true">⚠️</div>
           <div class="state-label">Office Renderer plugin required</div>
           <div class="error-detail">{{ error }}</div>

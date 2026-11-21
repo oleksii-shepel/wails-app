@@ -525,8 +525,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-code-folding-label">Enable code folding</span><small id="settings-code-folding-help">Shows fold controls in the gutter to collapse and expand sections of code.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.highlightCurrentLine" (ngModelChange)="onSettingChanged()" />
-                    <span>Highlight current line<small>Applies a subtle background tint to the line containing the cursor.</small></span>
+                    <input aria-labelledby="settings-highlight-current-line-label" aria-describedby="settings-highlight-current-line-help" type="checkbox" [(ngModel)]="draft.editor.highlightCurrentLine" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-highlight-current-line-label">Highlight current line</span><small id="settings-highlight-current-line-help">Applies a subtle background tint to the line containing the cursor.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.occurrencesHighlight" (ngModelChange)="onSettingChanged()" />

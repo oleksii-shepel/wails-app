@@ -209,15 +209,15 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       <small id="settings-date-format-help">How timestamps appear in file lists and the details pane.</small>
                     </label>
                     <label class="field">
-                      <span>Size Unit</span>
-                      <select [(ngModel)]="draft.general.sizeUnit" (ngModelChange)="onSettingChanged()">
+                      <span id="settings-size-unit-label">Size Unit</span>
+                      <select aria-labelledby="settings-size-unit-label" aria-describedby="settings-size-unit-help" [(ngModel)]="draft.general.sizeUnit" (ngModelChange)="onSettingChanged()">
                         <option value="auto">Automatic</option>
                         <option value="bytes">Bytes</option>
                         <option value="kib">KiB / KB</option>
                         <option value="mib">MiB / MB</option>
                         <option value="gib">GiB / GB</option>
                       </select>
-                      <small>Unit used when displaying file sizes across all panes.</small>
+                      <small id="settings-size-unit-help">Unit used when displaying file sizes across all panes.</small>
                     </label>
                   </div>
                 </div>

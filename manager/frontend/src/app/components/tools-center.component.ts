@@ -233,7 +233,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="empty" *ngIf="!diskScanning && diskEntries.length > 0 && sortedDiskEntries.length === 0">
             No entries match "{{ diskFilter }}".
           </div>
-          <div class="error" *ngIf="diskError">{{ diskError }}</div>
+          <div class="error" role="alert" *ngIf="diskError">{{ diskError }}</div>
         </div>
 
         <div class="body" role="tabpanel" aria-label="Duplicates" *ngIf="page === 'duplicates'">
@@ -337,7 +337,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <summary>{{ duplicateResult.warnings.length }} paths could not be scanned</summary>
             <ul><li *ngFor="let warning of duplicateResult.warnings">{{ warning }}</li></ul>
           </details>
-          <div class="error" *ngIf="duplicateError">{{ duplicateError }}</div>
+          <div class="error" role="alert" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>
 
         <div class="body" role="tabpanel" aria-label="Checksums" *ngIf="page === 'checksums'">
@@ -407,7 +407,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="empty" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
             Choose a file or enter a path to compute its checksum.
           </div>
-          <div class="error" *ngIf="checksumError">{{ checksumError }}</div>
+          <div class="error" role="alert" *ngIf="checksumError">{{ checksumError }}</div>
         </div>
 
         <footer class="tool-keys palette-dialog-footer">

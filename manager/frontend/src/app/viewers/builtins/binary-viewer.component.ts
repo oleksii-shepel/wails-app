@@ -551,7 +551,11 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
 
   gotoOffset(): void {
     const raw = this.gotoValue.trim();
-    if (!raw || !this._gridBody) return;
+    if (!this._gridBody) return;
+    if (!raw) {
+      this.gotoError = 'Enter an offset to jump to.';
+      return;
+    }
     const hex = /^0x/i.test(raw) || this.offsetFormat === 'hex';
     const digits = raw.replace(/^0x/i, '');
     if (!(hex ? /^[0-9a-f]+$/i : /^\d+$/).test(digits)) {

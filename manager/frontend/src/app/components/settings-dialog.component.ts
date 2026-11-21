@@ -914,7 +914,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                           <button
                             type="button"
                             class="btn btn-small btn-icon"
-                            (click)="toggleBindingEnabled(item.id)"
+                            (click)="toggleBindingEnabled(item.id)" aria-label="Enable shortcut" [attr.aria-pressed]="item.enabled !== false"
                             [title]="item.enabled === false ? 'Enable' : 'Disable'"
                           >
                             <svg *ngIf="item.enabled !== false" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/></svg>

@@ -78,23 +78,31 @@ func (s *Service) StartDiskUsageStream(path string) (string, error) {
 			}
 		})
 
-		s.duStreams.unregister(scanID)
-
-		result := s.mapDiskUsageResult(buildDiskUsageResult(resolvedPath, entries, start), requestedPath)
-		s.duCache.Set(result)
-
-		select {
-		case <-done:
-			return
-		default:
-			s.emit("disk-usage:done", map[string]interface{}{
-				"scanId": scanID,
-				"result": *result,
-			})
-		}
+		s.finishDiskUsageStream(scanID, done, resolvedPath, requestedPath, entries, start)
 	}()
 
 	return scanID, nil
+}
+
+// finishDiskUsageStream publishes the outcome of a background disk usage
+// scan. Cancelled scans only hold partial totals, so they must not be
+// cached as if they were complete.
+func (s *Service) finishDiskUsageStream(scanID string, done <-chan struct{}, resolvedPath, requestedPath string, entries []contracts.DiskUsageEntry, start time.Time) bool {
+	s.duStreams.unregister(scanID)
+
+	select {
+	case <-done:
+		return false
+	default:
+	}
+
+	result := s.mapDiskUsageResult(buildDiskUsageResult(resolvedPath, entries, start), requestedPath)
+	s.duCache.Set(result)
+	s.emit("disk-usage:done", map[string]interface{}{
+		"scanId": scanID,
+		"result": *result,
+	})
+	return true
 }
 
 func (s *Service) CancelDiskUsageStream(scanID string) {

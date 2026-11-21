@@ -180,7 +180,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <small class="operation-error" *ngIf="operation.error">{{ operation.error }}</small>
           </article>
 
-          <div class="empty" *ngIf="filteredActiveOperations.length === 0 && filteredHistory.length === 0">
+          <div class="empty" role="status" *ngIf="filteredActiveOperations.length === 0 && filteredHistory.length === 0">
             No operations match this view.
           </div>
         </div>
@@ -233,10 +233,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </button>
           </div>
 
-          <div class="empty" *ngIf="!diskScanning && !diskError && diskEntries.length === 0">
+          <div class="empty" role="status" *ngIf="!diskScanning && !diskError && diskEntries.length === 0">
             {{ diskCompleted ? 'No entries were found in this directory.' : diskCancelled ? 'No entries were collected before cancellation.' : 'Scan the active directory to see where space is used.' }}
           </div>
-          <div class="empty" *ngIf="!diskScanning && diskEntries.length > 0 && sortedDiskEntries.length === 0">
+          <div class="empty" role="status" *ngIf="!diskScanning && diskEntries.length > 0 && sortedDiskEntries.length === 0">
             No entries match "{{ diskFilter }}".
           </div>
           <div class="error" role="alert" *ngIf="diskError">{{ diskError }}</div>
@@ -331,7 +331,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </div>
           </section>
 
-          <div class="empty" *ngIf="!duplicateScanning && !duplicateError && duplicateGroups.length === 0">
+          <div class="empty" role="status" *ngIf="!duplicateScanning && !duplicateError && duplicateGroups.length === 0">
             {{ duplicateCancelled ? 'Scan cancelled.' : !duplicateResult ? 'Scan recursively to find content-identical files.' :
               duplicateResult.groups.length ? 'No duplicate groups match this filter.' : 'No duplicate groups were found.' }}
           </div>
@@ -412,7 +412,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             </div>
           </div>
 
-          <div class="empty" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
+          <div class="empty" role="status" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
             Choose a file or enter a path to compute its checksum.
           </div>
           <div class="error" role="alert" *ngIf="checksumError">{{ checksumError }}</div>

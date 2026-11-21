@@ -52,9 +52,9 @@ interface CarouselVirtualFrame {
          (pointerdown)="focusViewerSurface()">
       <div class="viewer-toolbar" *ngIf="kind === 'image' || kind === 'svg' || hasCarousel">
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
-          <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
+          <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out" aria-label="Zoom out">&#x2212;</button>
           <span class="zoom-label">{{ zoomLabel }}</span>
-          <button class="tool-btn" type="button" (click)="zoomIn()" title="Zoom in">+</button>
+          <button class="tool-btn" type="button" (click)="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
           <button class="tool-btn" type="button" (click)="resetZoom()" title="Fit to window">Fit</button>
           <button class="tool-btn" type="button" (click)="zoom100()" title="Actual size">1:1</button>
           <span class="toolbar-divider"></span>
@@ -64,9 +64,9 @@ interface CarouselVirtualFrame {
 
         <ng-container *ngIf="hasCarousel">
           <span class="toolbar-divider" *ngIf="kind === 'image' || kind === 'svg'"></span>
-          <button class="tool-btn" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
+          <button class="tool-btn" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image" aria-label="Previous image">&#x2039;</button>
           <span class="carousel-counter">{{ previewCenterIndex + 1 }} / {{ carouselItems.length }}</span>
-          <button class="tool-btn" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image">&#x203A;</button>
+          <button class="tool-btn" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image" aria-label="Next image">&#x203A;</button>
         </ng-container>
       </div>
 

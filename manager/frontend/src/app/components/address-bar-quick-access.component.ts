@@ -186,7 +186,7 @@ export interface QuickAccessItem {
       </div>
 
       <!-- Empty State -->
-      <div class="ab-drop-empty" *ngIf="sections.length === 0">
+      <div class="ab-drop-empty" role="status" *ngIf="sections.length === 0">
         <span class="ab-drop-empty-icon">{{ filterQuery ? 'đ' : 'đ' }}</span>
         <span>{{ filterQuery ? 'No quick access items match this filter' : 'No quick access items available' }}</span>
       </div>
@@ -195,7 +195,7 @@ export interface QuickAccessItem {
       <div class="ab-drop-scroll" *ngIf="sections.length > 0">
         <div class="qa-section" role="group">
           <ng-container *ngIf="sections[activeTabIdx] as activeSection">
-            <div class="ab-drop-empty" *ngIf="activeSection.items.length === 0">
+            <div class="ab-drop-empty" role="status" *ngIf="activeSection.items.length === 0">
               <ng-container *ngIf="activeSection.title === 'Pinned'; else genericEmptyState">
                 <span class="ab-drop-empty-icon">đ</span>
                 <span>No pinned locations yet.<br>Click â to pin the current path.</span>

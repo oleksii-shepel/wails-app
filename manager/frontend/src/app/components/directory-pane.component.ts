@@ -368,7 +368,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         <span class="collection-spacer"></span>
         <button type="button"
           [disabled]="loading || !resultsRefreshable"
-          title="Refresh this collection"
+          aria-label="Refresh collection" title="Refresh this collection"
           (click)="refreshResultsCollection()">&#x21BB;</button>
         <button type="button"
           [class.active]="panel.pinned"
@@ -377,7 +377,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [title]="panel.pinned ? 'Unpin collection' : 'Pin collection'"
           (click)="toggleResultsCollectionPin()">{{ panel.pinned ? '\u2605' : '\u2606' }}</button>
         <button type="button"
-          title="Rename collection"
+          aria-label="Rename collection" title="Rename collection"
           (click)="renameResultsCollection()">Rename</button>
       </div>
 

@@ -88,6 +88,7 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
       return (
         entry.label.toLowerCase().includes(query) ||
         entry.kind.toLowerCase().includes(query) ||
+        this.stateLabel(entry.state).toLowerCase().includes(query) ||
         (entry.summary ?? '').toLowerCase().includes(query) ||
         (entry.error ?? '').toLowerCase().includes(query) ||
         entry.affectedPaths.some(p => p.toLowerCase().includes(query))

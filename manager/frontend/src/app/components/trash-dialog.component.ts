@@ -116,7 +116,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <span class="icon" aria-hidden="true">{{ entry.isDir ? '📁' : '📄' }}</span>
             <span class="main">
               <strong>{{ entry.name }}</strong>
-              <span>{{ entry.originalPath || 'Original location unavailable' }}</span>
+              <span [title]="entry.originalPath">{{ entry.originalPath || 'Original location unavailable' }}</span>
             </span>
             <span class="row-right">
               <span *ngIf="!entry.canRestore" class="restore-note">Restore unavailable</span>

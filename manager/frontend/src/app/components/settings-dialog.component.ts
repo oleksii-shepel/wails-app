@@ -541,8 +541,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <span><span id="settings-smooth-scrolling-label">Smooth scrolling</span><small id="settings-smooth-scrolling-help">Animates scroll events for a more fluid experience in the editor.</small></span>
                   </label>
                   <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.editor.bracketPairColorization" (ngModelChange)="onSettingChanged()" />
-                    <span>Bracket pair colorization<small>Colors matching bracket pairs with distinct hues to aid visual grouping.</small></span>
+                    <input aria-labelledby="settings-bracket-pair-colorization-label" aria-describedby="settings-bracket-pair-colorization-help" type="checkbox" [(ngModel)]="draft.editor.bracketPairColorization" (ngModelChange)="onSettingChanged()" />
+                    <span><span id="settings-bracket-pair-colorization-label">Bracket pair colorization</span><small id="settings-bracket-pair-colorization-help">Colors matching bracket pairs with distinct hues to aid visual grouping.</small></span>
                   </label>
                   <div class="field-row">
                     <label class="field">

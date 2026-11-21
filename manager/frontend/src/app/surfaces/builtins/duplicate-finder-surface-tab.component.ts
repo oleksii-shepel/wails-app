@@ -41,7 +41,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
               <option value="path">Path</option>
             </select>
           </label>
-          <input class="filter" type="search" placeholder="Filter groups…" [(ngModel)]="filterText" [disabled]="scanning">
+          <input class="filter" type="search" placeholder="Filter groups…" aria-label="Filter duplicate groups" [(ngModel)]="filterText" [disabled]="scanning">
           <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Redundant</button>
           <button (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
           <button (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>

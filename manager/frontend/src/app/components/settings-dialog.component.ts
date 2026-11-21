@@ -1038,7 +1038,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
             <div class="settings-actions">
               <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
               <button type="button" class="btn btn-primary" [disabled]="!hasChanges || saving" (click)="onSave()">
-                Save Changes<kbd class="btn-kbd">Ctrl+S</kbd>
+                {{ saving ? 'Saving…' : 'Save Changes' }}<kbd class="btn-kbd">Ctrl+S</kbd>
               </button>
             </div>
           </footer>

@@ -128,7 +128,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             </span>
           </button>
 
-          <div *ngIf="!loading && entries.length === 0" class="empty palette-dialog-empty">
+          <div *ngIf="!loading && !error && entries.length === 0" class="empty palette-dialog-empty" role="status">
             Trash is empty.
           </div>
 

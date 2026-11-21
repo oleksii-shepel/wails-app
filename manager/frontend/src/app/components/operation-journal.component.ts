@@ -4,7 +4,7 @@ import { OperationHistoryService, type OperationJournalEntry } from '../services
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 
-type JournalFilter = 'all' | 'undoable' | 'failed';
+type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
 
 @Component({
   selector: 'app-operation-journal',
@@ -21,6 +21,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed';
             <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'all'" (click)="setFilter('all')">All</button>
             <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'undoable'" (click)="setFilter('undoable')">Undoable</button>
             <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'failed'" (click)="setFilter('failed')">Failed</button>
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'replayed'" (click)="setFilter('replayed')">Undone or redone</button>
           </div>
           <input
             type="search"
@@ -84,6 +85,7 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
     return this.entries.filter(entry => {
       if (this.filter === 'undoable' && !entry.reversible) return false;
       if (this.filter === 'failed' && entry.state !== 'failed' && entry.state !== 'partial') return false;
+      if (this.filter === 'replayed' && entry.state !== 'undone' && entry.state !== 'redone') return false;
       if (!query) return true;
       return (
         entry.label.toLowerCase().includes(query) ||

@@ -1099,26 +1099,28 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   private async confirmAndDeleteDuplicates(): Promise<void> {
-    const paths = Array.from(this.duplicateSelected);
-    if (paths.length === 0) return;
+    const scan = this.duplicateResult;
+    if (!scan) return;
+    const paths = this.duplicates.suggestedRedundantPaths(scan.groups).filter(path => this.duplicateSelected.has(path));
+    if (!paths.length) return;
 
     const visiblePaths = new Set(this.duplicateGroups.flatMap(group => group.files.map(file => file.path)));
     const hidden = paths.filter(path => !visiblePaths.has(path)).length;
     const hiddenMessage = hidden ? ` ${hidden} selected ${hidden === 1 ? 'file is' : 'files are'} outside the current filter.` : '';
     const confirmed = await this.confirm.confirm({
-      title: 'Delete Duplicate Files',
+      title: 'Move Duplicate Files to Trash',
       message:
-        `Delete ${paths.length} selected duplicate file${
+        `Move ${paths.length} selected duplicate file${
           paths.length === 1 ? '' : 's'
-        }? The suggested keeper in each group is protected from selection.${hiddenMessage}`,
-      confirmText: 'Delete',
+        } to Trash? The suggested keeper in each group is protected from selection.${hiddenMessage}`,
+      confirmText: 'Move to Trash',
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || this.duplicateResult !== scan) return;
 
     const root = this.rootPath;
     try {
-      const result = await this.api.batchDelete(paths, true, true);
+      const result = await this.api.batchDelete(paths, false, true);
 
       if (this.rootPath === root) {
         this.duplicateSelected = new Set();

@@ -42,6 +42,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
         <button class="tool-btn" type="button" *ngIf="!archiveContext && targetPath" (click)="openExternally()">
           Open externally
         </button>
+        <span *ngIf="actionNotice" class="error-detail" role="status">{{ actionNotice }}</span>
 
         <span class="toolbar-divider"></span>
 
@@ -459,6 +460,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   info: FileInfo | null = null;
   error = '';
   copiedPath = false;
+  actionNotice = '';
   copiedHex = false;
 
   // viewport state
@@ -569,7 +571,12 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
     const path = this.displayPath?.trim();
     if (!path) return;
     const copied = await writeClipboardText(path).then(() => true, () => false);
-    if (!copied) return;
+    if (!copied) {
+      this.actionNotice = 'Clipboard unavailable.';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.actionNotice = '';
     this.copiedPath = true;
     if (this.copyResetTimer !== null) clearTimeout(this.copyResetTimer);
     this.copyResetTimer = window.setTimeout(() => {
@@ -585,7 +592,12 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
       return `${row.offsetStr}  ${hex}  ${row.ascii}`;
     });
     const copied = await writeClipboardText(lines.join('\n')).then(() => true, () => false);
-    if (!copied) return;
+    if (!copied) {
+      this.actionNotice = 'Clipboard unavailable.';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.actionNotice = '';
     this.copiedHex = true;
     if (this.copyHexResetTimer !== null) clearTimeout(this.copyHexResetTimer);
     this.copyHexResetTimer = window.setTimeout(() => {

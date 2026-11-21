@@ -1144,17 +1144,14 @@ export class WorkspaceService {
   ): { paneId: 'left' | 'right'; tab: TabInfo } | null {
     if (index < 0 || index >= this.recentlyClosedTabs.length) return null;
 
-    const [entry] = this.recentlyClosedTabs.splice(index, 1);
-    this.persistRecentlyClosedTabs();
+    const entry = this.recentlyClosedTabs[index];
 
     const pane =
       entry.paneId === 'right'
         ? workspace.rightPane
         : workspace.leftPane;
 
-    pane.tabs.forEach(tab => {
-      tab.isActive = false;
-    });
+    const tabs = pane.tabs.map(tab => ({ ...tab, isActive: false }));
 
     const restored: TabInfo = {
       ...this.cloneTab(entry.tab),
@@ -1163,15 +1160,18 @@ export class WorkspaceService {
       createdAt: Date.now(),
     };
 
-    const position = Number.isSafeInteger(entry.tabIndex) && entry.tabIndex! >= 0
-      ? Math.min(entry.tabIndex!, pane.tabs.length)
-      : pane.tabs.length;
-    pane.tabs.splice(position, 0, restored);
-    pane.activeTabId = restored.id;
+    const previousPosition = entry.tabIndex;
+    const position = previousPosition !== undefined && Number.isSafeInteger(previousPosition) && previousPosition >= 0
+      ? Math.min(previousPosition, tabs.length)
+      : tabs.length;
+    tabs.splice(position, 0, restored);
 
-    this.updateWorkspace(workspace.id, {
-      [entry.paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    const updated = this.updateWorkspace(workspace.id, {
+      [entry.paneId === 'left' ? 'leftPane' : 'rightPane']: { ...pane, tabs, activeTabId: restored.id },
     });
+    if (!updated) return null;
+    this.recentlyClosedTabs = this.recentlyClosedTabs.filter(closed => closed.id !== entry.id);
+    this.persistRecentlyClosedTabs();
 
     return {
       paneId: entry.paneId,

@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard-text';
 import { Injectable } from '@angular/core';
 
 import { FileType, type FileInfo } from '../shared/protocol';
@@ -302,17 +303,10 @@ export class NetworkAdapterService {
     if (!normalized) return false;
 
     try {
-      await navigator.clipboard.writeText(normalized);
+      await writeClipboardText(normalized);
       return true;
     } catch {
-      const runtime = (window as unknown as {
-        runtime?: {
-          ClipboardSetText?: (text: string) => Promise<boolean>;
-        };
-      }).runtime;
-      return typeof runtime?.ClipboardSetText === 'function'
-        ? await runtime.ClipboardSetText(normalized)
-        : false;
+      return false;
     }
   }
 

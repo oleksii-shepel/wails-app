@@ -46,7 +46,7 @@ import {
 
     <!-- Left: filter icon + category dropdown -->
     <div class="fb-cluster fb-cluster--left">
-      <button
+      <button type="button"
         #categoryBtn
         appDropdownTrigger
         class="fb-btn fb-btn--category"
@@ -92,12 +92,12 @@ import {
         (keydown)="onSearchKeyDown($event)"
         [attr.aria-label]="placeholder"
       />
-      <button *ngIf="searchText" class="fb-search-clear" (click)="clearSearch()" aria-label="Clear filter search" title="Clear search">×</button>
+      <button type="button" *ngIf="searchText" class="fb-search-clear" (click)="clearSearch()" aria-label="Clear filter search" title="Clear search">×</button>
     </div>
 
     <!-- Right: saved presets dropdown + clear button -->
     <div class="fb-cluster fb-cluster--right">
-    <button
+    <button type="button"
         #presetBtn
         class="fb-btn fb-btn--icon"
         [class.fb-btn--open]="showPresetDropdown"
@@ -112,7 +112,7 @@ import {
         <div appDropdownMenu *ngIf="showPresetDropdown" class="fb-preset-dropdown">
           <div class="fb-preset-head">
             <span>Presets</span>
-            <button
+            <button type="button"
               class="fb-preset-save"
               (click)="onSavePreset()"
               [disabled]="!canSavePreset"
@@ -122,14 +122,14 @@ import {
           <div class="fb-preset-list">
             <div *ngFor="let p of savedPresets; let i = index" class="fb-preset-item" [class.fb-preset-item--selected]="i === selectedPresetIndex" (mouseenter)="setSelectedPresetIndex(i)">
               <span class="fb-preset-name" (click)="applyPreset(p)">{{ p.name }}</span>
-              <button class="fb-preset-delete" (click)="deletePreset(p)" aria-label="Delete saved filter preset" title="Delete">×</button>
+              <button type="button" class="fb-preset-delete" (click)="deletePreset(p)" aria-label="Delete saved filter preset" title="Delete">×</button>
             </div>
             <div *ngIf="savedPresets.length === 0" class="fb-preset-empty">No saved presets</div>
           </div>
         </div>
       </app-dropdown-container>
 
-      <button
+      <button type="button"
         class="fb-btn fb-btn--icon fb-btn--clear"
         [disabled]="!hasAnyFilter"
         (click)="clearAllFilters()"

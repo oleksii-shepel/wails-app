@@ -79,6 +79,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             (input)="onSearchInput($event)"
             placeholder="Filter by name or original path…"
             aria-label="Filter trash items" />
+          <button type="button" class="palette-dialog-button" [disabled]="!searchText" (click)="clearSearch()">Clear filter</button>
           <select class="trash-sort palette-dialog-field" [value]="sortBy" (change)="onSortChange($event)" aria-label="Sort trash items">
             <option value="deleted">Newest deleted</option>
             <option value="name">Name</option>
@@ -408,6 +409,11 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
   get canRestoreSelection(): boolean {
     const selected = this.selectedEntries;
     return selected.length > 0 && selected.every(entry => entry.canRestore);
+  }
+
+  clearSearch(): void {
+    this.searchText = '';
+    this.cdr.markForCheck();
   }
 
   onSearchInput(event: Event): void {

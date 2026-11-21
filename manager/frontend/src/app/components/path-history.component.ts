@@ -107,6 +107,7 @@ const COMMAND = PATH_HISTORY_INPUT_COMMANDS;
     input{box-sizing:border-box;width:min(300px,42vw)}
     .list{min-height:0;overflow:auto}.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:45px;padding:5px 8px}.entry:hover,.entry.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.entry.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 52%,transparent)}
     .main{min-width:0;display:grid}.main strong,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.path{color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{display:flex;gap:8px;align-items:center;font-size:10px}.empty{padding:34px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));text-align:center}
+    .palette-dialog-footer{flex-wrap:wrap}
     .keys{margin-left:auto;font-size:10px}
   `],
 })

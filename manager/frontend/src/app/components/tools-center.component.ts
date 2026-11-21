@@ -1116,7 +1116,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       confirmText: 'Move to Trash',
       danger: true,
     });
-    if (!confirmed || this.duplicateResult !== scan) return;
+    if (!confirmed || !this.visible || this.duplicateResult !== scan) return;
 
     const root = this.rootPath;
     try {

@@ -91,7 +91,7 @@ const PIE_PREFETCH_LIMIT = 5;
         <button class="sm-btn sm-btn--icon" [disabled]="!canGoForward" (click)="goForward()" title="Forward" aria-label="Forward">→</button>
         <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
         <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
-        <span class="dialog-close" (click)="close()" title="Close" aria-label="Close tab" role="button" tabindex="0" (keydown.enter)="close()" (keydown.space)="close(); $event.preventDefault()"> × </span>
+        <button type="button" class="dialog-close" (click)="close()" title="Close" aria-label="Close tab"> × </button>
       </div>
     </div>
 

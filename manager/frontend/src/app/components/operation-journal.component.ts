@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { OperationHistoryService, type OperationJournalEntry } from '../services/operation-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
@@ -41,6 +42,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
               <span *ngIf="entry.summary">{{ entry.summary }}</span>
               <span class="error" *ngIf="entry.error">{{ entry.error }}</span>
               <details *ngIf="entry.affectedPaths.length"><summary>{{ entry.affectedPaths.length }} affected paths</summary>
+                <button type="button" class="palette-dialog-button" (click)="copyAffectedPaths(entry)">Copy paths</button>
                 <code *ngFor="let path of entry.affectedPaths">{{ path }}</code></details>
             </div>
           </article>
@@ -48,7 +50,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
           <div class="empty palette-dialog-empty" *ngIf="entries.length > 0 && matching.length === 0" role="status">No operations match the active filter.</div>
         </div>
         <footer class="palette-dialog-footer">
-          <span class="palette-dialog-meta" role="status">{{ matching.length }} of {{ entries.length }} shown</span>
+          <span class="palette-dialog-meta" role="status">{{ notice || (matching.length + ' of ' + entries.length + ' shown') }}</span>
           <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="!history.canUndo" (click)="undo()">Undo</button>
           <button class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
           <div class="palette-dialog-footer-actions"><button class="palette-dialog-button" [disabled]="entries.length === 0" (click)="clear()">Clear Journal</button>
@@ -75,6 +77,7 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
   isClosing=false;
   filter: JournalFilter = 'all';
   searchText = '';
+  notice = '';
   private emitClosedOnFinish=false;
   private readonly modalStack = tryInjectModalStack();
   private readonly hostElement = tryInjectElementRef();
@@ -155,6 +158,15 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
   }
   undo():void{this.undoRequested.emit();this.cdr.markForCheck();}
   redo():void{this.redoRequested.emit();this.cdr.markForCheck();}
+  async copyAffectedPaths(entry: OperationJournalEntry): Promise<void> {
+    try {
+      await writeClipboardText(entry.affectedPaths.join('\n'));
+      this.notice = `Copied ${entry.affectedPaths.length} ${entry.affectedPaths.length === 1 ? 'path' : 'paths'}.`;
+    } catch {
+      this.notice = 'Clipboard unavailable.';
+    }
+    this.cdr.markForCheck();
+  }
   download(): void {
     const entries = this.filteredEntries.map(({ label, kind, state, startedAt, completedAt, reversible, summary, error, affectedPaths }) =>
       ({ label, kind, state, startedAt, completedAt, reversible, summary, error, affectedPaths }),

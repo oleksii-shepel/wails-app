@@ -21,10 +21,10 @@ import { InputEngineService } from '../services/input-engine.service';
         <span>{{ headLabel }}</span>
         <span class="ab-badge" *ngIf="!loading">{{ totalCount > 50 ? '50+' : totalCount }}</span>
       </div>
-      <div class="ab-drop-loading" *ngIf="loading && totalCount === 0">
+      <div class="ab-drop-loading" role="status" *ngIf="loading && totalCount === 0">
         <span class="ab-spinner"></span>Loading…
       </div>
-      <div class="ab-drop-empty" *ngIf="!loading && totalCount === 0">
+      <div class="ab-drop-empty" role="status" *ngIf="!loading && totalCount === 0">
         <span class="ab-drop-empty-icon">📭</span>
         <span>No sub-folders</span>
       </div>

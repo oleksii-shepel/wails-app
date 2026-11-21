@@ -228,6 +228,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
         <button class="tool-btn" type="button" *ngIf="!archiveContext && targetPath" (click)="openExternally()">
           Open externally
         </button>
+        <span *ngIf="actionNotice" class="error-detail" role="status">{{ actionNotice }}</span>
       </div>
 
       <div class="viewer-body">
@@ -498,6 +499,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   lineCount: number | null = null;
   wordWrap = false;
   copiedPath = false;
+  actionNotice = '';
 
   private editorHost: ElementRef<HTMLDivElement> | null = null;
   private editorView: EditorView | null = null;
@@ -610,7 +612,12 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     if (!path) return;
 
     const copied = await writeClipboardText(path).then(() => true, () => false);
-    if (!copied) return;
+    if (!copied) {
+      this.actionNotice = 'Clipboard unavailable.';
+      this.cdr.markForCheck();
+      return;
+    }
+    this.actionNotice = '';
     this.copiedPath = true;
     if (this.copyResetTimer !== null) {
       window.clearTimeout(this.copyResetTimer);

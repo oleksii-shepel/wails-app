@@ -31,12 +31,12 @@ import { FileType, type FileInfo } from '../shared/protocol';
     </div>
     <div class="palette-dialog-toolbar inventory-toolbar">
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="copyPaths()">Copy visible paths</button>
-      <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="copyPaths(true)">Copy selected paths</button>
+      <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="copyPaths(true)">Copy selected paths</button>
       <button type="button" class="palette-dialog-button" [disabled]="!visible.length" (click)="download()">Export matching CSV</button>
-      <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="download(true)">Export selected CSV</button>
+      <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="download(true)">Export selected CSV</button>
       <button type="button" class="palette-dialog-button palette-dialog-button--primary"
-        [disabled]="!selected.size" (click)="addToBasket()">Add selected to Basket</button>
-      <button type="button" class="palette-dialog-button" [disabled]="!selected.size" (click)="clearSelection()">Clear selection</button>
+        [disabled]="loading() || !selected.size" (click)="addToBasket()">Add selected to Basket</button>
+      <button type="button" class="palette-dialog-button" [disabled]="loading() || !selected.size" (click)="clearSelection()">Clear selection</button>
       <span role="status" class="palette-dialog-meta">{{ notice() || (visible.length + ' of ' + totalEntries + ' match · ' + selected.size + ' selected') }}</span>
     </div>
     @if (loading()) {
@@ -133,13 +133,15 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     return this.visible.length > 0 && this.visible.every(entry => this.selected.has(entry.path));
   }
 
-  ngOnChanges(): void { void this.load(); }
+  ngOnChanges(): void {
+    this.selected.clear();
+    void this.load();
+  }
   ngOnDestroy(): void { this.request++; }
 
   async load(): Promise<void> {
     const request = ++this.request;
     this.entries = [];
-    this.selected.clear();
     this.error.set('');
     this.notice.set('');
     this.updateVisible();
@@ -149,9 +151,16 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
       const result = await this.api.listDirectory(this.rootPath, this.showHidden);
       if (request !== this.request) return;
       this.entries = result.entries ?? [];
+      const available = new Set(this.entries.map(entry => entry.path));
+      for (const path of this.selected) {
+        if (!available.has(path)) this.selected.delete(path);
+      }
       this.updateVisible();
     } catch (error) {
-      if (request === this.request) this.error.set(error instanceof Error ? error.message : String(error));
+      if (request === this.request) {
+        this.selected.clear();
+        this.error.set(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       if (request === this.request) this.loading.set(false);
     }

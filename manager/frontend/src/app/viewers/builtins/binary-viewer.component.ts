@@ -73,7 +73,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
 
         <span class="toolbar-divider"></span>
 
-        <button class="tool-btn" type="button" (click)="copyHexDump()" [class.active]="copiedHex">
+        <button class="tool-btn" type="button" (click)="copyHexDump()" [disabled]="!renderedRows.length" [class.active]="copiedHex">
           {{ copiedHex ? 'Copied!' : 'Copy hex' }}
         </button>
       </div>
@@ -578,6 +578,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   }
 
   async copyHexDump(): Promise<void> {
+    if (!this.renderedRows.length) return;
     const lines = this.renderedRows.map(row => {
       const hex = row.cells.map(c => c.hex).join(' ');
       return `${row.offsetStr}  ${hex}  ${row.ascii}`;

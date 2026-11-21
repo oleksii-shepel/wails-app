@@ -65,17 +65,17 @@ const GLYPH_ROWS = [
         </div>
 
         <div *ngIf="kind === 'empty'" class="state-container">
-          <div class="state-icon">🔎</div>
+          <div class="state-icon" aria-hidden="true">🔎</div>
           <div class="state-label">Select a font to preview</div>
         </div>
 
         <div *ngIf="kind === 'directory'" class="state-container">
-          <div class="state-icon">📁</div>
+          <div class="state-icon" aria-hidden="true">📁</div>
           <div class="state-label">Directory - no preview available</div>
         </div>
 
         <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
-          <div class="state-icon">⚠</div>
+          <div class="state-icon" aria-hidden="true">⚠</div>
           <div class="state-label">Font preview failed</div>
           <div class="state-sub">The browser could not decode this font file.</div>
           <div class="error-detail">{{ error }}</div>

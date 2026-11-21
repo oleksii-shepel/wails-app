@@ -333,9 +333,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="warnings" role="status" *ngIf="duplicateResult?.truncated">
             Scan reached a file or depth limit. Results cover only the scanned portion of this folder.
           </div>
-          <div class="warnings" *ngIf="duplicateResult && duplicateResult.warnings.length > 0">
-            {{ duplicateResult.warnings.length }} paths could not be scanned.
-          </div>
+          <details class="warnings" *ngIf="duplicateResult && duplicateResult.warnings.length > 0">
+            <summary>{{ duplicateResult.warnings.length }} paths could not be scanned</summary>
+            <ul><li *ngFor="let warning of duplicateResult.warnings">{{ warning }}</li></ul>
+          </details>
           <div class="error" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>
 

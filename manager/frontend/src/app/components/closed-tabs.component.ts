@@ -39,7 +39,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
         <div class="tabs-toolbar palette-dialog-toolbar">
           <input
             type="search"
-            class="tabs-search"
+            class="tabs-search palette-dialog-field"
             [value]="searchText"
             (input)="onSearchInput($event)"
             placeholder="Filter closed tabs by title or path…"
@@ -91,7 +91,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
     :host{position:fixed;inset:0;z-index:8750;pointer-events:none}
     .panel{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;width:min(720px,calc(100vw - 24px));height:min(600px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border);border-radius:7px;background:var(--vsc-dialog-background,var(--vsc-panel-background));color:var(--vsc-foreground);box-shadow:0 14px 48px var(--vsc-scrim);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     .tabs-toolbar{display:flex;padding:7px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border))}
-    .tabs-search{flex:1;height:26px;padding:0 8px;border:1px solid var(--vsc-input-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background);color:var(--vsc-input-foreground,var(--vsc-foreground));font:inherit}
+    .tabs-search{flex:1;min-width:min(180px,100%)}
     .tabs{min-height:0;overflow:auto}
     .closed-tab{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;text-align:left;cursor:pointer}
     .closed-tab:hover,.closed-tab:focus-visible{background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}

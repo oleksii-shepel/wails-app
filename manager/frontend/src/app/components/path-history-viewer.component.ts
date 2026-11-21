@@ -35,7 +35,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             <span class="stat-label">Most Visited:</span>
             <span class="stat-value">{{ getMostVisited() ? normalizeEntryPath(getMostVisited()?.location) : 'None' }}</span>
           </div>
-          <button (click)="clearHistory()" class="btn-clear-history">
+          <button type="button" (click)="clearHistory()" class="btn-clear-history">
             Clear All
           </button>
         </div>
@@ -82,7 +82,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
                 <span class="entry-time">{{ formatTime(entry.timestamp) }}</span>
               </div>
             </div>
-            <button
+            <button type="button"
               (click)="removePath(entry, $event)"
               class="btn-remove"
               aria-label="Remove location from history" title="Remove from history"
@@ -98,10 +98,10 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             Showing {{ filteredEntries.length }} of {{ historyEntries.length }} locations
           </div>
           <div class="footer-actions">
-            <button (click)="exportHistory()" class="btn-secondary">
+            <button type="button" (click)="exportHistory()" class="btn-secondary">
               Export
             </button>
-            <button (click)="hide()" class="btn-primary">
+            <button type="button" (click)="hide()" class="btn-primary">
               Close
             </button>
           </div>

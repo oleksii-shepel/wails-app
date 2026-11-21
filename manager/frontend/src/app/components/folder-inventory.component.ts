@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnDestroy, Output, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { writeClipboardText } from '../utils/clipboard-text';
 import { ApiService } from '../services/api.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
 import { FileType, type FileInfo } from '../shared/protocol';
@@ -229,7 +230,7 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
   async copyPaths(selectedOnly = false): Promise<void> {
     const paths = selectedOnly ? [...this.selected] : this.visible.map(entry => entry.path);
     try {
-      await navigator.clipboard.writeText(paths.join('\n'));
+      await writeClipboardText(paths.join('\n'));
       this.notice.set(`Copied ${paths.length} paths.`);
     } catch {
       this.notice.set('Clipboard unavailable. Export CSV to save the paths.');

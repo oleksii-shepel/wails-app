@@ -81,6 +81,9 @@ func rewriteZip(fsPath string, entries []string, op Operation) (removed, kept in
 		return removed, kept, err
 	}
 	tmp.Close()
+	// Release the source archive before replacing it: Windows refuses to
+	// rename over a file that still has an open handle.
+	r.Close()
 	return removed, kept, os.Rename(tmpPath, fsPath)
 }
 
@@ -134,11 +137,9 @@ func rewriteTar(fsPath string, entries []string, compression string, op Operatio
 	var processed int64
 	for {
 		if op.IsCancelled() {
+			tarWriter.Close()
 			if gzWriter != nil {
-				tarWriter.Close()
 				gzWriter.Close()
-			} else {
-				tarWriter.Close()
 			}
 			return removed, kept, fmt.Errorf("cancelled")
 		}
@@ -171,19 +172,18 @@ func rewriteTar(fsPath string, entries []string, compression string, op Operatio
 		op.UpdateProgress(processed, n, hdr.Name, n)
 	}
 
+	if e := tarWriter.Close(); e != nil {
+		return removed, kept, e
+	}
 	if gzWriter != nil {
-		if e := tarWriter.Close(); e != nil {
-			return removed, kept, e
-		}
 		if e := gzWriter.Close(); e != nil {
-			return removed, kept, e
-		}
-	} else {
-		if e := tarWriter.Close(); e != nil {
 			return removed, kept, e
 		}
 	}
 	tmp.Close()
+	// Release the source archive before replacing it: Windows refuses to
+	// rename over a file that still has an open handle.
+	srcFile.Close()
 	return removed, kept, os.Rename(tmpPath, fsPath)
 }
 

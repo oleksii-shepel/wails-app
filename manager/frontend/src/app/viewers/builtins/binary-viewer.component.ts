@@ -524,6 +524,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   ngOnChanges(): void { void this.reload(); }
 
   ngOnDestroy(): void {
+    this.loadId++;
     if (this._scrollUnlisten) this._scrollUnlisten();
     if (this._rafId !== null) cancelAnimationFrame(this._rafId);
     if (this.copyResetTimer !== null) clearTimeout(this.copyResetTimer);

@@ -62,7 +62,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
         <ng-container *ngIf="kind === 'image' || kind === 'svg'">
           <button class="tool-btn" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
           <span class="zoom-label">{{ zoomLabel }}</span>
-          <button class="tool-btn" (click)="zoomIn()" title="Zoom in">+</button>
+          <button class="tool-btn" (click)="zoomIn()" aria-label="Zoom in" title="Zoom in">+</button>
           <button class="tool-btn" (click)="resetZoom()" title="Fit to window">Fit</button>
           <button class="tool-btn" (click)="zoom100()" title="Actual size">1:1</button>
           <span class="toolbar-divider"></span>

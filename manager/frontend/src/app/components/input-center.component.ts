@@ -131,7 +131,7 @@ import type {
                 type="button"
                 class="reset"
                 [disabled]="!isOverridden(binding.id)"
-                title="Reset this binding"
+                aria-label="Reset this binding" title="Reset this binding"
                 (click)="reset(binding)">
                 Reset
               </button>

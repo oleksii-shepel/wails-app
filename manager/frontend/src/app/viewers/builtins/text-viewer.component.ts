@@ -251,7 +251,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
           <div class="state-sub">The file could not be decoded as UTF-8 text.</div>
         </div>
 
-        <div *ngIf="kind === 'error'" class="state-container state-error">
+        <div *ngIf="kind === 'error'" class="state-container state-error" role="alert">
           <div class="state-icon">&#x274C;</div>
           <div class="state-label">Failed to load preview</div>
           <div class="state-sub">The source could not be rendered in the code preview.</div>

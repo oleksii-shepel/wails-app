@@ -129,7 +129,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             No items match "{{ searchText }}".
           </div>
 
-          <div *ngIf="loading" class="empty palette-dialog-empty">
+          <div *ngIf="loading" class="empty palette-dialog-empty" role="status">
             Loading…
           </div>
         </div>

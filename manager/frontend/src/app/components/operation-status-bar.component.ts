@@ -133,6 +133,7 @@ import { OperationService, OperationState } from '../services/operation.service'
     }
 
     .pill-progress-fill {
+      display: block;
       height: 100%;
       background: var(--vsc-accent-blue);
       border-radius: 1.5px;

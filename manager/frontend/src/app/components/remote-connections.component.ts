@@ -40,7 +40,7 @@ template:`<div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="rend
 <div class="empty palette-dialog-empty" *ngIf="!state.loading&&!state.error&&state.mounts.length===0" role="status"><strong>No remote connections.</strong><span>Choose Connect or press Insert to add one.</span></div>
 <div class="empty palette-dialog-empty" *ngIf="!state.loading && state.mounts.length && !matching.length" role="status">No matching connections.</div>
 </div>
-<footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button palette-dialog-button--primary" [disabled]="!selectedMount || !uri(selectedMount)" (click)="openSelected()">Open</button><button type="button" class="palette-dialog-button" [disabled]="!selectedMount" (click)="copySelectedLocation()">Copy Location</button><button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="!selectedMount || disconnecting" (click)="disconnectSelected()">Disconnect</button></div><span class="palette-dialog-meta" role="status">{{copyNotice}}</span><span *ngIf="state.refreshedAt" class="palette-dialog-meta" [title]="state.refreshedAt | date:'medium'">Updated {{state.refreshedAt | date:'shortTime'}}</span><span class="palette-dialog-footnote">↑ ↓ select · Enter open · Insert connect · Del disconnect · F5 refresh</span></footer>
+<footer class="palette-dialog-footer"><div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button palette-dialog-button--primary" [disabled]="!selectedMount || !uri(selectedMount)" (click)="openSelected()">Open</button><button type="button" class="palette-dialog-button" [disabled]="!selectedMount" (click)="copySelectedLocation()">Copy Location</button><button type="button" class="palette-dialog-button palette-dialog-button--danger" [disabled]="!canDisconnect" (click)="disconnectSelected()">Disconnect</button></div><span class="palette-dialog-meta" role="status">{{copyNotice}}</span><span *ngIf="state.refreshedAt" class="palette-dialog-meta" [title]="state.refreshedAt | date:'medium'">Updated {{state.refreshedAt | date:'shortTime'}}</span><span class="palette-dialog-footnote">↑ ↓ select · Enter open · Insert connect · Del disconnect · F5 refresh</span></footer>
 </section></div>`,
 styles:[`:host{position:fixed;inset:0;z-index:9550;pointer-events:none}.backdrop{pointer-events:auto}.backdrop--closing{pointer-events:none}.panel{width:min(560px,calc(100vw - 24px));max-height:min(650px,calc(100vh - 40px));display:flex;flex-direction:column}.header-actions{display:flex;flex-wrap:wrap;gap:5px;align-items:center}.palette-dialog-header,.palette-dialog-footer{flex-wrap:wrap}.remote-filter{flex:1}.list{min-height:120px;overflow:auto}.mount{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:9px;align-items:center;width:100%;min-height:48px;padding:6px 8px;text-align:left}.mount.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.details{display:grid;min-width:0}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small,.protocol{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.mount-status{display:grid;justify-items:end;gap:2px}.protocol{text-transform:uppercase;font-size:9px}.read-only{color:var(--vsc-warning-foreground,var(--vsc-warning));font-size:9px}.empty{display:grid;place-items:center;align-content:center;gap:4px;min-height:130px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.error{padding:7px 10px;color:var(--vsc-error-foreground,var(--vsc-error))}`]})
 export class RemoteConnectionsComponent implements OnInit,OnDestroy{
@@ -65,6 +65,10 @@ get matchingMounts(): contracts.RemoteMount[] {
   );
 }
 get selectedMount(): contracts.RemoteMount | null { return this.matchingMounts[this.selectedIndex] ?? null; }
+get canDisconnect(): boolean {
+  const mount = this.selectedMount;
+  return !this.disconnecting && !!mount && !!this.connections.mountPoint(mount);
+}
 openSelected(): void {
   const mount = this.selectedMount;
   if (mount) this.openMount(mount);
@@ -87,7 +91,7 @@ ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priorit
     )=>this.input.registerCommandDescriptor(
       {id,title,category:'Remote',execute,isEnabled},
       OWNER_ID,
-    );d(COMMAND.close,'Close Remote Connections',()=>this.close());d(COMMAND.previous,'Previous Remote Connection',()=>this.move(-1));d(COMMAND.next,'Next Remote Connection',()=>this.move(1));d(COMMAND.open,'Open Remote Connection',()=>{const m=this.selectedMount;if(m)this.openMount(m)},()=>!!this.selectedMount);d(COMMAND.connect,'Connect Remote',()=>this.connect());d(COMMAND.disconnect,'Disconnect Remote',()=>this.disconnectSelected(),()=>!!this.selectedMount&&!this.disconnecting);d(COMMAND.refresh,'Refresh Remote Connections',()=>this.refresh());for(const b of BINDINGS)this.input.registerBinding(b);this.connections.state$.pipe(takeUntil(this.destroy$)).subscribe(state => {
+    );d(COMMAND.close,'Close Remote Connections',()=>this.close());d(COMMAND.previous,'Previous Remote Connection',()=>this.move(-1));d(COMMAND.next,'Next Remote Connection',()=>this.move(1));d(COMMAND.open,'Open Remote Connection',()=>{const m=this.selectedMount;if(m)this.openMount(m)},()=>!!this.selectedMount);d(COMMAND.connect,'Connect Remote',()=>this.connect());d(COMMAND.disconnect,'Disconnect Remote',()=>this.disconnectSelected(),()=>this.canDisconnect);d(COMMAND.refresh,'Refresh Remote Connections',()=>this.refresh());for(const b of BINDINGS)this.input.registerBinding(b);this.connections.state$.pipe(takeUntil(this.destroy$)).subscribe(state => {
       const selected = this.selectedMount;
       this.state = state;
       const matching = this.matchingMounts;
@@ -114,7 +118,7 @@ async refresh():Promise<void>{await this.connections.refresh()}
 async connect():Promise<void>{const mount=await this.connectDialog.openDialog();if(!mount)return;await this.connections.refresh();const uri=this.connections.rootUri(mount);if(uri){this.navigate.emit(uri);this.close()}}
 async disconnectSelected(): Promise<void> {
   const mount = this.selectedMount;
-  if (!mount || this.disconnecting) return;
+  if (!mount || !this.canDisconnect) return;
   this.disconnecting = true;
   this.cdr.markForCheck();
   try {

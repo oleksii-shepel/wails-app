@@ -202,14 +202,14 @@ const DETAILS_WORKSPACE_INPUT_BINDINGS: readonly InputBindingDefinition[] = [
             </select>
             <button
               type="button"
-              title="Add the current Details selection to the Selection Basket"
+              aria-label="Add selection to Selection Basket" title="Add the current Details selection to the Selection Basket"
               [disabled]="detailsWorkspaceSelectionCount(surface) === 0"
               (click)="addDetailsSelectionToBasket(surface)">
               Add to Basket
             </button>
             <button
               type="button"
-              title="Open Selection Basket"
+              aria-label="Open Selection Basket" title="Open Selection Basket"
               (click)="openSelectionBasket.emit()">
               Basket {{ selectionBasketPaths.length }}
             </button>

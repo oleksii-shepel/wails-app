@@ -231,7 +231,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       </div>
 
       <div class="viewer-body">
-        <div *ngIf="kind === 'loading'" class="state-container">
+        <div *ngIf="kind === 'loading'" class="state-container" role="status">
           <div class="spinner"></div>
           <div class="state-label">Loading preview…</div>
         </div>

@@ -18,6 +18,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 // Info describes a plugin for discovery and diagnostics.
@@ -52,6 +53,7 @@ type Plugin interface {
 // Registry is the central place where plugins register their contributions.
 // It is safe for concurrent use.
 type Registry struct {
+	mu       sync.RWMutex
 	plugins  map[string]Plugin
 	vfs      map[string]VFSPlugin
 	hooks    []OperationHook
@@ -71,6 +73,8 @@ func NewRegistry() *Registry {
 // Register adds a plugin and all of its contributed interfaces to the registry.
 func (r *Registry) Register(p Plugin) error {
 	info := p.Info()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if info.ID == "" {
 		return fmt.Errorf("plugin ID is required")
 	}
@@ -98,6 +102,8 @@ func (r *Registry) Register(p Plugin) error {
 
 // List returns metadata for all registered plugins.
 func (r *Registry) List() []Info {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]Info, 0, len(r.plugins))
 	for _, p := range r.plugins {
 		out = append(out, p.Info())
@@ -107,12 +113,20 @@ func (r *Registry) List() []Info {
 
 // Get returns the plugin with the given ID, or nil if not found.
 func (r *Registry) Get(id string) Plugin {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.plugins[id]
 }
 
 // Shutdown calls Shutdown on all registered plugins.
 func (r *Registry) Shutdown() {
+	r.mu.RLock()
+	plugins := make([]Plugin, 0, len(r.plugins))
 	for _, p := range r.plugins {
+		plugins = append(plugins, p)
+	}
+	r.mu.RUnlock()
+	for _, p := range plugins {
 		_ = p.Shutdown()
 	}
 }
@@ -120,6 +134,8 @@ func (r *Registry) Shutdown() {
 // VFSPlugins returns all registered VFS provider plugins.
 func (r *Registry) VFSPlugins() map[string]VFSPlugin {
 	// Return a shallow copy to prevent external mutation.
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make(map[string]VFSPlugin, len(r.vfs))
 	for k, v := range r.vfs {
 		out[k] = v
@@ -129,6 +145,8 @@ func (r *Registry) VFSPlugins() map[string]VFSPlugin {
 
 // OperationHooks returns all registered operation hooks.
 func (r *Registry) OperationHooks() []OperationHook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]OperationHook, len(r.hooks))
 	copy(out, r.hooks)
 	return out
@@ -136,6 +154,8 @@ func (r *Registry) OperationHooks() []OperationHook {
 
 // PreviewPlugins returns all registered preview plugins.
 func (r *Registry) PreviewPlugins() []PreviewPlugin {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]PreviewPlugin, len(r.previews))
 	copy(out, r.previews)
 	return out
@@ -143,6 +163,8 @@ func (r *Registry) PreviewPlugins() []PreviewPlugin {
 
 // CommandPlugins returns all registered command plugins.
 func (r *Registry) CommandPlugins() map[string]CommandPlugin {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make(map[string]CommandPlugin, len(r.commands))
 	for k, v := range r.commands {
 		out[k] = v
@@ -152,7 +174,9 @@ func (r *Registry) CommandPlugins() map[string]CommandPlugin {
 
 // InvokeCommand executes a command from a plugin.
 func (r *Registry) InvokeCommand(ctx context.Context, pluginID, commandID string, paths []string) error {
+	r.mu.RLock()
 	p, ok := r.commands[pluginID]
+	r.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("command plugin %q not found", pluginID)
 	}

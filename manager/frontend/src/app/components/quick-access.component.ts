@@ -135,6 +135,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   sectionIndex = 0;
   itemIndex = 0;
   private pins: PinnedLocation[] = [];
+  private loadRevision = 0;
   private readonly modalStack = tryInjectModalStack();
   private readonly hostElement = tryInjectElementRef();
   private unregisterModal: (() => void) | null = null;
@@ -204,6 +205,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.loadRevision++;
     this.unregisterModal?.();
     this.unregisterModal = null;
     this.input.deactivateContext(CONTEXT_ID);
@@ -211,8 +213,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   }
 
   async open(sectionId?: string): Promise<void> {
-    
-    await this.reload();
+    if (!await this.reload()) return;
 
     this.filterText = '';
     this.itemIndex = 0;
@@ -275,12 +276,14 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     void this.reload();
   }
 
-  private async reload(): Promise<void> {
+  private async reload(): Promise<boolean> {
+    const revision = ++this.loadRevision;
     const [specialFolders, drivesResponse, remoteMounts] = await Promise.all([
       this.api.getSpecialFolders().catch(() => [] as SpecialFolder[]),
       this.api.getDrives().catch(() => ({ schemes: [] })),
       this.connections.refresh().catch(() => this.connections.mounts),
     ]);
+    if (revision !== this.loadRevision) return false;
     this.pins = this.pinnedLocations.load();
 
     const allHistory = this.history.getAllHistory();
@@ -451,6 +454,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     );
     this.itemIndex = 0;
     this.cdr.markForCheck();
+    return true;
   }
 
   private openSlot(index: number): void {

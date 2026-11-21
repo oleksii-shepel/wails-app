@@ -89,7 +89,7 @@ function bindings(
 
       <button type="button" aria-label="Previous filter match" title="Previous match (Shift+Enter)" (click)="previous.emit()">↑</button>
       <button type="button" aria-label="Next filter match" title="Next match (Enter)" (click)="next.emit()">↓</button>
-      <button type="button" title="Close (Escape)" (click)="close.emit()">×</button>
+      <button type="button" aria-label="Close the file filter" title="Close (Escape)" (click)="close.emit()">×</button>
     </div>
   `,
   styles: [`

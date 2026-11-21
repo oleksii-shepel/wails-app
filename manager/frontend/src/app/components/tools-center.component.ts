@@ -1095,6 +1095,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   collectDuplicateSelection(): void {
     if (this.duplicateSelected.size === 0) return;
     this.basket.add(Array.from(this.duplicateSelected), 'duplicates');
+    this.close();
     this.openBasketRequested.emit();
   }
 

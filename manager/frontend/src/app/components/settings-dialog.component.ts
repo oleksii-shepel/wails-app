@@ -182,8 +182,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                     <small>Overrides the default blue highlight color for active items, selections, and focus rings. Leave empty to use the default.</small>
                   </label>
                   <label class="field">
-                    <span>Language</span>
-                    <select [(ngModel)]="draft.general.language" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-language-label">Language</span>
+                    <select aria-labelledby="settings-language-label" aria-describedby="settings-language-help" [(ngModel)]="draft.general.language" (ngModelChange)="onSettingChanged()">
                       <option value="en">English</option>
                       <option value="es">Spanish</option>
                       <option value="fr">French</option>
@@ -195,7 +195,7 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                       <option value="ja">Japanese</option>
                       <option value="ko">Korean</option>
                     </select>
-                    <small>Sets the interface display language. Requires a restart to fully apply.</small>
+                    <small id="settings-language-help">Sets the interface display language. Requires a restart to fully apply.</small>
                   </label>
                   <div class="field-row">
                     <label class="field">

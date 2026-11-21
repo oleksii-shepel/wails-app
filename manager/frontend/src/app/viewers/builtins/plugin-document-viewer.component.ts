@@ -14,7 +14,7 @@ import { withViewerFrameScrollbars } from '../viewer-frame-scrollbars';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-state" *ngIf="loading">Rendering document…</div>
-    <div class="viewer-state error" *ngIf="error">{{ error }}</div>
+    <div class="viewer-state error" *ngIf="error" role="alert">{{ error }}</div>
     <iframe #frame *ngIf="html && !loading" class="document" sandbox="" title="Document preview"></iframe>
   `,
   styles: [`:host { display:flex; flex:1 1 0%; min-height:0; } .document { border:0; flex:1 1 0%; min-height:0; width:100%; background:white; } .viewer-state { display:grid; place-items:center; flex:1; color:var(--vsc-foreground); } .error { color:var(--vsc-errorForeground, #f14c4c); padding:20px; text-align:center; }`],

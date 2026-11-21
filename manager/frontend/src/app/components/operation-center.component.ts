@@ -78,7 +78,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
             </div>
 
             <div class="operation-actions">
-              <button *ngIf="isActive(op)" type="button" (click)="cancel(op.id)">Cancel</button>
+              <button *ngIf="isActive(op) && op.config.cancellable" type="button" (click)="cancel(op.id)">Cancel</button>
             </div>
           </article>
         </div>

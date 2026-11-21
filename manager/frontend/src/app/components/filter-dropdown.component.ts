@@ -47,7 +47,7 @@ import { InputEngineService } from '../services/input-engine.service';
       </div>
 
       <!-- ── No data state ─────────────────────────────────────── -->
-      <div class="fd-empty" *ngIf="groups.length === 0">
+      <div class="fd-empty" role="status" *ngIf="groups.length === 0">
         <span>No files to analyse</span>
       </div>
 

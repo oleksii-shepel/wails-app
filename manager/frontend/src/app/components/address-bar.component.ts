@@ -171,7 +171,12 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
           (blur)="onBlur()"
           autocomplete="off"
           spellcheck="false"
-          aria-label="Location" />
+          role="combobox"
+          aria-label="Location"
+          aria-autocomplete="list"
+          [attr.aria-expanded]="editing && suggestions.length > 0"
+          aria-controls="address-suggestions"
+          [attr.aria-activedescendant]="suggestionIndex >= 0 ? 'address-suggestion-' + suggestionIndex : null" />
 
         <button
           type="button"
@@ -184,19 +189,24 @@ import { fuzzyPathScore } from '../services/navigation-intelligence';
       </div>
 
       <div
+        id="address-suggestions"
         class="suggestions"
+        role="listbox"
+        aria-label="Location suggestions"
         *ngIf="editing && suggestions.length > 0">
-        <button
+        <div
           *ngFor="let suggestion of suggestions; let i = index"
-          type="button"
+          role="option"
+          [attr.id]="'address-suggestion-' + i"
           class="suggestion"
           [class.active]="i === suggestionIndex"
+          [attr.aria-selected]="i === suggestionIndex"
           (mousedown)="$event.preventDefault()"
           (click)="chooseSuggestion(i)">
           <span class="suggestion-name">{{ suggestion.displayName }}</span>
           <span class="suggestion-path">{{ suggestion.path }}</span>
           <span class="suggestion-kind">{{ suggestion.matchType }}</span>
-        </button>
+        </div>
       </div>
     </div>
   `,

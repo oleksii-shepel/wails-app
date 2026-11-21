@@ -210,7 +210,7 @@ interface AudioTagRow {
               <div class="prog-track">
                 <div class="prog-fill" [style.width.%]="progressPercent"></div>
                 <input
-                  type="range" aria-label="Playback position"
+                  type="range" aria-label="Playback position" [attr.aria-valuetext]="formatTime(displayedCurrentTime) + ' of ' + formatTime(duration)"
                   class="seek-input"
                   min="0"
                   [max]="duration || 0"

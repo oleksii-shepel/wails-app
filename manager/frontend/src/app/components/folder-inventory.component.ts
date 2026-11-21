@@ -250,6 +250,7 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
       return '"' + safe.replace(/"/g, '""') + '"';
     };
     const entries = selectedOnly ? this.entries.filter(entry => this.selected.has(entry.path)) : this.visible;
+    if (!entries.length || this.loading() || this.error()) return;
     const rows = entries.map(entry => [
       entry.name, entry.path, entry.type,
       entry.type === FileType.DIRECTORY ? '' : entry.size, entry.modified,
@@ -262,6 +263,7 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     const folder = this.rootPath.split(/[\\/]+/).filter(Boolean).at(-1)?.replace(/[^\p{L}\p{N}._-]+/gu, '-');
     link.download = folder ? folder + '-inventory.csv' : 'folder-inventory.csv';
     link.click();
+    this.notice.set(`Requested CSV download for ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}.`);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 

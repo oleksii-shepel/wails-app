@@ -104,7 +104,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <span class="state" *ngIf="!enabled(command)">Unavailable</span>
           </button>
 
-          <div class="empty" *ngIf="filteredCommands.length === 0">No matching commands.</div>
+          <div class="empty" *ngIf="filteredCommands.length === 0" role="status">No matching commands.</div>
         </div>
 
         <footer>

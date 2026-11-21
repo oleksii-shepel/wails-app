@@ -12,7 +12,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import { moveFocusWithin } from '../utils/focus-navigation.utils';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { filenameProblem } from '../utils/filename-validation';
-import { isWindowsPath } from './address-bar.utils';
+import { isWindowsPath, parentPath, pathIdentityKey } from './address-bar.utils';
 
 interface PreviewRow {
   entry: BatchRenameItem['entry'];
@@ -446,8 +446,9 @@ export class BatchRenameDialogComponent {
         newName = replacer(newName);
       }
       const problem = filenameProblem(newName, isWindowsPath(item.entry.path)) ?? undefined;
-      const conflict = seen.has(newName) || !!problem;
-      seen.add(newName);
+      const destination = pathIdentityKey(`${parentPath(item.entry.path).replace(/\/+$/, '')}/${newName}`);
+      const conflict = seen.has(destination) || !!problem;
+      seen.add(destination);
       rows.push({
         entry: item.entry,
         newName,

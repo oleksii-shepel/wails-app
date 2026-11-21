@@ -42,12 +42,31 @@ func extractWriteFile(destPath string, reader io.Reader) (int64, error) {
 	return n, closeErr
 }
 
-func extractDestPath(entryName, destDir string, flatten bool) string {
+// SafeExtractEntryName reports whether an archive entry name can be placed
+// under an extraction destination without escaping it (zip-slip). Entry
+// names are slash-separated after normalizeArchiveEntryPath.
+func SafeExtractEntryName(entryName string) bool {
+	entryName = normalizeArchiveEntryPath(entryName)
+	if strings.HasPrefix(entryName, "/") || filepath.IsAbs(filepath.FromSlash(entryName)) {
+		return false
+	}
+	for _, segment := range strings.Split(entryName, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func extractDestPath(entryName, destDir string, flatten bool) (string, error) {
 	entryName = normalizeArchiveEntryPath(entryName)
 	if flatten {
-		return filepath.Join(destDir, filepath.Base(entryName))
+		return filepath.Join(destDir, filepath.Base(entryName)), nil
 	}
-	return filepath.Join(destDir, filepath.FromSlash(entryName))
+	if !SafeExtractEntryName(entryName) {
+		return "", fmt.Errorf("entry %q escapes the destination directory", entryName)
+	}
+	return filepath.Join(destDir, filepath.FromSlash(entryName)), nil
 }
 
 func matchesEntriesForExtract(innerPath string, entries []string) bool {

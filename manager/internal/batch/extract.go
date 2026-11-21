@@ -89,6 +89,9 @@ func (ec *extractCtx) extractZipOnDisk(archivePath string) (int64, int64, error)
 				continue
 			}
 		}
+		if !internalarchive.SafeExtractEntryName(ep) {
+			continue
+		}
 		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
 
 		if f.FileInfo().IsDir() {
@@ -166,6 +169,9 @@ func (ec *extractCtx) extractTarOnDisk(archivePath string) (int64, int64, error)
 				return nil
 			}
 		}
+		if !internalarchive.SafeExtractEntryName(ep) {
+			return nil
+		}
 		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
 
 		if f.IsDir() {
@@ -223,6 +229,9 @@ func (ec *extractCtx) extractZipBytes(data []byte) (int64, int64, error) {
 			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
 		}
 		ep := ec.callbacks.Normalize(f.Name)
+		if !internalarchive.SafeExtractEntryName(ep) {
+			continue
+		}
 		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
 		if f.FileInfo().IsDir() {
 			os.MkdirAll(destPath, 0755)
@@ -287,6 +296,9 @@ func (ec *extractCtx) extractTarBytes(data []byte) (int64, int64, error) {
 			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
 		}
 		ep := ec.callbacks.Normalize(h.Name)
+		if !internalarchive.SafeExtractEntryName(ep) {
+			continue
+		}
 		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
 		if h.FileInfo().IsDir() {
 			os.MkdirAll(destPath, 0755)
@@ -345,6 +357,9 @@ func (ec *extractCtx) extractRarBytes(data []byte, archiveName string) (int64, i
 			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
 		}
 		ep := ec.callbacks.Normalize(ec.callbacks.ArchiveEntryPath(f))
+		if !internalarchive.SafeExtractEntryName(ep) {
+			continue
+		}
 		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
 		if f.IsDir() {
 			f.Close()

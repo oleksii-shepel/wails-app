@@ -45,7 +45,17 @@ func (s *Service) extractZipSync(fsPath string, entries []string, stripPrefix st
 		if !ok {
 			continue
 		}
-		destPath := extractDestPath(relPath, destDir, flatten)
+		destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+
+		if destPathErr != nil {
+
+			errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
+
+			failed++
+
+			continue
+
+		}
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, contracts.BatchItemError{Source: f.Name, Error: err.Error()})
 			failed++
@@ -108,7 +118,17 @@ func (s *Service) extractTarSync(fsPath string, entries []string, stripPrefix st
 		if !ok {
 			continue
 		}
-		destPath := extractDestPath(relPath, destDir, flatten)
+		destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+
+		if destPathErr != nil {
+
+			errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
+
+			failed++
+
+			continue
+
+		}
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, contracts.BatchItemError{Source: hdr.Name, Error: err.Error()})
 			failed++
@@ -145,9 +165,9 @@ func (s *Service) extractTarXzViaArchiver(fsPath string, entries []string, strip
 		if !ok {
 			return nil
 		}
-		destPath := extractDestPath(relPath, destDir, flatten)
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			errs = append(errs, contracts.BatchItemError{Source: hdr.Name, Error: err.Error()})
+		destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+		if destPathErr != nil {
+			errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
 			failed++
 			return nil
 		}
@@ -213,7 +233,17 @@ func (s *Service) extractArchiveReaderSync(fsPath string, entries []string, stri
 			entry.Close()
 			continue
 		}
-		destPath := extractDestPath(relPath, destDir, flatten)
+		destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+
+		if destPathErr != nil {
+
+			errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
+
+			failed++
+
+			continue
+
+		}
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, contracts.BatchItemError{Source: entryName, Error: err.Error()})
 			failed++
@@ -264,7 +294,17 @@ func (s *Service) extractEntriesFromBytes(data []byte, archiveName string, entri
 				f.Close()
 				continue
 			}
-			destPath := extractDestPath(relPath, destDir, flatten)
+			destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+
+			if destPathErr != nil {
+
+				errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
+
+				failed++
+
+				continue
+
+			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				errs = append(errs, contracts.BatchItemError{Source: entryName, Error: err.Error()})
 				failed++
@@ -310,7 +350,17 @@ func (s *Service) extractEntriesFromBytes(data []byte, archiveName string, entri
 			if !ok {
 				continue
 			}
-			destPath := extractDestPath(relPath, destDir, flatten)
+			destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+
+			if destPathErr != nil {
+
+				errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
+
+				failed++
+
+				continue
+
+			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				errs = append(errs, contracts.BatchItemError{Source: f.Name, Error: err.Error()})
 				failed++
@@ -356,7 +406,17 @@ func (s *Service) extractEntriesFromBytes(data []byte, archiveName string, entri
 		if !ok {
 			continue
 		}
-		destPath := extractDestPath(relPath, destDir, flatten)
+		destPath, destPathErr := extractDestPath(relPath, destDir, flatten)
+
+		if destPathErr != nil {
+
+			errs = append(errs, contracts.BatchItemError{Source: relPath, Error: destPathErr.Error()})
+
+			failed++
+
+			continue
+
+		}
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, contracts.BatchItemError{Source: hdr.Name, Error: err.Error()})
 			failed++

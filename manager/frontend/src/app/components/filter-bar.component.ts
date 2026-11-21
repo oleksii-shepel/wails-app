@@ -92,7 +92,7 @@ import {
         (keydown)="onSearchKeyDown($event)"
         [attr.aria-label]="placeholder"
       />
-      <button *ngIf="searchText" class="fb-search-clear" (click)="clearSearch()" title="Clear search">×</button>
+      <button *ngIf="searchText" class="fb-search-clear" (click)="clearSearch()" aria-label="Clear filter search" title="Clear search">×</button>
     </div>
 
     <!-- Right: saved presets dropdown + clear button -->

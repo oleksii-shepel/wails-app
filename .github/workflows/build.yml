@@ -101,9 +101,17 @@ jobs:
         working-directory: manager
         run: go test ./...
 
+      - name: Generate the Windows executable checksum
+        working-directory: manager/build/bin
+        run: |
+          $hash = (Get-FileHash 'wails-app.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath 'wails-app.exe.sha256' -Value "$hash  wails-app.exe" -Encoding ascii
+
       - name: Upload the Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: reassembly-windows
-          path: manager/build/bin/wails-app.exe
+          path: |
+            manager/build/bin/wails-app.exe
+            manager/build/bin/wails-app.exe.sha256
           if-no-files-found: error

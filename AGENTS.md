@@ -35,21 +35,17 @@ To start the app: run `npm install` once from the repo root, then `wails dev` fr
 
 | Task | Command |
 |---|---|
-| Live dev (Windows) | `npm install` at the repo root, then `wails dev` from `manager/` (add `-ldflags=-H=windowsgui` so elevated restarts stay GUI) |
-| Full app build | `npm run build` (ends in `wails build`) |
-| Full workspace check | `npm run check` (builds core → plugins → frontend → Go) |
-| Full test suite | `npm run test` |
+| Live dev (Windows) | `npm ci` at the repo root, then `npm run dev:app` |
+| Windows desktop build | `npm run build:app` |
+| Browser preview | `npm run build`, then `npm run dev` |
 | Frontend check (CI parity) | `npm --prefix manager/frontend run check` (testify tests + production build) |
 | Go tests (CI parity) | `cd manager && go test ./...` |
-| Core only | `npm run build:core` / `npm run test:core` (frontend + Go) |
-| Plugins | `npm run build:plugins` / `npm run test:plugins` |
-| Workspace verification | `npm run verify:workspace` |
 | Registry ownership audit | `node scripts/registry-boundary.mjs` (`--fix` removes obsolete files) |
 | Theme color audit | `cd manager/frontend && npm run audit:theme` |
 
 ### Build order matters
 
-`manager/frontend` depends on `@reassembly/registry-plugin` via `file:../../plugins/registry/dist`, and plugins depend on `@reassembly/core`. Order is therefore: **core → plugin dist → manager frontend**. The root `build:*`/`check`/`test` scripts encode this — prefer them over raw `ng`/`wails` commands. After changing the registry plugin, rebuild its dist before the manager frontend will see it.
+`manager/frontend` resolves `@reassembly/core` and `@reassembly/registry-plugin` from local source directories. Run npm installs from the repository root. The desktop build embeds the compiled Angular assets, so build the frontend before running Go checks that include the host package.
 
 Plugin backends are standalone Go modules (not in `go.work`); build them with each plugin's `npm run build:backend` from the plugin directory. The office-renderer backend uses its vendored `third_party/office` module via a local `replace`.
 

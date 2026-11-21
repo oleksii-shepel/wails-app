@@ -104,15 +104,16 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
       );
     });
   }
-  setFilter(next: JournalFilter): void { this.filter = next; this.cdr.markForCheck(); }
+  setFilter(next: JournalFilter): void { this.notice = ''; this.filter = next; this.cdr.markForCheck(); }
   resetFilters(): void {
     this.searchText = '';
     this.setFilter('all');
   }
-  onSearchInput(event: Event): void { this.searchText = (event.target as HTMLInputElement).value; this.cdr.markForCheck(); }
+  onSearchInput(event: Event): void { this.notice = ''; this.searchText = (event.target as HTMLInputElement).value; this.cdr.markForCheck(); }
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['visible']) return;
     if (this.visible) {
+      this.notice = '';
       this.renderVisible = true;
       this.isClosing = false;
       this.emitClosedOnFinish = false;

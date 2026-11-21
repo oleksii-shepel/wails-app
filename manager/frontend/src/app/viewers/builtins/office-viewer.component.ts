@@ -65,7 +65,7 @@ const PLUGIN_RENDERED_EXTENSIONS = new Set([
           <div class="state-sub">Supported formats: .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .odt, .ods, .odp, .rtf, .epub, .djvu, .djv</div>
         </div>
 
-        <div *ngIf="kind === 'unavailable'" class="state-container state-error">
+        <div *ngIf="kind === 'unavailable'" class="state-container state-error" role="status">
           <div class="state-icon" aria-hidden="true">⚠️</div>
           <div class="state-label">Converter not available</div>
           <div class="error-detail">{{ error }}</div>

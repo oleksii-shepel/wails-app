@@ -77,7 +77,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
           </button>
         </nav>
 
-        <div id="quick-access-list" class="items" role="listbox" [attr.aria-label]="(activeSection?.title || 'Quick Access') + ' locations'">
+        <div id="quick-access-list" class="items" role="listbox" [attr.aria-busy]="loading" [attr.aria-label]="(activeSection?.title || 'Quick Access') + ' locations'">
           <button *ngFor="let item of activeItems; let i=index; trackBy:trackItem" type="button"
             class="item" [class.selected]="i === itemIndex" role="option"
             [attr.aria-selected]="i === itemIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="activeItems.length" (mouseenter)="itemIndex=i" (click)="openItem(item)">
@@ -88,7 +88,8 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
             <span class="details"><strong>{{ item.label }}</strong><small [title]="item.path">{{ item.path }}</small></span>
             <span class="meta">{{ item.meta || item.kind }}</span>
           </button>
-          <div class="empty" *ngIf="activeItems.length === 0" role="status">No matching locations.</div>
+          <div class="empty" *ngIf="!loading && activeItems.length === 0" role="status">No matching locations.</div>
+          <div class="empty" *ngIf="loading" role="status">Loading locations…</div>
         </div>
 
         <footer>
@@ -128,6 +129,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   @Output() openTarget = new EventEmitter<QuickAccessTarget>();
 
   visible = false;
+  loading = false;
   renderVisible = false;
   isClosing = false;
   filterText = '';
@@ -213,18 +215,12 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
   }
 
   async open(sectionId?: string): Promise<void> {
-    if (!await this.reload()) return;
-
     this.filterText = '';
+    this.sections = [];
+    this.loading = true;
     this.itemIndex = 0;
 
-    if (sectionId) {
-      const index = this.sections.findIndex(section => section.id === sectionId);
-      this.sectionIndex = index >= 0 ? index : 0;
-    } else {
-      this.sectionIndex = 0;
-    }
-
+    this.sectionIndex = 0;
     this.visible = true;
     this.renderVisible = true;
     this.isClosing = false;
@@ -239,10 +235,19 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
       });
     }
     this.cdr.markForCheck();
+    if (!await this.reload()) return;
+    this.loading = false;
+    if (sectionId) {
+      const index = this.filteredSections.findIndex(section => section.id === sectionId);
+      this.sectionIndex = Math.max(0, index);
+    }
+    this.cdr.markForCheck();
   }
 
   close(): void {
     if(!this.renderVisible||this.isClosing)return;
+    this.loadRevision++;
+    this.loading = false;
     this.visible=false;
     this.isClosing=true;
     this.unregisterModal?.();

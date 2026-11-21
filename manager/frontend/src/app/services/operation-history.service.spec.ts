@@ -1,5 +1,43 @@
 import { OperationHistoryService } from './operation-history.service';
 
+describe('OperationHistoryService undo and redo', () => {
+  it('updates each same-label operation separately', async () => {
+    const service = new OperationHistoryService();
+    for (const path of ['/first', '/second']) {
+      service.record({
+        label: 'Copy',
+        affectedPaths: [path],
+        undo: async () => {},
+        redo: async () => {},
+      });
+    }
+    const [second, first] = service.recentOperations();
+
+    await service.undo();
+    await service.undo();
+    expect(service.recentOperations().map(({ id, state }) => [id, state]))
+      .toEqual([[second.id, 'undone'], [first.id, 'undone']]);
+
+    await service.redo();
+    expect(service.recentOperations().map(({ id, state }) => [id, state]))
+      .toEqual([[second.id, 'undone'], [first.id, 'redone']]);
+  });
+
+  it('restores the undo action after a failed attempt', async () => {
+    const service = new OperationHistoryService();
+    service.record({
+      label: 'Rename',
+      undo: async () => { throw new Error('Requested file is missing'); },
+      redo: async () => {},
+    });
+
+    await expectAsync(service.undo()).toBeRejectedWithError('Requested file is missing');
+    expect(service.canUndo).toBe(true);
+    expect(service.canRedo).toBe(false);
+    expect(service.recentOperations()[0].state).toBe('completed');
+  });
+});
+
 describe('OperationHistoryService synchronization journal', () => {
   beforeEach(() => localStorage.clear());
 

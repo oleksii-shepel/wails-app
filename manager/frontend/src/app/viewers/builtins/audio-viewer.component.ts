@@ -259,7 +259,7 @@ interface AudioTagRow {
                   <span class="volume-icon">{{ volume <= 0 ? '🔇' : '🔊' }}</span>
                 </button>
                 <input
-                  type="range"
+                  type="range" aria-label="Volume"
                   class="volume-slider"
                   min="0"
                   max="100"

@@ -32,3 +32,22 @@ wails dev            # starts the host; Angular dev server runs on :3000
 ```
 
 On Windows, add `wails dev -ldflags=-H=windowsgui` so elevated restarts keep the app as a GUI binary (`scripts/run-wails-dev.mjs` does the same).
+
+## Building the Windows desktop app
+
+Use Node.js, Go, the Wails CLI, and WebView2 on Windows. From the repository root:
+
+```powershell
+npm ci
+Set-Location manager
+wails build
+```
+
+The executable is written to `manager/build/bin/`. Run it on Windows before
+publishing a release.
+
+## Running the local browser preview
+
+From the repository root, run `npm ci`, `npm run build`, then `npm run dev`.
+Open [127.0.0.1:3000](http://127.0.0.1:3000). The preview can modify local files
+and listens only on the local machine.

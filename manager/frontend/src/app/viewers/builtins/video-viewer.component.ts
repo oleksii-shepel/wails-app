@@ -55,7 +55,7 @@ interface VideoNavItem {
           <div class="state-label">Loading segmented preview...</div>
         </div>
 
-        <div *ngIf="error" class="state-container state-error">
+        <div *ngIf="error" class="state-container state-error" role="alert">
           <div class="state-icon">⚠</div>
           <div class="state-label">Preview failed</div>
           <div class="error-detail">{{ error }}</div>

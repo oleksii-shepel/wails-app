@@ -113,7 +113,8 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
     @keyframes slideUp{from{transform:translateY(0);opacity:1}to{transform:translateY(-18px);opacity:0}}
     header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px} header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))} header>div{display:flex;gap:8px;align-items:baseline}
     header span,.meta,.keys,footer>span,small{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    input{box-sizing:border-box;width:min(300px,42vw)}
+    header,footer{flex-wrap:wrap}
+    input{box-sizing:border-box;flex:1;min-width:min(150px,100%);max-width:300px}
     .sections{display:flex;gap:2px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
     .sections button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}
     .sections button{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))} .sections button.active{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));color:var(--vsc-foreground,var(--vsc-foreground));border-color:var(--vsc-border,var(--vsc-border))} .sections span{margin-left:5px;opacity:.6;font-size:10px}

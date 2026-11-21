@@ -211,7 +211,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
   template: `
     <div class="viewer-surface">
       <div class="viewer-toolbar" *ngIf="kind === 'editor'">
-        <button class="tool-btn" type="button" (click)="toggleWordWrap()" [class.active]="wordWrap">
+        <button class="tool-btn" type="button" (click)="toggleWordWrap()" [class.active]="wordWrap" [attr.aria-pressed]="wordWrap">
           Wrap
         </button>
         <button class="tool-btn" type="button" (click)="openSearch()">

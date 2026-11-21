@@ -60,6 +60,14 @@ func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.
 		if c, ok := remoteFS.(interface{ Close() error }); ok {
 			_ = c.Close()
 		}
+		// A concurrent connect to the same location may have mounted first;
+		// hand back its entry instead of failing the second caller.
+		s.remotesMu.Lock()
+		existing, exists := s.remotes[mountPath]
+		s.remotesMu.Unlock()
+		if exists {
+			return &existing, nil
+		}
 		return nil, fmt.Errorf("vfs: mount %s: %w", mountPath, err)
 	}
 

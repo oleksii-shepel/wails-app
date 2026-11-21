@@ -185,11 +185,12 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
             <!-- Control buttons row -->
             <div class="controls-row">
               <!-- Play/Pause -->
-              <button 
-                class="control-btn play-pause-btn" 
+              <button
+                class="control-btn play-pause-btn"
                 (click)="videoPlayPause()"
                 [disabled]="!videoReady"
-                [title]="videoIsPlaying ? 'Pause (Space)' : 'Play (Space)'">
+                [title]="videoIsPlaying ? 'Pause (Space)' : 'Play (Space)'"
+                [attr.aria-label]="videoIsPlaying ? 'Pause' : 'Play'">
                 <span class="icon">{{ videoIsPlaying ? '⏸' : '▶' }}</span>
               </button>
 

@@ -231,7 +231,9 @@ interface AudioTagRow {
                 class="cbtn cbtn-play"
                 type="button"
                 [disabled]="!audioReady"
-                (click)="togglePlayPause()">
+                (click)="togglePlayPause()"
+                [attr.aria-label]="isPlaying ? 'Pause' : 'Play'"
+                [attr.aria-pressed]="isPlaying">
                 <span class="cbtn-icon">{{ isPlaying ? '⏸' : '▶' }}</span>
               </button>
 

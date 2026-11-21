@@ -113,7 +113,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
             [attr.aria-selected]="selectedIds.has(entry.id)"
             (click)="toggle(entry, $event)"
             (dblclick)="openSelection()">
-            <span class="icon">{{ entry.isDir ? '📁' : '📄' }}</span>
+            <span class="icon" aria-hidden="true">{{ entry.isDir ? '📁' : '📄' }}</span>
             <span class="main">
               <strong>{{ entry.name }}</strong>
               <span>{{ entry.originalPath || 'Original location unavailable' }}</span>

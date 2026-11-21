@@ -65,7 +65,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
         tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
         <header class="palette-dialog-header">
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
-          <input [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
+          <input type="search" class="palette-dialog-field" [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
             autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="quick-access-list" />
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close (Esc)" (click)="close()"> × </button>
         </header>
@@ -111,7 +111,7 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
     @keyframes slideUp{from{transform:translateY(0);opacity:1}to{transform:translateY(-18px);opacity:0}}
     header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px} header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))} header>div{display:flex;gap:8px;align-items:baseline}
     header span,.meta,.keys,footer>span,small{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit} input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}
+    input{box-sizing:border-box;width:min(300px,42vw)}
     .sections{display:flex;gap:2px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
     .sections button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}
     .sections button{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))} .sections button.active{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));color:var(--vsc-foreground,var(--vsc-foreground));border-color:var(--vsc-border,var(--vsc-border))} .sections span{margin-left:5px;opacity:.6;font-size:10px}

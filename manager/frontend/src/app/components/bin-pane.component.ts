@@ -382,7 +382,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
         <span class="collection-spacer"></span>
         <button type="button"
           [disabled]="loading || !resultsRefreshable"
-          title="Refresh this collection"
+          aria-label="Refresh collection" title="Refresh this collection"
           (click)="refreshResultsCollection()">&#x21BB;</button>
         <button type="button"
           [class.active]="panel.pinned"
@@ -391,7 +391,7 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
           [title]="panel.pinned ? 'Unpin collection' : 'Pin collection'"
           (click)="toggleResultsCollectionPin()">{{ panel.pinned ? '\u2605' : '\u2606' }}</button>
         <button type="button"
-          title="Rename collection"
+          aria-label="Rename collection" title="Rename collection"
           (click)="renameResultsCollection()">Rename</button>
       </div>
 
@@ -404,8 +404,8 @@ import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
         </div>
         <ng-template #binPresentationSwitch>
           <div class="bin-mode-switch" role="group" aria-label="Recycle Bin presentation">
-            <button type="button" [class.active]="binDetailsMode === 'grouped'" [attr.aria-pressed]="binDetailsMode === 'grouped'" (click)="setBinDetailsMode('grouped')" title="Group revisions by original file">Grouped</button>
-            <button type="button" [class.active]="binDetailsMode === 'flat'" [attr.aria-pressed]="binDetailsMode === 'flat'" (click)="setBinDetailsMode('flat')" title="Show every deleted revision as a row">Flat</button>
+            <button type="button" [class.active]="binDetailsMode === 'grouped'" [attr.aria-pressed]="binDetailsMode === 'grouped'" (click)="setBinDetailsMode('grouped')" aria-label="Grouped by original file" title="Group revisions by original file">Grouped</button>
+            <button type="button" [class.active]="binDetailsMode === 'flat'" [attr.aria-pressed]="binDetailsMode === 'flat'" (click)="setBinDetailsMode('flat')" aria-label="Flat list of deleted revisions" title="Show every deleted revision as a row">Flat</button>
           </div>
         </ng-template>
 

@@ -100,6 +100,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           class="trash-list palette-dialog-body palette-dialog-list"
           tabindex="0"
           role="listbox"
+          [attr.aria-busy]="loading"
           aria-multiselectable="true"
           aria-label="Trash contents">
           <button

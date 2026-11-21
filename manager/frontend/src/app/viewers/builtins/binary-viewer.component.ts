@@ -74,7 +74,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
         <span class="toolbar-divider"></span>
 
         <button class="tool-btn" type="button" (click)="copyHexDump()" [disabled]="!renderedRows.length" [class.active]="copiedHex">
-          {{ copiedHex ? 'Copied!' : 'Copy hex' }}
+          {{ copiedHex ? 'Copied' : 'Copy visible hex' }}
         </button>
       </div>
 

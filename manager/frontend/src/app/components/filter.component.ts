@@ -87,7 +87,7 @@ function bindings(
         {{ matchCount }}<ng-container *ngIf="totalCount >= 0"> / {{ totalCount }}</ng-container>
       </span>
 
-      <button type="button" title="Previous match (Shift+Enter)" (click)="previous.emit()">↑</button>
+      <button type="button" aria-label="Previous filter match" title="Previous match (Shift+Enter)" (click)="previous.emit()">↑</button>
       <button type="button" title="Next match (Enter)" (click)="next.emit()">↓</button>
       <button type="button" title="Close (Escape)" (click)="close.emit()">×</button>
     </div>

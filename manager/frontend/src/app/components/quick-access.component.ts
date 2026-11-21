@@ -4,6 +4,7 @@ import { writeClipboardText } from '../utils/clipboard-text';
 import { FormsModule } from '@angular/forms';
 
 import { ApiService } from '../services/api.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { QUICK_ACCESS_INPUT, QUICK_ACCESS_INPUT_COMMANDS } from '../services/dialog-input-catalog';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
@@ -97,7 +98,8 @@ const SPECIAL_LOCATION_ICONS: Record<string, string> = {
         <footer>
           <span role="status">{{ notice || activeSection?.title || '' }}</span>
           <button type="button" class="palette-dialog-button" [disabled]="!selectedItem" (click)="copySelectedLocation()">Copy Location</button>
-          <button type="button" [disabled]="selectedItem?.kind !== 'pin'" (click)="removeSelectedPin()">Unpin</button>
+          <button type="button" class="palette-dialog-button" [disabled]="selectedItem?.kind !== 'pin'" (click)="renameSelectedPin()">Rename Pin</button>
+          <button type="button" class="palette-dialog-button" [disabled]="selectedItem?.kind !== 'pin'" (click)="removeSelectedPin()">Unpin</button>
           <span class="keys">1–9 · Ctrl+PgUp/PgDn sections · ↑ ↓ · Enter · Delete · Esc</span>
         </footer>
       </section>
@@ -155,6 +157,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     private readonly input: InputEngineService,
     private readonly connections: RemoteConnectionsService,
     private readonly cdr: ChangeDetectorRef,
+    private readonly confirm: ConfirmDialogService,
   ) {}
 
   get filteredSections(): QuickSection[] {
@@ -293,10 +296,29 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  async renameSelectedPin(): Promise<void> {
+    const item = this.selectedItem;
+    if (item?.kind !== 'pin') return;
+    const label = await this.confirm.prompt({
+      title: 'Rename Pin', message: 'Enter a label for this pinned location.',
+      defaultValue: item.label, confirmText: 'Rename',
+    });
+    if (!label?.trim() || !this.visible) return;
+    const pinId = item.id.slice('pin:'.length);
+    const pins = this.pinnedLocations.load();
+    if (!pins.some(pin => pin.id === pinId)) return;
+    this.pinnedLocations.save(this.pinnedLocations.rename(pins, pinId, label));
+    this.refreshSection();
+  }
+
   removeSelectedPin(): void {
     const item=this.selectedItem; if(!item||item.kind!=='pin')return;
     this.pins = this.pinnedLocations.remove(this.pinnedLocations.load(), item.path, item.surfaceId);
     this.pinnedLocations.save(this.pins);
+    this.refreshSection();
+  }
+
+  private refreshSection(): void {
     const sectionId = this.activeSection?.id;
     void this.reload().then(reloaded => {
       if (!reloaded || !this.visible) return;

@@ -9,11 +9,12 @@ import (
 
 // Sentinel errors
 var (
-	ErrReadOnly = errors.New("filesystem is read-only")
-	ErrNotFound = errors.New("path not found")
-	ErrNotDir   = errors.New("path is not a directory")
-	ErrNotFile  = errors.New("path is not a file")
-	ErrExists   = errors.New("path already exists")
+	ErrReadOnly   = errors.New("filesystem is read-only")
+	ErrPermission = errors.New("permission denied")
+	ErrNotFound   = errors.New("path not found")
+	ErrNotDir     = errors.New("path is not a directory")
+	ErrNotFile    = errors.New("path is not a file")
+	ErrExists     = errors.New("path already exists")
 )
 
 // FileInfo extends fs.FileInfo with VFS-specific metadata.

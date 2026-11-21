@@ -158,8 +158,11 @@ func mapErr(err error) error {
 	if os.IsNotExist(err) {
 		return vfs.ErrNotFound
 	}
+	// Access problems are permission failures, not a read-only filesystem;
+	// conflating them told users the disk was locked when a path was simply
+	// denied.
 	if os.IsPermission(err) {
-		return vfs.ErrReadOnly
+		return vfs.ErrPermission
 	}
 	return err
 }

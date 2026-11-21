@@ -565,7 +565,7 @@ func mapErr(err error) error {
 		return vfs.ErrNotFound
 	}
 	if strings.Contains(lower, "forbidden") || strings.Contains(lower, "access denied") {
-		return vfs.ErrReadOnly
+		return vfs.ErrPermission
 	}
 	return err
 }

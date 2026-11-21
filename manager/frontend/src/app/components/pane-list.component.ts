@@ -59,7 +59,7 @@ type VisibleRowVm = {
         <p>Loading...</p>
       </div>
       
-      <div *ngIf="error" class="error">
+      <div *ngIf="error" class="error" role="alert">
         {{ error }}
       </div>
       

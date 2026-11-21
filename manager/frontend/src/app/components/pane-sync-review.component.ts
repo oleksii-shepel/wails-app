@@ -84,7 +84,7 @@ type Filter = 'different' | PaneComparisonStatus;
             <button type="button" [class.active]="item.direction === 'skip'" [attr.aria-pressed]="item.direction === 'skip'" (click)="setDirection(item, 'skip')">Skip</button>
           </div>
         </div>
-        <div class="empty" *ngIf="visibleItems.length === 0">No items match this filter.</div>
+        <div class="empty" *ngIf="visibleItems.length === 0" role="status">No items match this filter.</div>
       </div>
     </div>
     </div>

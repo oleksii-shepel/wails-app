@@ -320,10 +320,13 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
 
   private refreshSection(): void {
     const sectionId = this.activeSection?.id;
+    const selectedId = this.selectedItem?.id;
     void this.reload().then(reloaded => {
       if (!reloaded || !this.visible) return;
       const index = this.filteredSections.findIndex(section => section.id === sectionId);
       this.selectSection(Math.max(0, index));
+      this.itemIndex = Math.max(0, this.activeItems.findIndex(item => item.id === selectedId));
+      this.cdr.markForCheck();
     });
   }
 

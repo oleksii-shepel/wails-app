@@ -1,4 +1,5 @@
 import { CommonModule } from '@angular/common';
+import { operationProgress } from '../utils/operation-progress';
 import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { OperationHistoryEntry, OperationService, OperationState } from '../services/operation.service';
@@ -61,9 +62,8 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
               </div>
               <div class="operation-path" [title]="operationPath(op)">{{ operationPath(op) }}</div>
 
-              <div *ngIf="isActive(op)" class="progress-track" aria-hidden="true">
-                <span [style.width.%]="progressFor(op)"></span>
-              </div>
+              <progress *ngIf="isActive(op)" class="progress-track" max="100"
+                [attr.aria-label]="op.config.title" [attr.value]="progressFor(op)"></progress>
 
               <div class="operation-meta">
                 <span *ngIf="op.metrics.totalItems > 0">{{ op.metrics.processedItems }}/{{ op.metrics.totalItems }} items</span>
@@ -128,8 +128,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     .status[data-status='error'] { color:var(--vsc-error); font-weight:600; }
     .status[data-status='running'], .status[data-status='paused'] { color:var(--vsc-accent-blue); }
     .operation-path { margin-top:3px; color:var(--vsc-foreground-dim); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .progress-track { height:3px; margin-top:8px; overflow:hidden; background:var(--vsc-border); border-radius:2px; }
-    .progress-track span { display:block; height:100%; min-width:2px; background:var(--vsc-accent-blue); }
+    .progress-track { display:block; width:100%; height:5px; margin-top:8px; accent-color:var(--vsc-accent-blue); }
     .operation-meta { display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:6px; color:var(--vsc-foreground-dim); font-size:10px; font-variant-numeric:tabular-nums; }
     .operation-error { margin-top:6px; color:var(--vsc-error); font-size:11px; white-space:pre-wrap; }
     .operation-actions { display:flex; align-items:flex-start; }
@@ -241,7 +240,7 @@ export class OperationCenterComponent implements OnInit, OnDestroy {
 
   trackOperation(_index: number, op: OperationState): string { return op.id; }
   isActive(op: OperationState): boolean { return op.status === 'running' || op.status === 'pending' || op.status === 'paused'; }
-  progressFor(op: OperationState): number { return Math.max(0, Math.min(100, op.percentComplete || 0)); }
+  progressFor(op: OperationState): number | null { return operationProgress(op.metrics); }
   iconFor(op: OperationState): string {
     const icons: Record<string, string> = { copy:'⧉', move:'↪', delete:'⌫', archive:'▣', extract:'⇲', search:'⌕', calculate:'∑' };
     return icons[op.config.kind] ?? '⚙';

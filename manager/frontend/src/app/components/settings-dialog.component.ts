@@ -823,14 +823,14 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                 <div class="settings-group">
                   <h4 class="group-title">Behavior</h4>
                   <label class="field">
-                    <span>Telemetry Level</span>
-                    <select [(ngModel)]="draft.advanced.telemetryLevel" (ngModelChange)="onSettingChanged()">
+                    <span id="settings-telemetry-level-label">Telemetry Level</span>
+                    <select aria-labelledby="settings-telemetry-level-label" aria-describedby="settings-telemetry-level-help" [(ngModel)]="draft.advanced.telemetryLevel" (ngModelChange)="onSettingChanged()">
                       <option value="none">None — no data sent</option>
                       <option value="error">Errors only</option>
                       <option value="crash">Crashes &amp; errors</option>
                       <option value="all">All — usage + crashes</option>
                     </select>
-                    <small>Granular control over what diagnostic data is transmitted. Overrides the individual analytics and crash-report toggles in General.</small>
+                    <small id="settings-telemetry-level-help">Granular control over what diagnostic data is transmitted. Overrides the individual analytics and crash-report toggles in General.</small>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.advanced.useNativeFilePicker" (ngModelChange)="onSettingChanged()" />

@@ -220,6 +220,7 @@ func (a *Archive) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 			return &szFileInfo{
 				synthetic: true,
 				name:      filepath.Base(path),
+				path:      path,
 				isDir:     true,
 				chain:     a.chain,
 			}, nil

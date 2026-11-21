@@ -88,10 +88,16 @@ export class RemoteConnectionsService {
 
   findByUri(uri:string):contracts.RemoteMount|null{
     const needle=this.normalizeUri(uri); if(!needle)return null;
-    return this.mounts.find(mount=>{
-      const root=this.normalizeUri(mount.publicPath??'');
-      return !!root&&(needle===root||needle.startsWith(root.endsWith('/')?root:root+'/'));
-    })??null;
+    let best: contracts.RemoteMount | null = null;
+    let length = 0;
+    for (const mount of this.mounts) {
+      const root = this.normalizeUri(mount.publicPath ?? '');
+      if (root.length > length && (needle === root || needle.startsWith(root + '/'))) {
+        best = mount;
+        length = root.length;
+      }
+    }
+    return best;
   }
 
   rootUri(mount:contracts.RemoteMount):string{return String(mount.publicPath??'').trim()}

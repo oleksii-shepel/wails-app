@@ -23,12 +23,12 @@ interface LegacyPinnedPath {
 @Injectable({ providedIn: 'root' })
 export class PinnedLocationService {
   load(): PinnedLocation[] {
-    const current = this.read<PinnedLocation[]>(PINNED_LOCATIONS_KEY);
-    if (current) return current.map(pin => this.normalizeStoredPin(pin)).filter((pin): pin is PinnedLocation => !!pin);
+    const current = this.read<unknown>(PINNED_LOCATIONS_KEY);
+    if (Array.isArray(current)) return current.map(pin => this.normalizeStoredPin(pin)).filter((pin): pin is PinnedLocation => !!pin);
 
-    const legacy = this.read<LegacyPinnedPath[]>(LEGACY_PINNED_PATHS_KEY) ?? [];
-    const migrated = legacy
-      .map(pin => this.create(pin.path, pin.label, pin.icon, pin.addedAt))
+    const legacy = this.read<LegacyPinnedPath[]>(LEGACY_PINNED_PATHS_KEY);
+    const migrated = (Array.isArray(legacy) ? legacy : [])
+      .map(pin => typeof pin?.path === 'string' ? this.create(pin.path, pin.label, pin.icon, pin.addedAt) : null)
       .filter((pin): pin is PinnedLocation => !!pin);
 
     if (migrated.length > 0) this.save(migrated);

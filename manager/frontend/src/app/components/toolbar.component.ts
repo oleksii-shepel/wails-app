@@ -32,7 +32,7 @@ import { ThemeService } from '../services/theme.service';
       </div>
 
       <div class="toolbar-right">
-        <button
+        <button type="button"
           (click)="onToggleHidden()"
           [class.active]="showHidden" [attr.aria-pressed]="showHidden" aria-label="Show hidden files"
           class="btn"
@@ -40,14 +40,14 @@ import { ThemeService } from '../services/theme.service';
           {{ showHidden ? 'Hide' : 'Show' }} Hidden
         </button>
 
-        <button
+        <button type="button"
           (click)="onToggleTheme()"
           class="btn"
           title="Toggle theme">
           Theme
         </button>
 
-        <button
+        <button type="button"
           (click)="onToggleCompact()"
           [class.active]="isCompact" [attr.aria-pressed]="isCompact"
           class="btn"

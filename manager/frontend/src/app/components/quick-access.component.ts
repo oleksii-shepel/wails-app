@@ -295,7 +295,7 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
 
   removeSelectedPin(): void {
     const item=this.selectedItem; if(!item||item.kind!=='pin')return;
-    this.pins = this.pinnedLocations.remove(this.pins, item.path, item.surfaceId);
+    this.pins = this.pinnedLocations.remove(this.pinnedLocations.load(), item.path, item.surfaceId);
     this.pinnedLocations.save(this.pins);
     const sectionId = this.activeSection?.id;
     void this.reload().then(reloaded => {

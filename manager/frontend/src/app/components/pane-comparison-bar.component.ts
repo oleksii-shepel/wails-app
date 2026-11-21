@@ -43,7 +43,7 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
         <button type="button" class="btn" (click)="copyMissingLeftToRight.emit()" [disabled]="result.summary.onlyLeft === 0" title="Copy items that exist only on the left to the right pane">Missing →</button>
         <button type="button" class="btn" (click)="copyMissingRightToLeft.emit()" [disabled]="result.summary.onlyRight === 0" title="Copy items that exist only on the right to the left pane">← Missing</button>
         <button type="button" class="btn" (click)="review.emit()" [disabled]="result.summary.different === 0" title="Review and approve a synchronization plan">Review…</button>
-        <button type="button" class="close" (click)="close.emit()" title="Close comparison">×</button>
+        <button type="button" class="close" (click)="close.emit()" aria-label="Close pane comparison" title="Close comparison">×</button>
       </div>
     </div>
   `,

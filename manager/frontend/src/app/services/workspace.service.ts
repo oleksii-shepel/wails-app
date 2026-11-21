@@ -774,7 +774,7 @@ export class WorkspaceService {
     limit = 20,
   ): RecentlyClosedTab[] {
     return this.recentlyClosedTabs
-      .filter(entry => !workspaceId || entry.workspaceId === workspaceId)
+      .filter(entry => entry.workspaceId === workspaceId)
       .slice(0, Math.max(0, limit))
       .map(entry => ({
         ...entry,
@@ -786,7 +786,7 @@ export class WorkspaceService {
     workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
   ): boolean {
     return this.recentlyClosedTabs.some(entry =>
-      !workspaceId || entry.workspaceId === workspaceId
+      entry.workspaceId === workspaceId
     );
   }
 
@@ -829,11 +829,10 @@ export class WorkspaceService {
   clearRecentlyClosedTabs(
     workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
   ): void {
-    this.recentlyClosedTabs = workspaceId
-      ? this.recentlyClosedTabs.filter(entry =>
-          entry.workspaceId !== workspaceId
-        )
-      : [];
+    if (!workspaceId) return;
+    this.recentlyClosedTabs = this.recentlyClosedTabs.filter(entry =>
+      entry.workspaceId !== workspaceId,
+    );
     this.persistRecentlyClosedTabs();
   }
 

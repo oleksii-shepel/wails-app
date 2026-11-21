@@ -159,7 +159,16 @@ export class PaneFileToolsController {
     const destination = await this.api.joinPaths([destinationFolder, cleanName]);
     try { await this.api.getFileInfo(destination); await this.confirm.alert({ title: 'Name Already Exists', message: `An item named "${cleanName}" already exists.` }); return; } catch { /* available */ }
     const sources = entries.map(entry => entry.path);
-    await this.api.createZipArchive(sources, destination);
+    try {
+      await this.api.createZipArchive(sources, destination);
+    } catch (error) {
+      await this.confirm.alert({
+        title: 'Archive Creation Failed',
+        message: error instanceof Error ? error.message : String(error),
+        tone: 'error',
+      });
+      return;
+    }
     this.history.record({ label: `Create archive ${cleanName}`, undo: async () => { await this.api.deleteFile(destination, true, false); }, redo: async () => { await this.api.createZipArchive(sources, destination); } });
     await host.refresh();
     host.selectPath(destination);

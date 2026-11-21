@@ -328,7 +328,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </section>
 
           <div class="empty" *ngIf="!duplicateScanning && !duplicateError && duplicateGroups.length === 0">
-            {{ !duplicateResult ? 'Scan recursively to find content-identical files.' :
+            {{ duplicateCancelled ? 'Scan cancelled.' : !duplicateResult ? 'Scan recursively to find content-identical files.' :
               duplicateResult.groups.length ? 'No duplicate groups match this filter.' : 'No duplicate groups were found.' }}
           </div>
 
@@ -503,6 +503,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   duplicateFilter = '';
   duplicateIncludeHidden = false;
   duplicateScanning = false;
+  duplicateCancelled = false;
   duplicateDeleting = false;
   private duplicateAbort: AbortController | null = null;
   duplicateProgress: DuplicateScanProgress | null = null;
@@ -694,6 +695,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       this.diskCancelled = false;
       this.diskCompleted = false;
       this.cancelDuplicates();
+      this.duplicateCancelled = false;
       this.diskEntries = [];
       this.diskProgress = null;
       this.diskError = '';
@@ -1010,6 +1012,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     const controller = new AbortController();
     this.duplicateAbort = controller;
     this.duplicateScanning = true;
+    this.duplicateCancelled = false;
     this.duplicateProgress = null;
     this.duplicateResult = null;
     this.duplicateSelected = new Set();
@@ -1044,6 +1047,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   cancelDuplicates(): void {
+    if (this.duplicateAbort) this.duplicateCancelled = true;
     this.duplicateAbort?.abort();
     this.duplicateAbort = null;
     this.duplicateScanning = false;

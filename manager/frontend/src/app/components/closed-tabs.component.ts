@@ -190,7 +190,7 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
     this.paneFilter = value === 'left' || value === 'right' ? value : 'all';
   }
 
-  focusResult(event: KeyboardEvent, last = false): void {
+  focusResult(event: Event, last = false): void {
     const result = last ? this.tabResults?.last : this.tabResults?.first;
     if (!result) return;
     event.preventDefault();

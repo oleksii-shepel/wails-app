@@ -35,7 +35,7 @@ const GLYPH_ROWS = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
-      <div class="viewer-toolbar" *ngIf="kind === 'ready'">
+      <div class="viewer-toolbar" role="group" aria-label="Font preview controls" *ngIf="kind === 'ready'">
         <button
           *ngFor="let size of previewSizes"
           class="tool-btn"

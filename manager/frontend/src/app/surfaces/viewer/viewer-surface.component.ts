@@ -258,7 +258,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
           <div class="video-error-banner" *ngIf="videoError">
             <span class="error-icon">⚠️</span>
             <span class="error-message">{{ videoError }}</span>
-            <button class="close-btn" (click)="dismissVideoError()" title="Dismiss">✕</button>
+            <button class="close-btn" (click)="dismissVideoError()" aria-label="Dismiss video error" title="Dismiss">✕</button>
           </div>
         </div>
 

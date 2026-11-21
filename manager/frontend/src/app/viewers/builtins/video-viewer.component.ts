@@ -56,7 +56,7 @@ interface VideoNavItem {
         </div>
 
         <div *ngIf="error" class="state-container state-error" role="alert">
-          <div class="state-icon">⚠</div>
+          <div class="state-icon" aria-hidden="true">⚠</div>
           <div class="state-label">Preview failed</div>
           <div class="error-detail">{{ error }}</div>
         </div>

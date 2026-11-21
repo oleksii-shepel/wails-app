@@ -245,7 +245,8 @@ export class FolderInventoryComponent implements OnChanges, OnDestroy {
     const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'folder-inventory.csv';
+    const folder = this.rootPath.split(/[\\/]+/).filter(Boolean).at(-1)?.replace(/[^\p{L}\p{N}._-]+/gu, '-');
+    link.download = folder ? folder + '-inventory.csv' : 'folder-inventory.csv';
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }

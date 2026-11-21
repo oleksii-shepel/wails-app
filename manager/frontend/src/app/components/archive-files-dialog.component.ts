@@ -61,7 +61,7 @@ const ARCHIVE_EXTENSION_PATTERN = /\.(?:tar\.gz|zip|tgz|tar|7z)$/i;
 
             <div class="actions">
               <button type="button" (click)="dialogs.close()">Cancel</button>
-              <button type="button" class="primary" [disabled]="!!validationError" (click)="submit()">{{ request.confirmText }}</button>
+              <button type="button" class="primary" [disabled]="isClosing || !!validationError" (click)="submit()">{{ request.confirmText }}</button>
             </div>
           </div>
         </section>
@@ -251,7 +251,7 @@ export class ArchiveFilesDialogComponent implements OnInit, OnDestroy {
   }
 
   submit(): void {
-    if (this.validationError) return;
+    if (this.isClosing || !this.dialogs.activeRequest$.value || this.validationError) return;
     this.dialogs.submit(this.draftValue.trim());
   }
 

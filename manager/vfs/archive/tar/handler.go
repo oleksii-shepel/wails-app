@@ -112,6 +112,13 @@ func openNested(_ context.Context, osPath string, opts archive.OpenOptions) (*Ar
 
 // ── compression detection ─────────────────────────────────────────────────────
 
+// DecompressReader wraps r with the appropriate decompressor based on the
+// file extension of osPath. Exported for batch extraction, which decompresses
+// nested compressed tars before feeding them to the plain-tar path.
+func DecompressReader(r io.Reader, osPath string) (io.ReadCloser, error) {
+	return decompressReader(r, osPath)
+}
+
 // decompressReader wraps r with the appropriate decompressor based on the
 // file extension of osPath, returning an io.ReadCloser.
 func decompressReader(r io.Reader, osPath string) (io.ReadCloser, error) {

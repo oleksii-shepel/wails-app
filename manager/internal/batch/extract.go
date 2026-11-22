@@ -13,6 +13,7 @@ import (
 	"github.com/mholt/archiver/v3"
 
 	internalarchive "wails-app/internal/archive"
+	tartar "wails-app/vfs/archive/tar"
 	contracts "wails-app/internal/contracts"
 )
 
@@ -133,6 +134,10 @@ func (ec *extractCtx) extractZipOnDisk(archivePath string) (int64, int64, error)
 			rc.Close()
 			continue
 		}
+		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
+			rc.Close()
+			return totalFiles, totalBytes, err
+		}
 		written, werr := ec.callbacks.StreamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name)
 		rc.Close()
 		if werr != nil {
@@ -197,6 +202,9 @@ func (ec *extractCtx) extractTarOnDisk(archivePath string) (int64, int64, error)
 		if skip {
 			return nil
 		}
+		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
+			return err
+		}
 		written, err := ec.callbacks.StreamToFile(f, finalDst, f.Size(), f.Name())
 		if err != nil {
 			return err
@@ -215,7 +223,29 @@ func (ec *extractCtx) extractNestedFromBytes(data []byte, archiveName string) (i
 	if internalarchive.IsRarArchiveName(archiveName) {
 		return ec.extractRarBytes(data, archiveName)
 	}
+	if isCompressedTarName(archiveName) {
+		// Decompress with the archive package's codec, then run the plain
+		// tar path: the archiver reader mangles entry paths for compressed
+		// tars (directory prefixes are lost).
+		dc, err := tartar.DecompressReader(bytes.NewReader(data), archiveName)
+		if err != nil {
+			return 0, 0, err
+		}
+		defer dc.Close()
+		decompressed, err := io.ReadAll(dc)
+		if err != nil {
+			return 0, 0, err
+		}
+		return ec.extractTarBytes(decompressed)
+	}
 	return ec.extractTarBytes(data)
+}
+
+func isCompressedTarName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") ||
+		strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tbz2") ||
+		strings.HasSuffix(lower, ".tar.xz") || strings.HasSuffix(lower, ".txz")
 }
 
 func (ec *extractCtx) extractZipBytes(data []byte) (int64, int64, error) {
@@ -269,6 +299,10 @@ func (ec *extractCtx) extractZipBytes(data []byte) (int64, int64, error) {
 		if skip {
 			rc.Close()
 			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
+			rc.Close()
+			return totalFiles, totalBytes, err
 		}
 		written, werr := ec.callbacks.StreamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name)
 		rc.Close()
@@ -325,6 +359,9 @@ func (ec *extractCtx) extractTarBytes(data []byte) (int64, int64, error) {
 		}
 		if skip {
 			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
+			return totalFiles, totalBytes, err
 		}
 		written, werr := ec.callbacks.StreamToFile(tr, finalDst, h.Size, h.Name)
 		if werr != nil {
@@ -390,6 +427,10 @@ func (ec *extractCtx) extractRarBytes(data []byte, archiveName string) (int64, i
 		if skip {
 			f.Close()
 			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
+			f.Close()
+			return totalFiles, totalBytes, err
 		}
 		written, werr := ec.callbacks.StreamToFile(f, finalDst, f.Size(), f.Name())
 		f.Close()

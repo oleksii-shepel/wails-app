@@ -48,6 +48,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
           <button type="button" (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
           <button type="button" (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning || deleting">Trash {{ selected.size }}</button>
           <button type="button" (click)="exportCsv()" [disabled]="!visibleGroups.length || scanning">Export CSV</button>
+          <button type="button" (click)="moveSelectedCopies()" [disabled]="selected.size === 0 || scanning || deleting">Move Copies…</button>
           <button type="button" (click)="exportJson()" [disabled]="!visibleGroups.length || scanning">Export JSON</button>
         </div>
       </header>
@@ -329,6 +330,59 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
     }
   }
 
+  async moveSelectedCopies(): Promise<void> {
+    const scan = this.result;
+    if (this.deleting || this.scanning || !scan) return;
+    const paths = this.finder.redundantPaths(scan.groups, this.keeperPolicy).filter(path => this.selected.has(path));
+    if (!paths.length) {
+      await this.confirm.alert('No selected copies to move.\nSelect the redundant copies first ("Select Matching Copies").');
+      return;
+    }
+
+    const destination = await this.confirm.prompt({
+      title: 'Move Duplicate Copies',
+      message: `Move ${paths.length} selected copy${paths.length === 1 ? '' : 's'} to a review folder.\nKeepers stay in place; name collisions get a numeric suffix.`,
+      placeholder: 'Destination folder path',
+      confirmText: 'Move',
+    });
+    const folder = destination?.trim();
+    if (!folder) return;
+
+    this.deleting = true;
+    this.cdr.markForCheck();
+    try {
+      const existing = new Set<string>();
+      try {
+        const listing = await this.api.listDirectory(folder);
+        for (const entry of listing.entries) existing.add(entry.name.toLowerCase());
+      } catch {
+        // The destination may not exist yet; the backend creates it on move.
+      }
+
+      const items = paths.map(source => {
+        const name = source.split(/[\\/]/).pop() ?? source;
+        const separator = /[\\/]/.test(folder) && folder.includes('\\') ? '\\' : '/';
+        const final = uniqueFolderName(name, existing);
+        existing.add(final.toLowerCase());
+        return { source, destination: folder.endsWith(separator) ? folder + final : folder + separator + final, exactDestination: true };
+      });
+
+      const result = await this.api.batchMove(items, false);
+      if (result.failed > 0) {
+        await this.confirm.alert(`Move Completed With Errors\n${result.failed} item(s) could not be moved.`);
+      } else {
+        this.exportNotice = `Moved ${items.length} copy${items.length === 1 ? '' : 's'} to ${folder}.`;
+        this.cdr.markForCheck();
+      }
+      if (this.result === scan) await this.scan();
+    } catch (error) {
+      await this.confirm.alert(`Move Failed\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.deleting = false;
+      this.cdr.markForCheck();
+    }
+  }
+
   private async confirmAndDelete(scan: DuplicateScanResult): Promise<void> {
     const policy = this.keeperPolicy;
     const paths = this.finder.redundantPaths(scan.groups, policy).filter(path => this.selected.has(path));
@@ -358,5 +412,16 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
   }
   private parseRoot(location: string): string {
     try { const url = new URL(location); return url.searchParams.get('path') ?? ''; } catch { return ''; }
+  }
+}
+
+function uniqueFolderName(name: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(name.toLowerCase())) return name;
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  for (let i = 2; ; i++) {
+    const candidate = base + ' (' + i + ')' + ext;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }

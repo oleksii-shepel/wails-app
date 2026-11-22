@@ -89,7 +89,12 @@ func (m *Manager) LoadWorkspace(id string) (*contracts.WorkspaceConfig, error) {
 	m.workspaces[id] = stored
 	m.activeID = id
 
-	_ = m.persist()
+	// The load itself succeeded, so keep returning the workspace; the
+	// persistence failure still gets reported rather than silently
+	// dropping the updated last-accessed timestamp.
+	if err := m.persist(); err != nil {
+		fmt.Printf("Warning: could not persist workspace %q after load: %v\n", id, err)
+	}
 	workspace := fromStorageWorkspaceConfig(stored)
 	return &workspace, nil
 }
@@ -104,10 +109,13 @@ func (m *Manager) DeleteWorkspace(id string) error {
 
 	delete(m.workspaces, id)
 	if m.activeID == id {
+		// Pick a deterministic successor instead of relying on Go's
+		// randomized map iteration.
 		m.activeID = ""
 		for key := range m.workspaces {
-			m.activeID = key
-			break
+			if m.activeID == "" || key < m.activeID {
+				m.activeID = key
+			}
 		}
 	}
 
@@ -287,11 +295,8 @@ func storedStateRequiresElevation(state State) bool {
 		}
 	}
 
-	for _, workspace := range state.Workspaces {
-		if workspaceRequiresElevation(workspace) {
-			return true
-		}
-	}
+	// Nothing else is restored at startup, so no other workspace's paths
+	// can require elevation before the user asks for it.
 	return false
 }
 

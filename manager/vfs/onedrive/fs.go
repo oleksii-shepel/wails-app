@@ -88,8 +88,8 @@ func (f *FS) Open(ctx context.Context, p string) (vfs.File, error) {
 		return nil, vfs.ErrNotFile
 	}
 
-	return cloudutil.NewReadOnlyFile(ctx, info, func(ctx context.Context) ([]byte, error) {
-		return f.download(ctx, cleaned)
+	return cloudutil.NewReadOnlyFile(ctx, info, func(ctx context.Context, rangeHeader string) (*http.Response, error) {
+		return f.download(ctx, cleaned, rangeHeader)
 	}), nil
 }
 
@@ -190,25 +190,38 @@ func (f *FS) fetchItem(ctx context.Context, cleaned string) (item, error) {
 	return response, nil
 }
 
-func (f *FS) download(ctx context.Context, cleaned string) ([]byte, error) {
+func (f *FS) download(ctx context.Context, cleaned string, rangeHeader string) (*http.Response, error) {
 	request, err := f.newRequest(ctx, http.MethodGet, graphBaseURL+contentEndpoint(cleaned), nil)
 	if err != nil {
 		return nil, err
 	}
-	response, err := f.client.Do(request)
+	request.Header.Set("Accept-Encoding", "identity")
+	// Graph redirects /content to a preauthenticated download URL. The
+	// Range header belongs on that request and needs no Graph credentials.
+	client := *f.client
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || req.URL.Scheme != "https" {
+			return fmt.Errorf("onedrive: invalid download redirect")
+		}
+		req.Header.Del("Authorization")
+		req.Header.Set("Range", rangeHeader)
+		return nil
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotFound {
+		response.Body.Close()
 		return nil, vfs.ErrNotFound
 	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusBadRequest {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
+		defer response.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4*1024))
 		return nil, fmt.Errorf("onedrive: download failed: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
-	return io.ReadAll(response.Body)
+	return response, nil
 }
 
 func (f *FS) getJSON(ctx context.Context, endpoint string, target any) error {

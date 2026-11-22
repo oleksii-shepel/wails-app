@@ -1,13 +1,9 @@
 package cloudutil
 
 import (
-	"context"
-	"fmt"
-	"io"
 	"io/fs"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"wails-app/vfs"
@@ -56,91 +52,6 @@ func (fi *Info) IsNested() bool       { return false }
 func (fi *Info) MountChain() []string { return nil }
 
 var _ vfs.FileInfo = (*Info)(nil)
-
-// Loader downloads file content on first access.
-type Loader func(context.Context) ([]byte, error)
-
-// ReadOnlyFile is a small in-memory, read-only file handle for cloud adapters.
-type ReadOnlyFile struct {
-	ctx      context.Context
-	info     vfs.FileInfo
-	loader   Loader
-	loadOnce sync.Once
-	loadErr  error
-	data     []byte
-	pos      int64
-}
-
-// NewReadOnlyFile returns a lazily-loaded in-memory file handle.
-func NewReadOnlyFile(ctx context.Context, info vfs.FileInfo, loader Loader) *ReadOnlyFile {
-	return &ReadOnlyFile{
-		ctx:    ctx,
-		info:   info,
-		loader: loader,
-	}
-}
-
-func (f *ReadOnlyFile) ensureLoaded() error {
-	f.loadOnce.Do(func() {
-		f.data, f.loadErr = f.loader(f.ctx)
-	})
-	return f.loadErr
-}
-
-func (f *ReadOnlyFile) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	if err := f.ensureLoaded(); err != nil {
-		return 0, err
-	}
-	if f.pos >= int64(len(f.data)) {
-		return 0, io.EOF
-	}
-	n := copy(p, f.data[f.pos:])
-	f.pos += int64(n)
-	return n, nil
-}
-
-func (f *ReadOnlyFile) Write(_ []byte) (int, error) {
-	return 0, vfs.ErrReadOnly
-}
-
-func (f *ReadOnlyFile) Seek(offset int64, whence int) (int64, error) {
-	if err := f.ensureLoaded(); err != nil {
-		return 0, err
-	}
-
-	next := offset
-	switch whence {
-	case io.SeekStart:
-	case io.SeekCurrent:
-		next = f.pos + offset
-	case io.SeekEnd:
-		next = int64(len(f.data)) + offset
-	default:
-		return 0, fmt.Errorf("cloudutil: invalid seek whence %d", whence)
-	}
-	if next < 0 {
-		return 0, fmt.Errorf("cloudutil: negative seek position")
-	}
-	f.pos = next
-	return f.pos, nil
-}
-
-func (f *ReadOnlyFile) Close() error {
-	return nil
-}
-
-func (f *ReadOnlyFile) Stat() (vfs.FileInfo, error) {
-	return f.info, nil
-}
-
-func (f *ReadOnlyFile) Sync() error {
-	return vfs.ErrReadOnly
-}
-
-var _ vfs.File = (*ReadOnlyFile)(nil)
 
 func isArchiveExt(name string) bool {
 	return vfsarchive.IsArchiveExt(name)

@@ -84,8 +84,8 @@ func (f *FS) Open(ctx context.Context, p string) (vfs.File, error) {
 		return nil, vfs.ErrNotFile
 	}
 
-	return cloudutil.NewReadOnlyFile(ctx, info, func(ctx context.Context) ([]byte, error) {
-		return f.download(ctx, cleaned)
+	return cloudutil.NewReadOnlyFile(ctx, info, func(ctx context.Context, rangeHeader string) (*http.Response, error) {
+		return f.download(ctx, cleaned, rangeHeader)
 	}), nil
 }
 
@@ -173,7 +173,7 @@ func (f *FS) listFolder(ctx context.Context, cleaned string) ([]metadata, error)
 	return entries, nil
 }
 
-func (f *FS) download(ctx context.Context, cleaned string) ([]byte, error) {
+func (f *FS) download(ctx context.Context, cleaned string, rangeHeader string) (*http.Response, error) {
 	headers := map[string]string{
 		"Dropbox-API-Arg": mustJSON(map[string]string{"path": dropboxPath(cleaned)}),
 	}
@@ -181,20 +181,23 @@ func (f *FS) download(ctx context.Context, cleaned string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	request.Header.Set("Range", rangeHeader)
+	request.Header.Set("Accept-Encoding", "identity")
 	response, err := f.client.Do(request)
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotFound {
+		response.Body.Close()
 		return nil, vfs.ErrNotFound
 	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusBadRequest {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
+		defer response.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4*1024))
 		return nil, fmt.Errorf("dropbox: download failed: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
-	return io.ReadAll(response.Body)
+	return response, nil
 }
 
 func (f *FS) postJSON(ctx context.Context, endpoint string, body any, target any, headers map[string]string) error {

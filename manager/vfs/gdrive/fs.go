@@ -106,8 +106,15 @@ func (f *FS) Open(ctx context.Context, p string) (vfs.File, error) {
 	}
 
 	id := resolvedID(meta)
-	return cloudutil.NewReadOnlyFile(ctx, info, func(ctx context.Context) ([]byte, error) {
-		return f.download(ctx, id)
+	if id != meta.ID {
+		target, err := f.fetchMetadataByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		info.SizeValue = parseSize(target.Size)
+	}
+	return cloudutil.NewReadOnlyFile(ctx, info, func(ctx context.Context, rangeHeader string) (*http.Response, error) {
+		return f.download(ctx, id, rangeHeader)
 	}), nil
 }
 
@@ -285,7 +292,7 @@ func (f *FS) fetchMetadataByID(ctx context.Context, id string) (fileMetadata, er
 	return meta, nil
 }
 
-func (f *FS) download(ctx context.Context, id string) ([]byte, error) {
+func (f *FS) download(ctx context.Context, id string, rangeHeader string) (*http.Response, error) {
 	query := url.Values{}
 	query.Set("alt", "media")
 	query.Set("supportsAllDrives", "true")
@@ -294,20 +301,23 @@ func (f *FS) download(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	request.Header.Set("Range", rangeHeader)
+	request.Header.Set("Accept-Encoding", "identity")
 	response, err := f.client.Do(request)
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotFound {
+		response.Body.Close()
 		return nil, vfs.ErrNotFound
 	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusBadRequest {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
+		defer response.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4*1024))
 		return nil, fmt.Errorf("gdrive: download failed: HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
-	return io.ReadAll(response.Body)
+	return response, nil
 }
 
 func (f *FS) getJSON(ctx context.Context, endpoint string, target any) error {

@@ -21,4 +21,9 @@ Google Drive, Dropbox, and OneDrive support OAuth with PKCE. OAuth sessions rema
 
 Google Drive and OneDrive are ID-backed API filesystems. S3 intentionally advertises `object-prefix` hierarchy rather than POSIX hierarchy: directories are synthesized from object-key prefixes, object reads are ranged, and rename/create/delete remain unavailable in the current read-only adapter.
 
+Google Drive, Dropbox, and OneDrive serve read-only file handles through HTTP
+byte ranges. Seeking reopens the content at the requested offset and sequential
+reads advance in bounded ranges. If the provider sends a full response instead,
+the adapter streams it and discards any prefix needed to reach the offset.
+
 This provider contract is deliberately below the plugin layer. Phase 69 can make cloud providers ordinary plugin contributions without changing the connection/VFS semantics implemented here.

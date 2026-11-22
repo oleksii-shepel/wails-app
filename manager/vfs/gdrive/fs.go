@@ -33,7 +33,20 @@ type FS struct {
 	tokenSource   cloudutil.AccessTokenSource
 	rootName      string
 	childrenMu    sync.RWMutex
-	childrenCache map[string][]fileMetadata
+	childrenCache map[string]childrenCacheEntry
+}
+
+// Directory listings are cached briefly so bursts of stats and reads coalesce
+// into one API call, while remote renames and deletions still surface within
+// the TTL instead of being hidden for the mount's whole lifetime.
+const (
+	childrenCacheTTL     = 15 * time.Second
+	childrenCacheMaxDirs = 1024
+)
+
+type childrenCacheEntry struct {
+	files    []fileMetadata
+	storedAt time.Time
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
@@ -76,7 +89,7 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 	fs := &FS{
 		client:        &http.Client{Timeout: 60 * time.Second},
 		tokenSource:   source,
-		childrenCache: make(map[string][]fileMetadata),
+		childrenCache: make(map[string]childrenCacheEntry),
 	}
 
 	root, err := fs.fetchMetadataByID(ctx, "root")
@@ -243,11 +256,11 @@ func (f *FS) resolvePath(ctx context.Context, cleaned string) (fileMetadata, err
 
 func (f *FS) listChildren(ctx context.Context, parentID string) ([]fileMetadata, error) {
 	f.childrenMu.RLock()
-	if cached, ok := f.childrenCache[parentID]; ok {
-		f.childrenMu.RUnlock()
-		return append([]fileMetadata(nil), cached...), nil
-	}
+	cached, ok := f.childrenCache[parentID]
 	f.childrenMu.RUnlock()
+	if ok && time.Since(cached.storedAt) < childrenCacheTTL {
+		return append([]fileMetadata(nil), cached.files...), nil
+	}
 
 	query := url.Values{}
 	query.Set("q", fmt.Sprintf("'%s' in parents and trashed = false", strings.ReplaceAll(parentID, "'", "\\'")))
@@ -275,7 +288,22 @@ func (f *FS) listChildren(ctx context.Context, parentID string) ([]fileMetadata,
 	}
 
 	f.childrenMu.Lock()
-	f.childrenCache[parentID] = append([]fileMetadata(nil), files...)
+	if len(f.childrenCache) >= childrenCacheMaxDirs {
+		// Evict expired entries first; drop everything if the cache still
+		// will not fit, trading a refetch for bounded memory.
+		for id, entry := range f.childrenCache {
+			if time.Since(entry.storedAt) >= childrenCacheTTL {
+				delete(f.childrenCache, id)
+			}
+		}
+		if len(f.childrenCache) >= childrenCacheMaxDirs {
+			f.childrenCache = make(map[string]childrenCacheEntry)
+		}
+	}
+	f.childrenCache[parentID] = childrenCacheEntry{
+		files:    append([]fileMetadata(nil), files...),
+		storedAt: time.Now(),
+	}
 	f.childrenMu.Unlock()
 	return files, nil
 }

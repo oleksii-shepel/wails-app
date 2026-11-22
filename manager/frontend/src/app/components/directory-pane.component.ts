@@ -5944,8 +5944,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const parent = await this.api.getParentPath(entry.path);
     const available = await this.ensureLeafAvailableInline(
-      this.path,
+      parent,
       cleanName,
       entry.path,
     );
@@ -5960,7 +5961,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const destination = await this.performRename(entry, cleanName);
+      const destination = await this.performRename(entry, parent, cleanName);
       this.cancelInlineRename(false);
       this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
       this.actionFeedback.success(
@@ -5968,7 +5969,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         `${entry.name} \u2192 ${cleanName}`,
       );
       await this.refresh();
-      this.selectPath(destination);
+      this.selectRenamedEntry(entry, parent, destination, cleanName);
       this.focusContent();
     } catch (error) {
       this.renameBusy = false;
@@ -5989,9 +5990,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   private async performRename(
     entry: FileInfo,
+    parent: string,
     cleanName: string,
   ): Promise<string> {
-    const destination = await this.api.joinPaths([this.path, cleanName]);
+    const destination = await this.api.joinPaths([parent, cleanName]);
     const source = entry.path;
     const caseOnlyRename =
       this.samePath(destination, source) &&
@@ -5999,7 +6001,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (caseOnlyRename) {
       const temporary = await this.api.joinPaths([
-        this.path,
+        parent,
         `.rename-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
       ]);
 
@@ -7710,6 +7712,16 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
 
+  private selectRenamedEntry(entry: FileInfo, parent: string, destination: string, name: string): void {
+    if (this.viewMode === 'tree' && !this.samePath(parent, this.path)) {
+      this.paneViewHost?.refreshTreeNode(parent);
+      this.setSingleSelection({ ...entry, path: destination, name });
+      this.cdr.markForCheck();
+      return;
+    }
+    this.selectPath(destination);
+  }
+
   private selectPath(path: string): void {
     const entry = this.entries.find(candidate => candidate.path === path);
     if (!entry) return;
@@ -8566,8 +8578,9 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const parent = await this.api.getParentPath(entry.path);
     const available = await this.ensureLeafAvailableInline(
-      this.path,
+      parent,
       cleanName,
       entry.path,
     );
@@ -8583,14 +8596,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const destination = await this.performRename(entry, cleanName);
+      const destination = await this.performRename(entry, parent, cleanName);
       this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
       this.actionFeedback.success(
         'Renamed',
         `${entry.name} \u2192 ${cleanName}`,
       );
       await this.refresh();
-      this.selectPath(destination);
+      this.selectRenamedEntry(entry, parent, destination, cleanName);
       this.focusContent();
     } catch (error) {
       await this.showOperationError('Rename', error);

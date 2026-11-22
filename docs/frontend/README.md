@@ -32,6 +32,10 @@ All view components must support the same file-manager operations and route them
 
 ### Shortcut Baseline
 
+Tree rename uses the selected entry's parent folder for collision checks and
+the destination. After a nested rename, the expanded folder refreshes and the
+renamed entry stays selected.
+
 - `F5`: copy to other pane
 - `F6`: move to other pane
 - `Shift+F6`: rename selected

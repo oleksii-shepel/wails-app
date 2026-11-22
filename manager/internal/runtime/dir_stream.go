@@ -144,12 +144,28 @@ func NewDirStreamService(
 	}
 }
 
+// SetVFS installs the directory listing callbacks. Field writes take the
+// service mutex: run() reads them from worker goroutines concurrently.
 func (s *DirStreamService) SetVFS(listDir VFSListDirFunc, isVFS IsVFSPathFunc) {
+	s.mu.Lock()
 	s.vfsListDir = listDir
 	s.isVFSPath = isVFS
+	s.mu.Unlock()
 }
 
-func (s *DirStreamService) SetVFSPaged(fn VFSListDirPageFunc) { s.vfsListDirPage = fn }
+func (s *DirStreamService) SetVFSPaged(fn VFSListDirPageFunc) {
+	s.mu.Lock()
+	s.vfsListDirPage = fn
+	s.mu.Unlock()
+}
+
+// vfsCallbacks snapshots the VFS listing callbacks under the mutex so
+// worker goroutines never race a concurrent SetVFS.
+func (s *DirStreamService) vfsCallbacks() (VFSListDirFunc, VFSListDirPageFunc, IsVFSPathFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vfsListDir, s.vfsListDirPage, s.isVFSPath
+}
 
 func (s *DirStreamService) Emit(name string, data interface{}) {
 	if s.emitEvent != nil {
@@ -442,6 +458,9 @@ func (s *DirStreamService) run(
 	var indexDuration time.Duration
 	var sortDuration time.Duration
 
+	// Snapshot the VFS callbacks once: SetVFS may swap them concurrently.
+	_, _, isVFSPath := s.vfsCallbacks()
+
 	var scan func(
 		context.Context,
 		string,
@@ -451,7 +470,7 @@ func (s *DirStreamService) run(
 	) error
 
 	var localPopulation *localDirPopulation
-	if !pathref.IsSearch(path) && (s.isVFSPath == nil || !s.isVFSPath(path)) {
+	if !pathref.IsSearch(path) && (isVFSPath == nil || !isVFSPath(path)) {
 		enumerateStarted := time.Now()
 		population, err := s.enumerateLocalDirectory(ctx, path, showHidden)
 		enumerateDuration = time.Since(enumerateStarted)
@@ -510,7 +529,7 @@ func (s *DirStreamService) run(
 		scan = s.scanDirectoryStream
 		if pathref.IsSearch(path) {
 			scan = s.scanSearchStream
-		} else if s.isVFSPath != nil && s.isVFSPath(path) {
+		} else if isVFSPath != nil && isVFSPath(path) {
 			scan = s.scanVFSStream
 		}
 	}
@@ -901,13 +920,14 @@ func mergeSortedRunsAll(runs [][]contracts.FileInfo, options DirStreamOptions) [
 }
 
 func (s *DirStreamService) scanVFSStream(ctx context.Context, path string, showHidden bool, chunkSize int, onBatch func([]contracts.FileInfo, int64)) error {
-	if s.vfsListDirPage != nil {
+	vfsListDir, vfsListDirPage, _ := s.vfsCallbacks()
+	if vfsListDirPage != nil {
 		token := ""
 		for {
 			if ctx.Err() != nil {
 				return context.Canceled
 			}
-			page, err := s.vfsListDirPage(ctx, path, token, chunkSize)
+			page, err := vfsListDirPage(ctx, path, token, chunkSize)
 			if err != nil {
 				return err
 			}
@@ -932,10 +952,10 @@ func (s *DirStreamService) scanVFSStream(ctx context.Context, path string, showH
 			token = page.NextToken
 		}
 	}
-	if s.vfsListDir == nil {
+	if vfsListDir == nil {
 		return fmt.Errorf("vfs listing not available")
 	}
-	listing, err := s.vfsListDir(path)
+	listing, err := vfsListDir(path)
 	if err != nil {
 		return err
 	}

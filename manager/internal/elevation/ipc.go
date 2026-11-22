@@ -109,6 +109,21 @@ func StartClient(exePath string, launch LaunchServiceFunc) (*IPCClient, error) {
 	}
 	sid := base64.RawURLEncoding.EncodeToString(sidBytes)
 
+	// Another process can steal the freshly freed port between the listener
+	// close and the elevated service binding, so give the whole
+	// allocate → launch → connect sequence a second attempt with a new port.
+	var client *IPCClient
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		client, lastErr = startClientAttempt(exePath, launch, secret, sid)
+		if lastErr == nil {
+			return client, nil
+		}
+	}
+	return nil, lastErr
+}
+
+func startClientAttempt(exePath string, launch LaunchServiceFunc, secret []byte, sid string) (*IPCClient, error) {
 	freeListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("allocate port: %w", err)

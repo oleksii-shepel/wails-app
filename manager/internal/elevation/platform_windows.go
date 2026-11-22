@@ -5,6 +5,7 @@ package elevation
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -84,8 +85,10 @@ func LaunchService(exePath string, port int, secretB64 string) (int, error) {
 		return 0, fmt.Errorf("elevation failed: %w", err)
 	}
 
-	pid := 0
-	fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid)
+	pid, parseErr := strconv.Atoi(strings.TrimSpace(string(out)))
+	if parseErr != nil {
+		return 0, fmt.Errorf("elevation: unexpected launcher output %q: %w", strings.TrimSpace(string(out)), parseErr)
+	}
 	return pid, nil
 }
 

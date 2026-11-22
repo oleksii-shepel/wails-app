@@ -379,35 +379,52 @@ func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {
 
 	// Subkeys → directories.
 	subkeyNames, err := k.ReadSubKeyNames(-1)
-	if err == nil {
-		for _, name := range subkeyNames {
-			childPath := path + "/" + name
-			result = append(result, &keyInfo{path: childPath, name: name})
+	if err != nil {
+		if isPermissionError(err) {
+			return nil, fs.ErrPermission
 		}
-	} else if isPermissionError(err) {
-		return nil, fs.ErrPermission
+		// Anything else means the listing is not trustworthy; report it
+		// instead of returning an apparently-complete directory.
+		return nil, fmt.Errorf("registry: enumerate subkeys of %q: %w", path, err)
+	}
+	for _, name := range subkeyNames {
+		childPath := path + "/" + name
+		result = append(result, &keyInfo{path: childPath, name: name})
 	}
 
 	// Values → files.
 	valueNames, err := k.ReadValueNames(-1)
-	if err == nil {
-		for _, name := range valueNames {
-			displayName := name
-			if name == "" {
-				displayName = "(default)"
-			}
-			value, _ := readRegistryValue(k, name)
-			childPath := path + "/" + displayName
+	if err != nil {
+		if isPermissionError(err) {
+			return nil, fs.ErrPermission
+		}
+		return nil, fmt.Errorf("registry: enumerate values of %q: %w", path, err)
+	}
+	for _, name := range valueNames {
+		displayName := name
+		if name == "" {
+			displayName = "(default)"
+		}
+		childPath := path + "/" + displayName
+		value, valueErr := readRegistryValue(k, name)
+		if valueErr != nil {
+			// Keep the entry visible but mark it unreadable instead of
+			// presenting silently empty data.
 			result = append(result, &valueInfo{
 				path:      childPath,
 				name:      displayName,
-				size:      int64(len(value.data)),
-				valueType: value.valueType,
-				preview:   value.preview,
+				valueType: "unreadable",
+				preview:   fmt.Sprintf("(unreadable: %v)", valueErr),
 			})
+			continue
 		}
-	} else if isPermissionError(err) {
-		return nil, fs.ErrPermission
+		result = append(result, &valueInfo{
+			path:      childPath,
+			name:      displayName,
+			size:      int64(len(value.data)),
+			valueType: value.valueType,
+			preview:   value.preview,
+		})
 	}
 
 	return result, nil

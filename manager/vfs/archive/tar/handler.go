@@ -1,5 +1,6 @@
 // Package tar provides a VFS archive handler for .tar, .tar.gz/.tgz,
-// .tar.bz2/.tbz2, and .tar.xz/.txz files using only the Go standard library.
+// .tar.bz2/.tbz2, and .tar.xz/.txz files. Compression uses the standard
+// library plus github.com/ulikunitz/xz for .xz containers.
 //
 // TAR is read-only; write/create/delete are not supported.
 //
@@ -21,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ulikunitz/xz"
 
 	"wails-app/vfs"
 	"wails-app/vfs/archive"
@@ -134,9 +137,12 @@ func decompressReader(r io.Reader, osPath string) (io.ReadCloser, error) {
 		// compress/bzip2 is read-only and returns a plain io.Reader.
 		return io.NopCloser(bzip2.NewReader(r)), nil
 	case strings.HasSuffix(lower, ".tar.xz") || strings.HasSuffix(lower, ".txz"):
-		// stdlib has no xz support; use a pure-Go shim if available,
-		// otherwise return a clear error so callers can fall back.
-		return nil, fmt.Errorf("tar: .xz decompression requires an external dependency (e.g. github.com/ulikunitz/xz)")
+		xzr, err := xz.NewReader(r)
+		if err != nil {
+			return nil, fmt.Errorf("tar: xz open: %w", err)
+		}
+		// xz.Reader.Close does not close the underlying reader.
+		return io.NopCloser(xzr), nil
 	default:
 		// Plain .tar — no decompression needed.
 		return io.NopCloser(r), nil

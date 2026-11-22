@@ -16,6 +16,7 @@ require (
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/mholt/archiver/v3 v3.5.1
 	github.com/nwaples/rardecode v1.1.3
+	github.com/ulikunitz/xz v0.5.16
 	github.com/wailsapp/go-webview2 v1.0.23
 	github.com/wailsapp/mimetype v1.4.1
 	github.com/wailsapp/wails/v2 v2.14.0
@@ -69,7 +70,6 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/stangelandcl/ppmd v0.1.1 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
-	github.com/ulikunitz/xz v0.5.16 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect

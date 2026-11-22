@@ -2,11 +2,14 @@ package tar
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ulikunitz/xz"
 
 	"wails-app/vfs/archive"
 )
@@ -122,5 +125,53 @@ func TestExtractSelectedHonorsConflictSkip(t *testing.T) {
 	}
 	if string(body) != "old-body" {
 		t.Fatalf("skipped entry was overwritten: %q", body)
+	}
+}
+
+func TestDecompressReaderHandlesXz(t *testing.T) {
+	var raw bytes.Buffer
+	tw := tar.NewWriter(&raw)
+	body := "xz payload"
+	if err := tw.WriteHeader(&tar.Header{Name: "in.txt", Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatalf("header: %v", err)
+	}
+	if _, err := io.WriteString(tw, body); err != nil {
+		t.Fatalf("body: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+
+	var xzBuf bytes.Buffer
+	xzw, err := xz.NewWriter(&xzBuf)
+	if err != nil {
+		t.Fatalf("xz writer: %v", err)
+	}
+	if _, err := xzw.Write(raw.Bytes()); err != nil {
+		t.Fatalf("xz write: %v", err)
+	}
+	if err := xzw.Close(); err != nil {
+		t.Fatalf("xz close: %v", err)
+	}
+
+	dc, err := DecompressReader(bytes.NewReader(xzBuf.Bytes()), "sample.tar.xz")
+	if err != nil {
+		t.Fatalf("DecompressReader: %v", err)
+	}
+	defer dc.Close()
+	tr := tar.NewReader(dc)
+	header, err := tr.Next()
+	if err != nil {
+		t.Fatalf("tar read: %v", err)
+	}
+	if header.Name != "in.txt" {
+		t.Fatalf("entry = %q, want in.txt", header.Name)
+	}
+	payload, err := io.ReadAll(tr)
+	if err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	if string(payload) != body {
+		t.Fatalf("payload = %q, want %q", payload, body)
 	}
 }

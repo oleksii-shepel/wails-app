@@ -33,9 +33,12 @@ func (h *Handler) Name() string         { return "zip" }
 func (h *Handler) Extensions() []string { return []string{".zip"} }
 func (h *Handler) Magic() []byte        { return []byte{0x50, 0x4B, 0x03, 0x04} }
 func (h *Handler) CanRead() bool        { return true }
-func (h *Handler) CanWrite() bool       { return true }
-func (h *Handler) CanCreate() bool      { return true }
-func (h *Handler) CanStream() bool      { return true }
+// CanWrite reports the VFS handler's own capability: it cannot modify a
+// mounted zip in place. Zip mutation (entry removal, rewrite) goes through
+// the archive service's rewrite pipeline instead.
+func (h *Handler) CanWrite() bool  { return false }
+func (h *Handler) CanCreate() bool { return true }
+func (h *Handler) CanStream() bool { return true }
 
 func (h *Handler) Detect(data []byte) bool {
 	if len(data) < 4 {
@@ -258,10 +261,7 @@ func (a *Archive) Exists(ctx context.Context, path string) bool {
 // Write operations — all return ErrReadOnly since ZIP rewrite happens at Close().
 
 func (a *Archive) Create(_ context.Context, _ string) (vfs.File, error) {
-	if a.readOnly {
-		return nil, vfs.ErrReadOnly
-	}
-	return nil, fmt.Errorf("zip: in-archive Create not yet implemented; use Add after Close")
+	return nil, vfs.ErrReadOnly
 }
 
 func (a *Archive) Mkdir(_ context.Context, _ string, _ fs.FileMode) error {
@@ -269,11 +269,9 @@ func (a *Archive) Mkdir(_ context.Context, _ string, _ fs.FileMode) error {
 }
 
 func (a *Archive) Remove(_ context.Context, _ string) error {
-	if a.readOnly {
-		return vfs.ErrReadOnly
-	}
-	// TODO: mark for removal; rewrite on Close.
-	return fmt.Errorf("zip: Remove not yet implemented")
+	// Entry removal goes through the archive service's rewrite pipeline;
+	// the VFS handler cannot modify a mounted zip in place.
+	return vfs.ErrReadOnly
 }
 
 func (a *Archive) Rename(_ context.Context, _, _ string) error {
@@ -300,7 +298,12 @@ func (a *Archive) RealPath(_ string) (string, error) {
 
 // ── archive.Archive ───────────────────────────────────────────────────────────
 
-func (a *Archive) Comment() string { return "" } // zip.ReadCloser exposes comment via r.Comment
+func (a *Archive) Comment() string {
+	if a.reader != nil {
+		return a.reader.Comment
+	}
+	return ""
+}
 func (a *Archive) IsSolid() bool   { return false }
 func (a *Archive) EntryCount() int { return len(a.files()) }
 

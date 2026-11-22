@@ -61,7 +61,7 @@ the pane, or open a file preview directly from its name. Switching tools keeps
 the inventory filters and selection until Tools Center closes.
 
 Operation History can filter for failed, reversible, or undone and redone
-entries, search by outcome or path, and export the matches as JSON. Expand an
+entries, search by outcome or path, and export or copy the matches as JSON. Expand an
 entry to read or copy its affected paths. Clearing the journal keeps undo and
 redo actions available.
 
@@ -70,11 +70,11 @@ Operation progress uses byte totals when available and file counts otherwise.
 When neither total is known, the progress bar indicates that work is ongoing
 without displaying a percentage.
 
-In Tools Center, press 5 to open Folder Inventory. Duplicate scans can be
+In Tools Center, press 5 to open Folder Inventory or 6 to open Split & Join. Duplicate scans can be
 cancelled between file operations from Tools Center or the standalone Duplicate
 Finder. Expand the warning summary in Tools Center to see skipped paths.
 The Checksums page can copy the full set of digests and accepts a raw checksum or
-a checksum line with a filename.
+a checksum line with a filename. In batch mode, select files to generate SHA-256 digests and compare them with a manifest.
 
 Trash can filter by location and search by name or path. Sort by deletion time
 to find recent or older items. After a partially successful operation, the

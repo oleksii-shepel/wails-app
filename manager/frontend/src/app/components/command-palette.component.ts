@@ -47,16 +47,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   selector: 'app-command-palette',
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   template: `
-    <div class="backdrop dialog-group" *ngIf="visible || isClosing" [class.backdrop-closing]="isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()"
+    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible || isClosing" [class.backdrop-closing]="isClosing" [class.dialog-group--closing]="isClosing" (mousedown)="close()"
       (animationend)="onAnimationEnd($event)">
-      <section class="palette dialog-surface" role="dialog" aria-modal="true" aria-label="Command palette"
+      <section class="palette palette-dialog-surface dialog-surface" role="dialog" aria-modal="true" aria-label="Command palette"
         (mousedown)="$event.stopPropagation()"
         tabindex="-1" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
-        <header>
-          <div class="title-block">
+        <header class="palette-dialog-header">
+          <div class="title-block palette-dialog-title">
             <strong>Command Palette</strong>
-            <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
+            <span class="palette-dialog-subtitle">{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
           </div>
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
         </header>
@@ -69,26 +70,37 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             aria-label="Command search" aria-controls="command-list" />
         </div>
 
-        <nav class="categories" *ngIf="categories.length > 1" aria-label="Command category filters">
+        <nav class="categories palette-dialog-tabbar" *ngIf="categories.length > 0" aria-label="Command category filters">
           <button
             type="button"
-            [class.active]="selectedCategory === 'all'" [attr.aria-pressed]="selectedCategory === 'all'"
+            class="palette-dialog-tab"
+            [class.active]="selectedCategory === 'all'"
+            [class.is-active]="selectedCategory === 'all'"
+            [attr.aria-pressed]="selectedCategory === 'all'"
             (click)="selectCategory('all')">
             All
           </button>
           <button
             *ngFor="let category of categories"
             type="button"
-            [class.active]="selectedCategory === category" [attr.aria-pressed]="selectedCategory === category"
+            class="palette-dialog-tab"
+            [class.active]="selectedCategory === category"
+            [class.is-active]="selectedCategory === category"
+            [attr.aria-pressed]="selectedCategory === category"
             (click)="selectCategory(category)">
             {{ category }}
           </button>
+          <label class="available-toggle">
+            <input type="checkbox" [checked]="availableOnly" (change)="onAvailableOnlyToggle($event)" />
+            <span>Available Only</span>
+          </label>
         </nav>
 
-        <div id="command-list" class="commands" role="listbox" aria-label="Commands">
+        <div id="command-list" class="commands palette-dialog-body palette-dialog-list" role="listbox" aria-label="Commands">
           <button *ngFor="let command of filteredCommands; let i=index; trackBy:trackCommand"
-            type="button" class="command" role="option"
+            type="button" class="command palette-dialog-item" role="option"
             [class.selected]="i === selectedIndex"
+            [class.is-selected]="i === selectedIndex"
             [class.disabled]="!enabled(command)"
             [attr.aria-selected]="i === selectedIndex"
             [attr.aria-posinset]="i + 1"
@@ -104,10 +116,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <span class="state" *ngIf="!enabled(command)">Unavailable</span>
           </button>
 
-          <div class="empty" *ngIf="filteredCommands.length === 0" role="status">No matching commands.</div>
+          <div class="empty palette-dialog-empty" *ngIf="filteredCommands.length === 0" role="status">No matching commands.</div>
         </div>
 
-        <footer>
+        <footer class="palette-dialog-footer">
           <span>↑ ↓ navigate · Enter run</span>
           <span>Ctrl+Shift+P</span>
         </footer>
@@ -125,6 +137,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     header span,footer,.command small,.state{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .query{font-size:18px}.query input{flex:1;height:34px;border:0;outline:0;background:transparent;color:inherit;font:13px var(--vsc-font-family,system-ui,sans-serif)}
     .categories{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:6px 10px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .available-toggle{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--vsc-description-foreground);white-space:nowrap;cursor:pointer;padding-left:8px}
     .categories button{padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
     .categories button:hover{color:var(--vsc-foreground);background:var(--vsc-list-hover-background)}
     .categories button.active{color:var(--vsc-foreground);border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 14%,transparent)}
@@ -148,6 +161,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   isClosing = false;
   query = '';
   selectedCategory = 'all';
+  availableOnly = false;
   selectedIndex = 0;
   private readonly modalStack = tryInjectModalStack();
   private readonly hostElement = tryInjectElementRef();
@@ -173,10 +187,13 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const recentRank = new Map<string, number>();
     recentIds.forEach((id, idx) => recentRank.set(id, idx));
 
-    const scoped =
+    const categoryFiltered =
       this.selectedCategory === 'all'
         ? [...this.commands]
         : this.commands.filter(command => command.category === this.selectedCategory);
+    const scoped = this.availableOnly
+      ? categoryFiltered.filter(command => this.enabled(command))
+      : categoryFiltered;
 
     if (!query) {
       return scoped.sort((a, b) => {
@@ -279,6 +296,12 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   selectCategory(category: string): void {
     this.selectedCategory = category;
+    this.selectedIndex = 0;
+    this.cdr.markForCheck();
+  }
+
+  onAvailableOnlyToggle(event: Event): void {
+    this.availableOnly = (event.target as HTMLInputElement).checked;
     this.selectedIndex = 0;
     this.cdr.markForCheck();
   }

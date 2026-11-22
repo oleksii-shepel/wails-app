@@ -116,6 +116,17 @@ export interface ElevatedSessionStatus {
   error: string;
 }
 
+export interface CliExecResult {
+  ok: boolean;
+  cwd: string;
+  changedCwd?: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+  error?: string;
+}
+
 function castProtocol<T>(value: unknown): T {
   return value as T;
 }
@@ -764,6 +775,33 @@ export class ApiService {
     return castProtocol<SearchResult>(await window.go.app.App.Search(this.normalizeCanonicalPath(path), pattern, recursive));
   }
 
+  async searchContent(
+    path: string,
+    pattern: string,
+    contentQuery: string,
+    recursive: boolean = true,
+    caseSensitive: boolean = false,
+  ): Promise<SearchResult> {
+    const normalizedPath = this.normalizeCanonicalPath(path);
+    const trimmedContent = contentQuery.trim();
+    if (!trimmedContent) {
+      return await this.search(normalizedPath, pattern, recursive);
+    }
+    const app = window.go.app.App as unknown as {
+      Search(
+        p: string,
+        pat: string,
+        rec: boolean,
+        contentQuery?: string,
+        caseSensitive?: boolean,
+      ): Promise<SearchResult>;
+    };
+    const result = castProtocol<SearchResult>(
+      await app.Search(normalizedPath, pattern, recursive, trimmedContent, caseSensitive),
+    );
+    return result;
+  }
+
   async buildSearchAlias(path: string, pattern: string, recursive: boolean = true): Promise<string> {
     return await window.go.app.App.BuildSearchAlias(this.normalizeCanonicalPath(path), pattern, recursive);
   }
@@ -1274,5 +1312,39 @@ export class ApiService {
     } catch {
       return false;
     }
+  }
+
+  async executeCliCommand(
+    command: string,
+    cwd: string,
+    color = true,
+  ): Promise<CliExecResult> {
+    const response = await fetch('/api/cli/exec', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, cwd, color }),
+    });
+    const data = (await response.json()) as Partial<CliExecResult>;
+    if (!response.ok && data.error) {
+      return {
+        ok: false,
+        cwd,
+        stdout: data.stdout ?? '',
+        stderr: data.stderr || `${data.error}\n`,
+        exitCode: data.exitCode ?? 2,
+        durationMs: data.durationMs ?? 0,
+        error: data.error,
+      };
+    }
+    return {
+      ok: !!data.ok,
+      cwd: data.cwd || cwd,
+      changedCwd: !!data.changedCwd,
+      stdout: data.stdout ?? '',
+      stderr: data.stderr ?? '',
+      exitCode: data.exitCode ?? (data.ok ? 0 : 1),
+      durationMs: data.durationMs ?? 0,
+      error: data.error,
+    };
   }
 }

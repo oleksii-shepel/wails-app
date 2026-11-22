@@ -42,11 +42,34 @@ import type {
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
 type DiskSort = 'size' | 'files' | 'name';
 type DuplicateSort = 'reclaimable' | 'size' | 'copies';
+type ChecksumMode = 'single' | 'batch';
+type SplitJoinMode = 'split' | 'join';
 
 interface ChecksumAlgorithmRow {
   id: 'sha256' | 'sha512' | 'sha1' | 'md5';
   label: string;
   value: string;
+}
+
+interface BatchChecksumEntry {
+  path: string;
+  name: string;
+  size: number;
+  sha256: string;
+  error?: string;
+}
+
+interface ManifestVerifyRow {
+  expectedHash: string;
+  targetName: string;
+  status: 'match' | 'mismatch' | 'missing';
+  actualHash?: string;
+}
+
+interface SplitPartGroup {
+  baseName: string;
+  destination: string;
+  parts: string[];
 }
 
 const CONTEXT_ID = 'overlay.Tools';
@@ -59,6 +82,7 @@ const COMMAND = {
   duplicates: 'reassembly.toolsCenter.duplicates',
   checksums: 'reassembly.toolsCenter.checksums',
   inventory: 'reassembly.toolsCenter.inventory',
+  splitJoin: 'reassembly.toolsCenter.splitJoin',
   rescan: 'reassembly.toolsCenter.rescan',
   selectAllDuplicates: 'reassembly.toolsCenter.selectAllDuplicates',
   clearDuplicateSelection: 'reassembly.toolsCenter.clearDuplicateSelection',
@@ -73,6 +97,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.toolsCenter.page3', commandId:COMMAND.duplicates, contextId:CONTEXT_ID, source:'default', description:'Duplicates page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
   { id:'reassembly.toolsCenter.page4', commandId:COMMAND.checksums, contextId:CONTEXT_ID, source:'default', description:'Checksums page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'4'}]}}},
   { id:'reassembly.toolsCenter.page5', commandId:COMMAND.inventory, contextId:CONTEXT_ID, source:'default', description:'Folder Inventory page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'5'}]}}},
+  { id:'reassembly.toolsCenter.page6', commandId:COMMAND.splitJoin, contextId:CONTEXT_ID, source:'default', description:'Split & Join page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'6'}]}}},
   { id:'reassembly.toolsCenter.rescan', commandId:COMMAND.rescan, contextId:CONTEXT_ID, source:'default', description:'Rescan current tool', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'r'}]}}},
   { id:'reassembly.toolsCenter.selectAllDuplicates', commandId:COMMAND.selectAllDuplicates, contextId:CONTEXT_ID, source:'default', description:'Select reclaimable duplicates', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'a'}]}}},
   { id:'reassembly.toolsCenter.clearDuplicateSelection', commandId:COMMAND.clearDuplicateSelection, contextId:CONTEXT_ID, source:'default', description:'Clear duplicate selection', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'u'}]}}},
@@ -105,6 +130,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <button type="button" role="tab" id="tool-tab-duplicates" aria-controls="tool-panel-duplicates" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="setPage('duplicates')">Duplicates</button>
           <button type="button" role="tab" id="tool-tab-checksums" aria-controls="tool-panel-checksums" [attr.aria-selected]="page === 'checksums'" [attr.tabindex]="page === 'checksums' ? 0 : -1" [class.active]="page === 'checksums'" (click)="setPage('checksums')">Checksums</button>
           <button type="button" role="tab" id="tool-tab-inventory" aria-controls="tool-panel-inventory" [attr.aria-selected]="page === 'inventory'" [attr.tabindex]="page === 'inventory' ? 0 : -1" [class.active]="page === 'inventory'" (click)="setPage('inventory')">Folder Inventory</button>
+          <button type="button" role="tab" id="tool-tab-split-join" aria-controls="tool-panel-split-join" [attr.aria-selected]="page === 'split-join'" [attr.tabindex]="page === 'split-join' ? 0 : -1" [class.active]="page === 'split-join'" (click)="setPage('split-join')">Split &amp; Join</button>
         </nav>
 
         <div class="body" role="tabpanel" id="tool-panel-inventory" aria-labelledby="tool-tab-inventory" tabindex="0"
@@ -348,79 +374,357 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
         <div class="body" role="tabpanel" id="tool-panel-checksums" aria-labelledby="tool-tab-checksums" tabindex="0" *ngIf="page === 'checksums'">
           <div class="tool-actions palette-dialog-toolbar">
-            <select
-              *ngIf="checksumCandidates.length > 0"
-              class="checksum-select palette-dialog-field"
-              [value]="checksumTargetPath"
-              (change)="onChecksumCandidateSelect($event)"
-              aria-label="Files in active directory">
-              <option value="">Select file from active directory…</option>
-              <option *ngFor="let file of checksumCandidates" [value]="file.path">
-                {{ file.name }} ({{ formatBytes(file.size) }})
-              </option>
-            </select>
-            <input
-              type="text"
-              class="checksum-path-input palette-dialog-field"
-              [value]="checksumTargetPath"
-              (input)="onChecksumPathInput($event)"
-              (keydown.enter)="computeChecksums()"
-              placeholder="Enter or choose file path…"
-              aria-label="Target file path" />
-            <button
-              type="button"
-              [disabled]="checksumComputing || !checksumTargetPath.trim()"
-              (click)="computeChecksums()">
-              {{ checksumComputing ? 'Hashing…' : 'Compute' }}
-            </button>
+            <div class="mode-switch" role="tablist" aria-label="Checksum mode">
+              <button
+                type="button"
+                role="tab"
+                [attr.aria-selected]="checksumMode === 'single'"
+                [class.active]="checksumMode === 'single'"
+                (click)="setChecksumMode('single')">
+                Single File
+              </button>
+              <button
+                type="button"
+                role="tab"
+                [attr.aria-selected]="checksumMode === 'batch'"
+                [class.active]="checksumMode === 'batch'"
+                (click)="setChecksumMode('batch')">
+                Batch Manifest
+              </button>
+            </div>
+
+            <ng-container *ngIf="checksumMode === 'single'">
+              <select
+                *ngIf="checksumCandidates.length > 0"
+                class="checksum-select"
+                [value]="checksumTargetPath"
+                (change)="onChecksumCandidateSelect($event)"
+                aria-label="Files in active directory">
+                <option value="">Select file from active directory…</option>
+                <option *ngFor="let file of checksumCandidates" [value]="file.path">
+                  {{ file.name }} ({{ formatBytes(file.size) }})
+                </option>
+              </select>
+              <input
+                type="text"
+                class="checksum-path-input"
+                [value]="checksumTargetPath"
+                (input)="onChecksumPathInput($event)"
+                (keydown.enter)="computeChecksums()"
+                placeholder="Enter or choose file path…"
+                aria-label="Target file path" />
+              <button
+                type="button"
+                [disabled]="checksumComputing || !checksumTargetPath.trim()"
+                (click)="computeChecksums()">
+                {{ checksumComputing ? 'Hashing…' : 'Compute' }}
+              </button>
+              <button
+                type="button"
+                *ngIf="singleSha256Line"
+                (click)="copyText(singleSha256Line)">
+                {{ copiedValue === singleSha256Line ? 'Copied .sha256' : 'Copy .sha256 Line' }}
+              </button>
+            </ng-container>
+
+            <ng-container *ngIf="checksumMode === 'batch'">
+              <input
+                type="search"
+                class="tool-filter-input"
+                [value]="batchFilter"
+                (input)="onBatchFilterInput($event)"
+                placeholder="Filter files…"
+                aria-label="Filter files for batch manifest" />
+              <button type="button" (click)="selectAllBatchFiles()" [disabled]="filteredBatchCandidates.length === 0">Select All</button>
+              <button type="button" (click)="clearBatchSelection()" [disabled]="batchSelectedPaths.size === 0">Unselect</button>
+              <button
+                type="button"
+                class="btn-primary-inline"
+                [disabled]="batchRunning || batchSelectedPaths.size === 0"
+                (click)="runBatchManifest()">
+                {{ batchRunning ? 'Hashing (' + batchDoneCount + '/' + batchTotalCount + ')…' : 'Hash Selected (' + batchSelectedPaths.size + ')' }}
+              </button>
+              <button
+                type="button"
+                *ngIf="batchResults.length > 0"
+                (click)="copyBatchManifest()">
+                {{ copiedValue === manifestText ? 'Manifest Copied' : 'Copy .sha256 Manifest' }}
+              </button>
+            </ng-container>
           </div>
 
-          <div class="summary" *ngIf="checksumResults.length > 0">
-            <span>{{ checksumTargetPath }}</span>
-            <span *ngIf="checksumFileSize !== null">{{ formatBytes(checksumFileSize) }}</span>
-            <button type="button" class="palette-dialog-button" (click)="copyChecksumReport()">{{ copiedValue === checksumReport ? 'Copied' : 'Copy all checksums' }}</button>
-          </div>
+          <ng-container *ngIf="checksumMode === 'single'">
+            <div class="summary" *ngIf="checksumResults.length > 0">
+              <span>{{ checksumTargetPath }}</span>
+              <span *ngIf="checksumFileSize !== null">{{ formatBytes(checksumFileSize) }}</span>
+            </div>
 
-          <div class="checksum-grid" *ngIf="checksumResults.length > 0">
-            <div class="checksum-row" *ngFor="let item of checksumResults">
-              <span class="checksum-algo">{{ item.label }}</span>
-              <code class="checksum-digest" [title]="item.value">{{ item.value }}</code>
-              <button type="button" class="copy-mini-btn" (click)="copyDigest(item.value)">
-                {{ copiedValue === item.value ? 'Copied' : 'Copy' }}
+            <div class="checksum-grid" *ngIf="checksumResults.length > 0">
+              <div class="checksum-row" *ngFor="let item of checksumResults">
+                <span class="checksum-algo">{{ item.label }}</span>
+                <code class="checksum-digest" [title]="item.value">{{ item.value }}</code>
+                <button type="button" class="copy-mini-btn" (click)="copyDigest(item.value)">
+                  {{ copiedValue === item.value ? 'Copied' : 'Copy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="checksum-verify" *ngIf="checksumResults.length > 0">
+              <label for="checksum-expected">Verify expected digest ({{ availableChecksumAlgorithms }})</label>
+              <div class="checksum-verify-row">
+                <input
+                  id="checksum-expected"
+                  type="text"
+                  class="checksum-path-input"
+                  [value]="expectedDigest"
+                  (input)="onExpectedDigestInput($event)"
+                  placeholder="Paste expected hex digest to verify…" />
+                <span
+                  *ngIf="expectedDigest.trim()"
+                  class="verify-status"
+                  role="status"
+                  [class.match]="!!matchedAlgorithm"
+                  [class.mismatch]="!matchedAlgorithm">
+                  {{ matchedAlgorithm ? 'Match (' + matchedAlgorithm + ')' : 'Does not match any digest' }}
+                </span>
+              </div>
+            </div>
+
+            <div class="empty" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
+              Choose a file or enter a path to compute its checksum.
+            </div>
+            <div class="error" role="alert" *ngIf="checksumError">{{ checksumError }}</div>
+          </ng-container>
+
+          <ng-container *ngIf="checksumMode === 'batch'">
+            <div class="batch-picker" *ngIf="checksumCandidates.length > 0">
+              <label class="batch-file-item" *ngFor="let file of filteredBatchCandidates">
+                <input
+                  type="checkbox"
+                  [checked]="batchSelectedPaths.has(file.path)"
+                  (change)="toggleBatchFile(file.path)">
+                <span class="batch-name" [title]="file.path">{{ file.name }}</span>
+                <span class="num">{{ formatBytes(file.size) }}</span>
+              </label>
+            </div>
+            <div class="empty" *ngIf="checksumCandidates.length === 0">
+              No regular files found in {{ rootPath || 'active directory' }}.
+            </div>
+
+            <div class="summary" *ngIf="batchResults.length > 0">
+              <span>{{ batchResults.length }} hashed</span>
+              <span>Total: {{ formatBytes(batchTotalBytes) }}</span>
+            </div>
+
+            <div class="batch-results" *ngIf="batchResults.length > 0">
+              <div class="checksum-row" *ngFor="let row of batchResults">
+                <span class="batch-file-label" [title]="row.path">{{ row.name }}</span>
+                <code class="checksum-digest" [class.operation-error]="!!row.error">{{ row.error || row.sha256 }}</code>
+                <button type="button" class="copy-mini-btn" [disabled]="!!row.error" (click)="copyDigest(row.sha256)">
+                  {{ copiedValue === row.sha256 ? 'Copied' : 'Copy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="manifest-verify" *ngIf="batchResults.length > 0 || checksumCandidates.length > 0">
+              <label for="manifest-verify-input">Verify against .sha256 manifest (format: &lt;sha256&gt;  &lt;filename&gt;)</label>
+              <textarea
+                id="manifest-verify-input"
+                rows="4"
+                class="manifest-textarea"
+                [value]="manifestVerifyInput"
+                (input)="onManifestVerifyInput($event)"
+                placeholder="Paste lines like:&#10;e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  example.txt"></textarea>
+              <div class="manifest-verify-rows" *ngIf="manifestVerifyRows.length > 0">
+                <div class="manifest-verify-row" *ngFor="let vr of manifestVerifyRows">
+                  <span class="verify-status" [class.match]="vr.status === 'match'" [class.mismatch]="vr.status !== 'match'">
+                    {{ vr.status === 'match' ? 'Match' : vr.status === 'mismatch' ? 'Mismatch' : 'Missing/Unhashed' }}
+                  </span>
+                  <span class="batch-file-label">{{ vr.targetName }}</span>
+                  <code class="checksum-digest">{{ vr.expectedHash }}</code>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+        </div>
+
+        <div class="body" role="tabpanel" id="tool-panel-split-join" aria-labelledby="tool-tab-split-join" tabindex="0" *ngIf="page === 'split-join'">
+          <div class="tool-actions palette-dialog-toolbar">
+            <div class="mode-switch" role="tablist" aria-label="Split or Join mode">
+              <button
+                type="button"
+                role="tab"
+                [attr.aria-selected]="splitJoinMode === 'split'"
+                [class.active]="splitJoinMode === 'split'"
+                (click)="setSplitJoinMode('split')">
+                Split File
+              </button>
+              <button
+                type="button"
+                role="tab"
+                [attr.aria-selected]="splitJoinMode === 'join'"
+                [class.active]="splitJoinMode === 'join'"
+                (click)="setSplitJoinMode('join')">
+                Join Parts
               </button>
             </div>
           </div>
 
-          <div class="checksum-verify" *ngIf="checksumResults.length > 0">
-            <label for="checksum-expected">Verify expected digest ({{ availableChecksumAlgorithms }})</label>
-            <div class="checksum-verify-row">
-              <input
-                id="checksum-expected"
-                type="text"
-                class="checksum-path-input palette-dialog-field"
-                [value]="expectedDigest"
-                (input)="onExpectedDigestInput($event)"
-                placeholder="Paste expected hex digest to verify…" />
-              <span
-                *ngIf="expectedDigest.trim()"
-                class="verify-status"
-                role="status"
-                [class.match]="!!matchedAlgorithm"
-                [class.mismatch]="!matchedAlgorithm">
-                {{ matchedAlgorithm ? 'Match (' + matchedAlgorithm + ')' : 'Does not match any digest' }}
-              </span>
-            </div>
-          </div>
+          <ng-container *ngIf="splitJoinMode === 'split'">
+            <div class="sj-form">
+              <div class="sj-field">
+                <label for="split-source-select">Source file</label>
+                <div class="sj-row">
+                  <select
+                    id="split-source-select"
+                    *ngIf="checksumCandidates.length > 0"
+                    class="checksum-select"
+                    [value]="splitTargetPath"
+                    (change)="onSplitCandidateSelect($event)">
+                    <option value="">Select file from active directory…</option>
+                    <option *ngFor="let file of checksumCandidates" [value]="file.path">
+                      {{ file.name }} ({{ formatBytes(file.size) }})
+                    </option>
+                  </select>
+                  <input
+                    type="text"
+                    class="checksum-path-input"
+                    [value]="splitTargetPath"
+                    (input)="onSplitPathInput($event)"
+                    placeholder="Path to file to split…"
+                    aria-label="Source file path to split" />
+                </div>
+              </div>
 
-          <div class="empty" role="status" *ngIf="!checksumComputing && checksumResults.length === 0 && !checksumError">
-            Choose a file or enter a path to compute its checksum.
-          </div>
-          <div class="error" role="alert" *ngIf="checksumError">{{ checksumError }}</div>
+              <div class="sj-field">
+                <label>Chunk size</label>
+                <div class="sj-presets">
+                  <button type="button" [class.active]="splitPartSizeBytes === 102400" (click)="setSplitPreset(102400)">100 KB</button>
+                  <button type="button" [class.active]="splitPartSizeBytes === 1048576" (click)="setSplitPreset(1048576)">1 MB</button>
+                  <button type="button" [class.active]="splitPartSizeBytes === 10485760" (click)="setSplitPreset(10485760)">10 MB</button>
+                  <button type="button" [class.active]="splitPartSizeBytes === 52428800" (click)="setSplitPreset(52428800)">50 MB</button>
+                  <button type="button" [class.active]="splitPartSizeBytes === 104857600" (click)="setSplitPreset(104857600)">100 MB</button>
+                  <label class="sj-custom">
+                    Custom (KB)
+                    <input
+                      type="number"
+                      min="1"
+                      [value]="splitCustomKb"
+                      (input)="onSplitCustomKbInput($event)"
+                      aria-label="Custom part size in kilobytes" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="summary">
+                <span>Part size: {{ formatBytes(splitPartSizeBytes) }}</span>
+                <span *ngIf="selectedSplitFileSize !== null">Source: {{ formatBytes(selectedSplitFileSize) }}</span>
+                <span *ngIf="predictedSplitPartCount > 0">Estimated output: {{ predictedSplitPartCount }} parts (.part001 … .part{{ formatPartIndex(predictedSplitPartCount) }})</span>
+              </div>
+
+              <div class="sj-actions">
+                <button
+                  type="button"
+                  class="btn-primary-inline"
+                  [disabled]="splitRunning || !splitTargetPath.trim()"
+                  (click)="executeSplit()">
+                  {{ splitRunning ? 'Splitting…' : 'Split File' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="sj-output" *ngIf="splitCreatedParts.length > 0">
+              <div class="summary">
+                <span>Created {{ splitCreatedParts.length }} parts</span>
+                <button type="button" (click)="openContainingFolder(splitCreatedParts[0])">Open Folder</button>
+              </div>
+              <div class="checksum-row" *ngFor="let part of splitCreatedParts">
+                <span class="checksum-algo">Part</span>
+                <code class="checksum-digest" [title]="part">{{ part }}</code>
+                <button type="button" class="copy-mini-btn" (click)="copyPath(part)">
+                  {{ copiedValue === part ? 'Copied' : 'Copy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="error" *ngIf="splitError">{{ splitError }}</div>
+          </ng-container>
+
+          <ng-container *ngIf="splitJoinMode === 'join'">
+            <div class="sj-form">
+              <div class="sj-detected" *ngIf="detectedPartGroups.length > 0">
+                <div class="sj-detected-title">Detected part sequences in active directory</div>
+                <div class="sj-detected-list">
+                  <button
+                    type="button"
+                    *ngFor="let grp of detectedPartGroups"
+                    class="sj-group-btn"
+                    (click)="useDetectedPartGroup(grp)">
+                    {{ grp.baseName }} ({{ grp.parts.length }} parts)
+                  </button>
+                </div>
+              </div>
+
+              <div class="sj-field">
+                <label for="join-add-part">Add part path</label>
+                <div class="sj-row">
+                  <input
+                    id="join-add-part"
+                    type="text"
+                    class="checksum-path-input"
+                    [value]="joinPartInput"
+                    (input)="onJoinPartInput($event)"
+                    (keydown.enter)="addJoinPart()"
+                    placeholder="Enter path to .part001 or chunk…" />
+                  <button type="button" [disabled]="!joinPartInput.trim()" (click)="addJoinPart()">Add Part</button>
+                </div>
+              </div>
+
+              <div class="sj-part-list" *ngIf="joinParts.length > 0">
+                <div class="sj-part-item" *ngFor="let part of joinParts; let i = index">
+                  <span class="num">#{{ i + 1 }}</span>
+                  <code class="checksum-digest" [title]="part">{{ part }}</code>
+                  <button type="button" class="copy-mini-btn" [disabled]="i === 0" (click)="moveJoinPart(i, -1)">↑</button>
+                  <button type="button" class="copy-mini-btn" [disabled]="i === joinParts.length - 1" (click)="moveJoinPart(i, 1)">↓</button>
+                  <button type="button" class="copy-mini-btn danger" (click)="removeJoinPart(i)">Remove</button>
+                </div>
+              </div>
+              <div class="empty" *ngIf="joinParts.length === 0">
+                Add at least two part files (or choose a detected .part001 sequence above) to reassemble them in order.
+              </div>
+
+              <div class="sj-field">
+                <label for="join-destination">Output destination path</label>
+                <div class="sj-row">
+                  <input
+                    id="join-destination"
+                    type="text"
+                    class="checksum-path-input"
+                    [value]="joinDestination"
+                    (input)="onJoinDestinationInput($event)"
+                    placeholder="Reassembled output file path…" />
+                  <button
+                    type="button"
+                    class="btn-primary-inline"
+                    [disabled]="joinRunning || joinParts.length < 2 || !joinDestination.trim()"
+                    (click)="executeJoin()">
+                    {{ joinRunning ? 'Joining…' : 'Join Parts' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="summary" *ngIf="joinCompletedPath">
+              <span>Joined successfully: {{ joinCompletedPath }}</span>
+              <button type="button" (click)="openContainingFolder(joinCompletedPath)">Open Folder</button>
+            </div>
+            <div class="error" *ngIf="joinError">{{ joinError }}</div>
+          </ng-container>
         </div>
 
         <p class="error" role="alert" *ngIf="clipboardError">{{ clipboardError }}</p>
         <footer class="tool-keys palette-dialog-footer">
-          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · 5 Inventory</span>
+          <span class="palette-dialog-footnote">1 Operations · 2 Disk · 3 Duplicates · 4 Checksums · 5 Inventory · 6 Split &amp; Join</span>
           <span *ngIf="page === 'duplicates'" class="palette-dialog-footnote">A select · U unselect · B basket · Delete move to Trash</span>
         </footer>
       </section>
@@ -429,13 +733,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   styleUrls: ['./tools-dialog-remote-theme.scss'],
   styles: [`
     :host{position:fixed;inset:0;z-index:9490;pointer-events:none}
-    .tools{width:min(920px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column}
+    .tools{width:min(940px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column}
     .root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    button,input,select{font:inherit}
+    button,input,select,textarea{font:inherit}
     .tool-actions button{border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer}
     .tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
     nav span{opacity:.6;margin-left:4px}.body{flex:1;min-height:0;overflow:auto}.summary,.tool-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--vsc-border-subtle);font-variant-numeric:tabular-nums}
-    .tool-actions label{display:flex;align-items:center;gap:5px}.tool-actions input[type=number]{width:82px;background:var(--vsc-input-background);color:inherit;border:1px solid var(--vsc-border);padding:3px 5px}
+    .tool-actions label{display:flex;align-items:center;gap:5px}.tool-actions input[type=number],.sj-custom input[type=number]{width:82px;background:var(--vsc-input-background);color:inherit;border:1px solid var(--vsc-border);padding:3px 5px}
     .tool-filter-input{flex:1;min-width:min(150px,100%)}
     .danger{color:var(--vsc-error-foreground,var(--vsc-error))!important}.operation{padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}.row{display:flex;justify-content:space-between;gap:10px}.operation small{display:block;margin-top:4px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .progress,.bar{height:4px;margin-top:6px;background:var(--vsc-neutral-overlay-soft);overflow:hidden;border-radius:99px}.progress i,.bar i{display:block;height:100%;background:var(--vsc-accent-blue)}
@@ -457,15 +761,47 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     }
     .checksum-grid{display:grid;gap:1px;border-bottom:1px solid var(--vsc-border-subtle)}
     .checksum-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .mode-switch{display:inline-flex;border:1px solid var(--vsc-border);border-radius:4px;overflow:hidden}
+    .mode-switch button{border:0!important;border-radius:0!important;padding:4px 10px!important;font-size:11px}
+    .mode-switch button.active{background:var(--vsc-list-active-background)!important;color:var(--vsc-list-active-foreground)}
+    .btn-primary-inline{border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border))!important;background:color-mix(in srgb,var(--vsc-accent-blue) 18%,transparent)!important}
+    .checksum-select{max-width:260px;height:26px;padding:0 6px}
+    .checksum-path-input{flex:1;min-width:200px;height:26px;padding:0 8px;font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px}
+    .checksum-grid,.batch-results{display:grid;gap:1px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .checksum-row{display:grid;grid-template-columns:120px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--vsc-border-subtle)}
     .checksum-row:last-child{border-bottom:0}
-    .checksum-algo{font-size:11px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .checksum-algo,.batch-file-label{font-size:11px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .checksum-digest{font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
-    .checksum-verify{display:grid;gap:6px;padding:12px}
-    .checksum-verify label{font-size:11px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .checksum-verify,.manifest-verify{display:grid;gap:6px;padding:12px}
+    .checksum-verify label,.manifest-verify label{font-size:11px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .checksum-verify-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
     .verify-status{font-size:11px;font-weight:600}
     .verify-status.match{color:var(--vsc-accent-green,var(--vsc-success))}
     .verify-status.mismatch{color:var(--vsc-error-foreground,var(--vsc-error))}
+    .batch-picker{max-height:190px;overflow:auto;border-bottom:1px solid var(--vsc-border-subtle)}
+    .batch-file-item{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px 12px;border-bottom:1px solid var(--vsc-neutral-overlay-subtle);cursor:pointer}
+    .batch-file-item:hover{background:var(--vsc-list-hover-background)}
+    .batch-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .manifest-textarea{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--vsc-border);border-radius:3px;background:var(--vsc-input-background);color:inherit;font-family:var(--vsc-font-family-mono,ui-monospace,monospace);font-size:11px;resize:vertical}
+    .manifest-verify-rows{display:grid;gap:4px;margin-top:4px}
+    .manifest-verify-row{display:grid;grid-template-columns:110px 160px minmax(0,1fr);gap:8px;align-items:center;padding:4px 8px;border:1px solid var(--vsc-border-subtle);border-radius:3px}
+    .sj-form{display:grid;gap:12px;padding:12px}
+    .sj-field{display:grid;gap:6px}
+    .sj-field>label{font-size:11px;font-weight:600;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .sj-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .sj-presets{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .sj-presets button{border:1px solid var(--vsc-border);border-radius:4px;padding:4px 9px}
+    .sj-presets button.active{background:var(--vsc-list-active-background);color:var(--vsc-list-active-foreground);border-color:var(--vsc-accent-blue)}
+    .sj-custom{display:inline-flex;align-items:center;gap:6px;margin-left:4px}
+    .sj-actions{display:flex;gap:8px}
+    .sj-actions button,.sj-row button{border:1px solid var(--vsc-border);border-radius:4px;padding:5px 10px}
+    .sj-detected{display:grid;gap:6px;padding:8px 10px;border:1px solid var(--vsc-border-subtle);border-radius:4px;background:var(--vsc-neutral-overlay-subtle)}
+    .sj-detected-title{font-size:11px;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .sj-detected-list{display:flex;gap:6px;flex-wrap:wrap}
+    .sj-group-btn{border:1px solid var(--vsc-border);border-radius:4px;padding:4px 8px;font-size:11px}
+    .sj-part-list{display:grid;border:1px solid var(--vsc-border-subtle);border-radius:4px;max-height:200px;overflow:auto}
+    .sj-part-item{display:grid;grid-template-columns:36px minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--vsc-border-subtle)}
+    .sj-part-item:last-child{border-bottom:0}
     .empty{padding:48px 20px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.error,.warnings{margin:8px 12px;padding:8px;border-radius:4px}.error{color:var(--vsc-error-foreground,var(--vsc-error));background:var(--vsc-error-surface)}.warnings{color:var(--vsc-accent-yellow);background:var(--vsc-warning-surface)}
     button:disabled{opacity:.4;cursor:default}
     .disk-row-button{border-left:0;border-right:0;background:transparent;color:inherit;text-align:left;width:100%}
@@ -518,6 +854,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   duplicateSelected = new Set<string>();
   duplicateError = '';
 
+  checksumMode: ChecksumMode = 'single';
   checksumCandidates: FileInfo[] = [];
   checksumTargetPath = '';
   checksumComputing = false;
@@ -531,6 +868,29 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
   expectedDigest = '';
   copiedValue = '';
   clipboardError = '';
+
+  batchFilter = '';
+  batchSelectedPaths = new Set<string>();
+  batchRunning = false;
+  batchDoneCount = 0;
+  batchTotalCount = 0;
+  batchResults: BatchChecksumEntry[] = [];
+  manifestVerifyInput = '';
+
+  splitJoinMode: SplitJoinMode = 'split';
+  splitTargetPath = '';
+  splitPartSizeBytes = 1048576;
+  splitCustomKb = 1024;
+  splitRunning = false;
+  splitCreatedParts: string[] = [];
+  splitError = '';
+
+  joinPartInput = '';
+  joinParts: string[] = [];
+  joinDestination = '';
+  joinRunning = false;
+  joinCompletedPath = '';
+  joinError = '';
 
   private readonly destroy$ = createSubject<void>();
   private readonly modalStack = tryInjectModalStack();
@@ -631,6 +991,94 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     return match ? match.label : null;
   }
 
+  get singleSha256Line(): string {
+    const sha256 = this.checksumResults.find(row => row.id === 'sha256')?.value;
+    if (!sha256 || !this.checksumTargetPath.trim()) return '';
+    return `${sha256}  ${this.fileBaseName(this.checksumTargetPath)}`;
+  }
+
+  get filteredBatchCandidates(): FileInfo[] {
+    const q = this.batchFilter.trim().toLowerCase();
+    if (!q) return this.checksumCandidates;
+    return this.checksumCandidates.filter(f => (f.name ?? '').toLowerCase().includes(q));
+  }
+
+  get batchTotalBytes(): number {
+    return this.batchResults.reduce((sum, item) => sum + (item.size || 0), 0);
+  }
+
+  get manifestText(): string {
+    return this.batchResults
+      .filter(row => !!row.sha256 && !row.error)
+      .map(row => `${row.sha256}  ${row.name}`)
+      .join('\n');
+  }
+
+  get manifestVerifyRows(): ManifestVerifyRow[] {
+    const lines = this.manifestVerifyInput
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return [];
+    const byName = new Map<string, BatchChecksumEntry>();
+    for (const r of this.batchResults) {
+      if (r.sha256 && !r.error) byName.set(r.name, r);
+    }
+    const rows: ManifestVerifyRow[] = [];
+    for (const line of lines) {
+      const m = /^([a-fA-F0-9]{32,128})\s+\*?(.+)$/.exec(line);
+      if (!m) continue;
+      const expectedHash = m[1].toLowerCase();
+      const targetName = m[2].trim();
+      const found = byName.get(targetName);
+      if (!found) {
+        rows.push({ expectedHash, targetName, status: 'missing' });
+      } else if (found.sha256.toLowerCase() === expectedHash) {
+        rows.push({ expectedHash, targetName, status: 'match', actualHash: found.sha256 });
+      } else {
+        rows.push({ expectedHash, targetName, status: 'mismatch', actualHash: found.sha256 });
+      }
+    }
+    return rows;
+  }
+
+  get selectedSplitFileSize(): number | null {
+    const target = this.splitTargetPath.trim();
+    if (!target) return null;
+    const found = this.checksumCandidates.find(c => c.path === target);
+    return found ? found.size : null;
+  }
+
+  get predictedSplitPartCount(): number {
+    const size = this.selectedSplitFileSize;
+    if (size === null || size <= 0 || this.splitPartSizeBytes <= 0) return 0;
+    return Math.ceil(size / this.splitPartSizeBytes);
+  }
+
+  get detectedPartGroups(): SplitPartGroup[] {
+    const groups = new Map<string, { parts: Array<{ idx: number; path: string }>; dest: string }>();
+    for (const f of this.checksumCandidates) {
+      const match = /^(.*)\.part(\d{2,})$/i.exec(f.path);
+      if (!match) continue;
+      const dest = match[1];
+      const idx = Number.parseInt(match[2], 10);
+      const bucket = groups.get(dest) ?? { parts: [], dest };
+      bucket.parts.push({ idx, path: f.path });
+      groups.set(dest, bucket);
+    }
+    const out: SplitPartGroup[] = [];
+    for (const bucket of groups.values()) {
+      if (bucket.parts.length < 2) continue;
+      bucket.parts.sort((a, b) => a.idx - b.idx);
+      out.push({
+        baseName: this.fileBaseName(bucket.dest),
+        destination: bucket.dest,
+        parts: bucket.parts.map(p => p.path),
+      });
+    }
+    return out;
+  }
+
   ngOnInit(): void {
     this.operations.visibleOperations$
       .pipe(takeUntil(this.destroy$))
@@ -660,6 +1108,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.duplicates,title:'Tools: Duplicates',category:'Tools',execute:()=>this.setPage('duplicates')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.checksums,title:'Tools: Checksums',category:'Tools',execute:()=>this.setPage('checksums')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.inventory,title:'Tools: Folder Inventory',category:'Tools',execute:()=>this.setPage('inventory')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.splitJoin,title:'Tools: Split & Join',category:'Tools',execute:()=>this.setPage('split-join')},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page==='checksums'||((this.page==='disk'||this.page==='duplicates')&&!!this.rootPath)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
@@ -688,7 +1137,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  open(page: AppOverlayToolsPage, rootPath: string): void {
+  open(page: AppOverlayToolsPage, rootPath: string, targetPath?: string): void {
     const rootChanged = this.rootPath !== rootPath;
     this.inventoryOpened = page === 'inventory' || (this.visible && !rootChanged && this.inventoryOpened);
     this.page = page;
@@ -718,6 +1167,24 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
       this.checksumResults = [];
       this.checksumFileSize = null;
       this.checksumError = '';
+      this.batchSelectedPaths = new Set();
+      this.batchResults = [];
+      this.splitTargetPath = '';
+      this.splitCreatedParts = [];
+      this.splitError = '';
+      this.joinParts = [];
+      this.joinDestination = '';
+      this.joinCompletedPath = '';
+      this.joinError = '';
+    }
+
+    if (targetPath && page === 'checksums') {
+      this.checksumMode = 'single';
+      this.checksumTargetPath = targetPath;
+      this.checksumResults = [];
+    } else if (targetPath && page === 'split-join') {
+      this.splitJoinMode = 'split';
+      this.splitTargetPath = targetPath;
     }
 
     this.input.activateContext(CONTEXT_ID);
@@ -734,8 +1201,14 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
     if (page === 'disk' && this.shouldAutoScanDisk) {
       void this.scanDisk();
-    } else if (page === 'checksums' && this.checksumCandidates.length === 0 && rootPath) {
-      void this.loadChecksumCandidates();
+    } else if ((page === 'checksums' || page === 'split-join') && this.checksumCandidates.length === 0 && rootPath) {
+      void this.loadChecksumCandidates().then(() => {
+        if (targetPath && page === 'checksums') {
+          void this.computeChecksums();
+        }
+      });
+    } else if (targetPath && page === 'checksums') {
+      void this.computeChecksums();
     }
   }
 
@@ -780,7 +1253,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
 
     if (page === 'disk' && this.shouldAutoScanDisk) {
       void this.scanDisk();
-    } else if (page === 'checksums' && this.checksumCandidates.length === 0 && this.rootPath) {
+    } else if ((page === 'checksums' || page === 'split-join') && this.checksumCandidates.length === 0 && this.rootPath) {
       void this.loadChecksumCandidates();
     }
   }
@@ -791,7 +1264,11 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     } else if (this.page === 'duplicates') {
       void this.scanDuplicates();
     } else if (this.page === 'checksums') {
-      void this.computeChecksums();
+      if (this.checksumMode === 'batch') {
+        void this.runBatchManifest();
+      } else {
+        void this.computeChecksums();
+      }
     }
   }
 
@@ -831,6 +1308,14 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  setChecksumMode(mode: ChecksumMode): void {
+    this.checksumMode = mode;
+    if (mode === 'batch' && this.batchSelectedPaths.size === 0 && this.checksumCandidates.length > 0) {
+      this.selectAllBatchFiles();
+    }
+    this.cdr.markForCheck();
+  }
+
   onChecksumCandidateSelect(event: Event): void {
     const val = (event.target as HTMLSelectElement).value;
     this.updateChecksumTarget(val);
@@ -850,6 +1335,37 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  onBatchFilterInput(event: Event): void {
+    this.batchFilter = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  toggleBatchFile(path: string): void {
+    const next = new Set(this.batchSelectedPaths);
+    next.has(path) ? next.delete(path) : next.add(path);
+    this.batchSelectedPaths = next;
+    this.cdr.markForCheck();
+  }
+
+  selectAllBatchFiles(): void {
+    const next = new Set(this.batchSelectedPaths);
+    for (const file of this.filteredBatchCandidates) {
+      next.add(file.path);
+    }
+    this.batchSelectedPaths = next;
+    this.cdr.markForCheck();
+  }
+
+  clearBatchSelection(): void {
+    this.batchSelectedPaths = new Set();
+    this.cdr.markForCheck();
+  }
+
+  onManifestVerifyInput(event: Event): void {
+    this.manifestVerifyInput = (event.target as HTMLTextAreaElement).value;
+    this.cdr.markForCheck();
+  }
+
   async loadChecksumCandidates(): Promise<void> {
     if (!this.rootPath) return;
     try {
@@ -861,6 +1377,9 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
         .slice(0, 200);
       if (!this.checksumTargetPath && this.checksumCandidates.length > 0) {
         this.checksumTargetPath = this.checksumCandidates[0].path;
+      }
+      if (!this.splitTargetPath && this.checksumCandidates.length > 0) {
+        this.splitTargetPath = this.checksumCandidates[0].path;
       }
       this.cdr.markForCheck();
     } catch {
@@ -909,6 +1428,170 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
         this.checksumComputing = false;
         this.cdr.markForCheck();
       }
+    }
+  }
+
+  async runBatchManifest(): Promise<void> {
+    const selected = this.checksumCandidates.filter(c => this.batchSelectedPaths.has(c.path));
+    if (selected.length === 0 || this.batchRunning) return;
+
+    this.batchRunning = true;
+    this.batchDoneCount = 0;
+    this.batchTotalCount = selected.length;
+    this.batchResults = [];
+    this.cdr.markForCheck();
+
+    const results: BatchChecksumEntry[] = [];
+    try {
+      for (const file of selected) {
+        try {
+          const sha256 = await this.api.hashFile(file.path);
+          results.push({
+            path: file.path,
+            name: file.name,
+            size: file.size,
+            sha256,
+          });
+        } catch (err) {
+          results.push({
+            path: file.path,
+            name: file.name,
+            size: file.size,
+            sha256: '',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        this.batchDoneCount += 1;
+        this.batchResults = [...results];
+        this.cdr.markForCheck();
+      }
+    } finally {
+      this.batchRunning = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  async copyBatchManifest(): Promise<void> {
+    const text = this.manifestText;
+    if (!text) return;
+    await this.copyText(text);
+  }
+
+  setSplitJoinMode(mode: SplitJoinMode): void {
+    this.splitJoinMode = mode;
+    this.cdr.markForCheck();
+  }
+
+  onSplitCandidateSelect(event: Event): void {
+    this.splitTargetPath = (event.target as HTMLSelectElement).value;
+    this.splitCreatedParts = [];
+    this.splitError = '';
+    this.cdr.markForCheck();
+  }
+
+  onSplitPathInput(event: Event): void {
+    this.splitTargetPath = (event.target as HTMLInputElement).value;
+    this.cdr.markForCheck();
+  }
+
+  setSplitPreset(bytes: number): void {
+    this.splitPartSizeBytes = bytes;
+    this.splitCustomKb = Math.max(1, Math.round(bytes / 1024));
+    this.cdr.markForCheck();
+  }
+
+  onSplitCustomKbInput(event: Event): void {
+    const kb = Math.max(1, Math.floor(Number((event.target as HTMLInputElement).value) || 1));
+    this.splitCustomKb = kb;
+    this.splitPartSizeBytes = kb * 1024;
+    this.cdr.markForCheck();
+  }
+
+  formatPartIndex(n: number): string {
+    return String(n).padStart(3, '0');
+  }
+
+  async executeSplit(): Promise<void> {
+    const target = this.splitTargetPath.trim();
+    if (!target || this.splitRunning) return;
+    this.splitRunning = true;
+    this.splitError = '';
+    this.splitCreatedParts = [];
+    this.cdr.markForCheck();
+
+    try {
+      const parts = await this.api.splitFile(target, this.splitPartSizeBytes);
+      this.splitCreatedParts = parts ?? [];
+      await this.loadChecksumCandidates();
+      this.changed.emit();
+    } catch (error) {
+      this.splitError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.splitRunning = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  useDetectedPartGroup(group: SplitPartGroup): void {
+    this.joinParts = [...group.parts];
+    this.joinDestination = group.destination;
+    this.joinError = '';
+    this.joinCompletedPath = '';
+    this.cdr.markForCheck();
+  }
+
+  onJoinPartInput(event: Event): void {
+    this.joinPartInput = (event.target as HTMLInputElement).value;
+  }
+
+  addJoinPart(): void {
+    const path = this.joinPartInput.trim();
+    if (!path) return;
+    this.joinParts = [...this.joinParts, path];
+    this.joinPartInput = '';
+    if (!this.joinDestination) {
+      this.joinDestination = path.replace(/\.part\d+$/i, '') || `${path}.joined`;
+    }
+    this.cdr.markForCheck();
+  }
+
+  moveJoinPart(index: number, delta: -1 | 1): void {
+    const target = index + delta;
+    if (target < 0 || target >= this.joinParts.length) return;
+    const next = [...this.joinParts];
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    this.joinParts = next;
+    this.cdr.markForCheck();
+  }
+
+  removeJoinPart(index: number): void {
+    this.joinParts = this.joinParts.filter((_, idx) => idx !== index);
+    this.cdr.markForCheck();
+  }
+
+  onJoinDestinationInput(event: Event): void {
+    this.joinDestination = (event.target as HTMLInputElement).value;
+  }
+
+  async executeJoin(): Promise<void> {
+    const dest = this.joinDestination.trim();
+    if (this.joinParts.length < 2 || !dest || this.joinRunning) return;
+    this.joinRunning = true;
+    this.joinError = '';
+    this.joinCompletedPath = '';
+    this.cdr.markForCheck();
+
+    try {
+      const output = await this.api.joinFiles(this.joinParts, dest);
+      this.joinCompletedPath = output || dest;
+      await this.loadChecksumCandidates();
+      this.changed.emit();
+    } catch (error) {
+      this.joinError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.joinRunning = false;
+      this.cdr.markForCheck();
     }
   }
 
@@ -1198,6 +1881,12 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     const i=Math.min(units.length-1,Math.floor(Math.log(bytes)/Math.log(1024)));
     const value=bytes/Math.pow(1024,i);
     return `${value>=10||i===0?value.toFixed(0):value.toFixed(1)} ${units[i]}`;
+  }
+
+  private fileBaseName(path: string): string {
+    const norm = (path ?? '').replace(/\\/g, '/');
+    const idx = norm.lastIndexOf('/');
+    return idx >= 0 ? norm.slice(idx + 1) : norm;
   }
 
   private isDiskResult(item: DiskUsageEntry | DiskUsageProgress | DiskUsageResult): item is DiskUsageResult {

@@ -32,6 +32,7 @@ describe('auxiliary window Escape handling', () => {
       'command-palette.component.ts',
       'confirm-dialog.component.ts',
       'disk-usage-dialog.component.ts',
+      'file-diff-dialog.component.ts',
       'global-search.component.ts',
       'input-center.component.ts',
       'keyboard-help.component.ts',

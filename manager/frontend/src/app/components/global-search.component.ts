@@ -13,7 +13,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
-import { DiscoverySearchService } from '../services/discovery-search.service';
+import { DiscoverySearchService, type DiscoverySearchEntry } from '../services/discovery-search.service';
 import {
   DiscoveryHistoryService,
   type DiscoverySearchSpec,
@@ -122,6 +122,19 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
             aria-controls="global-search-results" />
 
           <ng-container *ngIf="mode === 'search'">
+            <input
+              type="search"
+              class="content-query-input"
+              [(ngModel)]="contentQuery"
+              (ngModelChange)="scheduleSearch()"
+              placeholder="Inside file text (grep)…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Search inside file contents" />
+            <label title="Match case">
+              <input type="checkbox" [(ngModel)]="caseSensitive" (ngModelChange)="scheduleSearch()">
+              Case
+            </label>
             <label title="Alt+R">
               <input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()">
               Recursive
@@ -142,7 +155,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
                 <option value="type">Type</option>
               </select>
             </label>
-            <button type="button" class="save-search" [disabled]="!queryText.trim()" (click)="saveSearch()">Save…</button>
+            <button type="button" class="save-search" [disabled]="!queryText.trim() && !contentQuery.trim()" (click)="saveSearch()">Save…</button>
           </ng-container>
         </div>
 
@@ -183,16 +196,19 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               <span class="details">
                 <strong>{{ entry.name }}</strong>
                 <small>{{ entry.path }}</small>
+                <small class="snippet" *ngIf="entrySnippet(entry)">{{ entrySnippet(entry) }}</small>
               </span>
-              <span class="kind">{{ kind(entry) }}</span>
+              <span class="kind">
+                {{ entryMatchCount(entry) ? entryMatchCount(entry) + ' hits · ' : '' }}{{ kind(entry) }}
+              </span>
             </button>
 
             <div class="empty palette-dialog-empty" *ngIf="!searching && resultCount === 0" role="status">
               {{ mode === 'recent'
                 ? 'No recent files match.'
-                : queryText.trim()
+                : (queryText.trim() || contentQuery.trim())
                   ? 'No matching resources.'
-                  : 'Type a name or wildcard pattern.' }}
+                  : 'Type a filename, pattern, or text query to search.' }}
             </div>
           </ng-container>
 
@@ -224,6 +240,27 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
           <span *ngIf="searchWarnings.length" class="warning" role="status" [title]="searchWarnings.join('\n')">
             {{ searchWarnings.length }} warning{{ searchWarnings.length === 1 ? '' : 's' }}
           </span>
+          <button
+            *ngIf="mode !== 'collections' && selectedResult"
+            type="button"
+            class="open-panel palette-dialog-button"
+            (click)="openFolder(selectedResult)">
+            Open Folder
+          </button>
+          <button
+            *ngIf="mode !== 'collections' && selectedResult && selectedResult.type !== FileType.DIRECTORY"
+            type="button"
+            class="open-panel palette-dialog-button"
+            (click)="sendToChecksums(selectedResult)">
+            Checksums…
+          </button>
+          <button
+            *ngIf="mode !== 'collections' && selectedResult && selectedResult.type !== FileType.DIRECTORY"
+            type="button"
+            class="open-panel palette-dialog-button"
+            (click)="sendToDiff(selectedResult)">
+            Compare in Diff…
+          </button>
           <button
             *ngIf="mode !== 'collections'"
             type="button"
@@ -329,8 +366,8 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
     .query > input,
     .query input[type='text'] {
       box-sizing: border-box;
-      flex: 1 1 280px;
-      min-width: 220px;
+      flex: 1 1 220px;
+      min-width: 180px;
       height: 30px;
       padding: 0 10px;
       border: 1px solid var(--vsc-border, var(--vsc-border));
@@ -339,6 +376,11 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
       background: var(--vsc-input-background, var(--vsc-popover-background));
       color: inherit;
       font: inherit;
+    }
+
+    .content-query-input {
+      flex: 1 1 170px !important;
+      min-width: 150px !important;
     }
 
     .query > input:focus,
@@ -493,6 +535,11 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
     }
 
+    .details small.snippet {
+      color: var(--vsc-accent-yellow, var(--vsc-foreground));
+      opacity: 0.92;
+    }
+
     .collection .details small {
       opacity: 0.8;
     }
@@ -502,6 +549,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      font-variant-numeric: tabular-nums;
     }
 
     .empty {
@@ -580,17 +628,23 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     prefetchGuardRatio: 0.20,
   });
 
+  readonly FileType = FileType;
+
   @ViewChild('queryInput') queryInput?: ElementRef<HTMLInputElement>;
   @Output() openResult = new EventEmitter<FileInfo>();
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
   @Output() openAsPanel = new EventEmitter<SearchResultsPanelRequest>();
   @Output() openAsWorkspace = new EventEmitter<SearchResultsPanelRequest>();
   @Output() openPanelPath = new EventEmitter<string>();
+  @Output() openInChecksums = new EventEmitter<FileInfo>();
+  @Output() openInDiff = new EventEmitter<FileInfo>();
 
   visible = false;
   isClosing = false;
   rootPath = '';
   queryText = '';
+  contentQuery = '';
+  caseSensitive = false;
   recursive = true;
   sortMode: SearchSort = 'relevance';
   typeFilter: DiscoverySearchType = 'all';
@@ -753,6 +807,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.queryHistoryIndex = -1;
     this.mode = 'search';
     this.queryText = '';
+    this.contentQuery = '';
+    this.caseSensitive = false;
     this.searchIndex.reset(this.sortMode);
     this.selectedIndex = 0;
     this.error = '';
@@ -807,6 +863,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
 
   async search(): Promise<void> {
     const query = this.queryText.trim();
+    const contentNeedle = this.contentQuery.trim();
     const generation = ++this.searchGeneration;
 
     this.searchAbort?.abort();
@@ -839,7 +896,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (!query || !this.rootPath) {
+    if ((!query && !contentNeedle) || !this.rootPath) {
       this.searchIndex.reset(this.sortMode);
       this.searching = false;
       this.error = '';
@@ -868,6 +925,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
         {
           recursive: this.recursive,
           type: this.typeFilter,
+          contentQuery: contentNeedle || undefined,
+          caseSensitive: this.caseSensitive,
           maxResults: 100_000,
           batchSize: 512,
           signal: controller.signal,
@@ -1123,6 +1182,24 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   openFolder(entry: FileInfo): void {
     this.openContainingFolder.emit(entry);
     this.close();
+  }
+
+  sendToChecksums(entry: FileInfo): void {
+    this.openInChecksums.emit(entry);
+    this.close();
+  }
+
+  sendToDiff(entry: FileInfo): void {
+    this.openInDiff.emit(entry);
+    this.close();
+  }
+
+  entrySnippet(entry: FileInfo): string {
+    return (entry as DiscoverySearchEntry).contentSnippet ?? '';
+  }
+
+  entryMatchCount(entry: FileInfo): number {
+    return (entry as DiscoverySearchEntry).contentMatchCount ?? 0;
   }
 
   trackResult(_index:number, entry:FileInfo):string { return entry.path; }

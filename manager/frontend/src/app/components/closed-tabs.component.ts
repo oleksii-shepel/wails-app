@@ -21,18 +21,27 @@ import {
 } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
+
 @Component({
   selector: 'app-closed-tabs',
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styleUrls: ['./tools-dialog-remote-theme.scss'],
   template: `
-    <div class="backdrop palette-dialog-backdrop dialog-group" *ngIf="visible" (mousedown)="close()">
+    <div
+      class="backdrop palette-dialog-backdrop dialog-group"
+      *ngIf="renderVisible"
+      [class.dialog-group--closing]="isClosing"
+      (mousedown)="close()"
+      (animationend)="onAnimationEnd($event)">
       <section
         class="panel palette-dialog-surface dialog-surface"
         role="dialog"
         aria-modal="true"
         aria-label="Recently Closed Tabs"
-        (mousedown)="$event.stopPropagation()" (keydown.escape)="close(); $event.preventDefault(); $event.stopPropagation()">
+        tabindex="-1"
+        (mousedown)="$event.stopPropagation()"
+        (keydown)="onDialogKeydown($event)">
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <strong>Recently Closed Tabs</strong>
@@ -62,9 +71,13 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
         <div class="tabs palette-dialog-body palette-dialog-list">
           <button
             #closedTabResult
-            *ngFor="let entry of matching; trackBy: trackEntry"
+            *ngFor="let entry of matching; let i = index; trackBy: trackEntry"
             type="button"
             class="closed-tab palette-dialog-item"
+            role="option"
+            [class.is-selected]="i === selectedIndex"
+            [attr.aria-selected]="i === selectedIndex"
+            (mouseenter)="selectedIndex = i"
             (click)="reopen(entry)">
             <span class="icon" aria-hidden="true">{{ icon(entry) }}</span>
             <span class="main">
@@ -110,7 +123,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
     .tabs{min-height:0;overflow:auto}
     .palette-dialog-footer{flex-wrap:wrap}
     .closed-tab{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;text-align:left;cursor:pointer}
-    .closed-tab:hover,.closed-tab:focus-visible{background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
+    .closed-tab:hover,.closed-tab:focus-visible,.closed-tab.is-selected{background:var(--vsc-list-hover-background);border-color:var(--vsc-border)}
     .main{display:grid;min-width:0}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.main small,.meta{color:var(--vsc-description-foreground)}.meta{font-size:10px;font-variant-numeric:tabular-nums}
   `],
 })
@@ -119,6 +132,8 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
   @Output() closed = new EventEmitter<void>();
   @Output() reopenRequested = new EventEmitter<RecentlyClosedTab>();
 
+  renderVisible = false;
+  isClosing = false;
   searchText = '';
   paneFilter: 'all' | 'left' | 'right' = 'all';
 
@@ -131,6 +146,9 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
       if (this.visible && input.isConnected) input.focus();
     });
   }
+  selectedIndex = 0;
+
+  private emitClosedOnFinish = false;
   private readonly modalStack = tryInjectModalStack();
   private readonly hostElement = tryInjectElementRef();
   private unregisterModal: (() => void) | null = null;
@@ -145,14 +163,24 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
     if (!changes['visible']) return;
     if (this.visible) {
       this.resetFilters();
+      this.renderVisible = true;
+      this.isClosing = false;
+      this.emitClosedOnFinish = false;
+      this.selectedIndex = 0;
       if (this.modalStack && this.hostElement && !this.unregisterModal) {
         this.unregisterModal = this.modalStack.register({
           id: 'closed-tabs',
           element: this.hostElement.nativeElement,
           dismiss: () => this.close(),
-          dismissible: () => this.visible,
+          dismissible: () => this.renderVisible && !this.isClosing,
         });
       }
+      this.cdr.markForCheck();
+    } else if (this.renderVisible && !this.isClosing) {
+      this.unregisterModal?.();
+      this.unregisterModal = null;
+      this.isClosing = true;
+      this.cdr.markForCheck();
     } else {
       this.unregisterModal?.();
       this.unregisterModal = null;
@@ -200,13 +228,81 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
 
   onSearchInput(event: Event): void {
     this.searchText = (event.target as HTMLInputElement).value;
+    this.selectedIndex = 0;
     this.cdr.markForCheck();
+  }
+
+  onDialogKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.close();
+      return;
+    }
+
+    const items = this.filteredEntries;
+    if (items.length === 0) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.selectedIndex = (this.selectedIndex + 1) % items.length;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.selectedIndex = (this.selectedIndex - 1 + items.length) % items.length;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      this.selectedIndex = 0;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      this.selectedIndex = items.length - 1;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      const target = event.target as HTMLElement | null;
+      if (target && target.tagName === 'BUTTON') {
+        return;
+      }
+      const chosen = items[this.selectedIndex] ?? items[0];
+      if (chosen) {
+        event.preventDefault();
+        this.reopen(chosen);
+      }
+    }
   }
 
   close(): void {
     this.unregisterModal?.();
     this.unregisterModal = null;
-    this.closed.emit();
+    if (!this.renderVisible || this.isClosing) return;
+    this.isClosing = true;
+    this.emitClosedOnFinish = true;
+    this.cdr.markForCheck();
+  }
+
+  onAnimationEnd(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.isClosing) return;
+    this.renderVisible = false;
+    this.isClosing = false;
+    const shouldEmit = this.emitClosedOnFinish;
+    this.emitClosedOnFinish = false;
+    if (shouldEmit) {
+      this.closed.emit();
+    }
+    this.cdr.markForCheck();
   }
 
   reopen(entry: RecentlyClosedTab): void {
@@ -230,6 +326,7 @@ export class ClosedTabsComponent implements OnChanges, OnDestroy {
     });
     if (!confirmed) return;
     this.workspaces.clearRecentlyClosedTabs(workspaceId);
+    this.selectedIndex = 0;
     this.cdr.markForCheck();
   }
 

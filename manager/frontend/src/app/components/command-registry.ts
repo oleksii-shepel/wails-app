@@ -73,6 +73,7 @@ export const FILE_MANAGER_COMMANDS = {
   newWorkspace:         'pane.ws.new',
   toggleHidden:         'pane.ws.toggleHidden',
   switchPane:           'pane.ctrl.switchPane',
+  swapPaneLocations:    'pane.ctrl.swapPanes',
   copyToOtherPane:      'pane.ctrl.copyToOther',
   moveToOtherPane:      'pane.ctrl.moveToOther',
   focusAddressBar:      'pane.ctrl.focusAddressBar',
@@ -87,6 +88,10 @@ export const FILE_MANAGER_COMMANDS = {
   findDuplicates:       'pane.tools.findDuplicates',
   folderInventory:      'pane.tools.folderInventory',
   fileChecksums:        'pane.tools.fileChecksums',
+  compareFilesDiff:     'pane.tools.compareFilesDiff',
+  openChecksums:        'pane.tools.checksums',
+  openSplitJoin:        'pane.tools.splitJoin',
+  openCliTab:           'pane.tools.openCliTab',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
   uploadFiles:          'pane.files.upload',
@@ -251,6 +256,12 @@ export const FILE_MANAGER_BINDINGS: InputBindingDefinition[] = [
   // ── Tools ─────────────────────────────────────────────────────────────────
   kb('pane.tools.diskUsage.ctrlShiftD', FILE_MANAGER_COMMANDS.diskUsage, 'd', 'Analyze disk usage',
     { modifiers: ['ctrl', 'shift'], category: FILES }),
+  kb('pane.tools.compareFilesDiff.f4', FILE_MANAGER_COMMANDS.compareFilesDiff, 'f4', 'Compare selected or active files in Diff (F4)',
+    { category: TOOLS }),
+  kb('pane.tools.openCliTab.ctrlAltC', FILE_MANAGER_COMMANDS.openCliTab, 'c', 'Open Command Line tab',
+    { modifiers: ['ctrl', 'alt'], category: TOOLS }),
+  kb('pane.ctrl.swapPanes.ctrlU', FILE_MANAGER_COMMANDS.swapPaneLocations, 'u', 'Swap left and right pane locations (Ctrl+U)',
+    { modifiers: ['ctrl'], category: PANE }),
 
   // ── Additional File Operations ────────────────────────────────────────────
   kb('pane.files.batchRename.ctrlShiftR', FILE_MANAGER_COMMANDS.batchRename, 'r', 'Batch rename selected items', { modifiers: ['ctrl', 'shift'], category: FILES }),

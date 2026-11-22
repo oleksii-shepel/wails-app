@@ -108,7 +108,24 @@ import type {
                   <span>{{ ageLabel(entry.addedAt) }}</span>
                 </div>
               </div>
-              <button class="remove-button" type="button" aria-label="Remove item from selection basket" title="Remove from basket" (click)="remove(entry.id)">×</button>
+              <div class="row-actions">
+                <button
+                  class="remove-button"
+                  type="button"
+                  title="Open containing folder"
+                  (click)="jumpToFolder(entry.path)">
+                  ↗
+                </button>
+                <button
+                  *ngIf="entry.type !== FileType.DIRECTORY"
+                  class="remove-button"
+                  type="button"
+                  title="Compute Checksum"
+                  (click)="openChecksum(entry.path)">
+                  #
+                </button>
+                <button class="remove-button" type="button" aria-label="Remove item from selection basket" title="Remove from basket" (click)="remove(entry.id)">×</button>
+              </div>
             </article>
           </section>
 
@@ -169,6 +186,14 @@ import type {
 
         <footer class="basket-footer">
           <button type="button" class="palette-dialog-button" [disabled]="!entries.length" (click)="clear()">Clear Basket</button>
+          <button
+            type="button"
+            class="palette-dialog-button"
+            [disabled]="!entries.length || archiving || !destinationWritable"
+            (click)="createArchive()">
+            {{ archiving ? 'Archiving…' : 'Create ZIP…' }}
+          </button>
+          <span class="archive-note" *ngIf="archiveStatus">{{ archiveStatus }}</span>
           <span class="footer-spacer"></span>
           <span *ngIf="clipboardError" class="footer-status" role="alert">{{ clipboardError }}</span>
           <span class="footer-status">{{ filteredEntries.length }} of {{ entries.length }} item{{ entries.length === 1 ? '' : 's' }}</span>
@@ -227,19 +252,21 @@ import type {
 
     .basket-workspace { display:grid; grid-template-columns:minmax(0,1fr) 300px; flex:1; min-height:0; }
     .basket-list { min-height:0; overflow:auto; padding:5px; border-right:1px solid var(--vsc-border-subtle); }
-    .basket-row { display:grid; grid-template-columns:30px minmax(0,1fr) 27px; gap:8px; align-items:center; min-height:52px; padding:5px 8px; border:1px solid transparent; border-radius:4px; }
+    .basket-row { display:grid; grid-template-columns:30px minmax(0,1fr) auto; gap:8px; align-items:center; min-height:52px; padding:5px 8px; border:1px solid transparent; border-radius:4px; }
     .basket-row:hover { background:var(--vsc-list-hover-background); }
     .entry-icon { display:flex; align-items:center; justify-content:center; font-size:16px; }
     .entry-main { min-width:0; display:grid; }
     .entry-main strong,.entry-path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .entry-path { font-family:var(--vsc-font-family-mono, ui-monospace, monospace); font-size:10px; }
     .entry-meta { display:flex; gap:4px 10px; margin-top:2px; font-size:10px; font-variant-numeric:tabular-nums; }
+    .row-actions { display:inline-flex; gap:2px; align-items:center; }
 
     .remove-button,.basket-footer button,.operation-tabs button {
       min-height:27px; padding:3px 8px; border:1px solid transparent; border-radius:4px; background:transparent; cursor:pointer;
     }
-    .remove-button { width:27px; padding:0; font-size:16px; opacity:.7; }
+    .remove-button { width:26px; padding:0; font-size:14px; opacity:.7; }
     .remove-button:hover,.basket-footer button:hover:not(:disabled),.operation-tabs button:hover:not(:disabled) { border-color:var(--vsc-border); background:var(--vsc-list-hover-background); opacity:1; }
+    .archive-note { color:var(--vsc-accent-green, var(--vsc-success)); font-size:11px; }
 
     .batch-panel { min-width:0; overflow:auto; background:var(--vsc-editor-background, var(--vsc-panel-background)); }
     .batch-section { display:grid; gap:7px; padding:12px; border-bottom:1px solid var(--vsc-border-subtle); }
@@ -290,6 +317,11 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   @Output() moveTo = new EventEmitter<SelectionBasketDestination>();
   @Output() deleteRequested = new EventEmitter<void>();
   @Output() executeRequested = new EventEmitter<SelectionBasketOperationRequest>();
+  @Output() openFolderRequested = new EventEmitter<string>();
+  @Output() checksumRequested = new EventEmitter<string>();
+  @Output() archiveCreated = new EventEmitter<void>();
+
+  readonly FileType = FileType;
 
   visible = false;
   isClosing = false;
@@ -298,6 +330,8 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   typeFilter: 'all' | 'files' | 'folders' = 'all';
   copiedFeedback = false;
   clipboardError = '';
+  archiving = false;
+  archiveStatus = '';
   operation: SelectionBasketOperation = 'copy';
   destinationSide: SelectionBasketDestination = 'right';
   destinationMode: SelectionBasketDestination | 'custom' = 'right';
@@ -428,6 +462,53 @@ export class SelectionBasketComponent implements OnInit, OnDestroy {
   remove(id: string): void { this.basket.remove(id); }
   clear(): void { this.basket.clear(); }
   trackEntry(_index: number, entry: SelectionBasketEntry): string { return entry.id; }
+
+  jumpToFolder(path: string): void {
+    const normalized = (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const slash = normalized.lastIndexOf('/');
+    const parent = slash > 0 ? normalized.slice(0, slash) : normalized;
+    if (!parent) return;
+    this.openFolderRequested.emit(parent);
+    this.hide();
+  }
+
+  openChecksum(path: string): void {
+    this.checksumRequested.emit(path);
+    this.hide();
+  }
+
+  async createArchive(): Promise<void> {
+    if (!this.entries.length || this.archiving || !this.destinationWritable) return;
+    const baseDir = this.destinationMode === 'custom'
+      ? this.customDestination
+      : this.destinationMode === 'left'
+        ? this.leftDestination
+        : this.rightDestination;
+    if (!baseDir) return;
+    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+    const sep = baseDir.endsWith('/') || baseDir.endsWith('\\') ? '' : '/';
+    const dest = `${baseDir}${sep}basket-${stamp}.zip`;
+    this.archiving = true;
+    this.archiveStatus = '';
+    this.cdr.markForCheck();
+    try {
+      const res = await this.api.createZipArchive(
+        this.entries.map(e => e.path),
+        dest,
+      );
+      if (res.success) {
+        this.archiveStatus = `Created basket-${stamp}.zip`;
+        this.archiveCreated.emit();
+      } else {
+        this.archiveStatus = res.message || 'Archive failed';
+      }
+    } catch (err) {
+      this.archiveStatus = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.archiving = false;
+      this.cdr.markForCheck();
+    }
+  }
 
   selectOperation(operation: SelectionBasketOperation): void {
     this.operation = operation;

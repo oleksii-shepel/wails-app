@@ -38,6 +38,8 @@ import { ArchiveFilesDialogService } from './services/archive-files-dialog.servi
 import { CommandPaletteComponent, type PaletteCommand } from './components/command-palette.component';
 import { GlobalSearchComponent } from './components/global-search.component';
 import { ToolsCenterComponent } from './components/tools-center.component';
+import { FileDiffDialogComponent } from './components/file-diff-dialog.component';
+import { FileDiffDialogService, type FileDiffDialogRequest } from './services/file-diff-dialog.service';
 import { DiskUsageDialogComponent } from './components/disk-usage-dialog.component';
 import { SelectionBasketComponent } from './components/selection-basket.component';
 import { WorkspaceSwitcherComponent } from './components/workspace-switcher.component';
@@ -80,6 +82,7 @@ import {
     CommandPaletteComponent,
     GlobalSearchComponent,
     ToolsCenterComponent,
+    FileDiffDialogComponent,
     DiskUsageDialogComponent,
     SelectionBasketComponent,
     WorkspaceSwitcherComponent,
@@ -112,6 +115,7 @@ import {
       <app-pane-recursive-compare-dialog *ngIf="paneRecursiveCompareMounted$ | async"></app-pane-recursive-compare-dialog>
       <app-pane-sync-review *ngIf="paneSyncReviewMounted$ | async"></app-pane-sync-review>
       <app-archive-files-dialog *ngIf="archiveFilesMounted$ | async"></app-archive-files-dialog>
+      <app-file-diff-dialog *ngIf="fileDiffMounted$ | async"></app-file-diff-dialog>
 
       <app-command-palette #commandPalette [commands]="commandPaletteCommands"></app-command-palette>
       <app-global-search
@@ -120,7 +124,9 @@ import {
         (openContainingFolder)="managerRef?.openSearchContainingFolder($event)"
         (openAsPanel)="managerRef?.openSearchResultsPanel($event)"
         (openAsWorkspace)="managerRef?.openSearchWorkspace($event)"
-        (openPanelPath)="managerRef?.openDiscoveryPanelPath($event)">
+        (openPanelPath)="managerRef?.openDiscoveryPanelPath($event)"
+        (openInChecksums)="openTools('checksums', managerRef?.activePane?.contextState?.path ?? '', $event.path)"
+        (openInDiff)="managerRef?.openFileDiffDialog($event.path)">
       </app-global-search>
       <app-tools-center
         #toolsCenter
@@ -144,7 +150,10 @@ import {
         (copyTo)="managerRef?.copyBasketTo($event)"
         (moveTo)="managerRef?.moveBasketTo($event)"
         (deleteRequested)="managerRef?.deleteBasket()"
-        (executeRequested)="managerRef?.executeBasketOperation($event)">
+        (executeRequested)="managerRef?.executeBasketOperation($event)"
+        (openFolderRequested)="managerRef?.navigateFromTools($event)"
+        (checksumRequested)="openTools('checksums', managerRef?.activePane?.contextState?.path ?? '', $event)"
+        (archiveCreated)="managerRef?.refreshBothPanes()">
       </app-selection-basket>
       <app-workspace-switcher
         #workspaceSwitcher
@@ -244,6 +253,7 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
   readonly paneRecursiveCompareMounted$ = this.paneRecursiveCompareDialog.mountedRequest$;
   readonly paneSyncReviewMounted$ = this.paneSyncReviewDialog.mountedRequest$;
   readonly archiveFilesMounted$ = this.archiveFilesDialog.mountedRequest$;
+  readonly fileDiffMounted$ = this.fileDiffDialog.mountedRequest$;
 
   commandPaletteCommands: PaletteCommand[] = [];
   inputCenterVisible = false;
@@ -290,6 +300,7 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
     private readonly paneRecursiveCompareDialog: PaneRecursiveCompareDialogService,
     private readonly paneSyncReviewDialog: PaneSyncReviewDialogService,
     private readonly archiveFilesDialog: ArchiveFilesDialogService,
+    private readonly fileDiffDialog: FileDiffDialogService,
     private readonly overlays: ApplicationOverlayHostService,
   ) {}
 
@@ -325,7 +336,8 @@ export class AppComponent implements OnInit, OnDestroy, ApplicationOverlayHost {
 
   openGlobalSearch(rootPath: string): void { this.globalSearch?.open(rootPath); }
   closeGlobalSearch(): void { this.globalSearch?.close(); }
-  openTools(page: AppOverlayToolsPage, rootPath: string): void { this.toolsCenter?.open(page, rootPath); }
+  openTools(page: AppOverlayToolsPage, rootPath: string, targetPath?: string): void { this.toolsCenter?.open(page, rootPath, targetPath); }
+  openFileDiff(request?: FileDiffDialogRequest): void { this.fileDiffDialog.open(request); }
   showSelectionBasket(): void { this.selectionBasket?.show(); }
   openWorkspaceSwitcher(): void { this.workspaceSwitcher?.open(); }
   createWorkspace(): void { this.workspaceSwitcher?.createWorkspace(); }

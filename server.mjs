@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { execSync, spawn } from 'node:child_process';
+import { execFile, execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1489,15 +1489,56 @@ app.post('/api/fs/search', async (req, res) => {
   try {
     const rootPath = resolveRealPath(req.body?.path);
     const pattern = String(req.body?.pattern || '').trim();
+    const contentQuery = String(req.body?.contentQuery || '').trim();
+    const caseSensitive = Boolean(req.body?.caseSensitive);
     const recursive = req.body?.recursive !== false;
     const regexStr = pattern
       .replace(/[.+^${}()|[\]\\]/g, '\\$&')
       .replace(/\*/g, '.*')
       .replace(/\?/g, '.');
-    const regex = pattern ? new RegExp(regexStr, 'i') : /.*/;
+    const regex = pattern ? new RegExp(regexStr, caseSensitive ? '' : 'i') : /.*/;
+    const contentNeedle = caseSensitive ? contentQuery : contentQuery.toLowerCase();
+    const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 
     const matches = [];
     const MAX_MATCHES = 300;
+
+    async function searchFileContent(fullPath) {
+      try {
+        const stat = await fsp.stat(fullPath);
+        if (!stat.isFile() || stat.size === 0 || stat.size > MAX_CONTENT_BYTES) {
+          return null;
+        }
+        const buf = await fsp.readFile(fullPath);
+        const probeLen = Math.min(buf.length, 4096);
+        for (let i = 0; i < probeLen; i++) {
+          if (buf[i] === 0) return null; // Skip binary files
+        }
+        const text = buf.toString('utf8');
+        const lines = text.split(/\r?\n/);
+        let count = 0;
+        let firstSnippet = '';
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          const line = lines[lineIdx];
+          const hay = caseSensitive ? line : line.toLowerCase();
+          let pos = hay.indexOf(contentNeedle);
+          if (pos >= 0) {
+            if (!firstSnippet) {
+              const trimmed = line.trim();
+              const clipped = trimmed.length > 140 ? `${trimmed.slice(0, 140)}…` : trimmed;
+              firstSnippet = `L${lineIdx + 1}: ${clipped}`;
+            }
+            while (pos >= 0) {
+              count++;
+              pos = hay.indexOf(contentNeedle, pos + Math.max(1, contentNeedle.length));
+            }
+          }
+        }
+        return count > 0 ? { count, snippet: firstSnippet } : null;
+      } catch {
+        return null;
+      }
+    }
 
     async function walk(dir, depth) {
       if (matches.length >= MAX_MATCHES) return;
@@ -1511,7 +1552,24 @@ app.post('/api/fs/search', async (req, res) => {
         if (matches.length >= MAX_MATCHES) break;
         if (d.name === 'node_modules' || d.name === '.git') continue;
         const full = path.join(dir, d.name);
-        if (regex.test(d.name)) {
+        const nameMatches = !pattern || regex.test(d.name);
+
+        if (contentNeedle) {
+          if (!d.isDirectory() && nameMatches) {
+            const contentMatch = await searchFileContent(full);
+            if (contentMatch) {
+              try {
+                const info = await toFileInfo(full, d.name);
+                info.searchBasePath = rootPath;
+                info.searchPattern = pattern || contentQuery;
+                info.searchParentPath = dir;
+                info.contentMatchCount = contentMatch.count;
+                info.contentSnippet = contentMatch.snippet;
+                matches.push(info);
+              } catch {}
+            }
+          }
+        } else if (nameMatches) {
           try {
             const info = await toFileInfo(full, d.name);
             info.searchBasePath = rootPath;
@@ -1520,6 +1578,7 @@ app.post('/api/fs/search', async (req, res) => {
             matches.push(info);
           } catch {}
         }
+
         if (recursive && d.isDirectory() && depth < 6) {
           await walk(full, depth + 1);
         }
@@ -2669,6 +2728,177 @@ app.delete('/api/plugins/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+const CLI_ENTRY = path.join(__dirname, 'cli', 'aether.mjs');
+
+function tokenizeCliCommand(rawLine) {
+  const tokens = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+  let hasToken = false;
+
+  for (const ch of String(rawLine || '')) {
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      hasToken = true;
+      continue;
+    }
+    if (ch === '\\' && !inSingle) {
+      escaped = true;
+      hasToken = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      hasToken = true;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      hasToken = true;
+      continue;
+    }
+    if (/\s/.test(ch) && !inSingle && !inDouble) {
+      if (hasToken) {
+        tokens.push(current);
+        current = '';
+        hasToken = false;
+      }
+      continue;
+    }
+    current += ch;
+    hasToken = true;
+  }
+
+  if (escaped || inSingle || inDouble) {
+    throw new Error('Unterminated quote or escape sequence in command.');
+  }
+  if (hasToken) tokens.push(current);
+  return tokens;
+}
+
+app.post('/api/cli/exec', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    let cwd = resolveRealPath(req.body?.cwd || WORKSPACE_ROOT);
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+      cwd = WORKSPACE_ROOT;
+    }
+
+    const rawCommand = String(req.body?.command || '').trim();
+    const color = req.body?.color !== false;
+    if (!rawCommand) {
+      res.json({ ok: true, cwd, stdout: '', stderr: '', exitCode: 0, durationMs: 0 });
+      return;
+    }
+
+    const tokens = tokenizeCliCommand(rawCommand);
+    if (tokens.length > 0 && (tokens[0] === 'aether' || tokens[0] === 'reassembly')) {
+      tokens.shift();
+    }
+
+    if (tokens.length === 0) {
+      tokens.push('--help');
+    }
+
+    if (tokens[0] === 'pwd') {
+      res.json({
+        ok: true,
+        cwd,
+        stdout: `${cwd}\n`,
+        stderr: '',
+        exitCode: 0,
+        durationMs: Date.now() - startedAt,
+      });
+      return;
+    }
+
+    if (tokens[0] === 'cd') {
+      const targetArg = tokens[1] || os.homedir() || WORKSPACE_ROOT;
+      const expanded = targetArg === '~'
+        ? (os.homedir() || WORKSPACE_ROOT)
+        : targetArg.startsWith('~/')
+          ? path.join(os.homedir() || WORKSPACE_ROOT, targetArg.slice(2))
+          : targetArg;
+      const nextCwd = path.resolve(cwd, expanded);
+      let stat;
+      try {
+        stat = await fsp.stat(nextCwd);
+      } catch {
+        res.json({
+          ok: false,
+          cwd,
+          stdout: '',
+          stderr: `cd: no such directory: ${targetArg}\n`,
+          exitCode: 1,
+          durationMs: Date.now() - startedAt,
+        });
+        return;
+      }
+      if (!stat.isDirectory()) {
+        res.json({
+          ok: false,
+          cwd,
+          stdout: '',
+          stderr: `cd: not a directory: ${targetArg}\n`,
+          exitCode: 1,
+          durationMs: Date.now() - startedAt,
+        });
+        return;
+      }
+      res.json({
+        ok: true,
+        cwd: nextCwd,
+        changedCwd: true,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        durationMs: Date.now() - startedAt,
+      });
+      return;
+    }
+
+    const execResult = await new Promise((resolve) => {
+      execFile(
+        process.execPath,
+        [CLI_ENTRY, '--cwd', cwd, ...tokens],
+        {
+          cwd,
+          env: {
+            ...process.env,
+            FORCE_COLOR: color ? '1' : '0',
+            NO_COLOR: color ? '' : '1',
+          },
+          maxBuffer: 4 * 1024 * 1024,
+          timeout: 30000,
+        },
+        (err, stdout, stderr) => {
+          const exitCode = typeof err?.code === 'number' ? err.code : err ? 1 : 0;
+          resolve({
+            ok: exitCode === 0,
+            cwd,
+            stdout: stdout || '',
+            stderr: stderr || (err && !stdout && !stderr ? String(err.message || err) + '\n' : ''),
+            exitCode,
+            durationMs: Date.now() - startedAt,
+          });
+        },
+      );
+    });
+
+    res.json(execResult);
+  } catch (err) {
+    res.status(400).json({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      exitCode: 2,
+      durationMs: Date.now() - startedAt,
+    });
   }
 });
 

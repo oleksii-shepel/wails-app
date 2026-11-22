@@ -4,6 +4,11 @@ import { ApiService } from './api.service';
 import { PanelSourceRegistryService } from './panel-source-registry.service';
 import { FileInfo, FileType } from '../shared/protocol';
 
+export type DiscoverySearchEntry = FileInfo & {
+  contentMatchCount?: number;
+  contentSnippet?: string;
+};
+
 export interface DiscoverySearchOptions {
   readonly recursive?: boolean;
   readonly showHidden?: boolean;
@@ -11,10 +16,12 @@ export interface DiscoverySearchOptions {
   readonly maxVisitedDirectories?: number;
   readonly maxDepth?: number;
   readonly type?: 'all' | 'files' | 'folders' | 'archives';
+  readonly contentQuery?: string;
+  readonly caseSensitive?: boolean;
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: DiscoverySearchProgress) => void;
   readonly onBatch?: (
-    batch: readonly FileInfo[],
+    batch: readonly DiscoverySearchEntry[],
     progress: DiscoverySearchProgress,
   ) => void;
   readonly batchSize?: number;
@@ -31,7 +38,7 @@ export interface DiscoverySearchResult {
   readonly rootPath: string;
   readonly sourceId: string;
   readonly sourceKind: string;
-  readonly entries: readonly FileInfo[];
+  readonly entries: readonly DiscoverySearchEntry[];
   readonly visitedDirectories: number;
   readonly truncated: boolean;
   readonly warnings: readonly string[];
@@ -53,8 +60,9 @@ export class DiscoverySearchService {
   ): Promise<DiscoverySearchResult> {
     const root = rootPath.trim();
     const needle = query.trim();
+    const contentNeedle = (options.contentQuery ?? '').trim();
 
-    if (!root || !needle) {
+    if (!root || (!needle && !contentNeedle)) {
       return {
         rootPath: root,
         sourceId: '',
@@ -79,13 +87,26 @@ export class DiscoverySearchService {
       /^([a-z]:[\\/]|\/|\\\\)/i.test(root)
     ) {
       try {
-        const result = await this.api.search(
-          root,
-          needle,
-          options.recursive !== false,
-        );
+        const result = contentNeedle
+          ? await this.api.searchContent(
+              root,
+              needle,
+              contentNeedle,
+              options.recursive !== false,
+              Boolean(options.caseSensitive),
+            )
+          : await this.api.search(
+              root,
+              needle,
+              options.recursive !== false,
+            );
 
-        const matches = (result.matches ?? [])
+        const rawMatches = (result.matches ?? []) as DiscoverySearchEntry[];
+        const filtered = contentNeedle && !rawMatches.some(m => typeof m.contentMatchCount === 'number')
+          ? await this.filterEntriesByContent(rawMatches, contentNeedle, Boolean(options.caseSensitive), options.signal)
+          : rawMatches;
+
+        const matches = filtered
           .filter(entry => this.typeAllowed(entry, options.type ?? 'all'))
           .slice(0, Math.max(1, options.maxResults ?? 500));
 
@@ -95,7 +116,7 @@ export class DiscoverySearchService {
           sourceKind: resolved.source.kind,
           entries: matches,
           visitedDirectories: 1,
-          truncated: (result.matches?.length ?? 0) > matches.length,
+          truncated: filtered.length > matches.length,
           warnings: [],
         };
       } catch {
@@ -119,12 +140,13 @@ export class DiscoverySearchService {
     const maxVisited = Math.max(1, options.maxVisitedDirectories ?? 100_000);
     const maxDepth = Math.max(0, options.maxDepth ?? 64);
     const batchSize = Math.max(64, Math.min(2048, options.batchSize ?? 512));
-    const matcher = this.matcher(query);
+    const matcher = query ? this.matcher(query, Boolean(options.caseSensitive)) : () => true;
+    const contentNeedle = (options.contentQuery ?? '').trim();
 
     // Streaming consumers own the result population. Do not also retain another
     // 100k-entry array in this service.
-    const retainedMatches: FileInfo[] = [];
-    const batch: FileInfo[] = [];
+    const retainedMatches: DiscoverySearchEntry[] = [];
+    const batch: DiscoverySearchEntry[] = [];
     const warnings: string[] = [];
     const visited = new Set<string>();
     const queue: Array<{ path: string; depth: number }> = [{ path: root, depth: 0 }];
@@ -187,19 +209,34 @@ export class DiscoverySearchService {
           matcher(entry) &&
           this.typeAllowed(entry, options.type ?? 'all')
         ) {
-          const copy = { ...entry };
-          matchedEntries += 1;
-
-          if (options.onBatch) {
-            batch.push(copy);
-            if (batch.length >= batchSize) flush(current.path);
-          } else {
-            retainedMatches.push(copy);
+          let copy: DiscoverySearchEntry | null = { ...entry };
+          if (contentNeedle) {
+            if (entry.type !== FileType.FILE || entry.size <= 0 || entry.size > 2 * 1024 * 1024) {
+              copy = null;
+            } else {
+              const hit = await this.matchSingleFileContent(entry.path, contentNeedle, Boolean(options.caseSensitive));
+              if (!hit) {
+                copy = null;
+              } else {
+                copy = { ...entry, contentMatchCount: hit.count, contentSnippet: hit.snippet };
+              }
+            }
           }
 
-          if (matchedEntries >= maxResults) {
-            truncated = true;
-            break;
+          if (copy) {
+            matchedEntries += 1;
+
+            if (options.onBatch) {
+              batch.push(copy);
+              if (batch.length >= batchSize) flush(current.path);
+            } else {
+              retainedMatches.push(copy);
+            }
+
+            if (matchedEntries >= maxResults) {
+              truncated = true;
+              break;
+            }
           }
         }
 
@@ -238,21 +275,77 @@ export class DiscoverySearchService {
     };
   }
 
-  private matcher(query: string): (entry: FileInfo) => boolean {
-    const normalized = query.toLocaleLowerCase();
+  private async filterEntriesByContent(
+    entries: readonly DiscoverySearchEntry[],
+    contentNeedle: string,
+    caseSensitive: boolean,
+    signal?: AbortSignal,
+  ): Promise<DiscoverySearchEntry[]> {
+    const out: DiscoverySearchEntry[] = [];
+    for (const entry of entries) {
+      this.throwIfAborted(signal);
+      if (entry.type !== FileType.FILE || entry.size <= 0 || entry.size > 2 * 1024 * 1024) continue;
+      const hit = await this.matchSingleFileContent(entry.path, contentNeedle, caseSensitive);
+      if (hit) {
+        out.push({ ...entry, contentMatchCount: hit.count, contentSnippet: hit.snippet });
+      }
+    }
+    return out;
+  }
+
+  private async matchSingleFileContent(
+    path: string,
+    contentNeedle: string,
+    caseSensitive: boolean,
+  ): Promise<{ count: number; snippet: string } | null> {
+    try {
+      const probe = await this.api.probeFile(path).catch(() => null);
+      if (probe && !probe.isText) return null;
+      const content = await this.api.readFile(path, 'utf8');
+      const text = content.content ?? '';
+      if (!text || text.includes('\u0000')) return null;
+      const needle = caseSensitive ? contentNeedle : contentNeedle.toLowerCase();
+      const lines = text.split(/\r?\n/);
+      let count = 0;
+      let snippet = '';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const hay = caseSensitive ? line : line.toLowerCase();
+        let pos = hay.indexOf(needle);
+        if (pos >= 0) {
+          if (!snippet) {
+            const trimmed = line.trim();
+            snippet = `L${i + 1}: ${trimmed.length > 140 ? `${trimmed.slice(0, 140)}…` : trimmed}`;
+          }
+          while (pos >= 0) {
+            count++;
+            pos = hay.indexOf(needle, pos + Math.max(1, needle.length));
+          }
+        }
+      }
+      return count > 0 ? { count, snippet } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private matcher(query: string, caseSensitive: boolean): (entry: FileInfo) => boolean {
+    const normalized = caseSensitive ? query : query.toLocaleLowerCase();
 
     if (query.includes('*') || query.includes('?')) {
       const escaped = query.replace(/[.+^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(
         '^' + escaped.replace(/\*/g, '.*').replace(/\?/g, '.') + '$',
-        'i',
+        caseSensitive ? '' : 'i',
       );
       return entry => regex.test(entry.name ?? '');
     }
 
-    return entry =>
-      (entry.name ?? '').toLocaleLowerCase().includes(normalized) ||
-      (entry.path ?? '').toLocaleLowerCase().includes(normalized);
+    return entry => {
+      const name = caseSensitive ? (entry.name ?? '') : (entry.name ?? '').toLocaleLowerCase();
+      const p = caseSensitive ? (entry.path ?? '') : (entry.path ?? '').toLocaleLowerCase();
+      return name.includes(normalized) || p.includes(normalized);
+    };
   }
 
   private typeAllowed(

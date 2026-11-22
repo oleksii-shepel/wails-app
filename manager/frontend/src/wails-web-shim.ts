@@ -445,10 +445,16 @@ function installGoAppBridge() {
         }),
       }),
 
-    Search: (p: string, pattern: string, recursive = true) =>
-      apiJson('/api/fs/search', { method: 'POST', body: JSON.stringify({ path: p, pattern, recursive }) }),
-    SearchFiles: (p: string, pattern: string, recursive = true) =>
-      apiJson('/api/fs/search', { method: 'POST', body: JSON.stringify({ path: p, pattern, recursive }) }),
+    Search: (p: string, pattern: string, recursive = true, contentQuery = '', caseSensitive = false) =>
+      apiJson('/api/fs/search', {
+        method: 'POST',
+        body: JSON.stringify({ path: p, pattern, recursive, contentQuery, caseSensitive }),
+      }),
+    SearchFiles: (p: string, pattern: string, recursive = true, contentQuery = '', caseSensitive = false) =>
+      apiJson('/api/fs/search', {
+        method: 'POST',
+        body: JSON.stringify({ path: p, pattern, recursive, contentQuery, caseSensitive }),
+      }),
     BuildSearchAlias: async (p: string, pattern: string, recursive = true) =>
       `search://?path=${encodeURIComponent(p)}&pattern=${encodeURIComponent(pattern)}&recursive=${recursive}`,
 

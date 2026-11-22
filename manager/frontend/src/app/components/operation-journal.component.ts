@@ -19,9 +19,9 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button></header>
         <div class="journal-toolbar palette-dialog-toolbar">
           <div class="palette-dialog-segment" role="group" aria-label="Journal filters">
-            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'all'" (click)="setFilter('all')">All</button>
-            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'undoable'" (click)="setFilter('undoable')">Undoable</button>
-            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'failed'" (click)="setFilter('failed')">Failed</button>
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'all'" (click)="setFilter('all')">All ({{ entries.length }})</button>
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'undoable'" (click)="setFilter('undoable')">Undoable ({{ undoableCount }})</button>
+            <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'failed'" (click)="setFilter('failed')">Failed ({{ failedCount }})</button>
             <button type="button" class="palette-dialog-button" [attr.aria-pressed]="filter === 'replayed'" (click)="setFilter('replayed')">Undone or redone</button>
           </div>
           <input
@@ -55,6 +55,7 @@ type JournalFilter = 'all' | 'undoable' | 'failed' | 'replayed';
           <button type="button" class="palette-dialog-button" [disabled]="!history.canRedo" (click)="redo()">Redo</button></div>
           <div class="palette-dialog-footer-actions"><button type="button" class="palette-dialog-button" [disabled]="history.isBusy || entries.length === 0" (click)="clear()">Clear Journal</button>
           <button type="button" class="palette-dialog-button" [disabled]="matching.length === 0" (click)="download()">Export Results</button>
+          <button type="button" class="palette-dialog-button" [disabled]="matching.length === 0" (click)="copyJson()">Copy Log JSON</button>
           <button type="button" class="palette-dialog-button palette-dialog-button--primary" (click)="close()">Close</button></div></footer>
       </section>
     </div>`,
@@ -87,6 +88,8 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
   @Output() redoRequested=new EventEmitter<void>();
   constructor(readonly history:OperationHistoryService, private readonly dialogs:ConfirmDialogService, private readonly cdr:ChangeDetectorRef){}
   get entries():readonly OperationJournalEntry[]{return this.history.recentOperations();}
+  get undoableCount(): number { return this.entries.filter(entry => entry.reversible).length; }
+  get failedCount(): number { return this.entries.filter(entry => entry.state === 'failed' || entry.state === 'partial').length; }
   get filteredEntries(): readonly OperationJournalEntry[] {
     const query = this.searchText.trim().toLowerCase();
     return this.entries.filter(entry => {
@@ -196,6 +199,16 @@ export class OperationJournalComponent implements OnChanges, OnDestroy {
   }
   stateLabel(state: OperationJournalEntry['state']): string {
     return { completed: 'Completed', partial: 'Partial success', failed: 'Failed', undone: 'Undone', redone: 'Redone' }[state];
+  }
+  async copyJson(): Promise<void> {
+    if (this.filteredEntries.length === 0) return;
+    try {
+      await writeClipboardText(JSON.stringify(this.filteredEntries, null, 2));
+      this.notice = 'Copied journal JSON.';
+    } catch {
+      this.notice = 'Clipboard unavailable.';
+    }
+    this.cdr.markForCheck();
   }
   stateIcon(entry:OperationJournalEntry):string{if(entry.state==='failed')return '×';if(entry.state==='partial')return '!';if(entry.state==='undone')return '↶';if(entry.state==='redone')return '↷';return '✓';}
   trackEntry(_index:number,entry:OperationJournalEntry):string{return entry.id;}

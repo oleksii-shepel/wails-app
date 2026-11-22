@@ -45,7 +45,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
         <header class="palette-dialog-header">
           <div class="palette-dialog-title">
             <h2>Trash / Recycle Bin</h2>
-            <p class="palette-dialog-subtitle">{{ filteredEntries.length }} of {{ entries.length }} shown · {{ selectedIds.size }} selected<span *ngIf="hiddenSelectionCount as count"> ({{ count }} outside filter)</span></p>
+            <p class="palette-dialog-subtitle">{{ filteredEntries.length }} of {{ entries.length }} shown ({{ totalReclaimableLabel }}) · {{ selectedIds.size }} selected<span *ngIf="hiddenSelectionCount as count"> ({{ count }} outside filter)</span></p>
           </div>
           <button type="button" class="dialog-close" aria-label="Close dialog" title="Close" (click)="close()"> × </button>
         </header>
@@ -107,7 +107,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
           role="listbox"
           [attr.aria-busy]="loading"
           aria-multiselectable="true"
-          aria-label="Trash contents">
+          aria-label="Trash contents" (keydown)="onListKeyDown($event)">
           <button
             *ngFor="let entry of filteredEntries; trackBy: trackById"
             type="button"
@@ -125,6 +125,7 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
               <span [title]="entry.originalPath">{{ entry.originalPath || 'Original location unavailable' }}</span>
             </span>
             <span class="row-right">
+              <span class="row-size" *ngIf="entry.size > 0">{{ formatBytes(entry.size) }}</span>
               <span *ngIf="!entry.canRestore" class="restore-note">Restore unavailable</span>
               <span class="date">{{ formatDeleted(entry.deletedAt) }}</span>
             </span>
@@ -245,6 +246,12 @@ import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stac
       flex-direction: column;
       align-items: flex-end;
       gap: 2px;
+    }
+
+    .row-size {
+      font-size: 11px;
+      color: var(--vsc-foreground);
+      font-variant-numeric: tabular-nums;
     }
 
     .restore-note {
@@ -409,6 +416,14 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     return this.selectedIds.size - matchingSelected;
   }
 
+  get totalReclaimableBytes(): number {
+    return this.entries.reduce((sum, entry) => sum + (Number.isFinite(entry.size) ? Math.max(0, entry.size) : 0), 0);
+  }
+
+  get totalReclaimableLabel(): string {
+    return this.formatBytes(this.totalReclaimableBytes);
+  }
+
   get canRestoreSelection(): boolean {
     const selected = this.selectedEntries;
     return selected.length > 0 && selected.every(entry => entry.canRestore);
@@ -469,6 +484,52 @@ export class TrashDialogComponent implements OnInit, OnDestroy {
     if (!value) return '';
     const date = new Date(value);
     return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+  }
+
+  formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let idx = 0;
+    while (size >= 1024 && idx < units.length - 1) {
+      size /= 1024;
+      idx++;
+    }
+    return `${size >= 100 || idx === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[idx]}`;
+  }
+
+  onListKeyDown(event: KeyboardEvent): void {
+    const visible = this.filteredEntries;
+    if (visible.length === 0) return;
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      const currentIdx = visible.findIndex(entry => this.selectedIds.has(entry.id));
+      const nextIdx =
+        event.key === 'ArrowDown'
+          ? (currentIdx < visible.length - 1 ? currentIdx + 1 : 0)
+          : (currentIdx > 0 ? currentIdx - 1 : visible.length - 1);
+      const target = visible[nextIdx];
+      if (target) {
+        this.selectedIds = new Set([target.id]);
+        this.cdr.markForCheck();
+      }
+      return;
+    }
+
+    if (event.key === 'Enter' && this.canRestoreSelection) {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.restoreSelected();
+      return;
+    }
+
+    if (event.key === 'Delete' && this.selectedIds.size > 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      void this.deleteSelected();
+    }
   }
 
   onTabKey(event: Event): void {

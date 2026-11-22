@@ -13,6 +13,7 @@ import { moveFocusWithin } from '../utils/focus-navigation.utils';
 import { tryInjectElementRef, tryInjectModalStack } from '../services/modal-stack.service';
 import { filenameProblem } from '../utils/filename-validation';
 import { isWindowsPath, parentPath, pathIdentityKey } from './address-bar.utils';
+import { FileType } from '../shared/protocol';
 
 interface PreviewRow {
   entry: BatchRenameItem['entry'];
@@ -175,6 +176,10 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
                   <input type="checkbox" [checked]="matchCase" (change)="onMatchCaseToggle($event)" />
                   <span>Match Case</span>
                 </label>
+                <label class="br-check">
+                  <input type="checkbox" [checked]="preserveExtension" (change)="onPreserveExtensionToggle($event)" />
+                  <span>Preserve Extension on Find/Replace</span>
+                </label>
                 <span id="br-regex-error" class="br-regex-error" *ngIf="regexError" role="alert">{{ regexError }}</span>
               </div>
             </div>
@@ -213,6 +218,13 @@ const TOKEN_CHIPS: readonly PatternTokenChip[] = [
             <button
               type="button"
               class="br-btn br-btn--secondary"
+              (click)="resetOptions()"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              class="br-btn br-btn--secondary"
               (click)="onCancel()"
             >
               Cancel
@@ -246,6 +258,7 @@ export class BatchRenameDialogComponent {
   replaceText = '';
   useRegex = false;
   matchCase = false;
+  preserveExtension = false;
   regexError = '';
   preview: PreviewRow[] = [];
   conflictCount = 0;
@@ -292,6 +305,7 @@ export class BatchRenameDialogComponent {
         this.replaceText = '';
         this.useRegex = false;
         this.matchCase = false;
+        this.preserveExtension = false;
         this.regexError = '';
         this.rebuildPreview(req);
         this.releaseDialogContext ??= this.inputContexts.acquire('dialog.batchRename');
@@ -386,6 +400,24 @@ export class BatchRenameDialogComponent {
     this.onPatternChange();
   }
 
+  onPreserveExtensionToggle(event: Event): void {
+    this.preserveExtension = (event.target as HTMLInputElement).checked;
+    this.onPatternChange();
+  }
+
+  resetOptions(): void {
+    this.pattern = '{name}{.ext}';
+    this.startAt = 1;
+    this.increment = 1;
+    this.findText = '';
+    this.replaceText = '';
+    this.useRegex = false;
+    this.matchCase = false;
+    this.preserveExtension = false;
+    this.regexError = '';
+    this.onPatternChange();
+  }
+
   onPatternChange(): void {
     const req = this.service.activeRequest$.value;
     if (req) {
@@ -445,7 +477,18 @@ export class BatchRenameDialogComponent {
         counterWidth,
       });
       if (replacer) {
-        newName = replacer(newName);
+        if (this.preserveExtension && item.entry.type !== FileType.DIRECTORY) {
+          const dotIdx = newName.lastIndexOf('.');
+          if (dotIdx > 0) {
+            const stem = newName.slice(0, dotIdx);
+            const ext = newName.slice(dotIdx);
+            newName = `${replacer(stem)}${ext}`;
+          } else {
+            newName = replacer(newName);
+          }
+        } else {
+          newName = replacer(newName);
+        }
       }
       const problem = filenameProblem(newName, isWindowsPath(item.entry.path)) ?? undefined;
       const destination = pathIdentityKey(`${parentPath(item.entry.path).replace(/\/+$/, '')}/${newName}`);

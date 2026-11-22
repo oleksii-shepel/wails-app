@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
+import type { FileDiffDialogRequest } from './file-diff-dialog.service';
 
-export type AppOverlayToolsPage = 'operations' | 'disk' | 'duplicates' | 'checksums' | 'inventory';
+export type AppOverlayToolsPage = 'operations' | 'disk' | 'duplicates' | 'checksums' | 'inventory' | 'split-join';
 export type AppOverlayHistoryMode = 'pane' | 'all' | 'frequent';
 export interface KeyboardHelpRequest {
   contextIds?: readonly string[];
@@ -11,7 +12,8 @@ export interface ApplicationOverlayHost {
   openCommandPalette(commands: readonly unknown[]): void;
   openGlobalSearch(rootPath: string): void;
   closeGlobalSearch(): void;
-  openTools(page: AppOverlayToolsPage, rootPath: string): void;
+  openTools(page: AppOverlayToolsPage, rootPath: string, targetPath?: string): void;
+  openFileDiff(request?: FileDiffDialogRequest): void;
   showSelectionBasket(): void;
   openWorkspaceSwitcher(): void;
   createWorkspace(): void;
@@ -42,7 +44,8 @@ export class ApplicationOverlayHostService {
   openCommandPalette(commands: readonly unknown[]): void { this.host?.openCommandPalette(commands); }
   openGlobalSearch(rootPath: string): void { this.host?.openGlobalSearch(rootPath); }
   closeGlobalSearch(): void { this.host?.closeGlobalSearch(); }
-  openTools(page: AppOverlayToolsPage, rootPath: string): void { this.host?.openTools(page, rootPath); }
+  openTools(page: AppOverlayToolsPage, rootPath: string, targetPath?: string): void { this.host?.openTools(page, rootPath, targetPath); }
+  openFileDiff(request?: FileDiffDialogRequest): void { this.host?.openFileDiff(request); }
   showSelectionBasket(): void { this.host?.showSelectionBasket(); }
   openWorkspaceSwitcher(): void { this.host?.openWorkspaceSwitcher(); }
   createWorkspace(): void { this.host?.createWorkspace(); }

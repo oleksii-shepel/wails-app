@@ -395,13 +395,24 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
       });
     };
 
-    const system: QuickItem[] = specialFolders.map(folder => ({
-      id: `system:${folder.path}`,
-      label: folder.name,
-      path: folder.path,
-      icon: this.iconFor(folder.icon, DEFAULT_LOCATION_ICON),
-      kind: 'system',
-    }));
+    const system: QuickItem[] = [
+      ...specialFolders.map(folder => ({
+        id: `system:${folder.path}`,
+        label: folder.name,
+        path: folder.path,
+        icon: this.iconFor(folder.icon, DEFAULT_LOCATION_ICON),
+        kind: 'system' as const,
+      })),
+      {
+        id: 'system:cli',
+        label: 'Command Line (Aether CLI)',
+        path: `cli://session?cwd=${encodeURIComponent(this.currentPath || '/')}`,
+        icon: '>_',
+        kind: 'system',
+        surfaceId: 'cli',
+        meta: 'CLI TAB',
+      },
+    ];
 
     const driveItems: QuickItem[] = (drivesResponse.schemes ?? []).map(drive => ({
       id: `drive:${drive.path}`,

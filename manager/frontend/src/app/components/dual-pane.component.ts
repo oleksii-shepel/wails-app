@@ -112,6 +112,7 @@ const COMMAND = {
   togglePaneFollow: 'reassembly.panes.toggleFollow',
   matchOtherPane: 'reassembly.panes.matchOther',
   swapPaneRoots: 'reassembly.panes.swapRoots',
+  swapPaneLocations: FILE_MANAGER_COMMANDS.swapPaneLocations,
   openPeer: 'reassembly.panes.openPeer',
   copyToPeer: 'reassembly.panes.copyToPeer',
   moveToPeer: 'reassembly.panes.moveToPeer',
@@ -257,6 +258,10 @@ const COMMAND = {
   findDuplicates: FILE_MANAGER_COMMANDS.findDuplicates,
   folderInventory: FILE_MANAGER_COMMANDS.folderInventory,
   fileChecksums: FILE_MANAGER_COMMANDS.fileChecksums,
+  compareFilesDiff: FILE_MANAGER_COMMANDS.compareFilesDiff,
+  openChecksums: FILE_MANAGER_COMMANDS.openChecksums,
+  openSplitJoin: FILE_MANAGER_COMMANDS.openSplitJoin,
+  openCliTab: FILE_MANAGER_COMMANDS.openCliTab,
   recentFiles: 'reassembly.tools.recentFiles',
   batchRename: FILE_MANAGER_COMMANDS.batchRename,
 
@@ -388,6 +393,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.navigation.globalSearch.ctrlK', commandId:COMMAND.globalSearch, contextId:CONTEXT_ID, source:'default', description:'Open global search', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'k', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.quickPathJump.ctrlP', commandId:COMMAND.quickPathJump, contextId:CONTEXT_ID, source:'default', description:'Quick path jump', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl']}]}}},
   { id:'reassembly.files.quickView.f3', commandId:COMMAND.quickView, contextId:CONTEXT_ID, source:'default', description:'Quick view selected file', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f3'}]}}},
+  { id:'reassembly.tools.compareFilesDiff.f4', commandId:COMMAND.compareFilesDiff, contextId:CONTEXT_ID, source:'default', description:'Compare selected or active files (Diff)', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f4'}]}}},
+  { id:'reassembly.panes.swapLocations.ctrlU', commandId:COMMAND.swapPaneLocations, contextId:CONTEXT_ID, source:'default', description:'Swap left and right pane locations', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'u', modifiers:['ctrl']}]}}},
   { id:'reassembly.files.openWithExternal.ctrlShiftO', commandId:COMMAND.openWithExternal, contextId:CONTEXT_ID, source:'default', description:'Open with external application', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'o', modifiers:['ctrl','shift']}]}}},
 ];
 
@@ -447,6 +454,80 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
         <span class="difference-count" *ngIf="differenceCount">
           {{ differenceIndexLabel }}
+        </span>
+
+        <span class="commander-strip" role="group" aria-label="Commander quick actions">
+          <button
+            type="button"
+            class="commander-btn"
+            [disabled]="!canQuickViewActive"
+            title="Quick View selected file (F3)"
+            (click)="quickViewActive()">
+            F3 View
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            [disabled]="!canOpenFileDiff"
+            title="Compare two files side-by-side (F4)"
+            (click)="openFileDiffDialog()">
+            F4 Diff
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            [disabled]="!canCopyToOtherPane"
+            title="Copy to other pane (F5)"
+            (click)="copyToOther()">
+            F5 Copy
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            [disabled]="!canMoveToOtherPane"
+            title="Move to other pane (F6)"
+            (click)="moveToOther()">
+            F6 Move
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            [disabled]="!activePane?.mutationState?.canCreate"
+            title="Create new folder (F7)"
+            (click)="activePane?.commands?.newFolder()">
+            F7 Folder
+          </button>
+          <button
+            type="button"
+            class="commander-btn commander-btn--danger"
+            [disabled]="!canDeleteSelectionActive"
+            title="Delete selected items (F8)"
+            (click)="triggerDeleteSelected()">
+            F8 Delete
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            [disabled]="!canSwapPaneLocations"
+            title="Swap left and right pane folders (Ctrl+U)"
+            (click)="swapPaneLocations()">
+            ⇄ Swap
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            [class.active]="isBalancedSplit"
+            title="Reset split to 50/50 (Alt+Shift+0)"
+            (click)="resetSplit()">
+            50/50
+          </button>
+          <button
+            type="button"
+            class="commander-btn"
+            title="Checksums & Verification"
+            (click)="openTools('checksums')">
+            # Hash
+          </button>
         </span>
 
         <span class="spacer"></span>
@@ -734,6 +815,24 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
     }
     .pane-intelligence .spacer{flex:1}
+    .pane-intelligence .commander-strip{
+      display:inline-flex;
+      align-items:center;
+      gap:2px;
+      padding:0 4px;
+      overflow-x:auto;
+      scrollbar-width:none;
+    }
+    .pane-intelligence .commander-strip::-webkit-scrollbar{display:none}
+    .pane-intelligence .commander-btn{
+      white-space:nowrap;
+      font-variant-numeric:tabular-nums;
+      border-color:color-mix(in srgb,var(--vsc-border) 55%,transparent);
+    }
+    .pane-intelligence .commander-btn--danger:hover:not(:disabled){
+      border-color:var(--vsc-accent-red);
+      color:var(--vsc-accent-red);
+    }
     .pane-intelligence .live-modes{
       display:inline-flex;
       align-items:center;
@@ -3566,13 +3665,149 @@ export class DualPaneComponent implements OnInit, OnDestroy {
 
 
   openTools(page: AppOverlayToolsPage): void {
-    const rootPath = this.activePane?.contextState.isDirectoryTab
-      ? this.activePane.contextState.path
+    const activePane = this.activePane;
+    const rootPath = activePane?.contextState.isDirectoryTab
+      ? activePane.contextState.path
       : this.otherPane?.contextState.isDirectoryTab
         ? this.otherPane.contextState.path
         : '';
 
-    this.overlays.openTools(page, rootPath);
+    const activeEntry = activePane?.selection.selectedEntries[0] ?? activePane?.selection.cursorEntry;
+    const targetPath =
+      activeEntry && activeEntry.type !== FileType.DIRECTORY
+        ? activeEntry.path
+        : undefined;
+
+    this.overlays.openTools(page, rootPath, targetPath);
+  }
+
+  get canQuickViewActive(): boolean {
+    const pane = this.activePane;
+    const entry = pane?.selection.cursorEntry;
+    return !!pane?.contextState.isDirectoryTab && !!entry && entry.type !== FileType.DIRECTORY;
+  }
+
+  get canCopyToOtherPane(): boolean {
+    return this.canTransfer('copy');
+  }
+
+  get canMoveToOtherPane(): boolean {
+    return this.canTransfer('move');
+  }
+
+  get canDeleteSelectionActive(): boolean {
+    return this.canDeleteActiveSelection();
+  }
+
+  get canSwapPaneLocations(): boolean {
+    const left = this.leftPane;
+    const right = this.rightPane;
+    return !!(
+      left?.contextState.isDirectoryTab &&
+      right?.contextState.isDirectoryTab &&
+      !left.contextState.isInArchive &&
+      !right.contextState.isInArchive &&
+      left.contextState.path &&
+      right.contextState.path &&
+      left.contextState.path !== right.contextState.path
+    );
+  }
+
+  get isBalancedSplit(): boolean {
+    return Math.abs(this.leftPanePercent - 50) < 0.5;
+  }
+
+  get canOpenFileDiff(): boolean {
+    return this.collectDiffCandidates().length >= 1;
+  }
+
+  triggerDeleteSelected(): void {
+    this.deleteActiveSelection();
+  }
+
+  swapPaneLocations(): void {
+    const left = this.leftPane;
+    const right = this.rightPane;
+    if (!this.canSwapPaneLocations || !left || !right) return;
+
+    const leftPath = left.contextState.path;
+    const rightPath = right.contextState.path;
+    void left.navigation?.navigateTo(rightPath);
+    void right.navigation?.navigateTo(leftPath);
+    this.linkStatus = 'pane folders swapped';
+    this.invalidatePaneComparison('locations changed');
+    this.cdr.markForCheck();
+  }
+
+  openFileDiffDialog(leftOverride?: string, rightOverride?: string): void {
+    const candidates = this.collectDiffCandidates();
+    const active = this.activePane;
+    const other = this.otherPane;
+
+    const activeSelectedFiles = (active?.selection.selectedEntries ?? []).filter(
+      e => e.type !== FileType.DIRECTORY,
+    );
+    const activeCursorFile =
+      active?.selection.cursorEntry && active.selection.cursorEntry.type !== FileType.DIRECTORY
+        ? active.selection.cursorEntry
+        : null;
+
+    let leftPath = leftOverride ?? '';
+    let rightPath = rightOverride ?? '';
+
+    if (!leftPath) {
+      leftPath = activeSelectedFiles[0]?.path ?? activeCursorFile?.path ?? candidates[0]?.path ?? '';
+    }
+
+    if (!rightPath) {
+      if (activeSelectedFiles.length >= 2 && activeSelectedFiles[1]?.path !== leftPath) {
+        rightPath = activeSelectedFiles[1].path;
+      } else {
+        const leftName = leftPath ? candidates.find(c => c.path === leftPath)?.name : undefined;
+        const otherFiles = (other?.contextState.entries ?? []).filter(e => e.type !== FileType.DIRECTORY);
+        const peerMatch = leftName
+          ? otherFiles.find(e => e.name === leftName && e.path !== leftPath)
+          : undefined;
+        const otherSelected = (other?.selection.selectedEntries ?? []).find(
+          e => e.type !== FileType.DIRECTORY && e.path !== leftPath,
+        );
+        const otherCursor =
+          other?.selection.cursorEntry &&
+          other.selection.cursorEntry.type !== FileType.DIRECTORY &&
+          other.selection.cursorEntry.path !== leftPath
+            ? other.selection.cursorEntry
+            : null;
+        rightPath =
+          peerMatch?.path ??
+          otherSelected?.path ??
+          otherCursor?.path ??
+          candidates.find(c => c.path !== leftPath)?.path ??
+          '';
+      }
+    }
+
+    this.overlays.openFileDiff({
+      leftPath: leftPath || undefined,
+      rightPath: rightPath || undefined,
+      candidates,
+    });
+  }
+
+  private collectDiffCandidates(): FileInfo[] {
+    const seen = new Set<string>();
+    const list: FileInfo[] = [];
+    for (const entry of [
+      ...(this.activePane?.selection.selectedEntries ?? []),
+      ...(this.otherPane?.selection.selectedEntries ?? []),
+      ...(this.leftPane?.contextState.entries ?? []),
+      ...(this.rightPane?.contextState.entries ?? []),
+    ]) {
+      if (entry.type === FileType.DIRECTORY || !entry.path || seen.has(entry.path)) continue;
+      seen.add(entry.path);
+      list.push(entry);
+      if (list.length >= 120) break;
+    }
+    return list;
   }
 
   async batchRenameActiveSelection(): Promise<void> {
@@ -3799,6 +4034,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  async openCliTab(): Promise<void> {
+    const pane = this.activePane ?? this.leftPane ?? this.rightPane;
+    if (!pane) return;
+
+    const peer = this.otherPane;
+    const rawCwd =
+      (pane.contextState.isDirectoryTab && !pane.contextState.isInArchive && pane.contextState.path) ||
+      (peer?.contextState.isDirectoryTab && !peer.contextState.isInArchive && peer.contextState.path) ||
+      '/';
+    const location = `cli://session?cwd=${encodeURIComponent(rawCwd)}`;
+
+    await pane.viewerCommands?.openSurfaceTab('cli', 'Command Line', location);
+    this.cdr.markForCheck();
   }
 
   async refreshBothPanes(): Promise<void> {
@@ -5102,6 +5352,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
         this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
         ...(!isDirectory ? [
+          this.menuCommand(COMMAND.compareFilesDiff, 'Compare Files (Diff)…', 'F4'),
           this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
           this.menuCommand(COMMAND.splitFile, 'Split File…'),
         ] : []),
@@ -5427,6 +5678,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.globalSearch, 'Search Here…', 'Ctrl+K'),
       this.menuCommand(COMMAND.quickPathJump, 'Go to Path…', 'Ctrl+P'),
       this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+      this.menuCommand(COMMAND.openCliTab, 'Command Line Tab', 'Ctrl+Alt+C'),
       this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
       this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
       this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
@@ -6470,6 +6722,11 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.folderInventory, 'Folder Inventory', 'Tools', () => this.openTools('inventory'), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.fileChecksums, 'File Checksums', 'Tools', () => this.openTools('checksums'));
+    descriptor(COMMAND.openChecksums, 'Checksums & Verify', 'Tools', () => this.openTools('checksums'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.openSplitJoin, 'Split & Join Files', 'Tools', () => this.openTools('split-join'), () => !!this.activePane?.contextState.isDirectoryTab);
+    descriptor(COMMAND.openCliTab, 'Open Command Line Tab', 'Tools', () => this.openCliTab());
+    descriptor(COMMAND.compareFilesDiff, 'Compare Files (Diff)…', 'Tools', () => this.openFileDiffDialog(), () => this.canOpenFileDiff);
+    descriptor(COMMAND.swapPaneLocations, 'Swap Pane Locations', 'Pane Control', () => this.swapPaneLocations(), () => this.canSwapPaneLocations);
     descriptor(COMMAND.recentFiles, 'Recent Files', 'Tools', () => this.activePane?.viewerCommands?.openRecentFilesPanel(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(
       COMMAND.batchRename,

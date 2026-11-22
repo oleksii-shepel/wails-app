@@ -33,6 +33,17 @@ import { ResourceMutationService } from './resource-mutation.service';
 import { app, contracts, elevation, plugin } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
+export interface CliExecResult {
+  ok: boolean;
+  cwd: string;
+  changedCwd?: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+  error?: string;
+}
+
 export interface PathCapacity {
   totalSpace: number;
   freeSpace: number;
@@ -1247,6 +1258,35 @@ export class ApiService {
       return info.type === FileType.DIRECTORY;
     } catch {
       return false;
+    }
+  }
+
+  /** Browser-preview CLI adapter. Packaged Wails builds need a native Go binding. */
+  async executeCliCommand(command: string, cwd: string, color = true): Promise<CliExecResult> {
+    try {
+      const response = await fetch('/api/cli/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, cwd, color }),
+      });
+      const data = (await response.json()) as Partial<CliExecResult>;
+      return {
+        ok: response.ok && !!data.ok,
+        cwd: data.cwd || cwd,
+        changedCwd: !!data.changedCwd,
+        stdout: data.stdout ?? '',
+        stderr: data.stderr ?? (data.error ? `${data.error}\n` : ''),
+        exitCode: data.exitCode ?? (data.ok ? 0 : 1),
+        durationMs: data.durationMs ?? 0,
+        error: data.error,
+      };
+    } catch (error) {
+      return {
+        ok: false, cwd, stdout: '',
+        stderr: 'Local CLI preview service unavailable. Use npm run cli from a terminal.\n',
+        exitCode: 1, durationMs: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }

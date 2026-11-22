@@ -14,7 +14,9 @@
     "build": "npm --prefix manager/frontend run build",
     "build:app": "cd manager && wails build",
     "build:dev": "npm --prefix manager/frontend run ng -- build --configuration development",
-    "lint": "npx tsc -p manager/frontend/tsconfig.app.json --noEmit"
+    "lint": "npx tsc -p manager/frontend/tsconfig.app.json --noEmit",
+    "cli": "node cli/aether.mjs",
+    "test:cli": "node --test cli/*.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -29,5 +31,9 @@
   },
   "devDependencies": {
     "@angular/build": "22.1.4"
+  },
+  "bin": {
+    "aether": "./cli/aether.mjs",
+    "reassembly": "./cli/aether.mjs"
   }
 }

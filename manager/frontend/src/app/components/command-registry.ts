@@ -87,6 +87,7 @@ export const FILE_MANAGER_COMMANDS = {
   findDuplicates:       'pane.tools.findDuplicates',
   folderInventory:      'pane.tools.folderInventory',
   fileChecksums:        'pane.tools.fileChecksums',
+  openCliTab:           'pane.tools.openCliTab',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
   uploadFiles:          'pane.files.upload',
@@ -251,6 +252,10 @@ export const FILE_MANAGER_BINDINGS: InputBindingDefinition[] = [
   // ── Tools ─────────────────────────────────────────────────────────────────
   kb('pane.tools.diskUsage.ctrlShiftD', FILE_MANAGER_COMMANDS.diskUsage, 'd', 'Analyze disk usage',
     { modifiers: ['ctrl', 'shift'], category: FILES }),
+
+  // Preserve Ctrl+Alt+C for Copy Relative Path; use a distinct CLI shortcut.
+  kb('pane.tools.openCliTab.ctrlAltShiftC', FILE_MANAGER_COMMANDS.openCliTab, 'c', 'Open Command Line tab',
+    { modifiers: ['ctrl', 'alt', 'shift'], category: FILES }),
 
   // ── Additional File Operations ────────────────────────────────────────────
   kb('pane.files.batchRename.ctrlShiftR', FILE_MANAGER_COMMANDS.batchRename, 'r', 'Batch rename selected items', { modifiers: ['ctrl', 'shift'], category: FILES }),

@@ -155,6 +155,7 @@ const MENUS: readonly ApplicationMenu[] = [
       command(FILE_MANAGER_COMMANDS.recursiveComparePanes, 'Recursive Compare'),
       command(FILE_MANAGER_COMMANDS.reviewSyncPlan, 'Review Sync Plan'),
       separator(),
+      command(FILE_MANAGER_COMMANDS.openCliTab, 'Command Line Tab'),
       command('reassembly.navigation.openTerminal', 'Open Terminal Here'),
       separator(),
       command(FILE_MANAGER_COMMANDS.openRemoteConnections, 'Remote Connections…'),

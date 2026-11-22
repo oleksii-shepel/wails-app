@@ -14,9 +14,16 @@ type Resource struct {
 	MimeType      string
 }
 
+// Pages are kept bounded: panes call Clear on disposal, but a page that
+// never gets cleared (crashed renderer, leaked iframe) must not pin its
+// resources forever. LRU eviction by last update keeps memory flat.
+const maxPages = 64
+
 var (
 	mu            sync.RWMutex
 	pageResources = make(map[string]map[string]Resource)
+	pageSeen      = make(map[string]uint64)
+	seenCounter   uint64
 )
 
 func Store(pageURL string, resources []Resource) bool {
@@ -55,10 +62,41 @@ func Store(pageURL string, resources []Resource) bool {
 	mu.Lock()
 	defer mu.Unlock()
 	if resourcesEqual(pageResources[normalizedPage], next) {
+		touchPage(normalizedPage)
 		return false
 	}
 	pageResources[normalizedPage] = next
+	evictStalePagesLocked()
+	touchPage(normalizedPage)
 	return true
+}
+
+// evictStalePagesLocked drops the least recently updated pages when the cap
+// is exceeded. Caller holds mu for writing.
+func evictStalePagesLocked() {
+	for len(pageResources) > maxPages {
+		oldest := ""
+		var oldestSeen uint64
+		for page, seen := range pageSeen {
+			if _, ok := pageResources[page]; !ok {
+				continue
+			}
+			if oldest == "" || seen < oldestSeen {
+				oldest = page
+				oldestSeen = seen
+			}
+		}
+		if oldest == "" {
+			return
+		}
+		delete(pageResources, oldest)
+		delete(pageSeen, oldest)
+	}
+}
+
+func touchPage(normalizedPage string) {
+	seenCounter++
+	pageSeen[normalizedPage] = seenCounter
 }
 
 func Merge(pageURL string, resource Resource) bool {
@@ -86,9 +124,12 @@ func Merge(pageURL string, resource Resource) bool {
 		next.MimeType = strings.TrimSpace(resource.MimeType)
 	}
 	if current == next {
+		touchPage(normalizedPage)
 		return false
 	}
 	pageResources[normalizedPage][normalizedResource] = next
+	evictStalePagesLocked()
+	touchPage(normalizedPage)
 	return true
 }
 
@@ -99,6 +140,7 @@ func Clear(pageURL string) {
 	}
 	mu.Lock()
 	delete(pageResources, normalizedPage)
+	delete(pageSeen, normalizedPage)
 	mu.Unlock()
 }
 

@@ -66,7 +66,13 @@ func (s *RawService) ListDirectory(path string, showHidden bool) (*contracts.Dir
 			continue
 		}
 
-		info, statErr := os.Lstat(fullPath)
+		// entry.Info() reuses the data the directory enumeration already
+		// collected (FindFirstFile on Windows); only fall back to a real
+		// stat when it is unavailable.
+		info, statErr := entry.Info()
+		if statErr != nil {
+			info, statErr = os.Lstat(fullPath)
+		}
 		if statErr != nil {
 			if fallback, ok := BuildFallbackLinkInfo(s.callbacks.Metadata, name, fullPath, entry, hidden); ok {
 				files = append(files, fallback)

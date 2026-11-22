@@ -47,11 +47,12 @@ func (f *FS) Open(_ context.Context, path string) (vfs.File, error) {
 }
 
 func (f *FS) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
-	info, err := os.Lstat(f.abs(path))
+	osPath := f.abs(path)
+	info, err := os.Lstat(osPath)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return &fileInfo{FileInfo: info, vfsPath: filepath.ToSlash(path), osPath: f.abs(path)}, nil
+	return &fileInfo{FileInfo: info, vfsPath: filepath.ToSlash(path), osPath: osPath}, nil
 }
 
 func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {

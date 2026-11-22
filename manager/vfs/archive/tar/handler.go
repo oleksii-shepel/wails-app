@@ -382,6 +382,9 @@ func (a *Archive) Extract(ctx context.Context, srcEntryPath, dstOSPath string) e
 	return os.WriteFile(dstOSPath, data, 0644)
 }
 
+// ExtractSelected streams the archive once and writes each selected entry as
+// it is reached. archive/tar cannot seek, so reading per entry (the old
+// behavior) decompressed the whole archive for every selection — O(n·m).
 func (a *Archive) ExtractSelected(ctx context.Context, entries []string, dstOSPath string, opts archive.ExtractOptions) (*archive.ExtractResult, error) {
 	result := &archive.ExtractResult{}
 
@@ -390,18 +393,34 @@ func (a *Archive) ExtractSelected(ctx context.Context, entries []string, dstOSPa
 		want = append(want, normalizePath(e))
 	}
 
-	for _, e := range a.entries {
+	stream, err := a.openDecompressed()
+	if err != nil {
+		return result, err
+	}
+	defer stream.Close()
+	reader := tar.NewReader(stream)
+
+	for {
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
-		if e.isDir {
-			continue
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
 		}
-		if !matchesEntries(e.path, want) {
+		if err != nil {
+			return result, err
+		}
+		if header.Typeflag == tar.TypeDir {
 			continue
 		}
 
-		relPath := rebasePath(e.path, opts.StripPrefix)
+		path := normalizePath(header.Name)
+		if !matchesEntries(path, want) {
+			continue
+		}
+
+		relPath := rebasePath(path, opts.StripPrefix)
 		if relPath == "" {
 			continue
 		}
@@ -414,9 +433,9 @@ func (a *Archive) ExtractSelected(ctx context.Context, entries []string, dstOSPa
 		}
 
 		if _, err := os.Lstat(dstPath); err == nil && opts.OnConflict != nil {
-			resolved, skip, err := opts.OnConflict(e.path, dstPath)
+			resolved, skip, err := opts.OnConflict(path, dstPath)
 			if err != nil {
-				result.Errors = append(result.Errors, archive.EntryError{Entry: e.path, Err: err})
+				result.Errors = append(result.Errors, archive.EntryError{Entry: path, Err: err})
 				result.Failed++
 				continue
 			}
@@ -427,27 +446,31 @@ func (a *Archive) ExtractSelected(ctx context.Context, entries []string, dstOSPa
 		}
 
 		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-			result.Errors = append(result.Errors, archive.EntryError{Entry: e.path, Err: err})
+			result.Errors = append(result.Errors, archive.EntryError{Entry: path, Err: err})
 			result.Failed++
 			continue
 		}
 
-		data, err := a.readEntry(e.path)
+		dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
-			result.Errors = append(result.Errors, archive.EntryError{Entry: e.path, Err: err})
+			result.Errors = append(result.Errors, archive.EntryError{Entry: path, Err: err})
+			result.Failed++
+			continue
+		}
+		n, copyErr := io.Copy(dst, reader)
+		closeErr := dst.Close()
+		if copyErr == nil {
+			copyErr = closeErr
+		}
+		if copyErr != nil {
+			os.Remove(dstPath)
+			result.Errors = append(result.Errors, archive.EntryError{Entry: path, Err: copyErr})
 			result.Failed++
 			continue
 		}
 
-		if err := os.WriteFile(dstPath, data, 0644); err != nil {
-			result.Errors = append(result.Errors, archive.EntryError{Entry: e.path, Err: err})
-			result.Failed++
-			continue
-		}
-
-		n := int64(len(data))
 		if opts.Progress != nil {
-			opts.Progress(result.Bytes+n, 0, e.path)
+			opts.Progress(result.Bytes+n, 0, path)
 		}
 		result.Extracted++
 		result.Bytes += n
@@ -459,23 +482,45 @@ func (a *Archive) Close() error { return nil }
 
 // ── internal read ─────────────────────────────────────────────────────────────
 
-// readEntry does a fresh single-pass scan to read one entry's content.
-// archive/tar does not support seeking, so every read is O(n).
-func (a *Archive) readEntry(path string) ([]byte, error) {
+// openDecompressed opens the archive's tar stream, decompressing by the
+// archive's file extension. The caller owns the returned ReadCloser, which
+// closes both the decompressor and the underlying file.
+func (a *Archive) openDecompressed() (io.ReadCloser, error) {
 	if a.memData != nil {
-		dc, err := decompressReader(bytes.NewReader(a.memData), a.osPath)
-		if err != nil {
-			return nil, err
-		}
-		defer dc.Close()
-		return findEntry(tar.NewReader(dc), path)
+		return decompressReader(bytes.NewReader(a.memData), a.osPath)
 	}
 	f, err := os.Open(a.osPath)
 	if err != nil {
 		return nil, fmt.Errorf("tar: re-open for read %q: %w", a.osPath, err)
 	}
-	defer f.Close()
 	dc, err := decompressReader(f, a.osPath)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	// The gzip/bzip2 readers' Close does not close the underlying file.
+	return &ownedReadCloser{ReadCloser: dc, extra: f}, nil
+}
+
+// ownedReadCloser closes an extra io.Closer alongside its own.
+type ownedReadCloser struct {
+	io.ReadCloser
+	extra io.Closer
+}
+
+func (m *ownedReadCloser) Close() error {
+	err := m.ReadCloser.Close()
+	extraErr := m.extra.Close()
+	if extraErr == nil {
+		return err
+	}
+	return extraErr
+}
+
+// readEntry does a fresh single-pass scan to read one entry's content.
+// archive/tar does not support seeking, so every read is O(n).
+func (a *Archive) readEntry(path string) ([]byte, error) {
+	dc, err := a.openDecompressed()
 	if err != nil {
 		return nil, err
 	}

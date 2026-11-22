@@ -47,6 +47,8 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
           <button type="button" (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
           <button type="button" (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
           <button type="button" (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning || deleting">Trash {{ selected.size }}</button>
+          <button type="button" (click)="exportCsv()" [disabled]="!visibleGroups.length || scanning">Export CSV</button>
+          <button type="button" (click)="exportJson()" [disabled]="!visibleGroups.length || scanning">Export JSON</button>
         </div>
       </header>
 
@@ -54,6 +56,7 @@ import { LocalDateTimePipe } from '../../utils/local-date-time.pipe';
         <span *ngIf="progress">{{ progress.phase }} · {{ progress.discoveredFiles }} files · {{ progress.hashedFiles }}/{{ progress.candidateFiles }} hashed</span>
         <span *ngIf="result">{{ result.groups.length }} groups · {{ result.scannedFiles }} files · {{ formatSize(result.reclaimableBytes) }} reclaimable</span>
         <span class="warning" *ngIf="result?.truncated" role="status">scan limit reached</span>
+        <span *ngIf="exportNotice" role="status">{{ exportNotice }}</span>
       </div>
 
       <div class="empty" *ngIf="!scanning && result && result.groups.length === 0" role="status">No verified duplicates found.</div>
@@ -95,6 +98,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
   includeHidden = false;
   scanning = false;
   deleting = false;
+  exportNotice = '';
   progress: DuplicateScanProgress | null = null;
   result: DuplicateScanResult | null = null;
   selected = new Set<string>();
@@ -232,6 +236,78 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges, OnDestroy 
       for (const file of group.files) files.set(file.path, { ...file });
     }
     return [...files.values()];
+  }
+
+  exportCsv(): void {
+    const rows = this.exportRows();
+    if (!rows.length || this.scanning) return;
+    const cell = (value: string | number): string => {
+      const text = String(value);
+      const safe = /^[\s]*[=+@-]|^[\t\r\n]/.test(text) ? "'" + text : text;
+      return '"' + safe.replace(/"/g, '""') + '"';
+    };
+    const csv = [
+      ['GroupHash', 'GroupCopies', 'Bytes', 'Path', 'Status', 'KeeperPath'],
+      ...rows.map(row => [
+        row.group.hash,
+        String(row.group.files.length),
+        String(row.file.size),
+        row.file.path,
+        row.keep ? 'keep' : 'redundant',
+        row.group.suggestedKeeperPath,
+      ]),
+    ]
+      .map(row => row.map(cell).join(','))
+      .join('\r\n');
+    this.downloadExport('\uFEFF' + csv, 'text/csv;charset=utf-8', 'duplicates.csv', rows.length);
+  }
+
+  exportJson(): void {
+    const rows = this.exportRows();
+    if (!rows.length || this.scanning) return;
+    const groups = this.visibleGroups.map(group => ({
+      hash: group.hash,
+      size: group.size,
+      reclaimableBytes: group.reclaimableBytes,
+      suggestedKeeperPath: group.suggestedKeeperPath,
+      files: group.files.map(file => ({
+        path: file.path,
+        name: file.name,
+        size: file.size,
+        modified: file.modified,
+        status: file.path === group.suggestedKeeperPath ? 'keep' : 'redundant',
+      })),
+    }));
+    this.downloadExport(
+      JSON.stringify({ rootPath: this.rootPath, keeperPolicy: this.keeperPolicy, groups }, null, 2),
+      'application/json',
+      'duplicates.json',
+      rows.length,
+    );
+  }
+
+  private exportRows(): { group: DuplicateGroup; file: import('../../shared/protocol').FileInfo; keep: boolean }[] {
+    const scan = this.result;
+    if (!scan) return [];
+    const redundant = new Set(this.finder.redundantPaths(scan.groups, this.keeperPolicy));
+    const rows: { group: DuplicateGroup; file: import('../../shared/protocol').FileInfo; keep: boolean }[] = [];
+    for (const group of this.visibleGroups) {
+      for (const file of group.files) {
+        rows.push({ group, file, keep: !redundant.has(file.path) });
+      }
+    }
+    return rows;
+  }
+
+  private downloadExport(content: string, mime: string, filename: string, count: number): void {
+    const url = URL.createObjectURL(new Blob([content], { type: mime }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    this.exportNotice = `Requested ${filename} download for ${count} file${count === 1 ? '' : 's'}.`;
+    this.cdr.markForCheck();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   collectSelected(): void {

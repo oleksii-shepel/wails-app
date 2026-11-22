@@ -276,9 +276,11 @@ func LoadStoredState(appName string) *State {
 }
 
 // StoredStateRequiresElevation reports whether startup should relaunch elevated
-// before restoring persisted panes. This currently treats registry-backed pane
-// locations as requiring elevation on startup so the initial restore does not
-// fall back to a generic root before elevated access is available.
+// before restoring persisted panes. When the startup workspace is unambiguous
+// (reopen-last with an existing active workspace) only that workspace decides;
+// otherwise the check stays on the safe side and requires elevation when any
+// stored workspace holds registry-backed pane locations, so the initial restore
+// does not fall back to a generic root before elevated access is available.
 func StoredStateRequiresElevation(appName string) bool {
 	state := LoadStoredState(appName)
 	return state != nil && storedStateRequiresElevation(*state)
@@ -295,8 +297,14 @@ func storedStateRequiresElevation(state State) bool {
 		}
 	}
 
-	// Nothing else is restored at startup, so no other workspace's paths
-	// can require elevation before the user asks for it.
+	// The startup workspace is ambiguous otherwise (nothing is auto-restored),
+	// so stay on the safe side and pre-elevate if any stored workspace needs
+	// elevated paths.
+	for _, workspace := range state.Workspaces {
+		if workspaceRequiresElevation(workspace) {
+			return true
+		}
+	}
 	return false
 }
 

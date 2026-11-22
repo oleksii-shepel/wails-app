@@ -403,6 +403,16 @@ export class QuickAccessComponent implements OnInit, OnDestroy {
       kind: 'system',
     }));
 
+    system.push({
+      id: 'system:cli',
+      label: 'Command Line (Aether CLI)',
+      path: `cli://session?cwd=${encodeURIComponent(this.currentPath || '/')}`,
+      icon: '>_',
+      kind: 'system',
+      surfaceId: 'cli',
+      meta: 'CLI TAB',
+    });
+
     const driveItems: QuickItem[] = (drivesResponse.schemes ?? []).map(drive => ({
       id: `drive:${drive.path}`,
       label: drive.name || drive.path,

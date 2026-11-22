@@ -1,4 +1,5 @@
 import express from 'express';
+import { registerCliPreviewApi } from './cli/preview-api.mjs';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -2671,6 +2672,9 @@ app.delete('/api/plugins/:id', async (req, res) => {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
+
+// Existing localhost/Host/Origin guards above also cover this privileged route.
+registerCliPreviewApi(app, WORKSPACE_ROOT);
 
 if (fs.existsSync(PUBLIC_DIR)) {
   app.use(express.static(PUBLIC_DIR));

@@ -257,6 +257,7 @@ const COMMAND = {
   findDuplicates: FILE_MANAGER_COMMANDS.findDuplicates,
   folderInventory: FILE_MANAGER_COMMANDS.folderInventory,
   fileChecksums: FILE_MANAGER_COMMANDS.fileChecksums,
+  openCliTab: FILE_MANAGER_COMMANDS.openCliTab,
   recentFiles: 'reassembly.tools.recentFiles',
   batchRename: FILE_MANAGER_COMMANDS.batchRename,
 
@@ -3781,6 +3782,18 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async openCliTab(): Promise<void> {
+    const pane = this.activePane ?? this.leftPane ?? this.rightPane;
+    if (!pane) return;
+    const peer = this.otherPane;
+    const rawCwd =
+      (pane.contextState.isDirectoryTab && !pane.contextState.isInArchive && pane.contextState.path) ||
+      (peer?.contextState.isDirectoryTab && !peer.contextState.isInArchive && peer.contextState.path) ||
+      '/';
+    const location = `cli://session?cwd=${encodeURIComponent(rawCwd)}`;
+    await pane.viewerCommands?.openSurfaceTab('cli', 'Command Line', location);
+  }
+
   async openTerminalHere(): Promise<void> {
     const pane = this.activePane;
     if (!pane?.contextState.isDirectoryTab || pane.contextState.isInArchive || !pane.contextState.path) return;
@@ -5427,6 +5440,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.globalSearch, 'Search Here…', 'Ctrl+K'),
       this.menuCommand(COMMAND.quickPathJump, 'Go to Path…', 'Ctrl+P'),
       this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+      this.menuCommand(COMMAND.openCliTab, 'Command Line Tab', 'Ctrl+Alt+Shift+C'),
       this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
       this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
       this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
@@ -6466,6 +6480,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.clearBasket, 'Clear Selection Basket', 'Tools', () => this.selectionBasketService.clear(), () => this.selectionBasketService.snapshot.length > 0);
 
     descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
+    descriptor(COMMAND.openCliTab, 'Open Command Line Tab', 'Tools', () => this.openCliTab());
     descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openDiskUsageDialog(), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.contextState.isDirectoryTab);
     descriptor(COMMAND.folderInventory, 'Folder Inventory', 'Tools', () => this.openTools('inventory'), () => !!this.activePane?.contextState.isDirectoryTab);

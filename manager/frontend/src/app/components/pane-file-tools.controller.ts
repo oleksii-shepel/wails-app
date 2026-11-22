@@ -154,13 +154,17 @@ export class PaneFileToolsController {
     });
     if (requested == null) return;
     let cleanName = this.cleanLeafName(requested);
-    if (!cleanName) { await this.confirm.alert({ title: 'Invalid Name', message: 'Choose a valid ZIP filename.' }); return; }
-    if (!/\.zip$/i.test(cleanName)) cleanName += '.zip';
+    if (!cleanName) { await this.confirm.alert({ title: 'Invalid Name', message: 'Choose a valid archive filename.' }); return; }
+    const archiveFormat = this.archiveFormatOf(cleanName);
+    if (!archiveFormat) cleanName += '.zip';
     const destination = await this.api.joinPaths([destinationFolder, cleanName]);
     try { await this.api.getFileInfo(destination); await this.confirm.alert({ title: 'Name Already Exists', message: `An item named "${cleanName}" already exists.` }); return; } catch { /* available */ }
     const sources = entries.map(entry => entry.path);
+    const create = () => archiveFormat === 'zip'
+      ? this.api.createZipArchive(sources, destination)
+      : this.api.createArchive(sources, destination);
     try {
-      await this.api.createZipArchive(sources, destination);
+      await create();
     } catch (error) {
       await this.confirm.alert({
         title: 'Archive Creation Failed',
@@ -169,13 +173,20 @@ export class PaneFileToolsController {
       });
       return;
     }
-    this.history.record({ label: `Create archive ${cleanName}`, undo: async () => { await this.api.deleteFile(destination, true, false); }, redo: async () => { await this.api.createZipArchive(sources, destination); } });
+    this.history.record({ label: `Create archive ${cleanName}`, undo: async () => { await this.api.deleteFile(destination, true, false); }, redo: create });
     if (host.path === destinationFolder) {
       await host.refresh();
       if (host.path === destinationFolder) host.selectPath(destination);
     }
   }
 
+  /** zip, tar, tar.gz/.tgz, tar.bz2/.tbz2 — null when the name has no archive extension. */
+  private archiveFormatOf(name: string): 'zip' | 'tar' | null {
+    const lower = name.toLowerCase();
+    if (/.zip$/.test(lower)) return 'zip';
+    if (/.(tar|tgz|tar.gz|tar.bz2|tbz2)$/.test(lower)) return 'tar';
+    return null;
+  }
   private effectiveSelection(host: PaneFileToolsHost): FileInfo[] {
     return host.selectedEntries.length > 0 ? [...host.selectedEntries] : host.cursorEntry ? [host.cursorEntry] : [];
   }

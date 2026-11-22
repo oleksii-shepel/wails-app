@@ -665,6 +665,32 @@ export class ApiService {
     return result;
   }
 
+  /** Creates a tar, tar.gz, or tar.bz2 archive; the format follows the destination extension. */
+  async createArchive(
+    paths: string[],
+    destination: string,
+  ): Promise<OperationResult> {
+    const app = window.go.app.App as unknown as {
+      CreateArchive(
+        paths: string[],
+        destination: string,
+      ): Promise<OperationResult>;
+    };
+
+    if (typeof app.CreateArchive !== 'function') {
+      throw new Error(
+        'CreateArchive binding is unavailable. Run Wails binding generation.',
+      );
+    }
+
+    const result = await app.CreateArchive(
+      this.normalizeCanonicalPathList(paths),
+      this.normalizeCanonicalPath(destination),
+    );
+    if (!result?.success) throw new Error(result?.message || 'Archive creation failed.');
+    return result;
+  }
+
   async openFile(path: string): Promise<void> {
     return await window.go.app.App.OpenFile(this.normalizeCanonicalPath(path));
   }

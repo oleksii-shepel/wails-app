@@ -1,12 +1,16 @@
 package app
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	bzip2writer "github.com/dsnet/compress/bzip2"
 
 	internalarchive "wails-app/internal/archive"
 	"wails-app/internal/contracts"
@@ -409,4 +413,226 @@ func collectZipTreeNames(sourcePath, archiveRoot string, names map[string]struct
 		names[name] = struct{}{}
 		return nil
 	})
+}
+
+// CreateArchive creates a tar, tar.gz, or tar.bz2 archive from public
+// file-manager paths; the container format follows the destination
+// extension (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2). Zip creation keeps its
+// dedicated binding.
+func (a *App) CreateArchive(paths []string, destination string) (*contracts.OperationResult, error) {
+	if a == nil || a.State == nil || a.State.Filesystem == nil {
+		return nil, fmt.Errorf("create archive: filesystem is unavailable")
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("create archive: no source paths")
+	}
+	if strings.TrimSpace(destination) == "" {
+		return nil, fmt.Errorf("create archive: empty destination")
+	}
+
+	lowerDestination := strings.ToLower(destination)
+	switch {
+	case strings.HasSuffix(lowerDestination, ".tar"),
+		strings.HasSuffix(lowerDestination, ".tar.gz"), strings.HasSuffix(lowerDestination, ".tgz"),
+		strings.HasSuffix(lowerDestination, ".tar.bz2"), strings.HasSuffix(lowerDestination, ".tbz2"):
+	default:
+		return nil, fmt.Errorf("create archive: unsupported tar destination %q", destination)
+	}
+
+	resolvedDestination, err := a.State.Filesystem.RealPath(destination)
+	if err != nil {
+		return nil, fmt.Errorf("create archive: resolve destination: %w", err)
+	}
+	if _, err := os.Lstat(resolvedDestination); err == nil {
+		return nil, fmt.Errorf("create archive: destination already exists: %w", os.ErrExist)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("create archive: inspect destination: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(resolvedDestination), 0755); err != nil {
+		return nil, fmt.Errorf("create archive: prepare destination: %w", err)
+	}
+
+	ext := filepath.Ext(resolvedDestination)
+	if strings.EqualFold(ext, ".gz") || strings.EqualFold(ext, ".bz2") {
+		ext = filepath.Ext(strings.TrimSuffix(resolvedDestination, ext)) + ext
+	}
+	tempFile, err := os.CreateTemp(filepath.Dir(resolvedDestination), ".file-manager-archive-*"+strings.ToLower(ext))
+	if err != nil {
+		return nil, fmt.Errorf("create archive: temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+		if err != nil {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	var sink io.Writer = tempFile
+	switch {
+	case strings.EqualFold(filepath.Ext(resolvedDestination), ".gz") || strings.HasSuffix(lowerDestination, ".tgz"):
+		gzWriter := gzip.NewWriter(sink)
+		sink = gzWriter
+		defer func() {
+			if err != nil {
+				return
+			}
+			if gzErr := gzWriter.Close(); gzErr != nil && err == nil {
+				err = gzErr
+			}
+		}()
+	case strings.HasSuffix(lowerDestination, ".bz2") || strings.HasSuffix(lowerDestination, ".tbz2"):
+		bzWriter, bzErr := bzip2writer.NewWriter(sink, nil)
+		if bzErr != nil {
+			return nil, fmt.Errorf("create archive: bzip2 writer: %w", bzErr)
+		}
+		sink = bzWriter
+		defer func() {
+			if err != nil {
+				return
+			}
+			if bzErr := bzWriter.Close(); bzErr != nil && err == nil {
+				err = bzErr
+			}
+		}()
+	}
+
+	tarWriter := tar.NewWriter(sink)
+	seen := make(map[string]struct{})
+	destinationAbs, _ := filepath.Abs(resolvedDestination)
+
+	for _, publicSource := range paths {
+		resolvedSource, err := a.State.Filesystem.RealPath(publicSource)
+		if err != nil {
+			err = fmt.Errorf("create archive: resolve %q: %w", publicSource, err)
+			_ = tarWriter.Close()
+			return nil, err
+		}
+
+		sourceAbs, err := filepath.Abs(resolvedSource)
+		if err != nil {
+			err = fmt.Errorf("create archive: source path %q: %w", publicSource, err)
+			_ = tarWriter.Close()
+			return nil, err
+		}
+		if sameFilesystemPath(sourceAbs, destinationAbs) {
+			err = fmt.Errorf("create archive: destination cannot also be a source")
+			_ = tarWriter.Close()
+			return nil, err
+		}
+
+		rootName := filepath.Base(filepath.Clean(sourceAbs))
+		if rootName == "." || rootName == string(filepath.Separator) || rootName == "" {
+			rootName = "root"
+		}
+
+		if err := addTarTree(tarWriter, sourceAbs, rootName, seen, destinationAbs, tempPath); err != nil {
+			_ = tarWriter.Close()
+			err = fmt.Errorf("create archive: %w", err)
+			return nil, err
+		}
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		return nil, fmt.Errorf("create archive: finalize: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return nil, fmt.Errorf("create archive: close temp file: %w", err)
+	}
+
+	if err := internalarchive.PublishNewArchive(tempPath, resolvedDestination); err != nil {
+		return nil, fmt.Errorf("create archive: commit: %w", err)
+	}
+
+	return &contracts.OperationResult{
+		Success:       true,
+		Message:       "archive created",
+		AffectedPaths: []string{destination},
+	}, nil
+}
+
+func addTarTree(tarWriter *tar.Writer, sourcePath, archiveRoot string, seen map[string]struct{}, excludedPaths ...string) error {
+	info, err := os.Lstat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("stat %q: %w", sourcePath, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 && info.IsDir() {
+		return filepath.Walk(sourcePath, func(path string, walkInfo os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+
+			absolute, err := filepath.Abs(path)
+			if err == nil {
+				for _, excluded := range excludedPaths {
+					if sameFilesystemPath(absolute, excluded) {
+						if walkInfo.IsDir() {
+							return filepath.SkipDir
+						}
+						return nil
+					}
+				}
+			}
+
+			rel, err := filepath.Rel(sourcePath, path)
+			if err != nil {
+				return err
+			}
+			name := archiveRoot
+			if rel != "." {
+				name = archiveRoot + "/" + filepath.ToSlash(rel)
+			}
+			if info := walkInfo; info.IsDir() {
+				return addTarFile(tarWriter, path, name+"/", info, seen)
+			}
+			return addTarFile(tarWriter, path, name, walkInfo, seen)
+		})
+	}
+	return addTarFile(tarWriter, sourcePath, archiveRoot, info, seen)
+}
+
+func addTarFile(tarWriter *tar.Writer, sourcePath, name string, info os.FileInfo, seen map[string]struct{}) error {
+	name = strings.TrimSuffix(filepath.ToSlash(strings.TrimPrefix(name, "/")), "/")
+	if name == "" {
+		return nil
+	}
+	if _, exists := seen[name]; exists {
+		return fmt.Errorf("duplicate archive path %q", name)
+	}
+	seen[name] = struct{}{}
+
+	header := &tar.Header{
+		Name:    name,
+		Mode:    int64(info.Mode().Perm()),
+		ModTime: info.ModTime(),
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(sourcePath)
+		if err != nil {
+			return err
+		}
+		header.Typeflag = tar.TypeSymlink
+		header.Linkname = target
+		return tarWriter.WriteHeader(header)
+	}
+
+	if info.IsDir() {
+		header.Typeflag = tar.TypeDir
+		return tarWriter.WriteHeader(header)
+	}
+
+	header.Typeflag = tar.TypeReg
+	header.Size = info.Size()
+	if err := tarWriter.WriteHeader(header); err != nil {
+		return err
+	}
+
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = io.Copy(tarWriter, file)
+	return err
 }

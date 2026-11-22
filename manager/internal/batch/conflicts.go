@@ -2,6 +2,7 @@ package batch
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -52,5 +53,24 @@ func (m *ConflictManager) CancelAll() {
 	for id, response := range m.pending {
 		response <- contracts.ConflictResolutionRequest{Resolution: contracts.ConflictCancel}
 		delete(m.pending, id)
+	}
+}
+
+// CancelOperation resolves every pending conflict belonging to opID with
+// ConflictCancel. Batch entry points defer this so a finished, failed, or
+// cancelled operation cannot leave unresolved conflicts registered forever.
+func (m *ConflictManager) CancelOperation(opID string) {
+	prefix := opID + "-conflict-"
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, response := range m.pending {
+		if !strings.HasPrefix(id, prefix) {
+			continue
+		}
+		delete(m.pending, id)
+		select {
+		case response <- contracts.ConflictResolutionRequest{Resolution: contracts.ConflictCancel}:
+		default:
+		}
 	}
 }

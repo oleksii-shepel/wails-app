@@ -153,11 +153,13 @@ func (s *Service) newTransferRunner(op *internalops.ActiveOperation) *TransferRu
 
 func (s *Service) BatchCopy(req contracts.BatchRequest) (*contracts.BatchResult, error) {
 	op := s.config.StartOperation(contracts.OpCopy, "Batch copy", "", "")
+	defer s.conflicts.CancelOperation(op.ID)
 	return s.newTransferRunner(op).Copy(op, req)
 }
 
 func (s *Service) BatchMove(req contracts.BatchRequest) (*contracts.BatchResult, error) {
 	op := s.config.StartOperation(contracts.OpMove, "Batch move", "", "")
+	defer s.conflicts.CancelOperation(op.ID)
 	return s.newTransferRunner(op).Move(op, req)
 }
 
@@ -178,11 +180,13 @@ func (s *Service) BatchDelete(req contracts.BatchDeleteRequest) (*contracts.Batc
 	}
 
 	op := s.config.StartOperation(opType, title, source, destination)
+	defer s.conflicts.CancelOperation(op.ID)
 	return s.newTransferRunner(op).Delete(op, req)
 }
 
 func (s *Service) BatchExtract(req contracts.BatchExtractRequest) (*contracts.BatchExtractResult, error) {
 	op := s.config.StartOperation(contracts.OpExtract, "Batch extract", "", req.DestinationDir)
+	defer s.conflicts.CancelOperation(op.ID)
 	op.SetTotal(int64(len(req.Archives)), 0)
 
 	progress := NewProgressTracker(op)
@@ -233,6 +237,7 @@ func (s *Service) BatchExtract(req contracts.BatchExtractRequest) (*contracts.Ba
 
 func (s *Service) BatchSelectiveExtract(req contracts.BatchSelectiveExtractRequest) (*contracts.BatchSelectiveExtractResult, error) {
 	op := s.config.StartOperation(contracts.OpExtract, "Selective extract", "", req.DestinationDir)
+	defer s.conflicts.CancelOperation(op.ID)
 	op.SetTotal(int64(len(req.Items)), 0)
 
 	progress := NewProgressTracker(op)
@@ -289,4 +294,10 @@ func (s *Service) ResolveConflict(conflictID string, resolution contracts.Confli
 		Resolution: resolution,
 		ApplyToAll: applyToAll,
 	})
+}
+
+// CancelConflicts resolves every pending conflict belonging to the operation
+// with ConflictCancel; callers defer it so conflicts cannot outlive the op.
+func (s *Service) CancelConflicts(opID string) {
+	s.conflicts.CancelOperation(opID)
 }

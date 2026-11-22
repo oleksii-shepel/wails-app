@@ -79,6 +79,7 @@ type Batch interface {
 		blanket **contracts.ConflictResolution,
 	) (string, bool, error)
 	ResolveConflict(conflictID string, resolution contracts.ConflictResolution, applyToAll bool) bool
+	CancelConflicts(opID string)
 }
 
 type Converter interface {

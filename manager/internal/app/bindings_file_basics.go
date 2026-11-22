@@ -43,6 +43,8 @@ func (a *App) BatchTransferTrash(req contracts.TrashTransferRequest) (*contracts
 
 	op := a.StartOperation(opType, title, "bin://", req.DestinationDir)
 	op.SetTotal(int64(len(req.IDs)), 0)
+	// Conflicts registered below must not outlive the transfer.
+	defer a.State.Batch.CancelConflicts(op.ID)
 
 	resolved, err := a.State.Filesystem.RealPath(req.DestinationDir)
 	if err != nil {

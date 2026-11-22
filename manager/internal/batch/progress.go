@@ -42,7 +42,7 @@ func (p *ProgressTracker) Set(items, bytes int64, file string, fileSize int64, f
 	}
 	i, b, f, s := p.processedItems, p.processedBytes, p.currentFile, p.currentSize
 	p.mu.Unlock()
-	if emit {
+	if emit && p.op != nil {
 		p.op.UpdateProgress(i, b, f, s)
 	}
 }
@@ -51,7 +51,9 @@ func (p *ProgressTracker) Flush() {
 	p.mu.Lock()
 	i, b, f, s := p.processedItems, p.processedBytes, p.currentFile, p.currentSize
 	p.mu.Unlock()
-	p.op.UpdateProgress(i, b, f, s)
+	if p.op != nil {
+		p.op.UpdateProgress(i, b, f, s)
+	}
 }
 
 func (p *ProgressTracker) Snapshot() (int64, int64) {

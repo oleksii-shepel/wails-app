@@ -82,6 +82,16 @@ func TestConflictManagerCancelAll(t *testing.T) {
 	}
 }
 
+func TestProgressTrackerWithoutReporter(t *testing.T) {
+	tracker := NewProgressTracker(nil)
+	tracker.Set(1, 10, "first", 10, true)
+	tracker.Advance(2, 20, "second", 20, true)
+	tracker.Flush()
+	if items, bytes := tracker.Snapshot(); items != 3 || bytes != 30 {
+		t.Fatalf("snapshot = (%d, %d), want (3, 30)", items, bytes)
+	}
+}
+
 func TestProgressTrackerSnapshot(t *testing.T) {
 	op := newTestOp()
 	pt := NewProgressTracker(op)
@@ -105,7 +115,7 @@ func TestProgressTrackerFlush(t *testing.T) {
 func TestProgressTrackerThrottle(t *testing.T) {
 	op := newTestOp()
 	pt := NewProgressTracker(op)
-	pt.throttle = time.Hour // no natural expiration during test
+	pt.throttle = time.Hour           // no natural expiration during test
 	pt.Set(1, 10, "a.txt", 10, true)  // force emit to establish baseline
 	pt.Set(2, 20, "b.txt", 20, false) // should be throttled
 	if op.Progress.ProcessedItems != 1 {

@@ -47,6 +47,7 @@ import {
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { RemoteConnectionsService } from '../services/remote-connections.service';
 import { FileInfo, FileType } from '../shared/protocol';
+import { selectionSizeSuffix } from '../utils/selection-summary';
 import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
@@ -317,7 +318,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         aria-atomic="true">
         <span *ngIf="loading">Loading {{ path || 'location' }}&#x2026;</span>
         <span *ngIf="!loading && !error">{{ totalEntryCount }} items</span>
-        <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
+        <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected{{ selectionSizeLabel }}</span>
         <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
         <span *ngIf="clipboard" class="clipboard-state">
           {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}: {{ clipboard.paths.length }}
@@ -614,7 +615,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </span>
 
         <span class="footer-item" *ngIf="selectedPaths.size">
-          {{ selectedPaths.size }} selected
+          {{ selectedPaths.size }} selected{{ selectionSizeLabel }}
           <ng-container *ngIf="selectedTotalBytes > 0">
             &#x00B7; {{ formatSize(selectedTotalBytes) }}
           </ng-container>
@@ -1699,6 +1700,10 @@ export class EnvironmentPaneComponent implements OnInit, OnDestroy {
   entries: FileInfo[] = [];
   cursorPath: string | null = null;
   selectedPaths = new Set<string>();
+
+  get selectionSizeLabel(): string {
+    return selectionSizeSuffix(this.selectedPaths, this.entries);
+  }
   loading = false;
   error: string | null = null;
 

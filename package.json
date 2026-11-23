@@ -11,10 +11,8 @@
     "manager/frontend"
   ],
   "scripts": {
-    "dev": "node server.mjs",
     "dev:app": "node scripts/run-wails-dev.mjs",
     "dev:watch": "npm --workspace file-manager-client run watch",
-    "start": "node server.mjs",
     "cli": "node cli/aether.mjs",
     "test:cli": "node --test cli/cli.test.mjs",
     "build": "npm --prefix manager/frontend run build",
@@ -29,7 +27,6 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
-    "express": "^4.21.2",
     "rxjs": "^7.8.2",
     "tslib": "^2.9.1"
   },

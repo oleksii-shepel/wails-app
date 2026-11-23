@@ -12,6 +12,7 @@ require (
 	github.com/dsnet/compress v0.0.2-0.20210315054119-f66993602bf5
 	github.com/epikodelabs/reassembly/core v0.0.0
 	github.com/fsnotify/fsnotify v1.10.1
+	github.com/go-ole/go-ole v1.3.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/mholt/archiver/v3 v3.5.1
@@ -45,7 +46,6 @@ require (
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/geoffgarside/ber v1.2.0 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

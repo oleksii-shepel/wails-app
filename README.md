@@ -46,13 +46,3 @@ wails build
 The executable is written to `manager/build/bin/`. Run it on Windows before
 publishing a release. Follow the [Windows release checklist](docs/WINDOWS_RELEASE_CHECKLIST.md)
 to verify the CI artifact and packaged file operations.
-
-## Running the local browser preview
-
-From the repository root, run `npm ci`, `npm run build`, then `npm run dev`.
-Open [127.0.0.1:3000](http://127.0.0.1:3000). The preview can modify local files
-and listens only on the local machine.
-
-For frontend development, run `npm run dev:watch` in a second terminal.
-The preview serves the latest files from `manager/frontend/dist/`; reload the
-page after the watcher finishes rebuilding.

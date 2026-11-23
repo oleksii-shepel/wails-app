@@ -238,6 +238,10 @@ export function EnsureUniversalPluginHostPrivilege(arg1) {
   return window['go']['app']['App']['EnsureUniversalPluginHostPrivilege'](arg1);
 }
 
+export function ExecuteCliCommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['ExecuteCliCommand'](arg1, arg2, arg3);
+}
+
 export function ExtractNestedArchive(arg1, arg2) {
   return window['go']['app']['App']['ExtractNestedArchive'](arg1, arg2);
 }

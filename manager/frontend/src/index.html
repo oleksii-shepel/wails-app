@@ -28,7 +28,13 @@
       var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
       var dark = theme === 'dark' || (theme === 'system' && !prefersLight);
       html.classList.add(dark ? 'vscode-dark' : 'vscode-light');
-      html.style.background = dark ? 'var(--vsc-editor-background)' : 'var(--vsc-on-accent)';
+
+      var preset = typeof appearance.themePreset === 'string' ? appearance.themePreset.trim() : '';
+      if (!preset) {
+        try { preset = (localStorage.getItem('app-theme-preset') || '').trim(); } catch (_) {}
+      }
+      html.dataset.themePreset = preset || 'midnight-default';
+      html.style.background = 'var(--vsc-editor-background)';
 
       var compact;
       try { compact = appearance.compactMode === true || localStorage.getItem('app-compact') === '1'; } catch (_) {}

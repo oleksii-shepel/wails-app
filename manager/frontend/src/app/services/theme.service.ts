@@ -29,6 +29,7 @@ export class ThemeService {
         const resolved = this.resolveTheme('system');
         this.theme$.next(resolved);
         this.applyTheme(resolved);
+        this.applyPreset(this.themePreset$.value);
       }
     });
     this.applyTheme(this.theme$.value);
@@ -39,11 +40,11 @@ export class ThemeService {
   private registerBuiltinPresets(): void {
     if (!this.customizations) return;
     const builtins = [
-      { id: 'midnight-default', label: 'Midnight Graphite (Default)', kind: 'dark' as const, variables: {} },
-      { id: 'nordic-slate', label: 'Nordic Slate', kind: 'dark' as const, variables: {} },
-      { id: 'obsidian-emerald', label: 'Obsidian Emerald', kind: 'dark' as const, variables: {} },
-      { id: 'graphite-amber', label: 'Graphite Amber', kind: 'dark' as const, variables: {} },
-      { id: 'warm-paper', label: 'Warm Paper (Light)', kind: 'light' as const, variables: {} },
+      { id: 'midnight-default', label: 'Midnight Graphite (Default)', kind: 'adaptive' as const, variables: {} },
+      { id: 'nordic-slate', label: 'Nordic Slate', kind: 'adaptive' as const, variables: {} },
+      { id: 'obsidian-emerald', label: 'Obsidian Emerald', kind: 'adaptive' as const, variables: {} },
+      { id: 'graphite-amber', label: 'Graphite Amber', kind: 'adaptive' as const, variables: {} },
+      { id: 'warm-paper', label: 'Warm Paper', kind: 'adaptive' as const, variables: {} },
     ];
     for (const preset of builtins) {
       if (!this.customizations.getTheme(preset.id)) {
@@ -61,6 +62,7 @@ export class ThemeService {
     this.themePreference$.next(theme);
     this.theme$.next(resolved);
     this.applyTheme(resolved);
+    this.applyPreset(this.themePreset$.value);
     try { localStorage.setItem('app-theme', theme); } catch {}
   }
 
@@ -109,17 +111,11 @@ export class ThemeService {
 
   private applyPreset(presetId: string) {
     const root = document.documentElement;
-    const applied = this.customizations?.applyTheme(presetId, root) ?? false;
+    const resolvedMode = this.theme$.value;
+    const applied = this.customizations?.applyTheme(presetId, root, resolvedMode) ?? false;
     if (!applied) {
       root.dataset['themePreset'] = presetId;
-    }
-    const preset = this.customizations?.getTheme(presetId);
-    if (preset?.kind === 'light') {
-      root.classList.add('vscode-light');
-      root.classList.remove('vscode-dark');
-    } else if (preset?.kind === 'dark' && this.theme$.value === 'dark') {
-      root.classList.add('vscode-dark');
-      root.classList.remove('vscode-light');
+      root.dataset['themeMode'] = resolvedMode;
     }
   }
 

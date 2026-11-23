@@ -584,8 +584,13 @@
   --vsc-statusbar-height: 20px;
 }
 
-/* === Extensible Theme Presets (CustomizationRegistryService) === */
-:root[data-theme-preset='nordic-slate'] {
+/* === Extensible Theme Presets (CustomizationRegistryService) ===
+   Every built-in preset defines explicit dark and light palettes so all three
+   Theme Mode options ('dark', 'light', 'system') resolve cleanly without cross-mode bleed.
+   `midnight-default` inherits the base `:root` (dark) and `.vscode-light` palettes above. */
+
+:root.vscode-dark[data-theme-preset='nordic-slate'],
+:root:not(.vscode-light)[data-theme-preset='nordic-slate'] {
   --vsc-editor-background: #1a212b;
   --vsc-sidebar-background: #202936;
   --vsc-panel-background: #1f2733;
@@ -595,21 +600,98 @@
   --vsc-dialog-background: #1f2835;
   --vsc-menu-background: #212a38;
   --vsc-popover-background: #212a38;
+  --vsc-foreground: #d2dbe6;
+  --vsc-foreground-dim: #8c9bae;
+  --vsc-foreground-bright: #eef4fa;
   --vsc-statusbar-background: #3b7ea1;
   --vsc-button-background: #3b7ea1;
   --vsc-button-hover: #4992b8;
+  --vsc-control-background: #283444;
+  --vsc-control-hover-background: #324155;
   --vsc-focus-ring: #6fb3d2;
   --vsc-accent-blue: #6fb3d2;
   --vsc-text-link: #7ec4e3;
   --vsc-border: #334154;
   --vsc-border-subtle: #2b3748;
   --vsc-border-bright: #465973;
+  --vsc-input-background: #1d2530;
+  --vsc-input-border: #334154;
+  --vsc-input-foreground: #d2dbe6;
+  --vsc-input-placeholder: #78889c;
+  --vsc-input-focus-border: #6fb3d2;
   --vsc-list-hover-background: #273342;
   --vsc-list-active-background: #2f3e50;
+  --vsc-list-focus-background: #36475c;
+  --vsc-list-inactive-selection: #242f3e;
   --vsc-list-selected-emphasis: #244b66;
+  --vsc-accent-selection: rgba(111, 179, 210, 0.22);
+  --vsc-accent-border: rgba(111, 179, 210, 0.55);
+  --vsc-tabbar-background: #1c242f;
+  --vsc-tab-background: #1c242f;
+  --vsc-tab-active-background: #1a212b;
+  --vsc-tab-hover-background: #242f3d;
+  --vsc-tab-border: #2b3748;
+  --vsc-tab-active-border-top: #6fb3d2;
+  --vsc-tab-foreground: #8c9bae;
+  --vsc-tab-hover-foreground: #d2dbe6;
+  --vsc-tab-shadow: inset 0 -1px 0 #1a212b;
 }
 
-:root[data-theme-preset='obsidian-emerald'] {
+:root.vscode-light[data-theme-preset='nordic-slate'] {
+  --vsc-editor-background: #f5f8fb;
+  --vsc-sidebar-background: #ebf0f6;
+  --vsc-panel-background: #ebf0f6;
+  --vsc-activitybar-background: #e2e9f1;
+  --vsc-titlebar-background: #dce4ee;
+  --vsc-toolbar-background: #eef3f8;
+  --vsc-dialog-background: #f8fafc;
+  --vsc-menu-background: #f8fafc;
+  --vsc-popover-background: #f8fafc;
+  --vsc-foreground: #24303e;
+  --vsc-foreground-dim: #5d6c7d;
+  --vsc-foreground-bright: #101822;
+  --vsc-statusbar-background: #2b6787;
+  --vsc-button-background: #2b6787;
+  --vsc-button-hover: #21536e;
+  --vsc-button-secondary: #dce4ee;
+  --vsc-button-secondary-hover: #cdd8e6;
+  --vsc-button-secondary-foreground: #1b2633;
+  --vsc-control-background: #e6ecf3;
+  --vsc-control-hover-background: #d7e0eb;
+  --vsc-focus-ring: #2b6787;
+  --vsc-accent-blue: #2b6787;
+  --vsc-text-link: #1f5a7a;
+  --vsc-border: #c1ccd9;
+  --vsc-border-subtle: #d8e0ea;
+  --vsc-border-bright: #9aa9bc;
+  --vsc-input-background: #ffffff;
+  --vsc-input-border: #b6c3d2;
+  --vsc-input-foreground: #24303e;
+  --vsc-input-placeholder: #6a7889;
+  --vsc-input-focus-border: #2b6787;
+  --vsc-list-hover-background: #e1e9f2;
+  --vsc-list-active-background: #cde0ef;
+  --vsc-list-active-foreground: #101822;
+  --vsc-list-active-foreground-dim: #465566;
+  --vsc-list-focus-background: #bdd5e8;
+  --vsc-list-inactive-selection: #d7e0ea;
+  --vsc-list-selected-emphasis: #cde0ef;
+  --vsc-accent-selection: rgba(43, 103, 135, 0.14);
+  --vsc-accent-border: rgba(43, 103, 135, 0.48);
+  --vsc-tabbar-background: #e3eaf2;
+  --vsc-tab-background: #e3eaf2;
+  --vsc-tab-active-background: #f5f8fb;
+  --vsc-tab-hover-background: #edf2f7;
+  --vsc-tab-border: #c8d3df;
+  --vsc-tab-active-border-top: #2b6787;
+  --vsc-tab-foreground: #556475;
+  --vsc-tab-active-foreground: #101822;
+  --vsc-tab-hover-foreground: #24303e;
+  --vsc-tab-shadow: inset 0 -1px 0 #f5f8fb;
+}
+
+:root.vscode-dark[data-theme-preset='obsidian-emerald'],
+:root:not(.vscode-light)[data-theme-preset='obsidian-emerald'] {
   --vsc-editor-background: #141917;
   --vsc-sidebar-background: #19201d;
   --vsc-panel-background: #181e1c;
@@ -619,21 +701,98 @@
   --vsc-dialog-background: #19201d;
   --vsc-menu-background: #1b221f;
   --vsc-popover-background: #1b221f;
+  --vsc-foreground: #cfddd6;
+  --vsc-foreground-dim: #889e93;
+  --vsc-foreground-bright: #edf5f0;
   --vsc-statusbar-background: #1e7a56;
   --vsc-button-background: #1e7a56;
   --vsc-button-hover: #259168;
+  --vsc-control-background: #212b26;
+  --vsc-control-hover-background: #2a3731;
   --vsc-focus-ring: #3fcf8e;
   --vsc-accent-blue: #3fcf8e;
   --vsc-text-link: #56dba0;
   --vsc-border: #2c3a34;
   --vsc-border-subtle: #24302b;
   --vsc-border-bright: #3c4f47;
+  --vsc-input-background: #161d1a;
+  --vsc-input-border: #2c3a34;
+  --vsc-input-foreground: #cfddd6;
+  --vsc-input-placeholder: #73887e;
+  --vsc-input-focus-border: #3fcf8e;
   --vsc-list-hover-background: #212b27;
   --vsc-list-active-background: #283630;
+  --vsc-list-focus-background: #2f4039;
+  --vsc-list-inactive-selection: #1f2924;
   --vsc-list-selected-emphasis: #174b38;
+  --vsc-accent-selection: rgba(63, 207, 142, 0.20);
+  --vsc-accent-border: rgba(63, 207, 142, 0.52);
+  --vsc-tabbar-background: #171e1b;
+  --vsc-tab-background: #171e1b;
+  --vsc-tab-active-background: #141917;
+  --vsc-tab-hover-background: #1e2723;
+  --vsc-tab-border: #24302b;
+  --vsc-tab-active-border-top: #3fcf8e;
+  --vsc-tab-foreground: #889e93;
+  --vsc-tab-hover-foreground: #cfddd6;
+  --vsc-tab-shadow: inset 0 -1px 0 #141917;
 }
 
-:root[data-theme-preset='graphite-amber'] {
+:root.vscode-light[data-theme-preset='obsidian-emerald'] {
+  --vsc-editor-background: #f4f9f6;
+  --vsc-sidebar-background: #e9f1ec;
+  --vsc-panel-background: #e9f1ec;
+  --vsc-activitybar-background: #deeae2;
+  --vsc-titlebar-background: #dae6df;
+  --vsc-toolbar-background: #edf4ef;
+  --vsc-dialog-background: #f7fbf8;
+  --vsc-menu-background: #f7fbf8;
+  --vsc-popover-background: #f7fbf8;
+  --vsc-foreground: #213029;
+  --vsc-foreground-dim: #566b60;
+  --vsc-foreground-bright: #0f1a14;
+  --vsc-statusbar-background: #186b4b;
+  --vsc-button-background: #186b4b;
+  --vsc-button-hover: #13573d;
+  --vsc-button-secondary: #dbe6df;
+  --vsc-button-secondary-hover: #ccdacf;
+  --vsc-button-secondary-foreground: #192620;
+  --vsc-control-background: #e3ede7;
+  --vsc-control-hover-background: #d4e2d9;
+  --vsc-focus-ring: #186b4b;
+  --vsc-accent-blue: #186b4b;
+  --vsc-text-link: #145c40;
+  --vsc-border: #bdd0c4;
+  --vsc-border-subtle: #d6e3db;
+  --vsc-border-bright: #95ae9f;
+  --vsc-input-background: #ffffff;
+  --vsc-input-border: #b3c7bb;
+  --vsc-input-foreground: #213029;
+  --vsc-input-placeholder: #62786c;
+  --vsc-input-focus-border: #186b4b;
+  --vsc-list-hover-background: #dfebe4;
+  --vsc-list-active-background: #c7e2d3;
+  --vsc-list-active-foreground: #0f1a14;
+  --vsc-list-active-foreground-dim: #41564b;
+  --vsc-list-focus-background: #b5d8c5;
+  --vsc-list-inactive-selection: #d4e2d9;
+  --vsc-list-selected-emphasis: #c7e2d3;
+  --vsc-accent-selection: rgba(24, 107, 75, 0.14);
+  --vsc-accent-border: rgba(24, 107, 75, 0.48);
+  --vsc-tabbar-background: #e0ebe4;
+  --vsc-tab-background: #e0ebe4;
+  --vsc-tab-active-background: #f4f9f6;
+  --vsc-tab-hover-background: #ebf3ee;
+  --vsc-tab-border: #c4d5cb;
+  --vsc-tab-active-border-top: #186b4b;
+  --vsc-tab-foreground: #50655a;
+  --vsc-tab-active-foreground: #0f1a14;
+  --vsc-tab-hover-foreground: #213029;
+  --vsc-tab-shadow: inset 0 -1px 0 #f4f9f6;
+}
+
+:root.vscode-dark[data-theme-preset='graphite-amber'],
+:root:not(.vscode-light)[data-theme-preset='graphite-amber'] {
   --vsc-editor-background: #181716;
   --vsc-sidebar-background: #211f1d;
   --vsc-panel-background: #1f1d1b;
@@ -643,22 +802,147 @@
   --vsc-dialog-background: #211f1d;
   --vsc-menu-background: #23211e;
   --vsc-popover-background: #23211e;
+  --vsc-foreground: #ddd5cb;
+  --vsc-foreground-dim: #9e9386;
+  --vsc-foreground-bright: #f5efe7;
   --vsc-statusbar-background: #9f6019;
   --vsc-button-background: #b56c1a;
   --vsc-button-hover: #cc7b22;
+  --vsc-control-background: #2b2724;
+  --vsc-control-hover-background: #37322e;
   --vsc-focus-ring: #e89b3c;
   --vsc-accent-blue: #e89b3c;
   --vsc-text-link: #f0ae54;
   --vsc-border: #3d3833;
   --vsc-border-subtle: #322e2a;
   --vsc-border-bright: #524b44;
+  --vsc-input-background: #1b1917;
+  --vsc-input-border: #3d3833;
+  --vsc-input-foreground: #ddd5cb;
+  --vsc-input-placeholder: #8a7f73;
+  --vsc-input-focus-border: #e89b3c;
   --vsc-list-hover-background: #2a2724;
   --vsc-list-active-background: #36312d;
+  --vsc-list-focus-background: #403a35;
+  --vsc-list-inactive-selection: #292522;
   --vsc-list-selected-emphasis: #543718;
+  --vsc-accent-selection: rgba(232, 155, 60, 0.22);
+  --vsc-accent-border: rgba(232, 155, 60, 0.55);
+  --vsc-tabbar-background: #1d1b19;
+  --vsc-tab-background: #1d1b19;
+  --vsc-tab-active-background: #181716;
+  --vsc-tab-hover-background: #262320;
+  --vsc-tab-border: #322e2a;
+  --vsc-tab-active-border-top: #e89b3c;
+  --vsc-tab-foreground: #9e9386;
+  --vsc-tab-hover-foreground: #ddd5cb;
+  --vsc-tab-shadow: inset 0 -1px 0 #181716;
 }
 
-:root.vscode-light[data-theme-preset='warm-paper'],
-:root[data-theme-preset='warm-paper'] {
+:root.vscode-light[data-theme-preset='graphite-amber'] {
+  --vsc-editor-background: #faf7f2;
+  --vsc-sidebar-background: #f1ece4;
+  --vsc-panel-background: #f1ece4;
+  --vsc-activitybar-background: #e9e2d6;
+  --vsc-titlebar-background: #e4ddd2;
+  --vsc-toolbar-background: #f4efe8;
+  --vsc-dialog-background: #fcfaf7;
+  --vsc-menu-background: #fcfaf7;
+  --vsc-popover-background: #fcfaf7;
+  --vsc-foreground: #332c25;
+  --vsc-foreground-dim: #6e6357;
+  --vsc-foreground-bright: #1b1611;
+  --vsc-statusbar-background: #9f5b12;
+  --vsc-button-background: #a35e13;
+  --vsc-button-hover: #874c0d;
+  --vsc-button-secondary: #e5ddd1;
+  --vsc-button-secondary-hover: #d8cebf;
+  --vsc-button-secondary-foreground: #29231d;
+  --vsc-control-background: #ece5da;
+  --vsc-control-hover-background: #dfd6c8;
+  --vsc-focus-ring: #9f5b12;
+  --vsc-accent-blue: #9f5b12;
+  --vsc-text-link: #8f4f0b;
+  --vsc-border: #d4cabd;
+  --vsc-border-subtle: #e5ddd1;
+  --vsc-border-bright: #b3a696;
+  --vsc-input-background: #ffffff;
+  --vsc-input-border: #c5baa9;
+  --vsc-input-foreground: #332c25;
+  --vsc-input-placeholder: #7a6f63;
+  --vsc-input-focus-border: #9f5b12;
+  --vsc-list-hover-background: #eae2d6;
+  --vsc-list-active-background: #ecd7be;
+  --vsc-list-active-foreground: #1b1611;
+  --vsc-list-active-foreground-dim: #574d43;
+  --vsc-list-focus-background: #e3c8a7;
+  --vsc-list-inactive-selection: #dfd7cb;
+  --vsc-list-selected-emphasis: #ecd7be;
+  --vsc-accent-selection: rgba(159, 91, 18, 0.14);
+  --vsc-accent-border: rgba(159, 91, 18, 0.48);
+  --vsc-tabbar-background: #eae3d8;
+  --vsc-tab-background: #eae3d8;
+  --vsc-tab-active-background: #faf7f2;
+  --vsc-tab-hover-background: #f3eee6;
+  --vsc-tab-border: #d6cdbf;
+  --vsc-tab-active-border-top: #9f5b12;
+  --vsc-tab-foreground: #665b50;
+  --vsc-tab-active-foreground: #1b1611;
+  --vsc-tab-hover-foreground: #332c25;
+  --vsc-tab-shadow: inset 0 -1px 0 #faf7f2;
+}
+
+:root.vscode-dark[data-theme-preset='warm-paper'],
+:root:not(.vscode-light)[data-theme-preset='warm-paper'] {
+  --vsc-editor-background: #1b1916;
+  --vsc-sidebar-background: #22201c;
+  --vsc-panel-background: #201e1a;
+  --vsc-activitybar-background: #2b2823;
+  --vsc-titlebar-background: #27241f;
+  --vsc-toolbar-background: #25221d;
+  --vsc-dialog-background: #22201c;
+  --vsc-menu-background: #24221d;
+  --vsc-popover-background: #24221d;
+  --vsc-foreground: #e5dfd5;
+  --vsc-foreground-dim: #a49d91;
+  --vsc-foreground-bright: #f7f4ee;
+  --vsc-statusbar-background: #2d6694;
+  --vsc-button-background: #2d6694;
+  --vsc-button-hover: #3678ad;
+  --vsc-control-background: #2f2c26;
+  --vsc-control-hover-background: #3a362f;
+  --vsc-focus-ring: #6aa7db;
+  --vsc-accent-blue: #6aa7db;
+  --vsc-text-link: #7eb6e6;
+  --vsc-border: #3e3a33;
+  --vsc-border-subtle: #332f29;
+  --vsc-border-bright: #544e44;
+  --vsc-input-background: #1f1d19;
+  --vsc-input-border: #3e3a33;
+  --vsc-input-foreground: #e5dfd5;
+  --vsc-input-placeholder: #8d867a;
+  --vsc-input-focus-border: #6aa7db;
+  --vsc-list-hover-background: #2c2924;
+  --vsc-list-active-background: #37332c;
+  --vsc-list-active-foreground: #f7f4ee;
+  --vsc-list-focus-background: #423d35;
+  --vsc-list-inactive-selection: #2a2722;
+  --vsc-list-selected-emphasis: #204566;
+  --vsc-accent-selection: rgba(106, 167, 219, 0.22);
+  --vsc-accent-border: rgba(106, 167, 219, 0.55);
+  --vsc-tabbar-background: #201e1a;
+  --vsc-tab-background: #201e1a;
+  --vsc-tab-active-background: #1b1916;
+  --vsc-tab-hover-background: #282520;
+  --vsc-tab-border: #332f29;
+  --vsc-tab-active-border-top: #6aa7db;
+  --vsc-tab-foreground: #a49d91;
+  --vsc-tab-active-foreground: #f7f4ee;
+  --vsc-tab-hover-foreground: #e5dfd5;
+  --vsc-tab-shadow: inset 0 -1px 0 #1b1916;
+}
+
+:root.vscode-light[data-theme-preset='warm-paper'] {
   --vsc-editor-background: #faf8f4;
   --vsc-sidebar-background: #f2efe9;
   --vsc-panel-background: #f2efe9;
@@ -674,11 +958,39 @@
   --vsc-statusbar-background: #2d6694;
   --vsc-button-background: #2d6694;
   --vsc-button-hover: #3678ad;
+  --vsc-button-secondary: #e6e1d7;
+  --vsc-button-secondary-hover: #dad3c6;
+  --vsc-button-secondary-foreground: #25221d;
+  --vsc-control-background: #ece8df;
+  --vsc-control-hover-background: #e2ddd2;
   --vsc-focus-ring: #2d6694;
+  --vsc-accent-blue: #2d6694;
+  --vsc-text-link: #25567e;
   --vsc-border: #d8d2c7;
   --vsc-border-subtle: #e5dfd5;
   --vsc-border-bright: #c2bbb0;
+  --vsc-input-background: #fffdf9;
+  --vsc-input-border: #c9c2b6;
+  --vsc-input-foreground: #2f2c27;
+  --vsc-input-placeholder: #7a7369;
+  --vsc-input-focus-border: #2d6694;
   --vsc-list-hover-background: #ebe6dc;
   --vsc-list-active-background: #e1dbd0;
   --vsc-list-active-foreground: #1b1916;
+  --vsc-list-active-foreground-dim: #575148;
+  --vsc-list-focus-background: #d5cfc3;
+  --vsc-list-inactive-selection: #e3ded4;
+  --vsc-list-selected-emphasis: #cde0f0;
+  --vsc-accent-selection: rgba(45, 102, 148, 0.14);
+  --vsc-accent-border: rgba(45, 102, 148, 0.48);
+  --vsc-tabbar-background: #ebe7df;
+  --vsc-tab-background: #ebe7df;
+  --vsc-tab-active-background: #faf8f4;
+  --vsc-tab-hover-background: #f3efe8;
+  --vsc-tab-border: #d8d2c7;
+  --vsc-tab-active-border-top: #2d6694;
+  --vsc-tab-foreground: #6e685f;
+  --vsc-tab-active-foreground: #1b1916;
+  --vsc-tab-hover-foreground: #2f2c27;
+  --vsc-tab-shadow: inset 0 -1px 0 #faf8f4;
 }

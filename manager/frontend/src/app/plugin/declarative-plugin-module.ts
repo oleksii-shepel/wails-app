@@ -30,8 +30,12 @@ export interface DeclarativePluginBinding {
 export interface DeclarativePluginTheme {
   id: string;
   label: string;
-  kind: 'light' | 'dark';
-  variables: Record<string, string>;
+  kind?: 'light' | 'dark' | 'adaptive';
+  variables?: Record<string, string>;
+  modes?: {
+    light?: Record<string, string>;
+    dark?: Record<string, string>;
+  };
 }
 
 export interface DeclarativePluginColumnProfile {

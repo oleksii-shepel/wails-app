@@ -33,4 +33,40 @@ describe('CustomizationRegistryService', () => {
     expect(registry.layoutPresets$.value).toEqual([]);
     expect(registry.workspaceTemplates$.value).toEqual([]);
   });
+
+  it('applies mode-specific variables for dark and light modes without leaking single-mode overrides', () => {
+    const registry = new CustomizationRegistryService();
+    const target = document.createElement('div');
+
+    registry.registerTheme({
+      id: 'dual-mode',
+      label: 'Dual Mode',
+      kind: 'adaptive',
+      variables: {},
+      modes: {
+        dark: { '--vsc-editor-background': '#101418' },
+        light: { '--vsc-editor-background': '#f8fafc' },
+      },
+    }, 'plugin');
+
+    expect(registry.applyTheme('dual-mode', target, 'dark')).toBe(true);
+    expect(target.dataset['themePreset']).toBe('dual-mode');
+    expect(target.dataset['themeMode']).toBe('dark');
+    expect(target.style.getPropertyValue('--vsc-editor-background')).toBe('#101418');
+
+    expect(registry.applyTheme('dual-mode', target, 'light')).toBe(true);
+    expect(target.dataset['themeMode']).toBe('light');
+    expect(target.style.getPropertyValue('--vsc-editor-background')).toBe('#f8fafc');
+
+    registry.registerTheme({
+      id: 'dark-only',
+      label: 'Dark Only',
+      kind: 'dark',
+      variables: { '--vsc-editor-background': '#111111' },
+    }, 'plugin');
+
+    expect(registry.applyTheme('dark-only', target, 'light')).toBe(true);
+    expect(target.dataset['themeMode']).toBe('light');
+    expect(target.style.getPropertyValue('--vsc-editor-background')).toBe('');
+  });
 });

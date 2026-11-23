@@ -326,6 +326,7 @@ export class SettingsService {
 
   resetToDefaults(): void {
     this.settings$.next(DEFAULT_SETTINGS);
+    this.applyAppearance(DEFAULT_SETTINGS);
     this.saveSettings(DEFAULT_SETTINGS);
   }
 
@@ -333,6 +334,7 @@ export class SettingsService {
     const current = this.settings$.value;
     const updated = { ...current, [section]: DEFAULT_SETTINGS[section] };
     this.settings$.next(updated);
+    this.applyAppearance(updated);
     this.saveSettings(updated);
   }
 
@@ -383,6 +385,7 @@ export class SettingsService {
 
     writeAppearanceCache({
       theme: result.general.theme,
+      themePreset: result.general.themePreset,
       accentColor: result.general.accentColor,
       uiZoom: result.general.uiZoom,
       compactMode: result.view.compactMode,

@@ -2,11 +2,19 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 import type { WorkspaceLayout, WorkspacePresentation } from './workspace-surface.model';
 
+export type ThemeKind = 'light' | 'dark' | 'adaptive';
+
+export interface ThemeModeVariables {
+  readonly light?: Readonly<Record<string, string>>;
+  readonly dark?: Readonly<Record<string, string>>;
+}
+
 export interface ThemeContribution {
   readonly id: string;
   readonly label: string;
-  readonly kind: 'light' | 'dark';
+  readonly kind: ThemeKind;
   readonly variables: Readonly<Record<string, string>>;
+  readonly modes?: ThemeModeVariables;
 }
 
 export interface ColumnProfileContribution {
@@ -102,23 +110,48 @@ export class CustomizationRegistryService {
 
   private appliedVariables = new WeakMap<HTMLElement, string[]>();
 
-  applyTheme(id: string, target: HTMLElement = document.documentElement): boolean {
+  applyTheme(
+    id: string,
+    target: HTMLElement = document.documentElement,
+    mode?: 'light' | 'dark',
+  ): boolean {
     const theme = this.getTheme(id);
     this.clearAppliedVariables(target);
     if (!theme) {
       delete target.dataset['themePreset'];
+      delete target.dataset['themeId'];
+      delete target.dataset['themeKind'];
+      delete target.dataset['themeMode'];
       return false;
     }
+
+    const explicitMode = target.classList.contains('vscode-light')
+      ? 'light'
+      : target.classList.contains('vscode-dark')
+        ? 'dark'
+        : undefined;
+    const effectiveMode: 'light' | 'dark' =
+      mode ?? explicitMode ?? (theme.kind === 'light' ? 'light' : 'dark');
+
     target.dataset['themeId'] = theme.id;
     target.dataset['themePreset'] = theme.id;
     target.dataset['themeKind'] = theme.kind;
+    target.dataset['themeMode'] = effectiveMode;
+
+    const modeVariables = theme.modes?.[effectiveMode];
+    const resolvedVariables =
+      modeVariables ??
+      (theme.kind === 'adaptive' || theme.kind === effectiveMode ? theme.variables : {});
+
     const names: string[] = [];
-    for (const [name, value] of Object.entries(theme.variables)) {
+    for (const [name, value] of Object.entries(resolvedVariables)) {
       const prop = name.startsWith('--') ? name : `--${name}`;
       target.style.setProperty(prop, value);
       names.push(prop);
     }
-    this.appliedVariables.set(target, names);
+    if (names.length) {
+      this.appliedVariables.set(target, names);
+    }
     return true;
   }
 

@@ -132,11 +132,17 @@ export class DirectoryPluginPackageLoaderService implements PluginPackageLoader 
         }
 
         for (const theme of module.themes ?? []) {
+          const kind = theme.kind === 'light' || theme.kind === 'dark' || theme.kind === 'adaptive'
+            ? theme.kind
+            : theme.modes?.light && theme.modes?.dark
+              ? 'adaptive'
+              : 'dark';
           context.api.registerTheme({
             id: theme.id,
             label: theme.label,
-            kind: theme.kind === 'light' ? 'light' : 'dark',
+            kind,
             variables: theme.variables ?? {},
+            ...(theme.modes ? { modes: theme.modes } : {}),
           });
         }
 

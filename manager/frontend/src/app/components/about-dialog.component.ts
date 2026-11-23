@@ -53,9 +53,8 @@ import { ModalStackService } from '../services/modal-stack.service';
               @if (!imageFailed) {
                 <img
                   class="hero-image"
-                  src="/assets/aistudio/photo_2026-09-05_17-23-23_cbdbac3a.jpg"
+                  src="/assets/reassembly-about.png"
                   alt="Reassembly Resource Commander overview graphic showing Files, Archives, Registry, System, Cloud, and Plugins"
-                  referrerpolicy="no-referrer"
                   (error)="onImageError()" />
               } @else {
                 <div class="hero-fallback" role="img" aria-label="Reassembly Resource Commander">
@@ -185,8 +184,7 @@ import { ModalStackService } from '../services/modal-stack.service';
       overflow: hidden;
       border: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       background: var(--vsc-about-hero-background);
-      aspect-ratio: 16 / 10;
-      max-height: 360px;
+      aspect-ratio: 1942 / 809;
       width: 100%;
       display: grid;
       place-items: center;
@@ -195,8 +193,7 @@ import { ModalStackService } from '../services/modal-stack.service';
     .hero-image {
       display: block;
       width: 100%;
-      height: 100%;
-      object-fit: cover;
+      height: auto;
     }
 
     .hero-fallback {

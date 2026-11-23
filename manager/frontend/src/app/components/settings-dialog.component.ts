@@ -949,9 +949,8 @@ const SETTINGS_DIALOG_BINDINGS: readonly InputBindingDefinition[] = [
                   <h4 class="group-title">Application</h4>
                   <div class="about-hero-banner" *ngIf="!aboutImageFailed">
                     <img
-                      src="/assets/aistudio/photo_2026-09-05_17-23-23_cbdbac3a.jpg"
+                      src="/assets/reassembly-about.png"
                       alt="Reassembly Resource Commander"
-                      referrerpolicy="no-referrer"
                       (error)="aboutImageFailed = true" />
                   </div>
                   <div class="about-app-card">

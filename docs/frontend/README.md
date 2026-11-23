@@ -11,6 +11,12 @@ The frontend is no longer centered on one large pane component. The current stru
 
 The key rule is that `file-pane.component.ts` owns composition and event adaptation, while reusable orchestration lives in controllers, factories, or surface VMs.
 
+## About artwork
+
+The About dialog and Settings > About share the static banner at
+`manager/frontend/src/assets/reassembly-about.png`. Both views preserve the
+artwork's proportions so the full wordmark and feature row stay visible.
+
 ## View Operation Parity
 
 All view components must support the same file-manager operations and route them through shared pane-level handlers.

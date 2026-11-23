@@ -3,7 +3,6 @@
 import {contracts} from '../models';
 import {cache} from '../models';
 import {pluginpackage} from '../models';
-import {cli} from '../models';
 import {app} from '../models';
 import {elevation} from '../models';
 import {plugin} from '../models';
@@ -94,8 +93,6 @@ export function CopyFile(arg1:string,arg2:string,arg3:boolean):Promise<contracts
 
 export function CopyTrashEntryTo(arg1:string,arg2:string):Promise<string>;
 
-export function CreateArchive(arg1:Array<string>,arg2:string):Promise<contracts.OperationResult>;
-
 export function CreateDir(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;
 
 export function CreateDirectory(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;
@@ -131,8 +128,6 @@ export function EmptyTrash():Promise<void>;
 export function EnsureStartupPluginHostPrivilege():Promise<boolean>;
 
 export function EnsureUniversalPluginHostPrivilege(arg1:string):Promise<boolean>;
-
-export function ExecuteCliCommand(arg1:string,arg2:string,arg3:boolean):Promise<cli.Result>;
 
 export function ExtractNestedArchive(arg1:string,arg2:Array<string>):Promise<Array<number>>;
 

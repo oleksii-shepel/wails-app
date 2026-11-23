@@ -1,14 +1,7 @@
 {
   "name": "@reassembly/core",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
-  "exports": {
-    ".": "./frontend/src/index.ts",
-    "./contracts/files": "./frontend/src/contracts/files/index.ts",
-    "./contracts/input": "./frontend/src/contracts/input/index.ts",
-    "./contracts/sources": "./frontend/src/contracts/sources/index.ts",
-    "./contracts/panes": "./frontend/src/contracts/panes/index.ts",
-    "./runtime/panes": "./frontend/src/runtime/panes/index.ts",
-    "./ui/panes": "./frontend/src/ui/panes/index.ts"
-  }
+  "main": "./frontend/src/index.ts",
+  "types": "./frontend/src/index.ts"
 }

@@ -166,10 +166,6 @@ export function CopyTrashEntryTo(arg1, arg2) {
   return window['go']['app']['App']['CopyTrashEntryTo'](arg1, arg2);
 }
 
-export function CreateArchive(arg1, arg2) {
-  return window['go']['app']['App']['CreateArchive'](arg1, arg2);
-}
-
 export function CreateDir(arg1, arg2) {
   return window['go']['app']['App']['CreateDir'](arg1, arg2);
 }
@@ -240,10 +236,6 @@ export function EnsureStartupPluginHostPrivilege() {
 
 export function EnsureUniversalPluginHostPrivilege(arg1) {
   return window['go']['app']['App']['EnsureUniversalPluginHostPrivilege'](arg1);
-}
-
-export function ExecuteCliCommand(arg1, arg2, arg3) {
-  return window['go']['app']['App']['ExecuteCliCommand'](arg1, arg2, arg3);
 }
 
 export function ExtractNestedArchive(arg1, arg2) {

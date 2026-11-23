@@ -1,36 +1,20 @@
 {
-  "name": "reassembly-file-manager",
+  "name": "reassembly-workspace",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "bin": {
-    "aether": "./cli/aether.mjs",
-    "reassembly": "./cli/aether.mjs"
-  },
   "workspaces": [
-    "manager/frontend"
+    "manager/frontend",
+    "packages/*",
+    "plugins/*"
   ],
   "scripts": {
-    "dev:app": "node scripts/run-wails-dev.mjs",
-    "dev:watch": "npm --workspace file-manager-client run watch",
-    "cli": "node cli/aether.mjs",
-    "test:cli": "node --test cli/cli.test.mjs",
+    "dev": "node server.js",
+    "start": "node server.js",
     "build": "npm --prefix manager/frontend run build",
-    "build:app": "cd manager && wails build",
-    "build:dev": "npm --prefix manager/frontend run ng -- build --configuration development",
-    "lint": "npx tsc -p manager/frontend/tsconfig.app.json --noEmit"
+    "lint": "node --check server.js && npx tsc --noEmit -p manager/frontend/tsconfig.app.json"
   },
   "dependencies": {
-    "@codemirror/commands": "^6.11.1",
-    "@codemirror/language": "^6.13.1",
-    "@codemirror/search": "^6.7.2",
-    "@codemirror/state": "^6.7.6",
-    "@codemirror/view": "^6.43.15",
-    "@lezer/highlight": "^1.2.5",
-    "rxjs": "^7.8.2",
-    "tslib": "^2.9.1"
-  },
-  "devDependencies": {
-    "@angular/build": "22.1.4"
+    "adm-zip": "^0.5.16",
+    "express": "^4.21.2"
   }
 }

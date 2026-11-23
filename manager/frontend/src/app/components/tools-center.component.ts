@@ -1611,7 +1611,7 @@ export class ToolsCenterComponent implements OnInit, OnDestroy {
     await this.copyText(value);
   }
 
-  private async copyText(value: string): Promise<void> {
+  async copyText(value: string): Promise<void> {
     this.clipboardError = '';
     try {
       await writeClipboardText(value);

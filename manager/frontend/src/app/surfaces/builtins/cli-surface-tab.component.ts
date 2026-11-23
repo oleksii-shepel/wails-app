@@ -126,126 +126,118 @@ function parseAnsiText(input: string): AnsiSegment[] {
           <code class="cli-cwd" [title]="cwd">{{ cwd }}</code>
         </div>
 
-        @if (api.canExecuteCliCommand) {
-          <div class="cli-header-actions">
-            @if (peerDirectoryPath) {
-              <button
-                type="button"
-                class="cli-btn"
-                title="Set CLI working directory to the other pane's active folder"
-                (click)="syncCwdFromPeer(); $event.stopPropagation()">
-                Sync Peer
-              </button>
-            }
-            <button
-              type="button"
-              class="cli-btn"
-              title="Run environment & tool diagnostics"
-              (click)="runQuickCommand('doctor'); $event.stopPropagation()">
-              Doctor
-            </button>
-            <button
-              type="button"
-              class="cli-btn"
-              title="Show CLI help"
-              (click)="runQuickCommand('--help'); $event.stopPropagation()">
-              Help
-            </button>
-            <button
-              type="button"
-              class="cli-btn"
-              title="Clear transcript (Ctrl+L)"
-              (click)="clearTranscript(); $event.stopPropagation()">
-              Clear
-            </button>
-          </div>
-        }
-      </header>
-
-      @if (api.canExecuteCliCommand) {
-        <div class="cli-quickbar" aria-label="Quick CLI commands">
-          <button type="button" class="cli-chip" (click)="runQuickCommand('ls -l'); $event.stopPropagation()">ls -l</button>
-          <button type="button" class="cli-chip" (click)="runQuickCommand('du --top 12'); $event.stopPropagation()">du</button>
-          <button type="button" class="cli-chip" (click)="prefillCommand('find -g '); $event.stopPropagation()">find -g</button>
-          <button type="button" class="cli-chip" (click)="runQuickCommand('dup'); $event.stopPropagation()">dup</button>
-          <button type="button" class="cli-chip" (click)="prefillCommand('hash --manifest '); $event.stopPropagation()">hash</button>
+        <div class="cli-header-actions">
           @if (peerDirectoryPath) {
-            <button type="button" class="cli-chip" (click)="compareWithPeer(); $event.stopPropagation()">compare peer</button>
+            <button
+              type="button"
+              class="cli-btn"
+              title="Set CLI working directory to the other pane's active folder"
+              (click)="syncCwdFromPeer(); $event.stopPropagation()">
+              Sync Peer
+            </button>
           }
-          <button type="button" class="cli-chip" (click)="runQuickCommand('trash list'); $event.stopPropagation()">trash</button>
-          <button type="button" class="cli-chip" (click)="runQuickCommand('ws paths'); $event.stopPropagation()">ws</button>
-        </div>
-
-        <div #scrollArea class="cli-transcript" role="log" aria-live="polite" aria-label="CLI output">
-          <div class="cli-banner">
-            <div>
-              <strong>Reassembly Command Line</strong> — running inside the {{ ctx.paneId }} pane tab.
-            </div>
-            <div class="cli-banner-sub">
-              Type any <code>aether</code> subcommand (<code>ls</code>, <code>du</code>, <code>find</code>, <code>dup</code>, <code>hash</code>, <code>verify</code>, <code>diff</code>, <code>compare</code>, <code>split</code>, <code>join</code>, <code>rename</code>, <code>archive</code>, <code>trash</code>, <code>ws</code>, <code>doctor</code>) or <code>cd</code> / <code>pwd</code> / <code>clear</code>. Press <kbd>Tab</kbd> to complete and <kbd>↑</kbd>/<kbd>↓</kbd> for history.
-            </div>
-          </div>
-
-          @for (entry of transcript; track entry.id) {
-            <article class="cli-entry" [class.cli-entry--error]="entry.exitCode !== 0">
-              <div class="cli-entry-cmd">
-                <span class="cli-prompt-cwd">{{ shortCwd(entry.cwd) }}</span>
-                <span class="cli-prompt-sigil">$</span>
-                <span class="cli-prompt-text">{{ entry.command }}</span>
-                <span class="cli-entry-meta">
-                  @if (entry.exitCode !== 0) {
-                    <span class="cli-exit-fail">exit {{ entry.exitCode }}</span>
-                  }
-                  <span class="cli-duration">{{ entry.durationMs }}ms</span>
-                </span>
-              </div>
-
-              @if (entry.segments.length > 0) {
-                <pre class="cli-output">@for (seg of entry.segments; track $index) {<span [class]="segmentClass(seg)">{{ seg.text }}</span>}</pre>
-              }
-
-              @if (entry.stderrSegments.length > 0) {
-                <pre class="cli-output cli-output--err">@for (seg of entry.stderrSegments; track $index) {<span [class]="segmentClass(seg)">{{ seg.text }}</span>}</pre>
-              }
-            </article>
-          }
-
-          @if (running) {
-            <div class="cli-running">Executing <code>{{ activeCommandLabel }}</code>…</div>
-          }
-        </div>
-
-        <footer class="cli-input-bar" (click)="$event.stopPropagation()">
-          <span class="cli-prompt-label" [title]="cwd">{{ shortCwd(cwd) }} $</span>
-          <input
-            #cmdInput
-            type="text"
-            class="cli-input"
-            [value]="commandInput"
-            [disabled]="running"
-            (input)="onCommandInput($event)"
-            (keydown.enter)="submitCommand()"
-            (keydown.arrowup)="historyUp($event)"
-            (keydown.arrowdown)="historyDown($event)"
-            (keydown.tab)="completeInput($event)"
-            (keydown.control.l)="clearTranscript($event)"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="aether ls -l, find -g pattern, diff a b, du --top 10, doctor…"
-            aria-label="Aether CLI command input" />
           <button
             type="button"
-            class="cli-run-btn"
-            [disabled]="running || !commandInput.trim()"
-            (click)="submitCommand()">
-            {{ running ? 'Running…' : 'Run' }}
+            class="cli-btn"
+            title="Run environment & tool diagnostics"
+            (click)="runQuickCommand('doctor'); $event.stopPropagation()">
+            Doctor
           </button>
-        </footer>
-      } @else {
-        <div class="cli-transcript">
-          <div class="cli-banner">Aether CLI commands require the desktop app.</div>
+          <button
+            type="button"
+            class="cli-btn"
+            title="Show CLI help"
+            (click)="runQuickCommand('--help'); $event.stopPropagation()">
+            Help
+          </button>
+          <button
+            type="button"
+            class="cli-btn"
+            title="Clear transcript (Ctrl+L)"
+            (click)="clearTranscript(); $event.stopPropagation()">
+            Clear
+          </button>
         </div>
-      }
+      </header>
+
+      <div class="cli-quickbar" aria-label="Quick CLI commands">
+        <button type="button" class="cli-chip" (click)="runQuickCommand('ls -l'); $event.stopPropagation()">ls -l</button>
+        <button type="button" class="cli-chip" (click)="runQuickCommand('du --top 12'); $event.stopPropagation()">du</button>
+        <button type="button" class="cli-chip" (click)="prefillCommand('find -g '); $event.stopPropagation()">find -g</button>
+        <button type="button" class="cli-chip" (click)="runQuickCommand('dup'); $event.stopPropagation()">dup</button>
+        <button type="button" class="cli-chip" (click)="prefillCommand('hash --manifest '); $event.stopPropagation()">hash</button>
+        @if (peerDirectoryPath) {
+          <button type="button" class="cli-chip" (click)="compareWithPeer(); $event.stopPropagation()">compare peer</button>
+        }
+        <button type="button" class="cli-chip" (click)="runQuickCommand('trash list'); $event.stopPropagation()">trash</button>
+        <button type="button" class="cli-chip" (click)="runQuickCommand('ws paths'); $event.stopPropagation()">ws</button>
+      </div>
+
+      <div #scrollArea class="cli-transcript" role="log" aria-live="polite" aria-label="CLI output">
+        <div class="cli-banner">
+          <div>
+            <strong>Reassembly Command Line</strong> — running inside the {{ ctx.paneId }} pane tab.
+          </div>
+          <div class="cli-banner-sub">
+            Type any <code>aether</code> subcommand (<code>ls</code>, <code>du</code>, <code>find</code>, <code>dup</code>, <code>hash</code>, <code>verify</code>, <code>diff</code>, <code>compare</code>, <code>split</code>, <code>join</code>, <code>rename</code>, <code>archive</code>, <code>trash</code>, <code>ws</code>, <code>doctor</code>) or <code>cd</code> / <code>pwd</code> / <code>clear</code>. Press <kbd>Tab</kbd> to complete and <kbd>↑</kbd>/<kbd>↓</kbd> for history.
+          </div>
+        </div>
+
+        @for (entry of transcript; track entry.id) {
+          <article class="cli-entry" [class.cli-entry--error]="entry.exitCode !== 0">
+            <div class="cli-entry-cmd">
+              <span class="cli-prompt-cwd">{{ shortCwd(entry.cwd) }}</span>
+              <span class="cli-prompt-sigil">$</span>
+              <span class="cli-prompt-text">{{ entry.command }}</span>
+              <span class="cli-entry-meta">
+                @if (entry.exitCode !== 0) {
+                  <span class="cli-exit-fail">exit {{ entry.exitCode }}</span>
+                }
+                <span class="cli-duration">{{ entry.durationMs }}ms</span>
+              </span>
+            </div>
+
+            @if (entry.segments.length > 0) {
+              <pre class="cli-output">@for (seg of entry.segments; track $index) {<span [class]="segmentClass(seg)">{{ seg.text }}</span>}</pre>
+            }
+
+            @if (entry.stderrSegments.length > 0) {
+              <pre class="cli-output cli-output--err">@for (seg of entry.stderrSegments; track $index) {<span [class]="segmentClass(seg)">{{ seg.text }}</span>}</pre>
+            }
+          </article>
+        }
+
+        @if (running) {
+          <div class="cli-running">Executing <code>{{ activeCommandLabel }}</code>…</div>
+        }
+      </div>
+
+      <footer class="cli-input-bar" (click)="$event.stopPropagation()">
+        <span class="cli-prompt-label" [title]="cwd">{{ shortCwd(cwd) }} $</span>
+        <input
+          #cmdInput
+          type="text"
+          class="cli-input"
+          [value]="commandInput"
+          [disabled]="running"
+          (input)="onCommandInput($event)"
+          (keydown.enter)="submitCommand()"
+          (keydown.arrowup)="historyUp($event)"
+          (keydown.arrowdown)="historyDown($event)"
+          (keydown.tab)="completeInput($event)"
+          (keydown.control.l)="clearTranscript($event)"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="aether ls -l, find -g pattern, diff a b, du --top 10, doctor…"
+          aria-label="Aether CLI command input" />
+        <button
+          type="button"
+          class="cli-run-btn"
+          [disabled]="running || !commandInput.trim()"
+          (click)="submitCommand()">
+          {{ running ? 'Running…' : 'Run' }}
+        </button>
+      </footer>
     </section>
   `,
   styles: [`
@@ -532,7 +524,7 @@ export class CliSurfaceTabComponent implements OnChanges {
   @ViewChild('cmdInput') private cmdInput?: ElementRef<HTMLInputElement>;
   @ViewChild('scrollArea') private scrollArea?: ElementRef<HTMLDivElement>;
 
-  protected readonly api = inject(ApiService);
+  private readonly api = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
   private readonly feedback = inject(ActionFeedbackService);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -604,7 +596,7 @@ export class CliSurfaceTabComponent implements OnChanges {
 
   async submitCommand(): Promise<void> {
     const raw = this.commandInput.trim();
-    if (!raw || this.running || !this.api.canExecuteCliCommand) return;
+    if (!raw || this.running) return;
 
     this.commandInput = '';
     this.historyIndex = -1;

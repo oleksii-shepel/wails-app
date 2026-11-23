@@ -37,6 +37,7 @@ To start the app: run `npm install` once from the repo root, then `wails dev` fr
 |---|---|
 | Live dev (Windows) | `npm ci` at the repo root, then `npm run dev:app` |
 | Windows desktop build | `npm run build:app` |
+| Browser preview | `npm run build`, then `npm run dev` |
 | Frontend check (CI parity) | `npm --prefix manager/frontend run check` (testify tests + production build) |
 | Go tests (CI parity) | `cd manager && go test ./...` |
 | Registry ownership audit | `node scripts/registry-boundary.mjs` (`--fix` removes obsolete files) |

@@ -1,4 +1,4 @@
-import type { FileInfo } from '../files';
+import type { FileInfo } from '../files/index';
 
 export interface SourceCapabilities {
   readonly read: boolean;
@@ -12,119 +12,95 @@ export interface ProviderCapabilities {
   readonly pagination: boolean;
   readonly rangeRead: boolean;
   readonly watch: boolean;
+  readonly create: boolean;
+  readonly delete: boolean;
   readonly rename: boolean;
+  readonly copy: boolean;
+  readonly move: boolean;
+  readonly search: boolean;
+  readonly hash: boolean;
   readonly trash: boolean;
-  readonly search?: boolean;
 }
 
 export const UNKNOWN_PROVIDER_CAPABILITIES: ProviderCapabilities = Object.freeze({
   pagination: false,
   rangeRead: false,
   watch: false,
+  create: false,
+  delete: false,
   rename: false,
-  trash: false,
+  copy: false,
+  move: false,
   search: false,
+  hash: false,
+  trash: false,
 });
 
 export function normalizeProviderCapabilities(
-  raw?: Partial<ProviderCapabilities> | null,
+  raw?: Partial<Record<keyof ProviderCapabilities, unknown>> | null,
 ): ProviderCapabilities {
-  return Object.freeze({
-    pagination: !!raw?.pagination,
-    rangeRead: !!raw?.rangeRead,
-    watch: !!raw?.watch,
-    rename: !!raw?.rename,
-    trash: !!raw?.trash,
-    search: !!raw?.search,
-  });
+  if (!raw || typeof raw !== 'object') return UNKNOWN_PROVIDER_CAPABILITIES;
+  return {
+    pagination: raw.pagination === true,
+    rangeRead: raw.rangeRead === true,
+    watch: raw.watch === true,
+    create: raw.create === true,
+    delete: raw.delete === true,
+    rename: raw.rename === true,
+    copy: raw.copy === true,
+    move: raw.move === true,
+    search: raw.search === true,
+    hash: raw.hash === true,
+    trash: raw.trash === true,
+  };
 }
 
 export function getSourceCapabilities(
-  path: string,
-  options?: { readonly inArchive?: boolean },
+  location: string,
+  options?: { inArchive?: boolean },
 ): SourceCapabilities {
-  const normalized = (path ?? '').trim();
+  const trimmed = (location ?? '').trim().toLowerCase();
   if (options?.inArchive) {
-    return Object.freeze({
-      read: true,
-      create: true,
-      delete: true,
-      rename: true,
-      trash: false,
-    });
+    return { read: true, create: true, delete: true, rename: true, trash: false };
   }
+  const match = /^([a-z][a-z0-9+.-]*):\/\//.exec(trimmed);
+  const scheme = match?.[1] ?? '';
 
-  const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
-  const scheme = schemeMatch?.[1]?.toLowerCase() ?? '';
-
-  switch (scheme) {
-    case '':
-    case 'filesystem':
-    case 'file':
-      return Object.freeze({
-        read: true,
-        create: true,
-        delete: true,
-        rename: true,
-        trash: true,
-      });
-    case 'smb':
-    case 'registry':
-      return Object.freeze({
-        read: true,
-        create: true,
-        delete: true,
-        rename: true,
-        trash: false,
-      });
-    case 'bin':
-    case 'autorun':
-    case 'network':
-    case 'environment':
-    case 'tasks':
-    case 'services':
-    case 'processes':
-    case 'devices':
-    case 'shell-extensions':
-    case 'results':
-    case 'search':
-    case 'http':
-    case 'https':
-    case 'gdrive':
-    case 'dropbox':
-    case 'onedrive':
-    case 's3':
-      return Object.freeze({
-        read: true,
-        create: false,
-        delete: false,
-        rename: false,
-        trash: false,
-      });
-    default:
-      return Object.freeze({
-        read: true,
-        create: false,
-        delete: false,
-        rename: false,
-        trash: false,
-      });
+  if (scheme === 'smb') {
+    return { read: true, create: true, delete: true, rename: true, trash: false };
   }
+  if (scheme === 'registry') {
+    return { read: true, create: true, delete: true, rename: true, trash: false };
+  }
+  if (
+    scheme === 'gdrive' ||
+    scheme === 'dropbox' ||
+    scheme === 'onedrive' ||
+    scheme === 's3' ||
+    scheme === 'search' ||
+    scheme === 'http' ||
+    scheme === 'https'
+  ) {
+    return { read: true, create: false, delete: false, rename: false, trash: false };
+  }
+  if (scheme === 'bin') {
+    return { read: true, create: false, delete: true, rename: false, trash: false };
+  }
+  if (scheme === 'autorun' || scheme === 'network' || scheme === 'environment') {
+    return { read: true, create: false, delete: false, rename: false, trash: false };
+  }
+  return { read: true, create: true, delete: true, rename: true, trash: true };
 }
 
 export type PanelSourceKind =
   | 'filesystem'
   | 'archive'
   | 'remote'
-  | 'bin'
+  | 'search'
   | 'results'
-  | 'virtual'
-  | 'registry'
-  | 'autorun'
-  | 'network'
-  | 'environment'
-  | 'system-table'
-  | (string & {});
+  | 'system'
+  | 'plugin'
+  | string;
 
 export interface PanelSourceContext {
   readonly path: string;
@@ -150,19 +126,19 @@ export interface PanelSource {
   readonly title: string;
   canHandle(context: PanelSourceContext): boolean;
   capabilities(context: PanelSourceContext): SourceCapabilities;
-  providerCapabilities?(context: PanelSourceContext): ProviderCapabilities;
   list(context: PanelSourceContext, showHidden: boolean): Promise<PanelSourceListing>;
   getRootPath(context: PanelSourceContext): string | null;
   getParentPath(context: PanelSourceContext): string;
-  joinChildPath(context: PanelSourceContext, childName: string): string;
+  joinChildPath?(context: PanelSourceContext, childName: string): string;
   supportsStreaming(context: PanelSourceContext): boolean;
   activateEntry?(context: PanelSourceContext, entry: FileInfo): boolean | Promise<boolean>;
   canPreviewEntry?(context: PanelSourceContext, entry: FileInfo): boolean;
+  providerCapabilities?(context: PanelSourceContext): ProviderCapabilities | null;
 }
 
 export interface ResolvedPanelSource {
   readonly source: PanelSource;
   readonly location: PanelSourceLocation;
   readonly capabilities: SourceCapabilities;
-  readonly providerCapabilities: ProviderCapabilities | null;
+  readonly providerCapabilities?: ProviderCapabilities | null;
 }

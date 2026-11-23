@@ -1,49 +1,55 @@
 export type InputSourceKind = 'default' | 'plugin' | 'workspace' | 'user';
 
+export type InputContextKind = 'global' | 'pane' | 'dialog' | 'overlay' | 'widget';
+
+export interface InputContextDefinition {
+  readonly id: string;
+  readonly kind: InputContextKind;
+  readonly priority: number;
+  readonly description?: string;
+  readonly parentId?: string;
+  readonly exclusive?: boolean;
+}
+
 export type KeyModifier = 'ctrl' | 'shift' | 'alt' | 'meta';
 
 export interface KeyStroke {
   readonly key: string;
+  readonly code?: string;
   modifiers?: KeyModifier[];
 }
 
 export interface KeyChord {
-  readonly steps: KeyStroke[];
+  steps: KeyStroke[];
 }
 
+export type MouseButton = 'left' | 'middle' | 'right';
+export type MouseGestureKind = 'click' | 'doubleClick' | 'mousedown' | 'mouseup' | 'drag' | 'wheel';
+
 export interface MouseGesture {
-  readonly type: 'click' | 'doubleClick' | 'mousedown' | 'mouseup' | 'drag' | 'wheel';
-  readonly button?: 'left' | 'middle' | 'right';
-  readonly direction?: 'up' | 'down' | 'left' | 'right';
+  readonly type: MouseGestureKind;
+  readonly button?: MouseButton;
   modifiers?: KeyModifier[];
+  readonly direction?: 'up' | 'down' | 'left' | 'right';
 }
 
 export type InputTrigger =
   | { readonly device: 'keyboard'; readonly chord: KeyChord }
   | { readonly device: 'mouse'; readonly gesture: MouseGesture };
 
-export interface InputContextDefinition {
-  readonly id: string;
-  readonly kind?: 'global' | 'pane' | 'overlay' | 'dialog' | 'viewer' | (string & {});
-  readonly parentId?: string;
-  readonly priority: number;
-  readonly exclusive?: boolean;
-  readonly description?: string;
-}
-
 export interface InputBindingDefinition {
   readonly id: string;
-  readonly commandId: string;
   readonly contextId: string;
-  trigger: InputTrigger;
-  readonly when?: string;
-  readonly priority?: number;
+  readonly commandId: string;
+  readonly source: InputSourceKind;
   readonly description: string;
   readonly category?: string;
-  readonly source: InputSourceKind;
-  readonly enabled?: boolean;
+  readonly when?: string;
+  readonly priority?: number;
   readonly preventDefault?: boolean;
   readonly stopPropagation?: boolean;
+  readonly enabled?: boolean;
+  trigger: InputTrigger;
 }
 
 export interface BindingResolutionScore {
@@ -54,30 +60,24 @@ export interface BindingResolutionScore {
 
 export interface BindingResolution {
   readonly binding: InputBindingDefinition;
+  readonly context?: InputContextDefinition;
   readonly score?: BindingResolutionScore;
-}
-
-export interface DialogBindingCatalogEntry {
-  readonly context: InputContextDefinition;
-  readonly bindings: readonly InputBindingDefinition[];
 }
 
 export type CommandInvocationSource =
   | 'keyboard'
   | 'mouse'
   | 'menu'
-  | 'toolbar'
   | 'context-menu'
+  | 'toolbar'
   | 'palette'
-  | 'plugin'
-  | 'console'
   | 'programmatic'
-  | (string & {});
+  | 'plugin';
 
 export interface CommandInvocation {
   readonly source: CommandInvocationSource;
-  readonly args?: Readonly<Record<string, unknown>>;
-  readonly context?: Readonly<Record<string, unknown>>;
+  readonly context?: Record<string, unknown>;
+  readonly args?: Record<string, unknown>;
 }
 
 export type InputCommandHandler = (invocation?: CommandInvocation) => void | Promise<void>;
@@ -110,11 +110,11 @@ export interface CommandCatalogEntry extends CommandState {
 export interface InputBindingConflict {
   readonly bindingId: string;
   readonly conflictingBindingId: string;
-  readonly contextId?: string;
-  readonly triggerLabel?: string;
-  readonly winnerBindingId?: string;
-  readonly loserBindingId?: string;
-  readonly reason?: string;
+  readonly contextId: string;
+  readonly triggerLabel: string;
+  readonly winnerBindingId: string;
+  readonly loserBindingId: string;
+  readonly reason: 'same-context' | 'shadowed-by-source' | 'shadowed-by-priority' | 'overlapping-context';
 }
 
 export interface InputBindingCustomization {
@@ -128,4 +128,9 @@ export interface PluginInputContribution {
   readonly contexts?: readonly InputContextDefinition[];
   readonly commands: readonly CommandDescriptor[];
   readonly bindings?: readonly InputBindingDefinition[];
+}
+
+export interface DialogBindingCatalogEntry {
+  readonly context: InputContextDefinition;
+  readonly bindings: readonly InputBindingDefinition[];
 }

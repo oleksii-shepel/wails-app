@@ -1,8 +1,3 @@
-export function schemeOf(path: string): string {
-  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec((path ?? '').trim());
-  return match?.[1]?.toLowerCase() ?? '';
-}
-
 export interface PaneRendererContribution<TKind extends string = string> {
   readonly id: string;
   readonly kind: TKind;
@@ -10,9 +5,13 @@ export interface PaneRendererContribution<TKind extends string = string> {
 }
 
 export interface PaneRendererMatch<TKind extends string = string> {
-  readonly id: string;
   readonly kind: TKind;
-  readonly score: number;
+  readonly contributionId: string | null;
+}
+
+export function schemeOf(path: string): string {
+  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec((path ?? '').trim());
+  return match?.[1]?.toLowerCase() ?? '';
 }
 
 export class PaneRendererRegistry<TKind extends string = string> {
@@ -29,23 +28,21 @@ export class PaneRendererRegistry<TKind extends string = string> {
 
   resolve(path: string): PaneRendererMatch<TKind> {
     const scheme = schemeOf(path);
-    let best: PaneRendererMatch<TKind> | null = null;
+    let best: PaneRendererContribution<TKind> | null = null;
+    let bestScore = 0;
 
     for (const contribution of this.contributions.values()) {
       const score = contribution.score(scheme, path);
-      if (score > 0 && (!best || score > best.score)) {
-        best = {
-          id: contribution.id,
-          kind: contribution.kind,
-          score,
-        };
+      if (score > bestScore) {
+        bestScore = score;
+        best = contribution;
       }
     }
 
-    return best ?? {
-      id: `builtin.${this.fallbackKind}`,
-      kind: this.fallbackKind,
-      score: 0,
-    };
+    if (best) {
+      return { kind: best.kind, contributionId: best.id };
+    }
+
+    return { kind: this.fallbackKind, contributionId: null };
   }
 }

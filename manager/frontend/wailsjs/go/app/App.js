@@ -166,6 +166,10 @@ export function CopyTrashEntryTo(arg1, arg2) {
   return window['go']['app']['App']['CopyTrashEntryTo'](arg1, arg2);
 }
 
+export function CreateArchive(arg1, arg2) {
+  return window['go']['app']['App']['CreateArchive'](arg1, arg2);
+}
+
 export function CreateDir(arg1, arg2) {
   return window['go']['app']['App']['CreateDir'](arg1, arg2);
 }

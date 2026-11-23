@@ -94,6 +94,8 @@ export function CopyFile(arg1:string,arg2:string,arg3:boolean):Promise<contracts
 
 export function CopyTrashEntryTo(arg1:string,arg2:string):Promise<string>;
 
+export function CreateArchive(arg1:Array<string>,arg2:string):Promise<contracts.OperationResult>;
+
 export function CreateDir(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;
 
 export function CreateDirectory(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;

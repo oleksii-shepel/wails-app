@@ -636,9 +636,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .tab-strip {
       display: flex;
       align-items: flex-end;
-      gap: 4px;
-      min-height: 35px;
-      padding: 5px 8px 0 8px;
+      gap: 0;
+      min-height: 31px;
+      padding: 0 4px 0 0;
       overflow-x: auto;
       overflow-y: hidden;
       border-bottom: 0;
@@ -675,13 +675,21 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
       gap: 4px;
-      height: 30px;
+      height: 31px;
       border-radius: 7px 7px 0 0;
       width: auto;
       min-width: 112px;
       max-width: 212px;
       padding: 0 7px 0 11px;
       text-align: left;
+    }
+
+    .tab:first-child {
+      border-top-left-radius: 0;
+    }
+
+    .tab:first-child.active::before {
+      display: none;
     }
 
     .tab:hover:not(.active) {
@@ -722,6 +730,24 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         transparent 5.75px,
         var(--vsc-editor-background, var(--vsc-editor-background)) 6.25px
       );
+    }
+
+    .tab:not(.active):not(:hover) + .tab:not(.active):not(:hover)::before,
+    .tab:not(.active):not(:hover) + .new-tab:not(:hover)::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 1px;
+      height: 15px;
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--vsc-tab-foreground, var(--vsc-foreground)) 38%, transparent);
+      pointer-events: none;
+    }
+
+    .tab:not(.active):not(:hover) + .new-tab:not(:hover)::before {
+      left: -4px;
     }
 
     .tab:focus-visible,
@@ -796,11 +822,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .new-tab {
+      position: relative;
       display: inline-grid;
       place-items: center;
+      align-self: center;
       width: 24px;
       height: 24px;
-      margin: 0 0 3px 2px;
+      margin: 0 0 0 4px;
       padding: 0;
       border-radius: 6px;
       opacity: .72;
@@ -815,22 +843,35 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     :host-context(.compact-mode) .tab-strip {
-      min-height: 29px;
-      padding: 4px 6px 0 6px;
-      gap: 3px;
+      min-height: 26px;
+      padding: 0 3px 0 0;
+      gap: 0;
     }
 
     :host-context(.compact-mode) .tab {
-      height: 25px;
+      height: 26px;
       border-radius: 6px 6px 0 0;
       min-width: 92px;
       padding: 0 5px 0 9px;
     }
 
+    :host-context(.compact-mode) .tab:first-child {
+      border-top-left-radius: 0;
+    }
+
+    :host-context(.compact-mode) .tab:not(.active):not(:hover) + .tab:not(.active):not(:hover)::before,
+    :host-context(.compact-mode) .tab:not(.active):not(:hover) + .new-tab:not(:hover)::before {
+      height: 13px;
+    }
+
+    :host-context(.compact-mode) .tab:not(.active):not(:hover) + .new-tab:not(:hover)::before {
+      left: -3px;
+    }
+
     :host-context(.compact-mode) .new-tab {
       width: 20px;
       height: 20px;
-      margin: 0 0 2.5px 2px;
+      margin: 0 0 0 3px;
       border-radius: 5px;
     }
 

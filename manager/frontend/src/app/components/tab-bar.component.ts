@@ -60,11 +60,11 @@ interface TabDragPayload {
       background: var(--vsc-tabbar-background);
       border-bottom: 0;
       overflow: hidden;
-      height: 35px;
+      height: 31px;
     }
 
     :host-context(.compact-mode) {
-      height: 29px;
+      height: 26px;
     }
 
     .tab-bar-container {
@@ -103,22 +103,52 @@ interface TabDragPayload {
     .tabs-list {
       display: flex;
       align-items: flex-end;
-      gap: 4px;
+      gap: 0;
       height: 100%;
       min-height: 0;
-      padding: 5px 8px 0 8px;
+      padding: 0;
       position: relative;
     }
 
     .tab-bar-container.compact .tabs-list {
-      gap: 3px;
-      padding: 4px 6px 0 6px;
+      gap: 0;
+      padding: 0;
     }
 
     ::ng-deep app-tab {
+      position: relative;
       display: flex;
       align-items: flex-end;
       height: 100%;
+    }
+
+    ::ng-deep app-tab:has(.tab:not(.active):not(:hover)) + app-tab:has(.tab:not(.active):not(:hover))::before,
+    ::ng-deep app-tab:last-of-type:has(.tab:not(.active):not(:hover)):not(:has(~ .new-tab-btn:hover))::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 1px;
+      height: 15px;
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--vsc-tab-foreground, var(--vsc-foreground)) 38%, transparent);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    ::ng-deep app-tab:has(.tab:not(.active):not(:hover)) + app-tab:has(.tab:not(.active):not(:hover))::before {
+      left: 0;
+    }
+
+    ::ng-deep app-tab:last-of-type:has(.tab:not(.active):not(:hover)):not(:has(~ .new-tab-btn:hover))::after {
+      right: 0;
+    }
+
+    .tab-bar-container.compact ::ng-deep app-tab:has(.tab:not(.active):not(:hover)) + app-tab:has(.tab:not(.active):not(:hover))::before,
+    .tab-bar-container.compact ::ng-deep app-tab:last-of-type:has(.tab:not(.active):not(:hover)):not(:has(~ .new-tab-btn:hover))::after,
+    :host-context(.compact-mode) ::ng-deep app-tab:has(.tab:not(.active):not(:hover)) + app-tab:has(.tab:not(.active):not(:hover))::before,
+    :host-context(.compact-mode) ::ng-deep app-tab:last-of-type:has(.tab:not(.active):not(:hover)):not(:has(~ .new-tab-btn:hover))::after {
+      height: 13px;
     }
 
     .tab-drop-indicator {
@@ -151,9 +181,10 @@ interface TabDragPayload {
     /* New Tab Button */
     .new-tab-btn {
       flex: 0 0 auto;
+      align-self: center;
       width: 24px;
       height: 24px;
-      margin: 0 0 3px 2px;
+      margin: 0 4px 0 4px;
       padding: 0;
       border: 0;
       outline: none;
@@ -185,7 +216,7 @@ interface TabDragPayload {
     :host-context(.compact-mode) .new-tab-btn {
       width: 20px;
       height: 20px;
-      margin: 0 0 2.5px 2px;
+      margin: 0 3px 0 3px;
       border-radius: 5px;
     }
   `]

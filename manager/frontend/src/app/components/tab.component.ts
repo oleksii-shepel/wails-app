@@ -75,7 +75,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      height: 30px;
+      height: 31px;
       padding: 0 7px 0 11px;
       min-width: 112px;
       max-width: 212px;
@@ -89,6 +89,14 @@ import { TabInfo } from "../shared/protocol-enhanced";
       transition:
         background-color 120ms cubic-bezier(0.16, 1, 0.3, 1),
         color 120ms ease;
+    }
+
+    :host:first-child .tab {
+      border-top-left-radius: 0;
+    }
+
+    :host:first-child .tab.active::before {
+      display: none;
     }
 
     .tab-actions {
@@ -236,10 +244,15 @@ import { TabInfo } from "../shared/protocol-enhanced";
     /* Compact */
     :host-context(.compact-mode) .tab,
     :host-context(.compact) .tab {
-      height: 25px;
+      height: 26px;
       border-radius: 6px 6px 0 0;
       min-width: 92px;
       padding: 0 5px 0 9px;
+    }
+
+    :host-context(.compact-mode):first-child .tab,
+    :host-context(.compact):first-child .tab {
+      border-top-left-radius: 0;
     }
 
     /* Focus */

@@ -48,6 +48,37 @@ export namespace cache {
 
 }
 
+export namespace cli {
+	
+	export class Result {
+	    ok: boolean;
+	    cwd: string;
+	    changedCwd: boolean;
+	    stdout: string;
+	    stderr: string;
+	    exitCode: number;
+	    durationMs: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.cwd = source["cwd"];
+	        this.changedCwd = source["changedCwd"];
+	        this.stdout = source["stdout"];
+	        this.stderr = source["stderr"];
+	        this.exitCode = source["exitCode"];
+	        this.durationMs = source["durationMs"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
 export namespace contracts {
 	
 	export class ArchiveEntriesRequest {

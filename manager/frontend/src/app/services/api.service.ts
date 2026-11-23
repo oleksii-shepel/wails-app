@@ -1314,37 +1314,21 @@ export class ApiService {
     }
   }
 
-  async executeCliCommand(
-    command: string,
-    cwd: string,
-    color = true,
-  ): Promise<CliExecResult> {
-    const response = await fetch('/api/cli/exec', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command, cwd, color }),
-    });
-    const data = (await response.json()) as Partial<CliExecResult>;
-    if (!response.ok && data.error) {
-      return {
-        ok: false,
-        cwd,
-        stdout: data.stdout ?? '',
-        stderr: data.stderr || `${data.error}\n`,
-        exitCode: data.exitCode ?? 2,
-        durationMs: data.durationMs ?? 0,
-        error: data.error,
-      };
+  private get desktopCli() {
+    return window.go?.app?.App as {
+      ExecuteCliCommand?: (command: string, cwd: string, color: boolean) => Promise<CliExecResult>;
+    } | undefined;
+  }
+
+  get canExecuteCliCommand(): boolean {
+    return typeof this.desktopCli?.ExecuteCliCommand === 'function';
+  }
+
+  async executeCliCommand(command: string, cwd: string, color = true): Promise<CliExecResult> {
+    const desktop = this.desktopCli;
+    if (typeof desktop?.ExecuteCliCommand !== 'function') {
+      throw new Error('Aether CLI commands require the desktop app.');
     }
-    return {
-      ok: !!data.ok,
-      cwd: data.cwd || cwd,
-      changedCwd: !!data.changedCwd,
-      stdout: data.stdout ?? '',
-      stderr: data.stderr ?? '',
-      exitCode: data.exitCode ?? (data.ok ? 0 : 1),
-      durationMs: data.durationMs ?? 0,
-      error: data.error,
-    };
+    return desktop.ExecuteCliCommand(command, cwd, color);
   }
 }

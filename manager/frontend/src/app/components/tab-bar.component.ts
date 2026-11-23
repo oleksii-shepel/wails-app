@@ -46,8 +46,8 @@ interface TabDragPayload {
           
           <!-- New Tab Button -->
           <button type="button" class="new-tab-btn" (click)="onNewTab()" [class.compact]="isCompact" title="New Tab (Ctrl+N)" aria-label="New tab">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
-              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" focusable="false">
+              <path d="M8 3.25v9.5M3.25 8h9.5"/>
             </svg>
           </button>
         </div>
@@ -58,9 +58,13 @@ interface TabDragPayload {
     :host {
       display: block;
       background: var(--vsc-tabbar-background);
-      border-bottom: 1px solid var(--vsc-tab-border);
+      border-bottom: 0;
       overflow: hidden;
       height: 35px;
+    }
+
+    :host-context(.compact-mode) {
+      height: 29px;
     }
 
     .tab-bar-container {
@@ -77,12 +81,13 @@ interface TabDragPayload {
 
     /* Amber bottom border when browsing inside an archive */
     .tab-bar-container.in-archive {
-      border-bottom-color: var(--vsc-warning-border);
+      box-shadow: inset 0 -1px 0 var(--vsc-warning-border);
     }
 
     .tabs-scroll-viewport {
       flex: 1;
       display: flex;
+      align-items: flex-end;
       overflow-x: auto;
       height: 100%;
       scrollbar-width: none;
@@ -97,24 +102,31 @@ interface TabDragPayload {
 
     .tabs-list {
       display: flex;
-      align-items: stretch;
+      align-items: flex-end;
+      gap: 4px;
       height: 100%;
       min-height: 0;
+      padding: 5px 8px 0 8px;
       position: relative;
+    }
+
+    .tab-bar-container.compact .tabs-list {
+      gap: 3px;
+      padding: 4px 6px 0 6px;
     }
 
     ::ng-deep app-tab {
       display: flex;
-      align-items: stretch;
+      align-items: flex-end;
       height: 100%;
     }
 
     .tab-drop-indicator {
       position: absolute;
-      top: 0;
-      bottom: 0;
+      top: 6px;
+      bottom: 2px;
       width: 2px;
-      background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
+      background: var(--vsc-accent-blue, color-mix(in srgb, var(--vsc-foreground) 40%, transparent));
       border-radius: 1px;
       pointer-events: none;
       z-index: 10;
@@ -125,7 +137,7 @@ interface TabDragPayload {
       content: "";
       position: sticky;
       right: 0;
-      width: 24px;
+      width: 20px;
       height: 100%;
       pointer-events: none;
       background: linear-gradient(
@@ -138,26 +150,43 @@ interface TabDragPayload {
 
     /* New Tab Button */
     .new-tab-btn {
-      width: 30px;
-      height: 30px;
-      margin: auto 4px 0 6px;
-      border: none;
+      flex: 0 0 auto;
+      width: 24px;
+      height: 24px;
+      margin: 0 0 3px 2px;
+      padding: 0;
+      border: 0;
+      outline: none;
+      border-radius: 6px;
+      opacity: .72;
       background: transparent;
-      color: var(--vsc-tab-foreground);
+      color: var(--vsc-tab-foreground, var(--vsc-description-foreground));
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: grid;
+      place-items: center;
+      transition:
+        background-color 120ms cubic-bezier(0.16, 1, 0.3, 1),
+        color 120ms ease,
+        opacity 120ms ease;
     }
 
     .new-tab-btn:hover {
-      background: var(--vsc-tab-hover-background);
-      color: var(--vsc-tab-hover-foreground);
+      background: var(--vsc-neutral-overlay-medium, var(--vsc-tab-hover-background));
+      color: var(--vsc-tab-hover-foreground, var(--vsc-foreground));
+      opacity: 1;
     }
 
-    .new-tab-btn.compact {
-      width: 26px;
-      height: 26px;
+    .new-tab-btn:focus-visible {
+      outline: 1.5px solid var(--vsc-accent-blue, var(--vsc-focus-ring));
+      outline-offset: -1.5px;
+    }
+
+    .new-tab-btn.compact,
+    :host-context(.compact-mode) .new-tab-btn {
+      width: 20px;
+      height: 20px;
+      margin: 0 0 2.5px 2px;
+      border-radius: 5px;
     }
   `]
 })

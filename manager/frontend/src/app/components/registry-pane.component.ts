@@ -220,22 +220,45 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [attr.data-tab-id]="tab.id"
           [attr.aria-selected]="tab.id === activeTabId"
           [class.active]="tab.id === activeTabId"
+          [class.pinned]="tab.isPinned"
           [title]="tab.path"
           (click)="activateTab(tab.id)"
           (auxclick)="onTabAuxClick(tab, $event)">
           <span class="tab-title">
-            <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '\u25C9' : (tab.kind === 'surface' ? '\u25C6' : '\u25A3') }}</span>
-            <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">&#x25CF;</span>
-            {{ tab.title }}
+            <span class="tab-kind" aria-hidden="true">
+              <svg *ngIf="tab.kind === 'viewer'" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8Z"/>
+                <circle cx="8" cy="8" r="1.9"/>
+              </svg>
+              <svg *ngIf="tab.kind === 'surface'" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.25" y="2.25" width="4.75" height="4.75" rx="1"/>
+                <rect x="9" y="2.25" width="4.75" height="4.75" rx="1"/>
+                <rect x="2.25" y="9" width="4.75" height="4.75" rx="1"/>
+                <rect x="9" y="9" width="4.75" height="4.75" rx="1"/>
+              </svg>
+              <svg *ngIf="tab.kind !== 'viewer' && tab.kind !== 'surface'" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1.75 4.25A1.5 1.5 0 0 1 3.25 2.75h2.64a1.5 1.5 0 0 1 1.06.44l.86.86a.5.5 0 0 0 .35.15h4.59a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H3.25a1.5 1.5 0 0 1-1.5-1.5v-7.45Z"/>
+              </svg>
+            </span>
+            <span class="tab-label">{{ tab.title }}</span>
           </span>
           <span
             class="tab-close"
             role="button"
             [class.disabled]="tab.isPinned || !tab.isClosable"
             [attr.aria-label]="tab.isPinned ? 'Pinned tab' : (!tab.isClosable ? 'Permanent tab' : 'Close tab')"
+            [title]="tab.isPinned ? 'Unpin tab' : (!tab.isClosable ? 'Permanent tab' : 'Close tab (Ctrl+W)')"
             (mousedown)="$event.preventDefault(); $event.stopPropagation()"
             (click)="tab.isPinned ? toggleTabPin(tab.id) : (tab.isClosable ? closeTab(tab.id) : null); $event.stopPropagation()">
-            {{ tab.isPinned ? '\u25CF' : (tab.isClosable ? '\u00D7' : '\u2022') }}
+            <svg *ngIf="tab.isPinned" width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M9.828 1.5a1 1 0 0 1 1.414 0l3.258 3.258a1 1 0 0 1-.278 1.622l-2.32.928-2.08 2.08.353 2.828a.75.75 0 0 1-1.275.623L6.172 10.11l-3.44 3.44a.75.75 0 0 1-1.06-1.06l3.44-3.44-2.728-2.728a.75.75 0 0 1 .623-1.275l2.828.353 2.08-2.08.928-2.32a1 1 0 0 1 .985-.5Z"/>
+            </svg>
+            <svg *ngIf="!tab.isPinned && tab.isClosable" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8"/>
+            </svg>
+            <svg *ngIf="!tab.isPinned && !tab.isClosable" width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.5"/>
+            </svg>
           </span>
         </button>
 
@@ -245,7 +268,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           title="New tab (Ctrl+T)"
           aria-label="New tab"
           (click)="newTab()">
-          +
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <path d="M8 3.25v9.5M3.25 8h9.5"/>
+          </svg>
         </button>
       </div>
 
@@ -554,57 +579,138 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .tab-strip {
       display: flex;
-      align-items: stretch;
-      min-height: 31px;
+      align-items: flex-end;
+      gap: 4px;
+      min-height: 35px;
+      padding: 5px 8px 0 8px;
       overflow-x: auto;
       overflow-y: hidden;
-      border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
+      border-bottom: 0;
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-    
+      scrollbar-width: none;
       overscroll-behavior-x: none;
       scroll-behavior: auto;
-      touch-action: pan-x;}
+      touch-action: pan-x;
+    }
+
+    .tab-strip::-webkit-scrollbar {
+      display: none;
+    }
 
     .tab,
     .new-tab {
       flex: 0 0 auto;
       min-width: 0;
-      height: 30px;
       border: 0;
-      border-right: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
-      background: var(--vsc-tab-inactive-background, var(--vsc-toolbar-background));
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      outline: none;
+      background: transparent;
+      color: var(--vsc-tab-foreground, var(--vsc-description-foreground, var(--vsc-foreground-dim)));
       cursor: pointer;
       font: inherit;
+      transition:
+        background-color 120ms cubic-bezier(0.16, 1, 0.3, 1),
+        color 120ms ease,
+        opacity 120ms ease;
     }
 
     .tab {
+      position: relative;
       display: grid;
-      transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
-      width: min(180px, 34vw);
-      padding: 0 4px 0 9px;
+      gap: 4px;
+      height: 30px;
+      border-radius: 7px 7px 0 0;
+      width: auto;
+      min-width: 112px;
+      max-width: 212px;
+      padding: 0 7px 0 11px;
       text-align: left;
+    }
+
+    .tab:hover:not(.active) {
+      background: color-mix(in srgb, var(--vsc-tab-hover-background, var(--vsc-list-hover-background)) 76%, transparent);
+      color: var(--vsc-tab-hover-foreground, var(--vsc-foreground));
+      z-index: 1;
     }
 
     .tab.active {
       background: var(--vsc-editor-background, var(--vsc-editor-background));
-      color: var(--vsc-foreground, var(--vsc-foreground));
-      box-shadow: inset 0 2px 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+      color: var(--vsc-tab-active-foreground, var(--vsc-foreground));
+      z-index: 2;
     }
 
-    .tab:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
-      color: var(--vsc-foreground, var(--vsc-foreground));
+    .tab.active::before,
+    .tab.active::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      width: 6px;
+      height: 6px;
+      pointer-events: none;
+    }
+
+    .tab.active::before {
+      left: -6px;
+      background: radial-gradient(
+        circle at 0 0,
+        transparent 5.75px,
+        var(--vsc-editor-background, var(--vsc-editor-background)) 6.25px
+      );
+    }
+
+    .tab.active::after {
+      right: -6px;
+      background: radial-gradient(
+        circle at 100% 0,
+        transparent 5.75px,
+        var(--vsc-editor-background, var(--vsc-editor-background)) 6.25px
+      );
+    }
+
+    .tab:focus-visible,
+    .new-tab:focus-visible {
+      outline: 1.5px solid var(--vsc-accent-blue, var(--vsc-focus-ring));
+      outline-offset: -1.5px;
     }
 
     .tab-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      overflow: hidden;
+      font-size: 11.5px;
+      font-weight: 500;
+      line-height: 1.25;
+      letter-spacing: 0.005em;
+    }
+
+    .tab-kind {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 13px;
+      height: 13px;
+      opacity: .72;
+      transition: opacity 120ms ease, color 120ms ease;
+    }
+
+    .tab.active .tab-kind,
+    .tab:hover .tab-kind {
+      opacity: .95;
+    }
+
+    .pane.active-pane .tab.active .tab-kind {
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+    }
+
+    .tab-label {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 11px;
     }
 
     .tab-close {
@@ -612,31 +718,64 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       place-items: center;
       width: 18px;
       height: 18px;
-      border-radius: 3px;
-      opacity: .45;
-      font-size: 15px;
-      line-height: 1;
+      border-radius: 4px;
+      opacity: .32;
+      color: inherit;
+      transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
     }
 
     .tab:hover .tab-close,
-    .tab.active .tab-close {
-      opacity: .8;
+    .tab.active .tab-close,
+    .tab.pinned .tab-close {
+      opacity: .76;
+    }
+
+    .tab.pinned .tab-close {
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
 
     .tab-close:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-button-secondary));
+      background: var(--vsc-neutral-overlay-medium, var(--vsc-list-hover-background));
       opacity: 1;
     }
 
     .new-tab {
-      width: 32px;
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      margin: 0 0 3px 2px;
+      padding: 0;
+      border-radius: 6px;
+      opacity: .72;
       background: transparent;
-      font-size: 18px;
+      color: var(--vsc-tab-foreground, var(--vsc-description-foreground, var(--vsc-foreground-dim)));
     }
 
     .new-tab:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
-      color: var(--vsc-foreground, var(--vsc-foreground));
+      background: var(--vsc-neutral-overlay-medium, var(--vsc-list-hover-background));
+      color: var(--vsc-tab-hover-foreground, var(--vsc-foreground));
+      opacity: 1;
+    }
+
+    :host-context(.compact-mode) .tab-strip {
+      min-height: 29px;
+      padding: 4px 6px 0 6px;
+      gap: 3px;
+    }
+
+    :host-context(.compact-mode) .tab {
+      height: 25px;
+      border-radius: 6px 6px 0 0;
+      min-width: 92px;
+      padding: 0 5px 0 9px;
+    }
+
+    :host-context(.compact-mode) .new-tab {
+      width: 20px;
+      height: 20px;
+      margin: 0 0 2.5px 2px;
+      border-radius: 5px;
     }
 
     .navigation-bar {
@@ -645,8 +784,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       align-items: center;
       gap: 7px;
       padding: 6px 8px;
-      border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
-      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
     }
 
     .nav-cluster {
